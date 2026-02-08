@@ -34,6 +34,11 @@ jobs:
       - name: Build (Tycho)
         run: mvn -B -V --no-transfer-progress clean verify
 
+      - name: Add landing page
+        run: |
+          mkdir -p repositories/com.codepilot1c.update/target/repository/site
+          cp site/index.html repositories/com.codepilot1c.update/target/repository/site/index.html
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
@@ -45,4 +50,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
