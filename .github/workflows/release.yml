@@ -9,6 +9,7 @@ permissions:
   contents: write
   pages: write
   id-token: write
+  packages: write
 
 concurrency:
   group: "pages"
@@ -39,6 +40,49 @@ jobs:
 
       - name: Build (Tycho)
         run: mvn -B -V --no-transfer-progress clean verify
+
+      - name: Publish ZIP to GitHub Packages (Maven)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          ZIP_PATH="$(ls -1 repositories/com.codepilot1c.update/target/*.zip | head -n 1)"
+          if [[ -z "${ZIP_PATH}" ]]; then
+            echo "ZIP not found under repositories/com.codepilot1c.update/target" >&2
+            exit 1
+          fi
+
+          # Tag is like v0.1.6 -> version 0.1.6
+          VERSION="${GITHUB_REF_NAME#v}"
+          GROUP_ID="com.codepilot1c"
+          ARTIFACT_ID="codepilot1c-edt-update-site"
+
+          mkdir -p "$HOME/.m2"
+          cat > "$HOME/.m2/settings.xml" <<EOF
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+            <servers>
+              <server>
+                <id>github</id>
+                <username>${GITHUB_ACTOR}</username>
+                <password>${GITHUB_TOKEN}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
+          mvn -B -V --no-transfer-progress deploy:deploy-file \
+            -Durl="https://maven.pkg.github.com/${GITHUB_REPOSITORY}" \
+            -DrepositoryId=github \
+            -DgroupId="${GROUP_ID}" \
+            -DartifactId="${ARTIFACT_ID}" \
+            -Dversion="${VERSION}" \
+            -Dpackaging=zip \
+            -Dfile="${ZIP_PATH}" \
+            -DgeneratePom=true
 
       - name: Attach update-site ZIP to GitHub Release
         uses: softprops/action-gh-release@v2

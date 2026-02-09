@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   build:
@@ -43,6 +44,53 @@ jobs:
         with:
           name: update-site-zip
           path: repositories/com.codepilot1c.update/target/*.zip
+
+      # Also publish the ZIP into GitHub Packages (Maven) so it shows up under the
+      # repository "Packages" section. Note: GitHub Packages Maven access often
+      # requires authentication even for public repos, so Releases remain the
+      # easiest download UX for end users.
+      - name: Publish ZIP to GitHub Packages (Maven)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          ZIP_PATH="$(ls -1 repositories/com.codepilot1c.update/target/*.zip | head -n 1)"
+          if [[ -z "${ZIP_PATH}" ]]; then
+            echo "ZIP not found under repositories/com.codepilot1c.update/target" >&2
+            exit 1
+          fi
+
+          GROUP_ID="com.codepilot1c"
+          ARTIFACT_ID="codepilot1c-edt-update-site"
+          VERSION="0.0.0-main.${GITHUB_RUN_NUMBER}"
+
+          mkdir -p "$HOME/.m2"
+          cat > "$HOME/.m2/settings.xml" <<EOF
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+            <servers>
+              <server>
+                <id>github</id>
+                <username>${GITHUB_ACTOR}</username>
+                <password>${GITHUB_TOKEN}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
+          mvn -B -V --no-transfer-progress deploy:deploy-file \
+            -Durl="https://maven.pkg.github.com/${GITHUB_REPOSITORY}" \
+            -DrepositoryId=github \
+            -DgroupId="${GROUP_ID}" \
+            -DartifactId="${ARTIFACT_ID}" \
+            -Dversion="${VERSION}" \
+            -Dpackaging=zip \
+            -Dfile="${ZIP_PATH}" \
+            -DgeneratePom=true
 
       # GitHub sidebar "Packages" is for GitHub Packages registries (npm/maven/container/etc).
       # For a ZIP distribution, the most standard UX is GitHub Releases. We publish a moving
