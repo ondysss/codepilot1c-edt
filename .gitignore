@@ -13,3 +13,5 @@
 .settings/
 .DS_Store
 
+# Local notes
+OSS_SUMMARY.md
