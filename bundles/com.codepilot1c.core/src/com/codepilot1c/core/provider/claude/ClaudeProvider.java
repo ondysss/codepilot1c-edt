@@ -184,18 +184,99 @@ public class ClaudeProvider extends AbstractLlmProvider {
             JsonObject event = JsonParser.parseString(data).getAsJsonObject();
             String type = event.get("type").getAsString(); //$NON-NLS-1$
 
-            if ("content_block_delta".equals(type)) { //$NON-NLS-1$
+            if ("content_block_start".equals(type)) { //$NON-NLS-1$
+                // Tool use blocks are announced with content_block_start.
+                // Example: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"...","name":"grep","input":{}}}
+                if (!event.has("index") || !event.has("content_block")) { //$NON-NLS-1$ //$NON-NLS-2$
+                    return;
+                }
+
+                int index = event.get("index").getAsInt(); //$NON-NLS-1$
+                JsonObject contentBlock = event.getAsJsonObject("content_block"); //$NON-NLS-1$
+                if (!contentBlock.has("type")) { //$NON-NLS-1$
+                    return;
+                }
+
+                String blockType = contentBlock.get("type").getAsString(); //$NON-NLS-1$
+                if (!"tool_use".equals(blockType)) { //$NON-NLS-1$
+                    return;
+                }
+
+                ensureStreamingToolCallSlot(index);
+                StreamingToolCall tc = streamingToolCalls.get(index);
+
+                if (contentBlock.has("id")) { //$NON-NLS-1$
+                    tc.id = contentBlock.get("id").getAsString(); //$NON-NLS-1$
+                }
+                if (contentBlock.has("name")) { //$NON-NLS-1$
+                    tc.name = contentBlock.get("name").getAsString(); //$NON-NLS-1$
+                }
+
+                // Some servers send full input object immediately; otherwise we'll receive deltas.
+                if (contentBlock.has("input") && !contentBlock.get("input").isJsonNull()) { //$NON-NLS-1$ //$NON-NLS-2$
+                    String inputJson = contentBlock.get("input").toString(); //$NON-NLS-1$
+                    if (inputJson != null && !inputJson.isBlank() && !"{}".equals(inputJson)) { //$NON-NLS-1$
+                        tc.input.setLength(0);
+                        tc.input.append(inputJson);
+                    }
+                }
+            } else if ("content_block_delta".equals(type)) { //$NON-NLS-1$
+                if (!event.has("index") || !event.has("delta")) { //$NON-NLS-1$ //$NON-NLS-2$
+                    return;
+                }
+
+                int index = event.get("index").getAsInt(); //$NON-NLS-1$
                 JsonObject delta = event.getAsJsonObject("delta"); //$NON-NLS-1$
+
+                // Text streaming
                 if (delta.has("text")) { //$NON-NLS-1$
                     consumer.accept(LlmStreamChunk.content(delta.get("text").getAsString())); //$NON-NLS-1$
+                    return;
+                }
+
+                // Tool input streaming (partial JSON)
+                // Example: {"type":"input_json_delta","partial_json":"{\"query\":\"...\""}
+                if (delta.has("type") && "input_json_delta".equals(delta.get("type").getAsString()) //$NON-NLS-1$ //$NON-NLS-2$
+                        && delta.has("partial_json")) { //$NON-NLS-1$
+                    ensureStreamingToolCallSlot(index);
+                    StreamingToolCall tc = streamingToolCalls.get(index);
+                    tc.input.append(delta.get("partial_json").getAsString()); //$NON-NLS-1$
                 }
             } else if ("message_stop".equals(type)) { //$NON-NLS-1$
+                // If tools were requested during streaming, emit them before completion.
+                if (!streamCompletionSent) {
+                    List<ToolCall> toolCalls = finalizeStreamingToolCalls();
+                    if (!toolCalls.isEmpty()) {
+                        streamCompletionSent = true;
+                        consumer.accept(LlmStreamChunk.toolCalls(toolCalls));
+                        consumer.accept(LlmStreamChunk.complete(LlmResponse.FINISH_REASON_TOOL_USE));
+                        complete.run();
+                        return;
+                    }
+                }
+
                 consumer.accept(LlmStreamChunk.complete("stop")); //$NON-NLS-1$
                 complete.run();
             }
         } catch (Exception e) {
             // Skip malformed lines
         }
+    }
+
+    private void ensureStreamingToolCallSlot(int index) {
+        while (streamingToolCalls.size() <= index) {
+            streamingToolCalls.add(new StreamingToolCall());
+        }
+    }
+
+    private List<ToolCall> finalizeStreamingToolCalls() {
+        List<ToolCall> result = new ArrayList<>();
+        for (StreamingToolCall stc : streamingToolCalls) {
+            if (stc != null && stc.id != null && stc.name != null) {
+                result.add(new ToolCall(stc.id, stc.name, stc.input.toString()));
+            }
+        }
+        return result;
     }
 
     private String buildRequestBody(LlmRequest request, boolean stream) {
