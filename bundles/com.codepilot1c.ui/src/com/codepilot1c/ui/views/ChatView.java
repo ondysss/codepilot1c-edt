@@ -993,8 +993,11 @@ public class ChatView extends ViewPart {
         }
 
         LlmRequest nextRequest = buildRequestWithTools();
-        return provider.complete(nextRequest)
-                .thenCompose(nextResponse -> {
+        CompletableFuture<LlmResponse> nextResponseFuture = provider.supportsStreaming()
+                ? streamToResponse(provider, nextRequest)
+                : provider.complete(nextRequest);
+
+        return nextResponseFuture.thenCompose(nextResponse -> {
                     LOG.debug("continueAfterToolCalls: got next response, hasToolCalls=%b", nextResponse.hasToolCalls()); //$NON-NLS-1$
                     // Update stage based on response
                     if (!display.isDisposed()) {
@@ -1010,6 +1013,91 @@ public class ChatView extends ViewPart {
                     }
                     return handleResponseWithTools(nextResponse, provider, iteration + 1);
                 });
+    }
+
+    /**
+     * Converts a streaming request into a single LlmResponse, so the tool loop can keep working
+     * without forcing a non-streaming call (which may time out on slow/self-hosted providers).
+     */
+    private CompletableFuture<LlmResponse> streamToResponse(ILlmProvider provider, LlmRequest request) {
+        CompletableFuture<LlmResponse> out = new CompletableFuture<>();
+
+        CompletableFuture.runAsync(() -> {
+            StringBuilder content = new StringBuilder();
+            StringBuilder reasoning = new StringBuilder();
+            List<ToolCall> toolCalls = new java.util.ArrayList<>();
+            final String[] finishReason = { LlmResponse.FINISH_REASON_STOP };
+
+            try {
+                provider.streamComplete(request, chunk -> {
+                    if (out.isDone()) {
+                        return;
+                    }
+
+                    if (chunk.isError()) {
+                        out.completeExceptionally(new RuntimeException(chunk.getErrorMessage()));
+                        return;
+                    }
+
+                    if (chunk.hasReasoning()) {
+                        reasoning.append(chunk.getReasoningContent());
+                    }
+
+                    String delta = chunk.getContent();
+                    if (delta != null && !delta.isEmpty()) {
+                        content.append(delta);
+                    }
+
+                    if (chunk.hasToolCalls()) {
+                        toolCalls.clear();
+                        toolCalls.addAll(chunk.getToolCalls());
+                    }
+
+                    if (chunk.isComplete()) {
+                        if (chunk.getFinishReason() != null && !chunk.getFinishReason().isEmpty()) {
+                            finishReason[0] = chunk.getFinishReason();
+                        }
+
+                        if (!toolCalls.isEmpty()) {
+                            out.complete(LlmResponse.builder()
+                                    .content(content.toString())
+                                    .reasoningContent(reasoning.toString())
+                                    .toolCalls(toolCalls)
+                                    .finishReason(LlmResponse.FINISH_REASON_TOOL_USE)
+                                    .build());
+                        } else {
+                            out.complete(LlmResponse.builder()
+                                    .content(content.toString())
+                                    .reasoningContent(reasoning.toString())
+                                    .finishReason(finishReason[0])
+                                    .build());
+                        }
+                    }
+                });
+
+                // Some providers may end the stream without an explicit complete chunk.
+                if (!out.isDone()) {
+                    if (!toolCalls.isEmpty()) {
+                        out.complete(LlmResponse.builder()
+                                .content(content.toString())
+                                .reasoningContent(reasoning.toString())
+                                .toolCalls(toolCalls)
+                                .finishReason(LlmResponse.FINISH_REASON_TOOL_USE)
+                                .build());
+                    } else {
+                        out.complete(LlmResponse.builder()
+                                .content(content.toString())
+                                .reasoningContent(reasoning.toString())
+                                .finishReason(finishReason[0])
+                                .build());
+                    }
+                }
+            } catch (Exception e) {
+                out.completeExceptionally(e);
+            }
+        });
+
+        return out;
     }
 
     /**
