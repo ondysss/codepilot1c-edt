@@ -242,19 +242,16 @@
       <code>https://ondysss.github.io/codepilot1c-edt/</code>
     </div>
     <ol class="install-steps">
-      <li>В 1C:EDT: <code>Help → Install New Software</code></li>
-      <li>Нажмите <code>Add</code>, вставьте URL update site</li>
-      <li>Выберите «1C Copilot», нажмите <code>Next</code>, примите лицензию</li>
+      <li>Откройте <code>Справка → Установить новое ПО...</code> (<code>Help → Install New Software...</code>)</li>
+      <li>Нажмите <code>Добавить...</code> (<code>Add...</code>) и добавьте URL update site</li>
+      <li>В <code>Work with</code> выберите <code>codepilot - https://ondysss.github.io/codepilot1c-edt/</code></li>
+      <li>Выберите «1C Copilot», нажмите <code>Next</code>, примите лицензию и <code>Finish</code></li>
+      <li>Подтвердите окна <code>Trust Authorities</code> и <code>Trust Artifacts</code> через <code>Trust Selected</code></li>
       <li>Перезапустите EDT</li>
     </ol>
-    <h3>Обновления</h3>
-    <p style="color: var(--text-dim);">
-      Чтобы включить/отключить update site: <code>Window → Preferences → Install/Update → Available Software Sites</code>.<br>
-      Там же можно удалить старый URL и добавить новый.
-    </p>
     <h3>Настройка модели</h3>
     <p style="color: var(--text-dim);">
-      <code>Window → Preferences → 1C Copilot → LLM Providers</code> — добавьте провайдер.<br>
+      Откройте настройки 1C Copilot и добавьте провайдер.<br>
       Для локальной работы: <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> с endpoint <code>http://localhost:11434/v1</code> и моделью <code>qwen2.5-coder:7b</code>.<br>
       Для API: OpenAI, Anthropic или любой OpenAI-совместимый сервис.
     </p>

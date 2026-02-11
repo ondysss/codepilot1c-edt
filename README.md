@@ -4,21 +4,27 @@
 
 ## Установка
 
-### Вариант A: ZIP (offline)
+### Вариант A (рекомендуется): Update Site (GitHub Pages)
 
-1. Откройте GitHub Releases и скачайте update-site ZIP (обычно `com.codepilot1c.update-*.zip`).
-2. В 1C:EDT откройте `Help -> Install New Software...`
-3. Нажмите `Add...`
-4. Нажмите `Archive...` и выберите скачанный ZIP.
-5. Выберите `1C Copilot` (или весь сайт), нажмите `Next` и пройдите мастер установки.
+URL update site: `https://ondysss.github.io/codepilot1c-edt/`
+
+1. В 1C:EDT откройте `Справка -> Установить новое ПО...` (`Help -> Install New Software...`).
+2. Нажмите `Добавить...` (`Add...`) и добавьте сайт:
+   - `Name`: `codepilot`
+   - `Location`: `https://ondysss.github.io/codepilot1c-edt/`
+3. В `Work with:` выберите `codepilot - https://ondysss.github.io/codepilot1c-edt/`.
+4. Отметьте `1C Copilot`, нажмите `Next`, примите лицензию и нажмите `Finish`.
+5. Подтвердите окна доверия (`Trust Authorities` и `Trust Artifacts`) кнопкой `Trust Selected`.
 6. Перезапустите EDT.
 
-### Вариант B: Update Site (GitHub Pages)
+### Вариант B: ZIP (offline)
 
-1. В 1C:EDT откройте `Help -> Install New Software...`
-2. В поле `Work with:` укажите URL update-site (GitHub Pages для репозитория).
-3. Выберите `1C Copilot`, нажмите `Next` и пройдите мастер установки.
-4. Перезапустите EDT.
+1. Откройте GitHub Releases и скачайте update-site ZIP (обычно `com.codepilot1c.update-*.zip`).
+2. В 1C:EDT откройте `Help -> Install New Software...`.
+3. Нажмите `Add...`.
+4. Нажмите `Archive...` и выберите скачанный ZIP.
+5. Выберите `1C Copilot`, нажмите `Next` и пройдите мастер установки.
+6. При необходимости подтвердите окна доверия и перезапустите EDT.
 
 ## Сборка
 
