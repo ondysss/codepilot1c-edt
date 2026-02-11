@@ -1417,132 +1417,7 @@ public class ChatView extends ViewPart {
 
         // === TOOLS SECTION ===
         if (toolsEnabled) {
-            prompt.append("""
-            # Инструменты для работы с метаданными 1С
-
-            ВАЖНО: Используйте инструменты метаданных как ОСНОВНЫЕ.
-            Файловые инструменты - только как fallback.
-
-            ## list_metadata
-            Список объектов метаданных по типу.
-
-            Параметры:
-            - kind: тип объекта (Catalog/Справочник, Document/Документ, AccumulationRegister/РегистрНакопления и др.)
-            - name_query: поиск по имени (необязательно)
-
-            <example>
-            user: Найди все регистры накопления
-            tool: {"name": "list_metadata", "arguments": {"kind": "AccumulationRegister"}}
-            </example>
-
-            <example>
-            user: Какие есть справочники с "Товар" в названии?
-            tool: {"name": "list_metadata", "arguments": {"kind": "Catalog", "name_query": "Товар"}}
-            </example>
-
-            ## get_metadata
-            Информация об объекте метаданных.
-
-            Параметры:
-            - kind: тип объекта (required)
-            - name: имя объекта (required)
-            - show_mdo: показать XML метаданных (по умолчанию false)
-
-            <example>
-            user: Покажи справочник Номенклатура
-            tool: {"name": "get_metadata", "arguments": {"kind": "Catalog", "name": "Номенклатура"}}
-            </example>
-
-            ## open_module
-            Открыть модуль объекта метаданных.
-
-            Параметры:
-            - kind: тип объекта (required)
-            - name: имя объекта (required)
-            - module: тип модуля - ObjectModule/МодульОбъекта, ManagerModule/МодульМенеджера, RecordSetModule/МодульНабораЗаписей, FormModule (required)
-            - form_name: имя формы (для FormModule)
-
-            <example>
-            user: Открой модуль объекта документа ПриходнаяНакладная
-            tool: {"name": "open_module", "arguments": {"kind": "Document", "name": "ПриходнаяНакладная", "module": "ObjectModule"}}
-            </example>
-
-            <example>
-            user: Покажи модуль менеджера справочника Контрагенты
-            tool: {"name": "open_module", "arguments": {"kind": "Catalog", "name": "Контрагенты", "module": "ManagerModule"}}
-            </example>
-
-            ## edit_file
-            Редактирование файла (после open_module).
-
-            - ОБЯЗАТЕЛЬНО сначала open_module чтобы прочитать код
-            - Указывайте old_string и new_string для замены
-
-            ## get_diagnostics
-            Получить диагностики EDT (ошибки компиляции, предупреждения).
-
-            Параметры:
-            - path: путь к файлу (необязательно, по умолчанию активный редактор)
-            - severity: минимальный уровень (error/warning/info, по умолчанию error)
-            - max_items: максимум диагностик (по умолчанию 50)
-            - wait_ms: ожидание пересчёта (0-2000мс)
-
-            ВАЖНО: После каждого edit_file ОБЯЗАТЕЛЬНО вызывай get_diagnostics
-            для проверки синтаксических ошибок и исправляй их.
-
-            <example>
-            [После edit_file]
-            tool: {"name": "get_diagnostics", "arguments": {}}
-            </example>
-
-            ## grep
-            Поиск текста в коде (fallback).
-
-            ## search_codebase
-            Семантический поиск по смыслу.
-
-            # Типы объектов метаданных
-
-            | Русский | English | Папка EDT |
-            |---------|---------|-----------|
-            | Справочник | Catalog | Catalogs/ |
-            | Документ | Document | Documents/ |
-            | РегистрНакопления | AccumulationRegister | AccumulationRegisters/ |
-            | РегистрСведений | InformationRegister | InformationRegisters/ |
-            | ОбщийМодуль | CommonModule | CommonModules/ |
-            | Обработка | DataProcessor | DataProcessors/ |
-            | Отчет | Report | Reports/ |
-            | Перечисление | Enum | Enums/ |
-
-            # Типы модулей
-
-            | Модуль | Назначение |
-            |--------|------------|
-            | ObjectModule | Модуль объекта (ПередЗаписью, ПриЗаписи) |
-            | ManagerModule | Модуль менеджера |
-            | RecordSetModule | Модуль набора записей (для регистров) |
-            | Module | Общий модуль |
-            | FormModule | Модуль формы |
-
-            # Рабочий процесс
-
-            1. **ОПРЕДЕЛИТЕ объект**: list_metadata или get_metadata
-            2. **ОТКРОЙТЕ модуль**: open_module
-            3. **РЕДАКТИРУЙТЕ**: edit_file (только после открытия!)
-            4. **ПРОВЕРЬТЕ ДИАГНОСТИКИ**: get_diagnostics (ОБЯЗАТЕЛЬНО после правок!)
-            5. **ИСПРАВЬТЕ ОШИБКИ**: если есть - edit_file для исправления
-            6. **ПОВТОРИТЕ** шаги 4-5 пока ошибок нет
-
-            <example>
-            user: Добавь проверку заполнения в документ Заказ
-            assistant: Открою модуль объекта документа Заказ.
-            [Вызов open_module(kind="Document", name="Заказ", module="ObjectModule")]
-            Вижу код. Добавлю проверку в процедуру ПередЗаписью.
-            [Вызов edit_file с изменениями]
-            Готово!
-            </example>
-
-            """); //$NON-NLS-1$
+            appendToolsSection(prompt);
         }
 
         // === RAG CONTEXT ===
@@ -1569,6 +1444,35 @@ public class ChatView extends ViewPart {
             """); //$NON-NLS-1$
 
         return prompt.toString();
+    }
+
+    private void appendToolsSection(StringBuilder prompt) {
+        List<ToolDefinition> tools = ToolRegistry.getInstance().getToolDefinitions();
+        if (tools.isEmpty()) {
+            prompt.append("""
+            # Инструменты
+
+            Инструменты недоступны в текущей конфигурации.
+
+            """); //$NON-NLS-1$
+            return;
+        }
+
+        prompt.append("""
+        # Инструменты
+
+        Используйте инструменты при работе с кодом, файлами и проектом.
+        Если нужна информация из проекта, сначала вызывайте подходящий инструмент.
+
+        Доступные инструменты:
+        """); //$NON-NLS-1$
+
+        for (ToolDefinition tool : tools) {
+            prompt.append("- ").append(tool.getName()).append(": ") //$NON-NLS-1$ //$NON-NLS-2$
+                    .append(tool.getDescription()).append("\n"); //$NON-NLS-1$
+        }
+
+        prompt.append("\n"); //$NON-NLS-1$
     }
 
     private void handleError(Throwable error) {
