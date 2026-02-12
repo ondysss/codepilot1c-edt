@@ -40,3 +40,9 @@ mvn -B -V --no-transfer-progress clean verify
 - `features/` — Eclipse features
 - `repositories/` — p2 update site
 - `targets/` — target platform
+
+## Публикация на Infostart
+
+[![Infostart](https://infostart.ru/bitrix/templates/sandbox_empty/assets/tpl/abo/img/logo.svg)](https://infostart.ru/1c/articles/2613515/)
+
+Статья: [Выбор модели для разработки в 1С: сравниваем топов и open source](https://infostart.ru/1c/articles/2613515/)
