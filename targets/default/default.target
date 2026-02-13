@@ -14,6 +14,13 @@
             <unit id="org.apache.lucene.analysis-common" version="0.0.0"/>
             <unit id="org.apache.lucene.queryparser" version="0.0.0"/>
         </location>
+        <!-- Xtext SDK for org.eclipse.xtext.ui and related bundles -->
+        <location includeAllPlatforms="false" includeConfigurePhase="true" includeMode="planner" includeSource="true" type="InstallableUnit">
+            <repository location="https://download.eclipse.org/modeling/tmf/xtext/updates/releases/2.33.0/"/>
+            <unit id="org.eclipse.xtext.sdk.feature.group" version="0.0.0"/>
+        </location>
+        <!-- Local 1C EDT installation to resolve com._1c.g5.v8.* bundles -->
+        <location path="/Applications/1C/1CE/components/1c-edt-2025.1.5+34-x86_64/1cedt (2025.1.5+34).app/Contents/Eclipse" type="Directory"/>
     </locations>
     <targetJRE path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-17"/>
 </target>

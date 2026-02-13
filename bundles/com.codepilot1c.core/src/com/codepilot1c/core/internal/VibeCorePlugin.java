@@ -15,7 +15,13 @@ import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Plugin;
 import org.eclipse.core.runtime.Status;
 import org.osgi.framework.BundleContext;
+import org.osgi.util.tracker.ServiceTracker;
 
+import com._1c.g5.v8.dt.bm.xtext.BmAwareResourceSetProvider;
+import com._1c.g5.v8.dt.core.platform.IBmModelManager;
+import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
+import com._1c.g5.v8.dt.core.platform.IDerivedDataManagerProvider;
+import com._1c.g5.v8.dt.core.platform.IDtProjectManager;
 import com.codepilot1c.core.http.DefaultHttpClientFactory;
 import com.codepilot1c.core.http.HttpClientFactory;
 import com.codepilot1c.core.logging.VibeLogger;
@@ -33,6 +39,11 @@ public class VibeCorePlugin extends Plugin {
     private static VibeCorePlugin plugin;
     private static ILog logger;
     private HttpClientFactory httpClientFactory;
+    private ServiceTracker<IConfigurationProvider, IConfigurationProvider> configurationProviderTracker;
+    private ServiceTracker<IBmModelManager, IBmModelManager> bmModelManagerTracker;
+    private ServiceTracker<IDtProjectManager, IDtProjectManager> dtProjectManagerTracker;
+    private ServiceTracker<IDerivedDataManagerProvider, IDerivedDataManagerProvider> derivedDataManagerProviderTracker;
+    private ServiceTracker<BmAwareResourceSetProvider, BmAwareResourceSetProvider> resourceSetProviderTracker;
 
     @Override
     public void start(BundleContext context) throws Exception {
@@ -77,6 +88,18 @@ public class VibeCorePlugin extends Plugin {
                 vibeLogger.error("Core", "Failed to start MCP servers", e); //$NON-NLS-1$ //$NON-NLS-2$
             }
         });
+
+        // EDT runtime services for AST/BM integrations.
+        configurationProviderTracker = new ServiceTracker<>(context, IConfigurationProvider.class, null);
+        configurationProviderTracker.open();
+        bmModelManagerTracker = new ServiceTracker<>(context, IBmModelManager.class, null);
+        bmModelManagerTracker.open();
+        dtProjectManagerTracker = new ServiceTracker<>(context, IDtProjectManager.class, null);
+        dtProjectManagerTracker.open();
+        derivedDataManagerProviderTracker = new ServiceTracker<>(context, IDerivedDataManagerProvider.class, null);
+        derivedDataManagerProviderTracker.open();
+        resourceSetProviderTracker = new ServiceTracker<>(context, BmAwareResourceSetProvider.class, null);
+        resourceSetProviderTracker.open();
     }
 
     @Override
@@ -105,8 +128,30 @@ public class VibeCorePlugin extends Plugin {
         } catch (Exception e) {
             logWarn("Error disposing LLM provider registry", e); //$NON-NLS-1$
         }
+
+        closeTracker(configurationProviderTracker);
+        configurationProviderTracker = null;
+        closeTracker(bmModelManagerTracker);
+        bmModelManagerTracker = null;
+        closeTracker(dtProjectManagerTracker);
+        dtProjectManagerTracker = null;
+        closeTracker(derivedDataManagerProviderTracker);
+        derivedDataManagerProviderTracker = null;
+        closeTracker(resourceSetProviderTracker);
+        resourceSetProviderTracker = null;
+
         plugin = null;
         super.stop(context);
+    }
+
+    private void closeTracker(ServiceTracker<?, ?> tracker) {
+        if (tracker != null) {
+            try {
+                tracker.close();
+            } catch (Exception e) {
+                logWarn("Error closing service tracker", e); //$NON-NLS-1$
+            }
+        }
     }
 
     /**
@@ -125,6 +170,26 @@ public class VibeCorePlugin extends Plugin {
      */
     public HttpClientFactory getHttpClientFactory() {
         return httpClientFactory;
+    }
+
+    public IConfigurationProvider getConfigurationProvider() {
+        return configurationProviderTracker != null ? configurationProviderTracker.getService() : null;
+    }
+
+    public IBmModelManager getBmModelManager() {
+        return bmModelManagerTracker != null ? bmModelManagerTracker.getService() : null;
+    }
+
+    public IDtProjectManager getDtProjectManager() {
+        return dtProjectManagerTracker != null ? dtProjectManagerTracker.getService() : null;
+    }
+
+    public IDerivedDataManagerProvider getDerivedDataManagerProvider() {
+        return derivedDataManagerProviderTracker != null ? derivedDataManagerProviderTracker.getService() : null;
+    }
+
+    public BmAwareResourceSetProvider getResourceSetProvider() {
+        return resourceSetProviderTracker != null ? resourceSetProviderTracker.getService() : null;
     }
 
     /**

@@ -350,7 +350,13 @@ public class McpClient implements AutoCloseable {
     private McpToolResult parseToolResult(Object result) {
         JsonObject obj = toJsonObject(result);
         if (obj != null) {
-            return gson.fromJson(obj, McpToolResult.class);
+            McpToolResult parsed = gson.fromJson(obj, McpToolResult.class);
+            // Compatibility: if server returns only structuredContent and no content array.
+            if (parsed.getContent().isEmpty() && obj.has("structuredContent")) { //$NON-NLS-1$
+                parsed.setContent(List.of(com.codepilot1c.core.mcp.model.McpContent
+                        .text(gson.toJson(obj.get("structuredContent"))))); //$NON-NLS-1$
+            }
+            return parsed;
         }
         return new McpToolResult();
     }
