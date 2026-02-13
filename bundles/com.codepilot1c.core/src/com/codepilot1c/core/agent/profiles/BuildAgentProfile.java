@@ -48,6 +48,7 @@ public class BuildAgentProfile implements AgentProfile {
             "list_files",
             "search_codebase",
             "get_platform_documentation",
+            "edt_validate_request",
             "create_metadata",
             "add_metadata_child"
     ));
@@ -83,6 +84,7 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("list_files").forAllResources(),
                 PermissionRule.allow("search_codebase").forAllResources(),
                 PermissionRule.allow("get_platform_documentation").forAllResources(),
+                PermissionRule.allow("edt_validate_request").forAllResources(),
 
                 // Write tools - ask
                 PermissionRule.ask("edit_file")
@@ -116,8 +118,13 @@ public class BuildAgentProfile implements AgentProfile {
 
                 ## Доступные инструменты:
                 - Файлы: read_file, edit_file, write_file, glob, grep
-                - EDT-метаданные: get_platform_documentation, create_metadata, add_metadata_child
+                - EDT-метаданные: get_platform_documentation, edt_validate_request, create_metadata, add_metadata_child
                 - Документация: используй MCP-инструменты документации только если пользователь явно попросил "используй документацию"
+
+                ## Политика изменения метаданных (обязательно):
+                1. Перед create_metadata и add_metadata_child сначала вызывай edt_validate_request
+                2. Бери validation_token из ответа edt_validate_request
+                3. Передавай validation_token в create_metadata/add_metadata_child без изменения payload
 
                 """;
         return PromptProviderRegistry.getInstance().getSystemPromptAddition(getId(), defaultPrompt);

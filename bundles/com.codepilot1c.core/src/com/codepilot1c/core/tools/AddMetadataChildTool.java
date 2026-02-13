@@ -9,6 +9,8 @@ import com.codepilot1c.core.edt.metadata.EdtMetadataService;
 import com.codepilot1c.core.edt.metadata.MetadataChildKind;
 import com.codepilot1c.core.edt.metadata.MetadataOperationException;
 import com.codepilot1c.core.edt.metadata.MetadataOperationResult;
+import com.codepilot1c.core.edt.validation.MetadataRequestValidationService;
+import com.codepilot1c.core.edt.validation.ValidationOperation;
 import com.codepilot1c.core.logging.VibeLogger;
 
 /**
@@ -50,20 +52,26 @@ public class AddMetadataChildTool implements ITool {
                 "properties": {
                   "type": "object",
                   "description": "Дополнительные параметры. Для batch: children=[{name,synonym,comment}]"
+                },
+                "validation_token": {
+                  "type": "string",
+                  "description": "Одноразовый токен из edt_validate_request"
                 }
               },
-              "required": ["project", "parent_fqn", "child_kind", "name"]
+              "required": ["project", "parent_fqn", "child_kind", "name", "validation_token"]
             }
             """; //$NON-NLS-1$
 
     private final EdtMetadataService metadataService;
+    private final MetadataRequestValidationService validationService;
 
     public AddMetadataChildTool() {
-        this(new EdtMetadataService());
+        this(new EdtMetadataService(), new MetadataRequestValidationService());
     }
 
-    AddMetadataChildTool(EdtMetadataService metadataService) {
+    AddMetadataChildTool(EdtMetadataService metadataService, MetadataRequestValidationService validationService) {
         this.metadataService = metadataService;
+        this.validationService = validationService;
     }
 
     @Override
@@ -102,10 +110,15 @@ public class AddMetadataChildTool implements ITool {
                 String synonym = getOptionalString(parameters, "synonym"); //$NON-NLS-1$
                 String comment = getOptionalString(parameters, "comment"); //$NON-NLS-1$
                 Map<String, Object> properties = parameterMap(parameters.get("properties")); //$NON-NLS-1$
+                String validationToken = getString(parameters, "validation_token"); //$NON-NLS-1$
 
-                if (!metadataService.isEdtAvailable()) {
-                    return ToolResult.failure("EDT BM API недоступен в текущем runtime."); //$NON-NLS-1$
-                }
+                Map<String, Object> normalizedPayload = validationService.normalizeAddChildPayload(
+                        projectName, parentFqn, childKindValue, name, synonym, comment, properties);
+                validationService.consumeToken(
+                        validationToken,
+                        ValidationOperation.ADD_METADATA_CHILD,
+                        projectName,
+                        normalizedPayload);
 
                 MetadataChildKind childKind = MetadataChildKind.fromString(childKindValue);
                 AddMetadataChildRequest request = new AddMetadataChildRequest(
