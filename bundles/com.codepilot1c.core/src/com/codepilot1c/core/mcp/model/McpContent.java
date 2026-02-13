@@ -43,6 +43,9 @@ public class McpContent {
     @SerializedName("uri")
     private String uri;
 
+    @SerializedName("resource")
+    private Resource resource;
+
     /**
      * Creates an empty content object.
      */
@@ -129,11 +132,69 @@ public class McpContent {
     }
 
     public String getUri() {
-        return uri;
+        if (uri != null && !uri.isEmpty()) {
+            return uri;
+        }
+        return resource != null ? resource.getUri() : null;
     }
 
     public void setUri(String uri) {
         this.uri = uri;
+    }
+
+    public Resource getResource() {
+        return resource;
+    }
+
+    public void setResource(Resource resource) {
+        this.resource = resource;
+    }
+
+    public String getEffectiveText() {
+        if (text != null && !text.isEmpty()) {
+            return text;
+        }
+        return resource != null ? resource.getText() : null;
+    }
+
+    public String getEffectiveMimeType() {
+        if (mimeType != null && !mimeType.isEmpty()) {
+            return mimeType;
+        }
+        return resource != null ? resource.getMimeType() : null;
+    }
+
+    /**
+     * Nested resource payload shape used by some MCP servers.
+     */
+    public static class Resource {
+        @SerializedName("uri")
+        private String uri;
+
+        @SerializedName("mimeType")
+        private String mimeType;
+
+        @SerializedName("text")
+        private String text;
+
+        @SerializedName("blob")
+        private String blob;
+
+        public String getUri() {
+            return uri;
+        }
+
+        public String getMimeType() {
+            return mimeType;
+        }
+
+        public String getText() {
+            return text;
+        }
+
+        public String getBlob() {
+            return blob;
+        }
     }
 
     @Override

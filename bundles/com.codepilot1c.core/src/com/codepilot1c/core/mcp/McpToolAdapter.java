@@ -12,6 +12,7 @@ import java.util.concurrent.CompletableFuture;
 
 import com.codepilot1c.core.mcp.client.McpClient;
 import com.codepilot1c.core.mcp.model.McpContent;
+import com.codepilot1c.core.mcp.model.McpResourceContent;
 import com.codepilot1c.core.mcp.model.McpTool;
 import com.codepilot1c.core.mcp.model.McpToolResult;
 import com.codepilot1c.core.tools.ITool;
@@ -64,30 +65,47 @@ public class McpToolAdapter implements ITool {
     @Override
     public CompletableFuture<ToolResult> execute(Map<String, Object> params) {
         return client.callTool(mcpTool.getName(), params)
-            .thenApply(this::convertResult)
+            .thenCompose(this::convertResultAsync)
             .exceptionally(e -> {
                 String errorMsg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
                 return ToolResult.failure("MCP tool error: " + errorMsg);
             });
     }
 
-    private ToolResult convertResult(McpToolResult mcpResult) {
+    private CompletableFuture<ToolResult> convertResultAsync(McpToolResult mcpResult) {
         if (mcpResult.isError()) {
-            return ToolResult.failure(extractErrorText(mcpResult));
+            return CompletableFuture.completedFuture(ToolResult.failure(extractErrorText(mcpResult)));
         }
 
         StringBuilder text = new StringBuilder();
+        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+
         for (McpContent content : mcpResult.getContent()) {
             if (content.getType() == McpContent.Type.TEXT) {
-                if (text.length() > 0) {
-                    text.append("\n");
+                appendWithSeparator(text, content.getEffectiveText());
+            } else if (content.getType() == McpContent.Type.RESOURCE) {
+                String inlineText = content.getEffectiveText();
+                if (inlineText != null && !inlineText.isBlank()) {
+                    appendWithSeparator(text, inlineText);
+                } else {
+                    String uri = content.getUri();
+                    if (uri != null && !uri.isBlank()) {
+                        chain = chain.thenCompose(v -> client.readResource(uri)
+                                .thenAccept(resource -> appendResourceContent(text, resource, uri))
+                                .exceptionally(e -> {
+                                    appendWithSeparator(text, "[MCP resource read failed] " + uri); //$NON-NLS-1$
+                                    return null;
+                                }));
+                    }
                 }
-                text.append(content.getText());
+            } else if (content.getType() == McpContent.Type.IMAGE) {
+                String mime = content.getEffectiveMimeType();
+                appendWithSeparator(text, "[MCP image content omitted" //$NON-NLS-1$
+                        + (mime != null ? ": " + mime : "") + "]"); //$NON-NLS-1$ //$NON-NLS-2$
             }
-            // TODO v2: Handle images, resources
         }
 
-        return ToolResult.success(text.toString().trim());
+        return chain.thenApply(v -> ToolResult.success(text.toString().trim()));
     }
 
     private String extractErrorText(McpToolResult mcpResult) {
@@ -97,6 +115,33 @@ public class McpToolAdapter implements ITool {
             }
         }
         return "Unknown MCP error";
+    }
+
+    private void appendResourceContent(StringBuilder sb, McpResourceContent resourceContent, String uri) {
+        if (resourceContent == null || resourceContent.getContents().isEmpty()) {
+            appendWithSeparator(sb, "[MCP resource has no content] " + uri); //$NON-NLS-1$
+            return;
+        }
+        boolean added = false;
+        for (McpResourceContent.ResourceContentItem item : resourceContent.getContents()) {
+            if (item.getText() != null && !item.getText().isBlank()) {
+                appendWithSeparator(sb, item.getText());
+                added = true;
+            }
+        }
+        if (!added) {
+            appendWithSeparator(sb, "[MCP resource fetched without text payload] " + uri); //$NON-NLS-1$
+        }
+    }
+
+    private void appendWithSeparator(StringBuilder sb, String text) {
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        if (sb.length() > 0) {
+            sb.append("\n");
+        }
+        sb.append(text);
     }
 
     @Override

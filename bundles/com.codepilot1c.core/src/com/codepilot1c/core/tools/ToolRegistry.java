@@ -76,6 +76,9 @@ public class ToolRegistry {
         register(new WriteTool());
         register(new GrepTool());
         register(new GlobTool());
+        register(new EdtContentAssistTool());
+        register(new EdtFindReferencesTool());
+        register(new EdtMetadataDetailsTool());
 
         // Extra tools may be contributed by an overlay (e.g. Pro) via extension point.
         loadToolsFromExtensionPoint();
