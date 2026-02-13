@@ -34,6 +34,19 @@ URL update site: `https://ondysss.github.io/codepilot1c-edt/`
 mvn -B -V --no-transfer-progress clean verify
 ```
 
+## Публикация p2 из локальной сборки
+
+Автоматическая публикация p2 из GitHub Actions отключена. Публикация выполняется локально:
+
+```bash
+./tools/publish-p2-local.sh
+```
+
+Скрипт:
+- собирает проект (`clean verify`);
+- обновляет landing pages в p2-репозитории;
+- публикует содержимое `repositories/com.codepilot1c.update/target/repository/` в ветку `gh-pages`.
+
 ## Структура
 
 - `bundles/` — OSGi плагины

@@ -1,108 +1,13 @@
 name: Release p2 (GitHub Pages)
 
 on:
-  push:
-    tags:
-      - "v*"
-
-permissions:
-  contents: write
-  pages: write
-  id-token: write
-  packages: write
-
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
+  workflow_dispatch:
 
 jobs:
-  build-and-deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  disabled:
     runs-on: ubuntu-latest
-    env:
-      # Tycho downloads & parses large p2 metadata XML. Newer JDKs apply tight XML entity limits
-      # which may break builds. Disable/raise limits for CI builds.
-      JAVA_TOOL_OPTIONS: >-
-        -Djdk.xml.maxGeneralEntitySizeLimit=0
-        -Djdk.xml.totalEntitySizeLimit=0
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: "17"
-          distribution: "temurin"
-          cache: "maven"
-
-      - name: Build (Tycho)
-        run: mvn -B -V --no-transfer-progress clean verify
-
-      - name: Publish ZIP to GitHub Packages (Maven)
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: CI release is disabled
         run: |
-          set -euo pipefail
-
-          ZIP_PATH="$(ls -1 repositories/com.codepilot1c.update/target/*.zip | head -n 1)"
-          if [[ -z "${ZIP_PATH}" ]]; then
-            echo "ZIP not found under repositories/com.codepilot1c.update/target" >&2
-            exit 1
-          fi
-
-          # Tag is like v0.1.6 -> version 0.1.6
-          VERSION="${GITHUB_REF_NAME#v}"
-          GROUP_ID="com.codepilot1c"
-          ARTIFACT_ID="codepilot1c-edt-update-site"
-
-          mkdir -p "$HOME/.m2"
-          cat > "$HOME/.m2/settings.xml" <<EOF
-          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
-                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                    xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
-            <servers>
-              <server>
-                <id>github</id>
-                <username>${GITHUB_ACTOR}</username>
-                <password>${GITHUB_TOKEN}</password>
-              </server>
-            </servers>
-          </settings>
-          EOF
-
-          mvn -B -V --no-transfer-progress deploy:deploy-file \
-            -Durl="https://maven.pkg.github.com/${GITHUB_REPOSITORY}" \
-            -DrepositoryId=github \
-            -DgroupId="${GROUP_ID}" \
-            -DartifactId="${ARTIFACT_ID}" \
-            -Dversion="${VERSION}" \
-            -Dpackaging=zip \
-            -Dfile="${ZIP_PATH}" \
-            -DgeneratePom=true
-
-      - name: Attach update-site ZIP to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: repositories/com.codepilot1c.update/target/*.zip
-
-      - name: Add landing page
-        run: |
-          mkdir -p repositories/com.codepilot1c.update/target/repository/site
-          cp site/index.html repositories/com.codepilot1c.update/target/repository/site/index.html
-          cp site/root-index.html repositories/com.codepilot1c.update/target/repository/index.html
-
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact (p2)
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: repositories/com.codepilot1c.update/target/repository/
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          echo "Automated CI release/publish is disabled."
+          echo "Use local script: tools/publish-p2-local.sh"
