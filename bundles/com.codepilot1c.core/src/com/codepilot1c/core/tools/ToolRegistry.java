@@ -79,6 +79,9 @@ public class ToolRegistry {
         register(new EdtContentAssistTool());
         register(new EdtFindReferencesTool());
         register(new EdtMetadataDetailsTool());
+        register(new GetPlatformDocumentationTool());
+        register(new CreateMetadataTool());
+        register(new AddMetadataChildTool());
 
         // Extra tools may be contributed by an overlay (e.g. Pro) via extension point.
         loadToolsFromExtensionPoint();

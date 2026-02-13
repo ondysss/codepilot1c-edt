@@ -90,7 +90,7 @@ public class EditFileTool implements ITool {
         return "Edit a file in the workspace. Can replace entire file content " + //$NON-NLS-1$
                "or perform search-and-replace operations. Can also create new files. " + //$NON-NLS-1$
                "⚠️ НЕ используйте для СОЗДАНИЯ новых объектов метаданных 1С (.mdo файлов)! " + //$NON-NLS-1$
-               "Для создания справочников, документов, регистров используйте create_metadata."; //$NON-NLS-1$
+               "Для top-level используйте create_metadata, для вложенных объектов — add_metadata_child."; //$NON-NLS-1$
     }
 
     @Override
@@ -148,6 +148,7 @@ public class EditFileTool implements ITool {
                             return ToolResult.failure(
                                     "❌ ОШИБКА: Нельзя создавать .mdo файлы метаданных через edit_file!\n\n" + //$NON-NLS-1$
                                     "Используйте инструмент **create_metadata** для создания объектов метаданных.\n" + //$NON-NLS-1$
+                                    "Для табличных частей и реквизитов табличных частей используйте **add_metadata_child**.\n" + //$NON-NLS-1$
                                     "Это необходимо, чтобы объект был автоматически добавлен в Configuration.mdo.\n\n" + //$NON-NLS-1$
                                     "Пример: create_metadata(kind=\"Catalog\", name=\"Контрагенты\", synonym=\"Контрагенты\")"); //$NON-NLS-1$
                         }

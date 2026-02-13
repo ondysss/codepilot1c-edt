@@ -78,7 +78,7 @@ public class WriteTool implements ITool {
                "относительным к workspace (например, 'project/src/Module.bsl'). " +
                "⚠️ ЗАПРЕЩЕНО использовать для создания объектов метаданных 1С (.mdo файлов)! " +
                "Для справочников, документов, регистров и др. ОБЯЗАТЕЛЬНО используйте " +
-               "инструмент create_metadata, который автоматически обновит Configuration.mdo.";
+               "инструменты create_metadata (top-level) и add_metadata_child (вложенные объекты).";
     }
 
     @Override
@@ -141,6 +141,7 @@ public class WriteTool implements ITool {
             return ToolResult.failure(
                     "❌ ОШИБКА: Нельзя создавать .mdo файлы метаданных напрямую через write_file!\n\n" +
                     "Используйте инструмент **create_metadata** для создания объектов метаданных.\n" +
+                    "Для табличных частей и реквизитов табличных частей используйте **add_metadata_child**.\n" +
                     "Это необходимо, чтобы объект был автоматически добавлен в Configuration.mdo.\n\n" +
                     "Пример: create_metadata(kind=\"Catalog\", name=\"Контрагенты\", synonym=\"Контрагенты\")");
         }

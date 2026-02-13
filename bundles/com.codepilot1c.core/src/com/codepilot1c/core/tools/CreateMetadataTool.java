@@ -1,0 +1,148 @@
+package com.codepilot1c.core.tools;
+
+import java.util.Collections;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+
+import com.codepilot1c.core.edt.metadata.CreateMetadataRequest;
+import com.codepilot1c.core.edt.metadata.EdtMetadataService;
+import com.codepilot1c.core.edt.metadata.MetadataKind;
+import com.codepilot1c.core.edt.metadata.MetadataOperationException;
+import com.codepilot1c.core.edt.metadata.MetadataOperationResult;
+import com.codepilot1c.core.logging.VibeLogger;
+
+/**
+ * Tool for creating top-level EDT metadata objects.
+ */
+public class CreateMetadataTool implements ITool {
+
+    private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(CreateMetadataTool.class);
+
+    private static final String SCHEMA = """
+            {
+              "type": "object",
+              "properties": {
+                "project": {
+                  "type": "string",
+                  "description": "Имя проекта EDT"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "Catalog",
+                    "Document",
+                    "InformationRegister",
+                    "AccumulationRegister",
+                    "CommonModule",
+                    "Enum",
+                    "Report",
+                    "DataProcessor",
+                    "Constant"
+                  ],
+                  "description": "Тип объекта метаданных"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Имя объекта (например, Контрагенты)"
+                },
+                "synonym": {
+                  "type": "string",
+                  "description": "Синоним объекта"
+                },
+                "comment": {
+                  "type": "string",
+                  "description": "Комментарий объекта"
+                },
+                "properties": {
+                  "type": "object",
+                  "description": "Дополнительные свойства (MVP: зарезервировано)"
+                }
+              },
+              "required": ["project", "kind", "name"]
+            }
+            """; //$NON-NLS-1$
+
+    private final EdtMetadataService metadataService;
+
+    public CreateMetadataTool() {
+        this(new EdtMetadataService());
+    }
+
+    CreateMetadataTool(EdtMetadataService metadataService) {
+        this.metadataService = metadataService;
+    }
+
+    @Override
+    public String getName() {
+        return "create_metadata"; //$NON-NLS-1$
+    }
+
+    @Override
+    public String getDescription() {
+        return "Создает top-level объект метаданных 1С в EDT через BM API."; //$NON-NLS-1$
+    }
+
+    @Override
+    public String getParameterSchema() {
+        return SCHEMA;
+    }
+
+    @Override
+    public boolean requiresConfirmation() {
+        return true;
+    }
+
+    @Override
+    public boolean isDestructive() {
+        return true;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public CompletableFuture<ToolResult> execute(Map<String, Object> parameters) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String projectName = getString(parameters, "project"); //$NON-NLS-1$
+                String kindValue = getString(parameters, "kind"); //$NON-NLS-1$
+                String name = getString(parameters, "name"); //$NON-NLS-1$
+                String synonym = getOptionalString(parameters, "synonym"); //$NON-NLS-1$
+                String comment = getOptionalString(parameters, "comment"); //$NON-NLS-1$
+                Map<String, Object> properties = parameterMap(parameters.get("properties")); //$NON-NLS-1$
+
+                if (!metadataService.isEdtAvailable()) {
+                    return ToolResult.failure("EDT BM API недоступен в текущем runtime."); //$NON-NLS-1$
+                }
+
+                MetadataKind kind = MetadataKind.fromString(kindValue);
+                CreateMetadataRequest request = new CreateMetadataRequest(
+                        projectName, kind, name, synonym, comment, properties);
+                MetadataOperationResult result = metadataService.createMetadata(request);
+                return ToolResult.success(result.formatForLlm());
+            } catch (MetadataOperationException e) {
+                LOG.warn("create_metadata failed: %s (%s)", e.getMessage(), e.getCode()); //$NON-NLS-1$
+                return ToolResult.failure("[" + e.getCode() + "] " + e.getMessage()); //$NON-NLS-1$ //$NON-NLS-2$
+            } catch (Exception e) {
+                LOG.error("create_metadata failed", e); //$NON-NLS-1$
+                return ToolResult.failure("Ошибка create_metadata: " + e.getMessage()); //$NON-NLS-1$
+            }
+        });
+    }
+
+    private String getString(Map<String, Object> parameters, String key) {
+        Object value = parameters.get(key);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private String getOptionalString(Map<String, Object> parameters, String key) {
+        String value = getString(parameters, key);
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parameterMap(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return Collections.emptyMap();
+    }
+}

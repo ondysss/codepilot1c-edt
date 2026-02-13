@@ -46,7 +46,10 @@ public class BuildAgentProfile implements AgentProfile {
             "glob",
             "grep",
             "list_files",
-            "search_codebase"
+            "search_codebase",
+            "get_platform_documentation",
+            "create_metadata",
+            "add_metadata_child"
     ));
 
     @Override
@@ -79,6 +82,7 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("grep").forAllResources(),
                 PermissionRule.allow("list_files").forAllResources(),
                 PermissionRule.allow("search_codebase").forAllResources(),
+                PermissionRule.allow("get_platform_documentation").forAllResources(),
 
                 // Write tools - ask
                 PermissionRule.ask("edit_file")
@@ -86,7 +90,13 @@ public class BuildAgentProfile implements AgentProfile {
                         .forAllResources(),
 	                PermissionRule.ask("write_file")
 	                        .withDescription("Создание файлов")
-	                        .forAllResources()
+	                        .forAllResources(),
+                PermissionRule.ask("create_metadata")
+                        .withDescription("Создание объектов метаданных EDT")
+                        .forAllResources(),
+                PermissionRule.ask("add_metadata_child")
+                        .withDescription("Создание вложенных объектов метаданных EDT")
+                        .forAllResources()
 	        );
 	    }
 
@@ -106,6 +116,7 @@ public class BuildAgentProfile implements AgentProfile {
 
                 ## Доступные инструменты:
                 - Файлы: read_file, edit_file, write_file, glob, grep
+                - EDT-метаданные: get_platform_documentation, create_metadata, add_metadata_child
                 - Документация: используй MCP-инструменты документации только если пользователь явно попросил "используй документацию"
 
                 """;
