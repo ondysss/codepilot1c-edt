@@ -80,6 +80,7 @@ public class ToolRegistry {
         register(new EdtFindReferencesTool());
         register(new EdtMetadataDetailsTool());
         register(new GetPlatformDocumentationTool());
+        register(new EdtValidateRequestTool());
         register(new CreateMetadataTool());
         register(new AddMetadataChildTool());
 

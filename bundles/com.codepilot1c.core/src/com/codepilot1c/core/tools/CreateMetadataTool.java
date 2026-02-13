@@ -9,6 +9,8 @@ import com.codepilot1c.core.edt.metadata.EdtMetadataService;
 import com.codepilot1c.core.edt.metadata.MetadataKind;
 import com.codepilot1c.core.edt.metadata.MetadataOperationException;
 import com.codepilot1c.core.edt.metadata.MetadataOperationResult;
+import com.codepilot1c.core.edt.validation.MetadataRequestValidationService;
+import com.codepilot1c.core.edt.validation.ValidationOperation;
 import com.codepilot1c.core.logging.VibeLogger;
 
 /**
@@ -56,20 +58,26 @@ public class CreateMetadataTool implements ITool {
                 "properties": {
                   "type": "object",
                   "description": "Дополнительные свойства (MVP: зарезервировано)"
+                },
+                "validation_token": {
+                  "type": "string",
+                  "description": "Одноразовый токен из edt_validate_request"
                 }
               },
-              "required": ["project", "kind", "name"]
+              "required": ["project", "kind", "name", "validation_token"]
             }
             """; //$NON-NLS-1$
 
     private final EdtMetadataService metadataService;
+    private final MetadataRequestValidationService validationService;
 
     public CreateMetadataTool() {
-        this(new EdtMetadataService());
+        this(new EdtMetadataService(), new MetadataRequestValidationService());
     }
 
-    CreateMetadataTool(EdtMetadataService metadataService) {
+    CreateMetadataTool(EdtMetadataService metadataService, MetadataRequestValidationService validationService) {
         this.metadataService = metadataService;
+        this.validationService = validationService;
     }
 
     @Override
@@ -108,10 +116,15 @@ public class CreateMetadataTool implements ITool {
                 String synonym = getOptionalString(parameters, "synonym"); //$NON-NLS-1$
                 String comment = getOptionalString(parameters, "comment"); //$NON-NLS-1$
                 Map<String, Object> properties = parameterMap(parameters.get("properties")); //$NON-NLS-1$
+                String validationToken = getString(parameters, "validation_token"); //$NON-NLS-1$
 
-                if (!metadataService.isEdtAvailable()) {
-                    return ToolResult.failure("EDT BM API недоступен в текущем runtime."); //$NON-NLS-1$
-                }
+                Map<String, Object> normalizedPayload = validationService.normalizeCreatePayload(
+                        projectName, kindValue, name, synonym, comment, properties);
+                validationService.consumeToken(
+                        validationToken,
+                        ValidationOperation.CREATE_METADATA,
+                        projectName,
+                        normalizedPayload);
 
                 MetadataKind kind = MetadataKind.fromString(kindValue);
                 CreateMetadataRequest request = new CreateMetadataRequest(
