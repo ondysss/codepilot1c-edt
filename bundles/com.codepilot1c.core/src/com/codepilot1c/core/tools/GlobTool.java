@@ -246,16 +246,33 @@ public class GlobTool implements ITool {
             return workspacePath;
         }
 
-        // Try as project name
-        IProject project = root.getProject(path);
-        if (project.exists() && project.getLocation() != null) {
-            return Paths.get(project.getLocation().toOSString());
-        }
+        // Normalize separators
+        String normalized = path.replace('\\', '/');
 
-        // Try as workspace-relative path
-        Path resolved = workspacePath.resolve(path);
+        // Try as workspace-relative path first (handles multi-segment paths like "Project/src")
+        Path resolved = workspacePath.resolve(normalized);
         if (Files.exists(resolved) && Files.isDirectory(resolved)) {
             return resolved;
+        }
+
+        // Try as single-segment project name (getProject requires exactly one segment)
+        String projectName = normalized.contains("/") ? normalized.substring(0, normalized.indexOf('/')) : normalized;
+        try {
+            IProject project = root.getProject(projectName);
+            if (project.exists() && project.getLocation() != null) {
+                Path projectPath = Paths.get(project.getLocation().toOSString());
+                if (normalized.contains("/")) {
+                    // Append remaining path segments after project name
+                    String subPath = normalized.substring(normalized.indexOf('/') + 1);
+                    Path subResolved = projectPath.resolve(subPath);
+                    if (Files.exists(subResolved) && Files.isDirectory(subResolved)) {
+                        return subResolved;
+                    }
+                }
+                return projectPath;
+            }
+        } catch (IllegalArgumentException e) {
+            // getProject may throw for invalid paths; fall through
         }
 
         // Fallback to workspace

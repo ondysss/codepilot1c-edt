@@ -86,6 +86,8 @@ public class ToolRegistry {
         register(new EdtValidateRequestTool());
         register(new CreateMetadataTool());
         register(new AddMetadataChildTool());
+        register(new UpdateMetadataTool());
+        register(new DeleteMetadataTool());
         register(new EdtMetadataSmokeTool());
         register(new EdtTraceExportTool());
 

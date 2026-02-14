@@ -28,7 +28,7 @@ public class EdtValidateRequestTool implements ITool {
                 },
                 "operation": {
                   "type": "string",
-                  "enum": ["create_metadata", "add_metadata_child"],
+                  "enum": ["create_metadata", "add_metadata_child", "update_metadata", "delete_metadata"],
                   "description": "Целевая мутационная операция"
                 },
                 "payload": {

@@ -2,6 +2,7 @@ package com.codepilot1c.core.edt.metadata;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.ByteArrayInputStream;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,12 +21,19 @@ import java.util.Set;
 import java.util.UUID;
 
 import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.IContainer;
+import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.emf.common.util.EMap;
 import org.eclipse.emf.common.util.TreeIterator;
+import org.eclipse.emf.common.util.URI;
 import org.eclipse.emf.ecore.EObject;
+import org.eclipse.emf.ecore.EAttribute;
+import org.eclipse.emf.ecore.EDataType;
+import org.eclipse.emf.ecore.EEnum;
+import org.eclipse.emf.ecore.EEnumLiteral;
 import org.eclipse.emf.ecore.EReference;
 import org.eclipse.emf.ecore.EStructuralFeature;
 
@@ -42,6 +50,14 @@ import com._1c.g5.v8.dt.core.platform.IBmModelManager;
 import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.core.platform.IDtProject;
 import com._1c.g5.v8.dt.core.platform.IDtProjectManager;
+import com._1c.g5.v8.dt.mcore.DateQualifiers;
+import com._1c.g5.v8.dt.mcore.McoreFactory;
+import com._1c.g5.v8.dt.mcore.McorePackage;
+import com._1c.g5.v8.dt.mcore.NumberQualifiers;
+import com._1c.g5.v8.dt.mcore.StringQualifiers;
+import com._1c.g5.v8.dt.mcore.TypeDescription;
+import com._1c.g5.v8.dt.mcore.TypeItem;
+import com._1c.g5.v8.dt.metadata.mdclass.BasicFeature;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicForm;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
 import com._1c.g5.v8.dt.metadata.mdclass.DataProcessor;
@@ -195,9 +211,377 @@ public class EdtMetadataService {
                 true,
                 request.projectName(),
                 request.childKind().name(),
-                request.name(),
+                extractNameFromFqn(childFqn),
                 childFqn,
                 "Metadata child object created successfully"); //$NON-NLS-1$
+    }
+
+    public MetadataOperationResult updateMetadata(UpdateMetadataRequest request) {
+        String opId = LogSanitizer.newId("edt-update"); //$NON-NLS-1$
+        long startedAt = System.currentTimeMillis();
+        LOG.info("[%s] updateMetadata START project=%s target=%s", // $NON-NLS-1$
+                opId, request.projectName(), request.targetFqn());
+        request.validate();
+        gateway.ensureMutationRuntimeAvailable();
+        IProject project = requireProject(request.projectName());
+        readinessChecker.ensureReady(project);
+
+        IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
+        Configuration configuration = configurationProvider.getConfiguration(project);
+        if (configuration == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "Cannot resolve project configuration", false); //$NON-NLS-1$
+        }
+
+        // Pre-resolve all TypeItems from changes (top-level set and children_ops)
+        Set<String> typeStrings = collectTypeStrings(request.changes());
+        Map<String, TypeItem> preResolvedTypes = new HashMap<>();
+        if (!typeStrings.isEmpty()) {
+            executeRead(project, readTx -> {
+                for (String typeString : typeStrings) {
+                    TypeItem item = resolveTypeItem(typeString, readTx);
+                    if (item == null) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                                "Type not found in BM: " + typeString, false); //$NON-NLS-1$
+                    }
+                    preResolvedTypes.put(typeString, item);
+                }
+                return null;
+            });
+        }
+        final Map<String, TypeItem> capturedTypes = preResolvedTypes;
+
+        String targetFqn = executeWrite(project, transaction -> {
+            Configuration txConfiguration = transaction.toTransactionObject(configuration);
+            if (txConfiguration == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                        "Cannot access configuration in BM transaction", false); //$NON-NLS-1$
+            }
+            MdObject target = resolveByFqn(txConfiguration, request.targetFqn());
+            if (target == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_NOT_FOUND,
+                        "Metadata object not found: " + request.targetFqn(), false); //$NON-NLS-1$
+            }
+            applyObjectChanges(txConfiguration, target, request.changes(), request.targetFqn(),
+                    transaction, capturedTypes);
+            ensureUuidsRecursively(target, opId, request.targetFqn());
+            return request.targetFqn();
+        });
+
+        String topLevelFqn = extractTopLevelFqn(targetFqn);
+        forceExportTopLevelObject(project, topLevelFqn, opId);
+        verifyObjectPersisted(project, targetFqn, opId);
+        refreshProjectSafely(project);
+        LOG.info("[%s] updateMetadata SUCCESS in %s target=%s", opId, // $NON-NLS-1$
+                LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),
+                targetFqn);
+
+        return new MetadataOperationResult(
+                true,
+                request.projectName(),
+                "UPDATE", //$NON-NLS-1$
+                extractNameFromFqn(targetFqn),
+                targetFqn,
+                "Metadata object updated successfully"); //$NON-NLS-1$
+    }
+
+    public MetadataOperationResult deleteMetadata(DeleteMetadataRequest request) {
+        String opId = LogSanitizer.newId("edt-delete"); //$NON-NLS-1$
+        long startedAt = System.currentTimeMillis();
+        LOG.info("[%s] deleteMetadata START project=%s target=%s recursive=%s", // $NON-NLS-1$
+                opId, request.projectName(), request.targetFqn(), request.recursive());
+        request.validate();
+        gateway.ensureMutationRuntimeAvailable();
+        IProject project = requireProject(request.projectName());
+        readinessChecker.ensureReady(project);
+
+        IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
+        Configuration configuration = configurationProvider.getConfiguration(project);
+        if (configuration == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "Cannot resolve project configuration", false); //$NON-NLS-1$
+        }
+
+        String targetFqn = request.targetFqn();
+        executeWrite(project, transaction -> {
+            Configuration txConfiguration = transaction.toTransactionObject(configuration);
+            if (txConfiguration == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                        "Cannot access configuration in BM transaction", false); //$NON-NLS-1$
+            }
+            MdObject target = resolveByFqn(txConfiguration, targetFqn);
+            if (target == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_NOT_FOUND,
+                        "Metadata object not found: " + targetFqn, false); //$NON-NLS-1$
+            }
+            if (!request.recursive() && hasNestedMetadataChildren(target)) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_DELETE_CONFLICT,
+                        "Metadata object has nested children. Use recursive=true: " + targetFqn, false); //$NON-NLS-1$
+            }
+            removeMetadataObject(txConfiguration, targetFqn, target);
+            return null;
+        });
+
+        String topLevelFqn = extractTopLevelFqn(targetFqn);
+        forceExportTopLevelObject(project, topLevelFqn, opId);
+        verifyObjectRemoved(project, targetFqn, opId);
+        refreshProjectSafely(project);
+        LOG.info("[%s] deleteMetadata SUCCESS in %s target=%s", opId, // $NON-NLS-1$
+                LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),
+                targetFqn);
+
+        return new MetadataOperationResult(
+                true,
+                request.projectName(),
+                "DELETE", //$NON-NLS-1$
+                extractNameFromFqn(targetFqn),
+                targetFqn,
+                "Metadata object deleted successfully"); //$NON-NLS-1$
+    }
+
+    public ModuleArtifactResult ensureModuleArtifact(EnsureModuleArtifactRequest request) {
+        String opId = LogSanitizer.newId("edt-module"); //$NON-NLS-1$
+        long startedAt = System.currentTimeMillis();
+        request.validate();
+        LOG.info("[%s] ensureModuleArtifact START project=%s object=%s kind=%s create=%s", //$NON-NLS-1$
+                opId, request.projectName(), request.objectFqn(), request.moduleKind(), request.createIfMissing());
+        gateway.ensureMutationRuntimeAvailable();
+
+        IProject project = requireProject(request.projectName());
+        readinessChecker.ensureReady(project);
+
+        IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
+        Configuration configuration = configurationProvider.getConfiguration(project);
+        if (configuration == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "Cannot resolve project configuration", false); //$NON-NLS-1$
+        }
+
+        ModuleTarget target = executeRead(project, tx -> {
+            Configuration txConfiguration = tx.toTransactionObject(configuration);
+            if (txConfiguration == null) {
+                return null;
+            }
+            MdObject resolved = resolveByFqn(txConfiguration, request.objectFqn());
+            if (resolved == null) {
+                return null;
+            }
+            URI uri = resolved.eResource() != null ? resolved.eResource().getURI() : null;
+            String resourcePath = toProjectRelativePath(project, uri);
+            return new ModuleTarget(
+                    resolved.eClass().getName(),
+                    resourcePath,
+                    topKindFromFqn(request.objectFqn()),
+                    topNameFromFqn(request.objectFqn()),
+                    formNameFromFqn(request.objectFqn()));
+        });
+        if (target == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.METADATA_NOT_FOUND,
+                    "Metadata object not found: " + request.objectFqn(), false); //$NON-NLS-1$
+        }
+
+        List<String> candidates = buildModuleCandidates(target, request.moduleKind());
+        if (candidates.isEmpty()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_KIND,
+                    "Cannot resolve module path for object: " + request.objectFqn(), false); //$NON-NLS-1$
+        }
+
+        for (String candidate : candidates) {
+            IFile existing = project.getFile(candidate);
+            if (existing != null && existing.exists()) {
+                String workspacePath = existing.getFullPath().toString();
+                if (workspacePath.startsWith("/")) { //$NON-NLS-1$
+                    workspacePath = workspacePath.substring(1);
+                }
+                LOG.info("[%s] ensureModuleArtifact SUCCESS (exists) in %s path=%s", opId, //$NON-NLS-1$
+                        LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt), workspacePath);
+                return new ModuleArtifactResult(
+                        request.projectName(),
+                        request.objectFqn(),
+                        request.moduleKind(),
+                        workspacePath,
+                        false);
+            }
+        }
+
+        if (!request.createIfMissing()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.METADATA_NOT_FOUND,
+                    "Module file not found for object: " + request.objectFqn(), true); //$NON-NLS-1$
+        }
+
+        IFile targetFile = project.getFile(candidates.get(0));
+        try {
+            createParentsIfMissing(targetFile);
+        } catch (CoreException e) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Failed to create module folders: " + candidates.get(0), true, e); //$NON-NLS-1$
+        }
+        String content = request.initialContent() != null ? request.initialContent() : ""; //$NON-NLS-1$
+        try (ByteArrayInputStream source = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8))) {
+            if (targetFile.exists()) {
+                targetFile.setContents(source, IResource.FORCE, null);
+            } else {
+                targetFile.create(source, IResource.FORCE, null);
+            }
+            targetFile.refreshLocal(IResource.DEPTH_ZERO, null);
+        } catch (IOException | CoreException e) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Failed to create module file: " + candidates.get(0), true, e); //$NON-NLS-1$
+        }
+        refreshProjectSafely(project);
+
+        String workspacePath = targetFile.getFullPath().toString();
+        if (workspacePath.startsWith("/")) { //$NON-NLS-1$
+            workspacePath = workspacePath.substring(1);
+        }
+        LOG.info("[%s] ensureModuleArtifact SUCCESS (created) in %s path=%s", opId, //$NON-NLS-1$
+                LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt), workspacePath);
+        return new ModuleArtifactResult(
+                request.projectName(),
+                request.objectFqn(),
+                request.moduleKind(),
+                workspacePath,
+                true);
+    }
+
+    private List<String> buildModuleCandidates(ModuleTarget target, ModuleArtifactKind requestedKind) {
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        String resourcePath = target.resourcePath();
+        if (resourcePath != null && !resourcePath.isBlank()) {
+            String normalized = resourcePath.replace('\\', '/');
+            int slash = normalized.lastIndexOf('/');
+            String dir = slash >= 0 ? normalized.substring(0, slash) : ""; //$NON-NLS-1$
+            String lower = normalized.toLowerCase(Locale.ROOT);
+            if (lower.endsWith(".form")) { //$NON-NLS-1$
+                candidates.add(dir + "/Module.bsl"); //$NON-NLS-1$
+            } else if (lower.endsWith(".mdo")) { //$NON-NLS-1$
+                candidates.add(dir + "/" + moduleFileName(requestedKind, target.className())); //$NON-NLS-1$
+            }
+        }
+
+        if (target.formName() != null && target.topKind() != null && target.topName() != null) {
+            String formsPath = "src/" + mapTopFolder(target.topKind()) + "/" + target.topName() + "/Forms/" + target.formName() + "/Module.bsl"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            candidates.add(formsPath);
+        }
+
+        if (target.topKind() != null && target.topName() != null) {
+            String topPath = "src/" + mapTopFolder(target.topKind()) + "/" + target.topName() + "/" //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    + moduleFileName(requestedKind, target.className());
+            candidates.add(topPath);
+        }
+        return List.copyOf(candidates);
+    }
+
+    private String moduleFileName(ModuleArtifactKind kind, String className) {
+        if (kind == ModuleArtifactKind.MODULE) {
+            return "Module.bsl"; //$NON-NLS-1$
+        }
+        if (kind == ModuleArtifactKind.MANAGER) {
+            return "ManagerModule.bsl"; //$NON-NLS-1$
+        }
+        if (kind == ModuleArtifactKind.OBJECT) {
+            return "ObjectModule.bsl"; //$NON-NLS-1$
+        }
+        if ("CommonModule".equals(className) || (className != null && className.contains("Form"))) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "Module.bsl"; //$NON-NLS-1$
+        }
+        return "ObjectModule.bsl"; //$NON-NLS-1$
+    }
+
+    private String mapTopFolder(String topKind) {
+        return switch (normalizeToken(topKind)) {
+            case "catalog", "catalogs" -> "Catalogs"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "document", "documents" -> "Documents"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "informationregister", "informationregisters" -> "InformationRegisters"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "accumulationregister", "accumulationregisters" -> "AccumulationRegisters"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "commonmodule", "commonmodules" -> "CommonModules"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "enum", "enums" -> "Enums"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "report", "reports" -> "Reports"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "dataprocessor", "dataprocessors" -> "DataProcessors"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "constant", "constants" -> "Constants"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            default -> throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_KIND,
+                    "Unsupported top-level metadata kind: " + topKind, false); //$NON-NLS-1$
+        };
+    }
+
+    private String topKindFromFqn(String fqn) {
+        String[] parts = fqn != null ? fqn.split("\\.") : new String[0]; //$NON-NLS-1$
+        return parts.length > 0 ? parts[0] : null;
+    }
+
+    private String topNameFromFqn(String fqn) {
+        String[] parts = fqn != null ? fqn.split("\\.") : new String[0]; //$NON-NLS-1$
+        return parts.length > 1 ? parts[1] : null;
+    }
+
+    private String formNameFromFqn(String fqn) {
+        String[] parts = fqn != null ? fqn.split("\\.") : new String[0]; //$NON-NLS-1$
+        for (int i = 2; i + 1 < parts.length; i += 2) {
+            if ("form".equalsIgnoreCase(parts[i])) { //$NON-NLS-1$
+                return parts[i + 1];
+            }
+        }
+        return null;
+    }
+
+    private String toProjectRelativePath(IProject project, URI uri) {
+        if (project == null || uri == null) {
+            return null;
+        }
+        String platformPath = uri.toPlatformString(true);
+        if (platformPath != null && !platformPath.isBlank()) {
+            String normalized = platformPath.replace('\\', '/');
+            String prefix = "/" + project.getName() + "/"; //$NON-NLS-1$ //$NON-NLS-2$
+            if (normalized.startsWith(prefix)) {
+                return normalized.substring(prefix.length());
+            }
+            return normalized.startsWith("/") ? normalized.substring(1) : normalized; //$NON-NLS-1$
+        }
+        String uriPath = uri.path();
+        if (uriPath == null || uriPath.isBlank()) {
+            return null;
+        }
+        String normalized = uriPath.replace('\\', '/');
+        String prefix = "/" + project.getName() + "/"; //$NON-NLS-1$ //$NON-NLS-2$
+        if (normalized.startsWith(prefix)) {
+            return normalized.substring(prefix.length());
+        }
+        return normalized.startsWith("/") ? normalized.substring(1) : normalized; //$NON-NLS-1$
+    }
+
+    private void createParentsIfMissing(IFile file) throws CoreException {
+        if (file == null) {
+            return;
+        }
+        IContainer parent = file.getParent();
+        if (parent instanceof IFolder folder) {
+            createFolderChain(folder);
+        }
+    }
+
+    private void createFolderChain(IFolder folder) throws CoreException {
+        IContainer parent = folder.getParent();
+        if (parent instanceof IFolder parentFolder && !parentFolder.exists()) {
+            createFolderChain(parentFolder);
+        }
+        if (!folder.exists()) {
+            folder.create(true, true, null);
+        }
     }
 
     private String createGenericChild(Configuration configuration, AddMetadataChildRequest request) {
@@ -212,19 +596,40 @@ public class EdtMetadataService {
         }
         LOG.debug("createGenericChild resolved parent class=%s name=%s", // $NON-NLS-1$
                 parent.eClass().getName(), parent.getName());
-        validateReservedChildName(parent, request.childKind(), request.name());
 
-        MdObject child = request.childKind() == MetadataChildKind.FORM
-                ? createFormByParent(parent)
-                : createChildByFactory(parent, request.childKind());
-        LOG.debug("createGenericChild created child class=%s", child.eClass().getName()); //$NON-NLS-1$
-        setCommonProperties(child, request.name(), request.synonym(), request.comment());
-        initializeFormIfNeeded(child);
-        ensureUuidsRecursively(child, "child", request.parentFqn()); //$NON-NLS-1$
+        MetadataChildKind effectiveKind = normalizeChildKind(parent, request.childKind());
+        List<String> createdFqns = new ArrayList<>();
+        if (request.hasSingleName()) {
+            validateReservedChildName(parent, effectiveKind, request.name());
+            MdObject child = effectiveKind == MetadataChildKind.FORM
+                    ? createFormByParent(parent)
+                    : createChildByFactory(parent, effectiveKind);
+            LOG.debug("createGenericChild created child class=%s", child.eClass().getName()); //$NON-NLS-1$
+            setCommonProperties(child, request.name(), request.synonym(), request.comment());
+            initializeFormIfNeeded(child);
+            ensureUuidsRecursively(child, "child", request.parentFqn()); //$NON-NLS-1$
+            addChildToParent(parent, child, effectiveKind);
+            createdFqns.add(buildChildFqn(request.parentFqn(), effectiveKind, request.name()));
+        }
+        createdFqns.addAll(addChildrenBatch(parent, effectiveKind, request.properties(), request.parentFqn()));
 
-        addChildToParent(parent, child, request.childKind());
-        addChildrenBatch(parent, request.childKind(), request.properties());
-        return request.parentFqn() + "." + request.childKind().getDisplayName() + "." + request.name(); //$NON-NLS-1$ //$NON-NLS-2$
+        if (createdFqns.isEmpty()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_NAME,
+                    "Invalid metadata child name: " + request.name(), false); //$NON-NLS-1$
+        }
+        return createdFqns.get(0);
+    }
+
+    private MetadataChildKind normalizeChildKind(MdObject parent, MetadataChildKind kind) {
+        if (parent == null || kind == null) {
+            return kind;
+        }
+        if ("Enum".equals(parent.eClass().getName()) && kind == MetadataChildKind.REQUISITE) { //$NON-NLS-1$
+            LOG.info("normalizeChildKind: remap REQUISITE -> ENUM_VALUE for parent Enum"); //$NON-NLS-1$
+            return MetadataChildKind.ENUM_VALUE;
+        }
+        return kind;
     }
 
     private MdObject createFormByParent(MdObject parent) {
@@ -354,7 +759,7 @@ public class EdtMetadataService {
     private String extractShortClassMarker(String className) {
         String normalized = className != null ? className : ""; //$NON-NLS-1$
         String[] tails = {
-                "Attribute", "TabularSection", "Command", "Form", "Template", "Dimension", "Resource", "Requisite" //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$ //$NON-NLS-8$
+                "Attribute", "TabularSection", "Command", "Form", "Template", "Dimension", "Resource", "Requisite", "EnumValue" //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$ //$NON-NLS-8$ //$NON-NLS-9$
         };
         for (String tail : tails) {
             if (normalized.endsWith(tail)) {
@@ -391,7 +796,7 @@ public class EdtMetadataService {
     }
 
     private int indexOfNestedSuffix(String name, MetadataChildKind kind) {
-        String[] suffixes = {"TabularSection", "Attribute", "Command", "Form", "Template", "Dimension", "Resource", "Requisite"}; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$ //$NON-NLS-8$
+        String[] suffixes = {"TabularSection", "Attribute", "Command", "Form", "Template", "Dimension", "Resource", "Requisite", "EnumValue"}; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$ //$NON-NLS-8$ //$NON-NLS-9$
         String own = kind.getDisplayName();
         for (String suffix : suffixes) {
             if (!suffix.equals(own)) {
@@ -470,16 +875,22 @@ public class EdtMetadataService {
         return null;
     }
 
-    private void addChildrenBatch(MdObject parent, MetadataChildKind kind, Map<String, Object> properties) {
+    private List<String> addChildrenBatch(
+            MdObject parent,
+            MetadataChildKind kind,
+            Map<String, Object> properties,
+            String parentFqn
+    ) {
+        List<String> createdFqns = new ArrayList<>();
         if (properties == null || properties.isEmpty()) {
-            return;
+            return createdFqns;
         }
         Object rawChildren = properties.get("children"); //$NON-NLS-1$
         if (rawChildren == null && kind == MetadataChildKind.ATTRIBUTE) {
             rawChildren = properties.get("attributes"); //$NON-NLS-1$
         }
         if (!(rawChildren instanceof List<?> entries)) {
-            return;
+            return createdFqns;
         }
         for (Object entry : entries) {
             if (!(entry instanceof Map<?, ?> rawMap)) {
@@ -494,16 +905,745 @@ public class EdtMetadataService {
             setCommonProperties(child, name, asString(rawMap.get("synonym")), asString(rawMap.get("comment"))); //$NON-NLS-1$ //$NON-NLS-2$
             try {
                 addChildToParent(parent, child, kind);
+                createdFqns.add(buildChildFqn(parentFqn, kind, name));
             } catch (MetadataOperationException e) {
                 if (e.getCode() != MetadataOperationCode.METADATA_ALREADY_EXISTS) {
                     throw e;
                 }
             }
         }
+        return createdFqns;
+    }
+
+    private String buildChildFqn(String parentFqn, MetadataChildKind kind, String name) {
+        return parentFqn + "." + kind.getDisplayName() + "." + name; //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private String extractNameFromFqn(String fqn) {
+        if (fqn == null || fqn.isBlank()) {
+            return null;
+        }
+        int pos = fqn.lastIndexOf('.');
+        return pos >= 0 && pos + 1 < fqn.length() ? fqn.substring(pos + 1) : fqn;
     }
 
     private String asString(Object value) {
         return value instanceof String str && !str.isBlank() ? str : null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void applyObjectChanges(
+            Configuration configuration,
+            MdObject target,
+            Map<String, Object> changes,
+            String targetFqn,
+            IBmPlatformTransaction transaction,
+            Map<String, TypeItem> preResolvedTypes
+    ) {
+        Map<String, Object> setChanges = asMap(changes.get("set")); //$NON-NLS-1$
+        List<?> unsetChanges = changes.get("unset") instanceof List<?> list ? list : List.of(); //$NON-NLS-1$
+        List<Map<String, Object>> childOps = asListOfMaps(changes.get("children_ops")); //$NON-NLS-1$
+
+        if (setChanges.isEmpty() && unsetChanges.isEmpty() && childOps.isEmpty()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "changes must include set, unset and/or children_ops", false); //$NON-NLS-1$
+        }
+
+        // Collect synthetic child ops from set keys that look like child attribute names
+        // (i.e. key is not an EMF feature AND value is a Map, e.g. {"type":"CatalogRef.Контрагенты"})
+        List<Map<String, Object>> syntheticChildOps = new ArrayList<>();
+
+        for (Map.Entry<String, Object> entry : setChanges.entrySet()) {
+            String key = entry.getKey();
+            if (key == null || key.isBlank()) {
+                continue;
+            }
+            if ("name".equalsIgnoreCase(key)) { //$NON-NLS-1$
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Changing name is not supported in update_metadata", false); //$NON-NLS-1$
+            }
+            if ("synonym".equalsIgnoreCase(key)) { //$NON-NLS-1$
+                String synonym = entry.getValue() == null ? null : String.valueOf(entry.getValue());
+                if (synonym == null || synonym.isBlank()) {
+                    continue;
+                }
+                EMap<String, String> synonymMap = target.getSynonym();
+                if (synonymMap != null) {
+                    synonymMap.put(RU_LANGUAGE, synonym);
+                }
+                continue;
+            }
+            // Auto-redirect: if key is not an EMF feature but value is a Map,
+            // treat it as a child attribute property update (e.g. set type on Attribute)
+            EStructuralFeature probe = target.eClass().getEStructuralFeature(key);
+            if (probe == null && entry.getValue() instanceof Map<?, ?> childProps) {
+                // Try resolving as child: targetFqn.Attribute.key
+                String candidateFqn = targetFqn + ".Attribute." + key; //$NON-NLS-1$
+                MdObject childProbe = resolveByFqn(configuration, candidateFqn);
+                if (childProbe != null) {
+                    LOG.info("applyObjectChanges: auto-redirect set key '%s' to children_ops for %s", key, candidateFqn); //$NON-NLS-1$
+                    Map<String, Object> syntheticOp = new HashMap<>();
+                    syntheticOp.put("op", "set"); //$NON-NLS-1$ //$NON-NLS-2$
+                    syntheticOp.put("child_fqn", candidateFqn); //$NON-NLS-1$
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> typedChildProps = (Map<String, Object>) childProps;
+                    syntheticOp.put("set", typedChildProps); //$NON-NLS-1$
+                    syntheticChildOps.add(syntheticOp);
+                    continue;
+                }
+            }
+            setFeatureValue(configuration, target, key, entry.getValue(), transaction, preResolvedTypes);
+        }
+
+        for (Object rawKey : unsetChanges) {
+            String key = rawKey == null ? null : String.valueOf(rawKey);
+            if (key == null || key.isBlank()) {
+                continue;
+            }
+            if ("name".equalsIgnoreCase(key)) { //$NON-NLS-1$
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Cannot unset required field: name", false); //$NON-NLS-1$
+            }
+            if ("synonym".equalsIgnoreCase(key)) { //$NON-NLS-1$
+                EMap<String, String> synonymMap = target.getSynonym();
+                if (synonymMap != null) {
+                    synonymMap.removeKey(RU_LANGUAGE);
+                }
+                continue;
+            }
+            unsetFeatureValue(target, key);
+        }
+
+        // Merge any synthetic child ops from auto-redirected set keys
+        List<Map<String, Object>> allChildOps;
+        if (syntheticChildOps.isEmpty()) {
+            allChildOps = childOps;
+        } else {
+            allChildOps = new ArrayList<>(childOps);
+            allChildOps.addAll(syntheticChildOps);
+        }
+        applyChildOperations(configuration, targetFqn, allChildOps, transaction, preResolvedTypes);
+    }
+
+    private void applyChildOperations(
+            Configuration configuration,
+            String parentTargetFqn,
+            List<Map<String, Object>> childOps,
+            IBmPlatformTransaction transaction,
+            Map<String, TypeItem> preResolvedTypes
+    ) {
+        for (Map<String, Object> op : childOps) {
+            String opType = asString(op.get("op")); //$NON-NLS-1$
+            if (opType == null || opType.isBlank()) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "children_ops item must contain op", false); //$NON-NLS-1$
+            }
+            String childFqn = asString(op.get("child_fqn")); //$NON-NLS-1$
+            if (childFqn == null || childFqn.isBlank()) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "children_ops item must contain child_fqn", false); //$NON-NLS-1$
+            }
+            if (!isChildOfTarget(parentTargetFqn, childFqn)) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "child_fqn is outside target object scope: " + childFqn, false); //$NON-NLS-1$
+            }
+
+            MdObject child = resolveByFqn(configuration, childFqn);
+            if (child == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_NOT_FOUND,
+                        "Metadata child object not found: " + childFqn, false); //$NON-NLS-1$
+            }
+
+            String normalizedOp = normalizeToken(opType);
+            switch (normalizedOp) {
+                case "renamechild", "rename" -> renameChildObject(child, childFqn, asString(op.get("new_name"))); //$NON-NLS-1$ //$NON-NLS-2$
+                case "deletechild", "delete", "remove" -> { //$NON-NLS-1$ //$NON-NLS-2$
+                    boolean recursive = asBoolean(op.get("recursive")); //$NON-NLS-1$
+                    if (!recursive && hasNestedMetadataChildren(child)) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.METADATA_DELETE_CONFLICT,
+                                "Child has nested objects. Use recursive=true: " + childFqn, false); //$NON-NLS-1$
+                    }
+                    removeMetadataObject(configuration, childFqn, child);
+                }
+                case "setchildprops", "set", "update" -> { //$NON-NLS-1$ //$NON-NLS-2$
+                    Map<String, Object> nestedChanges = asMap(op.get("changes")); //$NON-NLS-1$
+                    if (nestedChanges.isEmpty()) {
+                        nestedChanges = new HashMap<>();
+                        Object set = op.get("set"); //$NON-NLS-1$
+                        Object unset = op.get("unset"); //$NON-NLS-1$
+                        Object nestedChildOps = op.get("children_ops"); //$NON-NLS-1$
+                        if (set != null) {
+                            nestedChanges.put("set", set); //$NON-NLS-1$
+                        }
+                        if (unset != null) {
+                            nestedChanges.put("unset", unset); //$NON-NLS-1$
+                        }
+                        if (nestedChildOps != null) {
+                            nestedChanges.put("children_ops", nestedChildOps); //$NON-NLS-1$
+                        }
+                    }
+                    applyObjectChanges(configuration, child, nestedChanges, childFqn,
+                            transaction, preResolvedTypes);
+                }
+                default -> throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Unsupported children_ops op: " + opType, false); //$NON-NLS-1$
+            }
+        }
+    }
+
+    private void renameChildObject(MdObject child, String childFqn, String newName) {
+        if (!MetadataNameValidator.isValidName(newName)) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_NAME,
+                    "Invalid metadata child name: " + newName, false); //$NON-NLS-1$
+        }
+
+        EObject container = child.eContainer();
+        EStructuralFeature containment = child.eContainmentFeature();
+        if (container == null || containment == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Cannot rename child without container: " + childFqn, false); //$NON-NLS-1$
+        }
+        if (container instanceof MdObject parent && isAttributeClassName(child.eClass().getName())) {
+            validateReservedChildName(parent, MetadataChildKind.ATTRIBUTE, newName);
+        }
+        if (containment.isMany()) {
+            @SuppressWarnings("unchecked")
+            Collection<EObject> siblings = (Collection<EObject>) container.eGet(containment);
+            if (siblings != null) {
+                for (EObject sibling : siblings) {
+                    if (!(sibling instanceof MdObject siblingObject) || siblingObject == child) {
+                        continue;
+                    }
+                    if (newName.equalsIgnoreCase(siblingObject.getName())) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.METADATA_ALREADY_EXISTS,
+                                "Child already exists: " + newName, false); //$NON-NLS-1$
+                    }
+                }
+            }
+        }
+        child.setName(newName);
+    }
+
+    private boolean isAttributeClassName(String className) {
+        return className != null && className.endsWith("Attribute"); //$NON-NLS-1$
+    }
+
+    private boolean isChildOfTarget(String targetFqn, String childFqn) {
+        if (targetFqn == null || childFqn == null) {
+            return false;
+        }
+        return childFqn.length() > targetFqn.length()
+                && childFqn.startsWith(targetFqn)
+                && childFqn.charAt(targetFqn.length()) == '.';
+    }
+
+    private void setFeatureValue(Configuration configuration, MdObject target, String fieldName, Object value,
+            IBmPlatformTransaction transaction, Map<String, TypeItem> preResolvedTypes) {
+        if ("uuid".equalsIgnoreCase(fieldName)) { //$NON-NLS-1$
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Changing uuid is not supported", false); //$NON-NLS-1$
+        }
+        // Special case: "type" on BasicFeature is a containment reference (TypeDescription),
+        // which cannot be set via the generic applyReferenceValue path.
+        // Instead, use dedicated TypeItem resolution from BM.
+        if ("type".equals(fieldName) && target instanceof BasicFeature feature) { //$NON-NLS-1$
+            String typeString = value == null ? null : String.valueOf(value);
+            TypeItem preResolvedTypeItem = typeString != null ? preResolvedTypes.get(typeString) : null;
+            if (preResolvedTypeItem == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                        "Type was not pre-resolved. Ensure 'type' key is in changes.set: " + typeString, false); //$NON-NLS-1$
+            }
+            setAttributeType(feature, preResolvedTypeItem, transaction);
+            return;
+        }
+        EStructuralFeature eFeature = target.eClass().getEStructuralFeature(fieldName);
+        if (eFeature == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Unknown metadata field: " + fieldName, false); //$NON-NLS-1$
+        }
+        if (eFeature.isDerived() || eFeature.isTransient() || eFeature.isVolatile()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Field is read-only: " + fieldName, false); //$NON-NLS-1$
+        }
+        if (eFeature instanceof EReference reference) {
+            applyReferenceValue(configuration, target, reference, value);
+            return;
+        }
+        if (eFeature.isMany()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Collection attribute updates are not supported: " + fieldName, false); //$NON-NLS-1$
+        }
+        if (!(eFeature instanceof EAttribute attribute)) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Unsupported field type: " + fieldName, false); //$NON-NLS-1$
+        }
+
+        Object converted = convertAttributeValue(attribute, value);
+        target.eSet(eFeature, converted);
+    }
+
+    /**
+     * Sets the type (TypeDescription) on a BasicFeature using a pre-resolved TypeItem.
+     * <p>The TypeItem must have been resolved in a read transaction before entering
+     * the write transaction, then converted via {@code transaction.toTransactionObject()}.</p>
+     */
+    private void setAttributeType(BasicFeature feature, TypeItem preResolvedTypeItem,
+            IBmPlatformTransaction transaction) {
+        TypeItem txTypeItem = transaction.toTransactionObject(preResolvedTypeItem);
+        TypeDescription typeDesc = McoreFactory.eINSTANCE.createTypeDescription();
+        typeDesc.getTypes().add(txTypeItem);
+
+        String typeName = preResolvedTypeItem.getName();
+        if (isNumberType(typeName)) {
+            NumberQualifiers nq = McoreFactory.eINSTANCE.createNumberQualifiers();
+            nq.setPrecision(15);
+            nq.setScale(2);
+            typeDesc.setNumberQualifiers(nq);
+        } else if (isStringType(typeName)) {
+            StringQualifiers sq = McoreFactory.eINSTANCE.createStringQualifiers();
+            sq.setLength(150);
+            typeDesc.setStringQualifiers(sq);
+        } else if (isDateType(typeName)) {
+            DateQualifiers dq = McoreFactory.eINSTANCE.createDateQualifiers();
+            typeDesc.setDateQualifiers(dq);
+        }
+
+        feature.setType(typeDesc);
+    }
+
+    /**
+     * Resolves a TypeItem from BM by name match.
+     * <p>Must be called within a read transaction ({@link IBmTransaction}).</p>
+     */
+    private TypeItem resolveTypeItem(String typeString, IBmTransaction tx) {
+        String normalized = typeString.trim();
+        for (var it = tx.getTopObjectIterator(McorePackage.eINSTANCE.getType()); it.hasNext();) {
+            IBmObject obj = it.next();
+            if (obj instanceof TypeItem item) {
+                if (matchesTypeRef(item, normalized)) {
+                    return item;
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean matchesTypeRef(TypeItem item, String query) {
+        String name = item.getName();
+        String nameRu = item.getNameRu();
+        if (query.equalsIgnoreCase(name) || query.equalsIgnoreCase(nameRu)) {
+            return true;
+        }
+        if (name != null && name.contains(query)) {
+            return true;
+        }
+        if (nameRu != null && nameRu.contains(query)) {
+            return true;
+        }
+        return false;
+    }
+
+    private boolean isNumberType(String name) {
+        return name != null
+                && (name.equalsIgnoreCase("Number") || name.equalsIgnoreCase("Число")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private boolean isStringType(String name) {
+        return name != null
+                && (name.equalsIgnoreCase("String") || name.equalsIgnoreCase("Строка")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private boolean isDateType(String name) {
+        return name != null
+                && (name.equalsIgnoreCase("Date") || name.equalsIgnoreCase("Дата")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> extractSetMap(Map<String, Object> changes) {
+        Object setObj = changes.get("set"); //$NON-NLS-1$
+        if (setObj instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return null;
+    }
+
+    /**
+     * Collects all "type" string values from changes (top-level set and children_ops).
+     */
+    @SuppressWarnings("unchecked")
+    private Set<String> collectTypeStrings(Map<String, Object> changes) {
+        Set<String> typeStrings = new LinkedHashSet<>();
+        // Top-level set.type
+        Map<String, Object> setMap = extractSetMap(changes);
+        if (setMap != null) {
+            if (setMap.containsKey("type")) { //$NON-NLS-1$
+                String typeStr = String.valueOf(setMap.get("type")); //$NON-NLS-1$
+                if (typeStr != null && !typeStr.isBlank()) {
+                    typeStrings.add(typeStr);
+                }
+            }
+            // Also scan set values that are Maps containing "type"
+            // (auto-redirect case: {"set":{"AttrName":{"type":"CatalogRef.Foo"}}})
+            for (Object val : setMap.values()) {
+                if (val instanceof Map<?, ?> nestedMap) {
+                    Object nestedType = ((Map<String, Object>) nestedMap).get("type"); //$NON-NLS-1$
+                    if (nestedType != null) {
+                        String ts = String.valueOf(nestedType);
+                        if (!ts.isBlank()) {
+                            typeStrings.add(ts);
+                        }
+                    }
+                }
+            }
+        }
+        // children_ops[].set.type and children_ops[].changes.set.type
+        List<Map<String, Object>> childOps = asListOfMaps(changes.get("children_ops")); //$NON-NLS-1$
+        for (Map<String, Object> op : childOps) {
+            Object setObj = op.get("set"); //$NON-NLS-1$
+            if (setObj instanceof Map<?, ?> childSet) {
+                Object typeObj = ((Map<String, Object>) childSet).get("type"); //$NON-NLS-1$
+                if (typeObj != null) {
+                    String ts = String.valueOf(typeObj);
+                    if (!ts.isBlank()) {
+                        typeStrings.add(ts);
+                    }
+                }
+            }
+            Object changesObj = op.get("changes"); //$NON-NLS-1$
+            if (changesObj instanceof Map<?, ?> nestedChanges) {
+                typeStrings.addAll(collectTypeStrings((Map<String, Object>) nestedChanges));
+            }
+        }
+        return typeStrings;
+    }
+
+    private void unsetFeatureValue(MdObject target, String fieldName) {
+        if ("uuid".equalsIgnoreCase(fieldName)) { //$NON-NLS-1$
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Cannot unset required field: uuid", false); //$NON-NLS-1$
+        }
+        EStructuralFeature feature = target.eClass().getEStructuralFeature(fieldName);
+        if (feature == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Unknown metadata field: " + fieldName, false); //$NON-NLS-1$
+        }
+        if (feature.isDerived() || feature.isTransient() || feature.isVolatile()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Field cannot be unset: " + fieldName, false); //$NON-NLS-1$
+        }
+        if (feature instanceof EReference && feature.isMany()) {
+            Object raw = target.eGet(feature);
+            if (raw instanceof Collection<?> collection) {
+                collection.clear();
+                return;
+            }
+        }
+        target.eUnset(feature);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void applyReferenceValue(
+            Configuration configuration,
+            MdObject target,
+            EReference reference,
+            Object value
+    ) {
+        if (reference.isContainment()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Containment reference updates are not supported in set. Use children_ops/add_metadata_child: "
+                            + reference.getName(),
+                    false); //$NON-NLS-1$
+        }
+
+        if (reference.isMany()) {
+            Collection<Object> resolved = resolveReferenceValues(configuration, reference, value);
+            Object raw = target.eGet(reference);
+            if (raw instanceof Collection<?> current) {
+                Collection<Object> typed = (Collection<Object>) current;
+                typed.clear();
+                typed.addAll(resolved);
+                return;
+            }
+            target.eSet(reference, resolved);
+            return;
+        }
+
+        Object resolved = resolveSingleReferenceValue(configuration, reference, value);
+        target.eSet(reference, resolved);
+    }
+
+    private Collection<Object> resolveReferenceValues(
+            Configuration configuration,
+            EReference reference,
+            Object rawValue
+    ) {
+        List<?> source;
+        if (rawValue == null) {
+            source = List.of();
+        } else if (rawValue instanceof List<?> list) {
+            source = list;
+        } else {
+            source = List.of(rawValue);
+        }
+
+        List<Object> resolved = new ArrayList<>(source.size());
+        for (Object item : source) {
+            Object value = resolveSingleReferenceValue(configuration, reference, item);
+            if (value != null) {
+                resolved.add(value);
+            }
+        }
+        return resolved;
+    }
+
+    private Object resolveSingleReferenceValue(
+            Configuration configuration,
+            EReference reference,
+            Object rawValue
+    ) {
+        if (rawValue == null) {
+            return null;
+        }
+        if (rawValue instanceof EObject eObject) {
+            ensureReferenceTypeCompatible(reference, eObject, rawValue);
+            return eObject;
+        }
+
+        String fqn = extractReferenceFqn(rawValue);
+        if (fqn == null || fqn.isBlank()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Reference value must be metadata FQN or object with fqn/target_fqn for field: "
+                            + reference.getName(),
+                    false); //$NON-NLS-1$
+        }
+        MdObject resolved = resolveByFqn(configuration, fqn);
+        if (resolved == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.METADATA_NOT_FOUND,
+                    "Referenced metadata object not found: " + fqn,
+                    false); //$NON-NLS-1$
+        }
+        ensureReferenceTypeCompatible(reference, resolved, fqn);
+        return resolved;
+    }
+
+    private void ensureReferenceTypeCompatible(EReference reference, EObject resolved, Object sourceValue) {
+        if (!reference.getEReferenceType().isSuperTypeOf(resolved.eClass())) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Referenced object has incompatible type for field " + reference.getName() + ": " + sourceValue,
+                    false); //$NON-NLS-1$
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractReferenceFqn(Object rawValue) {
+        if (rawValue instanceof String str) {
+            return str;
+        }
+        if (rawValue instanceof Map<?, ?> map) {
+            Object fqn = map.get("fqn"); //$NON-NLS-1$
+            if (fqn == null) {
+                fqn = map.get("target_fqn"); //$NON-NLS-1$
+            }
+            return fqn == null ? null : String.valueOf(fqn);
+        }
+        return null;
+    }
+
+    private Object convertAttributeValue(EAttribute attribute, Object value) {
+        if (value == null) {
+            return null;
+        }
+
+        EDataType dataType = attribute.getEAttributeType();
+        Class<?> instanceClass = dataType != null ? dataType.getInstanceClass() : null;
+        if (instanceClass == null) {
+            return value;
+        }
+        if (instanceClass.isInstance(value)) {
+            return value;
+        }
+
+        String raw = String.valueOf(value);
+        try {
+            if (instanceClass == String.class) {
+                return raw;
+            }
+            if (instanceClass == Integer.class || instanceClass == int.class) {
+                return Integer.valueOf(raw);
+            }
+            if (instanceClass == Long.class || instanceClass == long.class) {
+                return Long.valueOf(raw);
+            }
+            if (instanceClass == Double.class || instanceClass == double.class) {
+                return Double.valueOf(raw);
+            }
+            if (instanceClass == Float.class || instanceClass == float.class) {
+                return Float.valueOf(raw);
+            }
+            if (instanceClass == Boolean.class || instanceClass == boolean.class) {
+                return Boolean.valueOf(raw);
+            }
+            if (instanceClass.isEnum()) {
+                Object[] constants = instanceClass.getEnumConstants();
+                if (constants != null) {
+                    for (Object constant : constants) {
+                        if (constant != null && raw.equalsIgnoreCase(String.valueOf(constant))) {
+                            return constant;
+                        }
+                    }
+                }
+            }
+            if (dataType instanceof EEnum eEnum) {
+                EEnumLiteral literal = eEnum.getEEnumLiteralByLiteral(raw);
+                if (literal == null) {
+                    literal = eEnum.getEEnumLiteral(raw);
+                }
+                if (literal == null) {
+                    for (EEnumLiteral candidate : eEnum.getELiterals()) {
+                        if (candidate != null && raw.equalsIgnoreCase(candidate.getName())) {
+                            literal = candidate;
+                            break;
+                        }
+                    }
+                }
+                if (literal != null) {
+                    return literal.getInstance();
+                }
+            }
+        } catch (RuntimeException e) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Invalid value for field " + attribute.getName() + ": " + raw, false, e); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+
+        throw new MetadataOperationException(
+                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                "Unsupported value type for field " + attribute.getName() + ": " + value, false); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private boolean hasNestedMetadataChildren(MdObject target) {
+        for (EStructuralFeature feature : target.eClass().getEAllStructuralFeatures()) {
+            if (!(feature instanceof EReference reference) || !reference.isContainment()) {
+                continue;
+            }
+            if (feature.isMany()) {
+                Object raw = target.eGet(feature);
+                if (raw instanceof Collection<?> collection && !collection.isEmpty()) {
+                    return true;
+                }
+                continue;
+            }
+            if (target.eGet(feature) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void removeMetadataObject(Configuration configuration, String fqn, MdObject target) {
+        if (isTopLevelFqn(fqn)) {
+            MetadataKind kind = metadataKindByFqn(fqn);
+            removeTopLevelObjectLinks(configuration, kind, target.getName());
+            return;
+        }
+        EObject container = target.eContainer();
+        EStructuralFeature containment = target.eContainmentFeature();
+        if (container == null || containment == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Cannot resolve container for metadata object: " + fqn, false); //$NON-NLS-1$
+        }
+        if (containment.isMany()) {
+            @SuppressWarnings("unchecked")
+            Collection<EObject> children = (Collection<EObject>) container.eGet(containment);
+            if (children != null) {
+                children.remove(target);
+            }
+        } else {
+            container.eSet(containment, null);
+        }
+    }
+
+    private MetadataKind metadataKindByFqn(String fqn) {
+        String[] parts = fqn != null ? fqn.split("\\.") : new String[0]; //$NON-NLS-1$
+        if (parts.length < 2) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_KIND,
+                    "Invalid metadata FQN: " + fqn, false); //$NON-NLS-1$
+        }
+        return MetadataKind.fromString(parts[0]);
+    }
+
+    private boolean isTopLevelFqn(String fqn) {
+        String[] parts = fqn != null ? fqn.split("\\.") : new String[0]; //$NON-NLS-1$
+        return parts.length == 2;
+    }
+
+    private String extractTopLevelFqn(String fqn) {
+        String[] parts = fqn != null ? fqn.split("\\.") : new String[0]; //$NON-NLS-1$
+        if (parts.length < 2) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.METADATA_NOT_FOUND,
+                    "Invalid metadata FQN: " + fqn, false); //$NON-NLS-1$
+        }
+        return parts[0] + "." + parts[1]; //$NON-NLS-1$
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> asMap(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return Collections.emptyMap();
+    }
+
+    private boolean asBoolean(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool.booleanValue();
+        }
+        if (value == null) {
+            return false;
+        }
+        return Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> asListOfMaps(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Object entry : list) {
+            if (entry instanceof Map<?, ?> map) {
+                result.add((Map<String, Object>) map);
+            }
+        }
+        return result;
     }
 
     private String normalizeToken(String value) {
@@ -1206,6 +2346,22 @@ public class EdtMetadataService {
         LOG.debug("[%s] Post-verify passed for FQN=%s", opId, fqn); //$NON-NLS-1$
     }
 
+    private void verifyObjectRemoved(IProject project, String fqn, String opId) {
+        IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
+        Configuration configuration = configurationProvider.getConfiguration(project);
+        boolean exists = executeRead(project, tx -> {
+            Configuration txConfiguration = tx.toTransactionObject(configuration);
+            return txConfiguration != null && resolveByFqn(txConfiguration, fqn) != null;
+        });
+        if (exists) {
+            LOG.error("[%s] Post-verify failed: object still exists by FQN=%s", opId, fqn); //$NON-NLS-1$
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Metadata object still exists after delete: " + fqn, true); //$NON-NLS-1$
+        }
+        LOG.debug("[%s] Post-verify remove passed for FQN=%s", opId, fqn); //$NON-NLS-1$
+    }
+
     private IProject requireProject(String projectName) {
         IProject project = gateway.resolveProject(projectName);
         if (project == null || !project.exists()) {
@@ -1307,5 +2463,14 @@ public class EdtMetadataService {
         @SuppressWarnings("unchecked")
         List<MdObject> mutable = (List<MdObject>) objects;
         mutable.removeIf(existing -> existing != null && name.equalsIgnoreCase(existing.getName()));
+    }
+
+    private record ModuleTarget(
+            String className,
+            String resourcePath,
+            String topKind,
+            String topName,
+            String formName
+    ) {
     }
 }

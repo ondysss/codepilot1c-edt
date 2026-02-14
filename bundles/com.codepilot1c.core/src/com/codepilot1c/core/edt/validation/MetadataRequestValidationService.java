@@ -9,12 +9,14 @@ import org.eclipse.core.resources.IProject;
 
 import com.codepilot1c.core.edt.metadata.AddMetadataChildRequest;
 import com.codepilot1c.core.edt.metadata.CreateMetadataRequest;
+import com.codepilot1c.core.edt.metadata.DeleteMetadataRequest;
 import com.codepilot1c.core.edt.metadata.EdtMetadataGateway;
 import com.codepilot1c.core.edt.metadata.MetadataChildKind;
 import com.codepilot1c.core.edt.metadata.MetadataKind;
 import com.codepilot1c.core.edt.metadata.MetadataOperationCode;
 import com.codepilot1c.core.edt.metadata.MetadataOperationException;
 import com.codepilot1c.core.edt.metadata.MetadataProjectReadinessChecker;
+import com.codepilot1c.core.edt.metadata.UpdateMetadataRequest;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
 
@@ -150,6 +152,38 @@ public class MetadataRequestValidationService {
         return payload;
     }
 
+    public Map<String, Object> normalizeUpdatePayload(
+            String projectName,
+            String targetFqn,
+            Map<String, Object> changes
+    ) {
+        UpdateMetadataRequest request = new UpdateMetadataRequest(projectName, targetFqn, changes);
+        request.validate();
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("project", projectName); //$NON-NLS-1$
+        payload.put("target_fqn", targetFqn); //$NON-NLS-1$
+        if (changes != null && !changes.isEmpty()) {
+            payload.put("changes", new LinkedHashMap<>(changes)); //$NON-NLS-1$
+        }
+        return payload;
+    }
+
+    public Map<String, Object> normalizeDeletePayload(
+            String projectName,
+            String targetFqn,
+            boolean recursive
+    ) {
+        DeleteMetadataRequest request = new DeleteMetadataRequest(projectName, targetFqn, recursive);
+        request.validate();
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("project", projectName); //$NON-NLS-1$
+        payload.put("target_fqn", targetFqn); //$NON-NLS-1$
+        payload.put("recursive", Boolean.valueOf(recursive)); //$NON-NLS-1$
+        return payload;
+    }
+
     private Map<String, Object> normalizePayload(ValidationRequest request, List<String> checks) {
         return switch (request.operation()) {
             case CREATE_METADATA -> {
@@ -173,6 +207,24 @@ public class MetadataRequestValidationService {
                         asOptionalString(request.payload().get("comment")), //$NON-NLS-1$
                         asMap(request.payload().get("properties"))); //$NON-NLS-1$
                 checks.add("Операция add_metadata_child валидирована по обязательным полям и имени."); //$NON-NLS-1$
+                yield payload;
+            }
+            case UPDATE_METADATA -> {
+                Map<String, Object> payload = normalizeUpdatePayload(
+                        coalesceProject(request.projectName(), request.payload()),
+                        asString(request.payload().get("target_fqn")), //$NON-NLS-1$
+                        asMap(request.payload().get("changes"))); //$NON-NLS-1$
+                checks.add("Операция update_metadata валидирована по обязательным полям."); //$NON-NLS-1$
+                yield payload;
+            }
+            case DELETE_METADATA -> {
+                Object recursiveObj = request.payload().get("recursive"); //$NON-NLS-1$
+                boolean recursive = recursiveObj instanceof Boolean b ? b.booleanValue() : Boolean.parseBoolean(String.valueOf(recursiveObj));
+                Map<String, Object> payload = normalizeDeletePayload(
+                        coalesceProject(request.projectName(), request.payload()),
+                        asString(request.payload().get("target_fqn")), //$NON-NLS-1$
+                        recursive);
+                checks.add("Операция delete_metadata валидирована по обязательным полям."); //$NON-NLS-1$
                 yield payload;
             }
         };
