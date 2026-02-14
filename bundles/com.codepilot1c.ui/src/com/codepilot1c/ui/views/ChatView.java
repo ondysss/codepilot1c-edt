@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
+import org.eclipse.core.runtime.preferences.IEclipsePreferences;
+import org.eclipse.core.runtime.preferences.InstanceScope;
 import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.ScrolledComposite;
@@ -40,6 +42,7 @@ import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
 import com.codepilot1c.core.rag.RagService;
+import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
@@ -73,6 +76,7 @@ public class ChatView extends ViewPart {
 
     /** Whether to use Browser-based rendering for chat messages */
     private static final boolean USE_BROWSER_RENDERING = true;
+    private static final String CORE_PLUGIN_ID = "com.codepilot1c.core"; //$NON-NLS-1$
 
     private ScrolledComposite scrolledComposite;
     private Composite messagesContainer;
@@ -820,7 +824,8 @@ public class ChatView extends ViewPart {
             ITool tool = registry.getTool(call.getName());
             executedCalls.add(call);
 
-            if (tool != null && (tool.requiresConfirmation() || tool.isDestructive())) {
+            boolean skipConfirmations = shouldSkipToolConfirmations();
+            if (!skipConfirmations && tool != null && (tool.requiresConfirmation() || tool.isDestructive())) {
                 // Need confirmation on UI thread
                 CompletableFuture<ToolResult> confirmedFuture = new CompletableFuture<>();
 
@@ -939,6 +944,11 @@ public class ChatView extends ViewPart {
 
                     return continueAfterToolCalls(toolCalls, allResults, provider, iteration, display);
                 });
+    }
+
+    private boolean shouldSkipToolConfirmations() {
+        IEclipsePreferences prefs = InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID);
+        return prefs.getBoolean(VibePreferenceConstants.PREF_AGENT_SKIP_TOOL_CONFIRMATIONS, false);
     }
 
     /**
@@ -1326,6 +1336,18 @@ public class ChatView extends ViewPart {
             case "list_files" -> "Список файлов"; //$NON-NLS-1$ //$NON-NLS-2$
             case "grep" -> "Поиск текста"; //$NON-NLS-1$ //$NON-NLS-2$
             case "search_codebase" -> "Поиск по коду"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "edt_content_assist" -> "EDT автодополнение"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "edt_find_references" -> "EDT поиск ссылок"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "edt_metadata_details" -> "EDT детали метаданных"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "get_platform_documentation" -> "Справка платформы"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "bsl_symbol_at_position" -> "BSL символ по позиции"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "bsl_type_at_position" -> "BSL тип по позиции"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "bsl_scope_members" -> "BSL элементы области"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "edt_validate_request" -> "Валидация запроса EDT"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "create_metadata" -> "Создание метаданных EDT"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "add_metadata_child" -> "Создание вложенных метаданных EDT"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "edt_trace_export" -> "Трейс экспорта EDT"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "edt_metadata_smoke" -> "Smoke метаданных EDT"; //$NON-NLS-1$ //$NON-NLS-2$
             default -> name;
         };
     }

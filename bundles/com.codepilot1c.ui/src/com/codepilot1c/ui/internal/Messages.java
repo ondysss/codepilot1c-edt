@@ -43,6 +43,7 @@ public class Messages extends NLS {
     public static String PreferencePage_TimeoutLabel;
     public static String PreferencePage_StreamingLabel;
     public static String PreferencePage_MaxIterationsLabel;
+    public static String PreferencePage_SkipToolConfirmationsLabel;
     public static String PreferencePage_TestConnectionButton;
     public static String PreferencePage_TestSuccess;
     public static String PreferencePage_TestFailed;

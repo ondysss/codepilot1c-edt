@@ -60,5 +60,11 @@ public class VibePreferencePage extends FieldEditorPreferencePage implements IWo
                 getFieldEditorParent());
         maxIterationsEditor.setValidRange(10, 500);
         addField(maxIterationsEditor);
+
+        // Allow dangerous mode: skip confirmation dialogs for tool execution
+        addField(new BooleanFieldEditor(
+                VibePreferenceConstants.PREF_AGENT_SKIP_TOOL_CONFIRMATIONS,
+                Messages.PreferencePage_SkipToolConfirmationsLabel,
+                getFieldEditorParent()));
     }
 }
