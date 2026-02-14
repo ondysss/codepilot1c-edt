@@ -4,6 +4,7 @@ import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IWorkspace;
 import org.eclipse.core.resources.ResourcesPlugin;
 
+import com._1c.g5.v8.bm.integration.IBmPlatformGlobalEditingContext;
 import com._1c.g5.v8.dt.core.platform.IBmModelManager;
 import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.core.platform.IDerivedDataManagerProvider;
@@ -59,11 +60,31 @@ public class EdtMetadataGateway {
         return service;
     }
 
+    public IBmPlatformGlobalEditingContext getGlobalEditingContext() {
+        IBmPlatformGlobalEditingContext service = getBmModelManager().getGlobalEditingContext();
+        if (service == null) {
+            throw serviceUnavailable("IBmPlatformGlobalEditingContext"); //$NON-NLS-1$
+        }
+        return service;
+    }
+
+    public void ensureValidationRuntimeAvailable() {
+        // Validation requires access to project/configuration/readiness services.
+        getConfigurationProvider();
+        getDtProjectManager();
+        getDerivedDataManagerProvider();
+    }
+
+    public void ensureMutationRuntimeAvailable() {
+        // Mutation requires BM transaction services in addition to validation baseline.
+        ensureValidationRuntimeAvailable();
+        getBmModelManager();
+        getGlobalEditingContext();
+    }
+
     public boolean isEdtAvailable() {
         try {
-            getBmModelManager();
-            getConfigurationProvider();
-            getDtProjectManager();
+            ensureMutationRuntimeAvailable();
             return true;
         } catch (MetadataOperationException e) {
             return false;

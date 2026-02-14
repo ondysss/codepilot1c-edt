@@ -15,11 +15,15 @@ import com.codepilot1c.core.edt.metadata.MetadataKind;
 import com.codepilot1c.core.edt.metadata.MetadataOperationCode;
 import com.codepilot1c.core.edt.metadata.MetadataOperationException;
 import com.codepilot1c.core.edt.metadata.MetadataProjectReadinessChecker;
+import com.codepilot1c.core.logging.LogSanitizer;
+import com.codepilot1c.core.logging.VibeLogger;
 
 /**
  * Pre-validates metadata mutation requests and issues one-time validation tokens.
  */
 public class MetadataRequestValidationService {
+
+    private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(MetadataRequestValidationService.class);
 
     private final EdtMetadataGateway gateway;
     private final MetadataProjectReadinessChecker readinessChecker;
@@ -40,31 +44,51 @@ public class MetadataRequestValidationService {
     }
 
     public ValidationResult validateAndIssueToken(ValidationRequest request) {
+        String opId = LogSanitizer.newId("validate-md"); //$NON-NLS-1$
+        long startedAt = System.currentTimeMillis();
+        LOG.info("[%s] validateAndIssueToken START operation=%s project=%s", // $NON-NLS-1$
+                opId, request.operation(), request.projectName());
+        LOG.debug("[%s] Raw validation payload: %s", opId, // $NON-NLS-1$
+                LogSanitizer.truncate(LogSanitizer.redactSecrets(String.valueOf(request.payload())), 4000));
         request.validate();
         ensureRuntimeReady(request.projectName());
 
         List<String> checks = new ArrayList<>();
         Map<String, Object> normalizedPayload = normalizePayload(request, checks);
+        LOG.debug("[%s] Normalized validation payload: %s", opId, // $NON-NLS-1$
+                LogSanitizer.truncate(LogSanitizer.redactSecrets(String.valueOf(normalizedPayload)), 4000));
         ValidationTokenStore.TokenIssue tokenIssue = tokenStore.issueToken(
                 request.operation(), request.projectName(), normalizedPayload);
+        LOG.info("[%s] Token issued in %s, expiresAt=%d", opId, // $NON-NLS-1$
+                LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),
+                tokenIssue.expiresAtEpochMs());
 
         return new ValidationResult(
                 true,
                 request.projectName(),
                 request.operation().getToolName(),
                 checks,
+                normalizedPayload,
                 tokenIssue.token(),
                 tokenIssue.expiresAtEpochMs());
     }
 
-    public void consumeToken(
+    public Map<String, Object> consumeToken(
             String token,
             ValidationOperation operation,
-            String projectName,
-            Map<String, Object> normalizedPayload
+            String projectName
     ) {
+        String opId = LogSanitizer.newId("consume-md"); //$NON-NLS-1$
+        long startedAt = System.currentTimeMillis();
+        LOG.info("[%s] consumeToken START operation=%s project=%s token=%s", // $NON-NLS-1$
+                opId, operation, projectName, LogSanitizer.truncate(token, 80));
         ensureRuntimeReady(projectName);
-        tokenStore.consumeToken(token, operation, projectName, normalizedPayload);
+        Map<String, Object> validatedPayload = tokenStore.consumeToken(token, operation, projectName);
+        LOG.debug("[%s] consumeToken validated payload: %s", opId, // $NON-NLS-1$
+                LogSanitizer.truncate(LogSanitizer.redactSecrets(String.valueOf(validatedPayload)), 4000));
+        LOG.info("[%s] consumeToken SUCCESS in %s", opId, // $NON-NLS-1$
+                LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt));
+        return validatedPayload;
     }
 
     public Map<String, Object> normalizeCreatePayload(
@@ -155,19 +179,20 @@ public class MetadataRequestValidationService {
     }
 
     private void ensureRuntimeReady(String projectName) {
-        if (!gateway.isEdtAvailable()) {
-            throw new MetadataOperationException(
-                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
-                    "EDT runtime services are unavailable", false); //$NON-NLS-1$
-        }
+        LOG.debug("ensureRuntimeReady(project=%s): checking EDT availability", projectName); //$NON-NLS-1$
+        gateway.ensureValidationRuntimeAvailable();
 
         IProject project = gateway.resolveProject(projectName);
+        LOG.debug("ensureRuntimeReady(project=%s): resolved project=%s", projectName, //$NON-NLS-1$
+                project != null ? project.getName() : "null"); //$NON-NLS-1$
         if (project == null || !project.exists()) {
             throw new MetadataOperationException(
                     MetadataOperationCode.PROJECT_NOT_FOUND,
                     "Project not found: " + projectName, false); //$NON-NLS-1$
         }
+        LOG.debug("ensureRuntimeReady(project=%s): checking derived-data readiness", projectName); //$NON-NLS-1$
         readinessChecker.ensureReady(project);
+        LOG.debug("ensureRuntimeReady(project=%s): READY", projectName); //$NON-NLS-1$
     }
 
     private String coalesceProject(String topLevelProject, Map<String, Object> payload) {
