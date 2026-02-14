@@ -54,6 +54,12 @@ mvn -B -V --no-transfer-progress clean verify
 - `repositories/` — p2 update site
 - `targets/` — target platform
 
+## Инженерные заметки (EDT API/BM)
+
+- `docs/reports/edt-api-patterns-retrospective-2026-02-14.md` — ретроспектива и рабочие паттерны по EDT BM/API (top-object контракт, export/sync инварианты, anti-patterns).
+- `docs/reports/edt-bm-model-investigation-2026-02-13.md` — исследование асинхронности `forceExport` и ограничений `waitModelSynchronization`.
+- `docs/reports/edt-metadata-uuid-export-runbook.md` — runbook по инциденту `uuid=null` при экспорте.
+
 ## Публикация на Infostart
 
 [![Infostart](https://infostart.ru/bitrix/templates/sandbox_empty/assets/tpl/abo/img/logo.svg)](https://infostart.ru/1c/articles/2613515/)
