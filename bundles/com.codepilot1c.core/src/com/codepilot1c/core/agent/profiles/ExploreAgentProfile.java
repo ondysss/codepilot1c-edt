@@ -51,7 +51,14 @@ public class ExploreAgentProfile implements AgentProfile {
             "glob",
             "grep",
             "list_files",
-            "search_codebase"
+            "search_codebase",
+            "edt_content_assist",
+            "edt_find_references",
+            "edt_metadata_details",
+            "bsl_symbol_at_position",
+            "bsl_type_at_position",
+            "bsl_scope_members",
+            "get_platform_documentation"
     ));
 
     @Override
@@ -82,7 +89,14 @@ public class ExploreAgentProfile implements AgentProfile {
                 PermissionRule.allow("glob").forAllResources(),
                 PermissionRule.allow("grep").forAllResources(),
                 PermissionRule.allow("list_files").forAllResources(),
-                PermissionRule.allow("search_codebase").forAllResources()
+                PermissionRule.allow("search_codebase").forAllResources(),
+                PermissionRule.allow("edt_content_assist").forAllResources(),
+                PermissionRule.allow("edt_find_references").forAllResources(),
+                PermissionRule.allow("edt_metadata_details").forAllResources(),
+                PermissionRule.allow("bsl_symbol_at_position").forAllResources(),
+                PermissionRule.allow("bsl_type_at_position").forAllResources(),
+                PermissionRule.allow("bsl_scope_members").forAllResources(),
+                PermissionRule.allow("get_platform_documentation").forAllResources()
         );
     }
 
@@ -109,7 +123,9 @@ public class ExploreAgentProfile implements AgentProfile {
                 // релевантный код
                 ```
 
-                Доступные инструменты: read_file, glob, grep, list_files, search_codebase.
+                Доступные инструменты: read_file, glob, grep, list_files, search_codebase,
+                edt_content_assist, edt_find_references, edt_metadata_details,
+                bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, get_platform_documentation.
                 """;
         return PromptProviderRegistry.getInstance().getSystemPromptAddition(getId(), defaultPrompt);
     }
