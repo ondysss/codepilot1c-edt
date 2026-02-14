@@ -1,5 +1,6 @@
 package com.codepilot1c.core.edt.validation;
 
+import java.util.Map;
 import java.util.List;
 
 /**
@@ -10,6 +11,7 @@ public record ValidationResult(
         String project,
         String operation,
         List<String> checks,
+        Map<String, Object> normalizedPayload,
         String validationToken,
         long expiresAtEpochMs
 ) {

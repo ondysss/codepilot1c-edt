@@ -12,6 +12,8 @@
 .classpath
 .settings/
 .DS_Store
-
+docs/*
 # Local notes
 OSS_SUMMARY.md
+AGENTS.md
+

@@ -8,14 +8,11 @@
 package com.codepilot1c.core.tools;
 
 import java.io.ByteArrayInputStream;
-import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import org.eclipse.core.resources.IFile;
-import org.eclipse.core.resources.IFolder;
-import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.resources.ResourcesPlugin;
@@ -28,17 +25,17 @@ import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
 
 /**
- * Инструмент создания новых файлов.
+ * Инструмент записи в существующие файлы.
  *
- * <p>Создает новые файлы в workspace. Для редактирования существующих
- * файлов используйте edit_file.</p>
+ * <p>Используется только для изменения существующих файлов в workspace.
+ * Создание новых файлов через этот инструмент запрещено.</p>
  *
  * <p>Особенности:</p>
  * <ul>
- *   <li>Создает родительские директории автоматически</li>
+ *   <li>Не создает новые файлы и директории</li>
  *   <li>Поддерживает UTF-8 кодировку</li>
  *   <li>Работает только в пределах workspace (безопасность)</li>
- *   <li>Может перезаписывать существующие файлы (с подтверждением)</li>
+ *   <li>Перезаписывает существующие файлы (с overwrite=true)</li>
  * </ul>
  */
 public class WriteTool implements ITool {
@@ -52,7 +49,7 @@ public class WriteTool implements ITool {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Path for the new file (workspace-relative)"
+                        "description": "Path to an existing file (workspace-relative)"
                     },
                     "content": {
                         "type": "string",
@@ -74,8 +71,10 @@ public class WriteTool implements ITool {
 
     @Override
     public String getDescription() {
-        return "Создает новый файл с указанным содержимым. Путь должен быть " +
+        return "Записывает содержимое в существующий файл. Путь должен быть " +
                "относительным к workspace (например, 'project/src/Module.bsl'). " +
+               "Создание новых файлов запрещено: сначала создайте объект метаданных через create_metadata/add_metadata_child, " +
+               "после чего редактируйте уже созданные модульные файлы. " +
                "⚠️ ЗАПРЕЩЕНО использовать для создания объектов метаданных 1С (.mdo файлов)! " +
                "Для справочников, документов, регистров и др. ОБЯЗАТЕЛЬНО используйте " +
                "инструменты create_metadata (top-level) и add_metadata_child (вложенные объекты).";
@@ -111,84 +110,78 @@ public class WriteTool implements ITool {
 
             boolean overwrite = Boolean.TRUE.equals(parameters.get("overwrite"));
 
+            if (!overwrite) {
+                return ToolResult.failure(
+                        "write_file разрешен только для перезаписи существующих файлов. " +
+                        "Укажите overwrite=true.");
+            }
+
             try {
-                return writeFile(pathStr, content, overwrite);
+                return writeFile(pathStr, content);
             } catch (CoreException e) {
                 logError("Ошибка создания файла", e);
-                return ToolResult.failure("Ошибка создания файла: " + e.getMessage());
+                return ToolResult.failure("Ошибка записи файла: " + e.getMessage());
             }
         });
     }
 
     /**
-     * Создает файл с указанным содержимым.
+     * Записывает содержимое в существующий файл.
      */
-    private ToolResult writeFile(String pathStr, String content, boolean overwrite)
+    private ToolResult writeFile(String pathStr, String content)
             throws CoreException {
 
         // Normalize path
         String normalizedPath = normalizePath(pathStr);
 
-        // КРИТИЧНО: Проверяем попытку создать MDO файл напрямую
-        if (normalizedPath != null && normalizedPath.endsWith(".mdo") //$NON-NLS-1$
-                && !normalizedPath.contains("Configuration.mdo")) { //$NON-NLS-1$
+        // КРИТИЧНО: Любое прямое редактирование metadata descriptor (.mdo) запрещено.
+        if (isMetadataDescriptorPath(normalizedPath)) {
             logWarning("═══════════════════════════════════════════════════════════════");
-            logWarning("[WRITE_FILE] ✗ ЗАБЛОКИРОВАНО: Попытка создать .mdo файл напрямую!");
+            logWarning("[WRITE_FILE] ✗ ЗАБЛОКИРОВАНО: Попытка редактировать .mdo файл напрямую!");
             logWarning("[WRITE_FILE] Путь: " + normalizedPath);
             logWarning("[WRITE_FILE] Размер контента: " + (content != null ? content.length() : 0) + " символов");
-            logWarning("[WRITE_FILE] РЕШЕНИЕ: Используйте create_metadata для создания объектов метаданных");
+            logWarning("[WRITE_FILE] РЕШЕНИЕ: Используйте create_metadata/add_metadata_child для изменения метаданных");
             logWarning("═══════════════════════════════════════════════════════════════");
             return ToolResult.failure(
-                    "❌ ОШИБКА: Нельзя создавать .mdo файлы метаданных напрямую через write_file!\n\n" +
-                    "Используйте инструмент **create_metadata** для создания объектов метаданных.\n" +
+                    "❌ ОШИБКА: Нельзя редактировать .mdo файлы метаданных напрямую через write_file!\n\n" +
+                    "Используйте инструмент **create_metadata** для создания top-level объектов метаданных.\n" +
                     "Для табличных частей и реквизитов табличных частей используйте **add_metadata_child**.\n" +
-                    "Это необходимо, чтобы объект был автоматически добавлен в Configuration.mdo.\n\n" +
+                    "Это необходимо, чтобы изменения проходили через штатный BM API EDT.\n\n" +
                     "Пример: create_metadata(kind=\"Catalog\", name=\"Контрагенты\", synonym=\"Контрагенты\")");
         }
 
         // Get workspace
         IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
 
-        // Find or create file
+        // Find file handle
         IFile file = findOrCreateFile(root, normalizedPath);
         if (file == null) {
-            return ToolResult.failure("Не удалось создать файл: " + pathStr);
+            return ToolResult.failure("Не удалось получить файл: " + pathStr);
         }
 
-        // Check if file exists
-        if (file.exists() && !overwrite) {
+        if (!file.exists()) {
             return ToolResult.failure(
-                    "Файл уже существует: " + file.getFullPath() +
-                    ". Используйте overwrite=true для перезаписи или edit_file для редактирования.");
+                    "Создание новых файлов через write_file запрещено: " + file.getFullPath() + ". " +
+                    "Используйте create_metadata/add_metadata_child для метаданных и edit_file для редактирования существующих модулей.");
         }
-
-        // Ensure parent folders exist
-        ensureParentExists(file);
 
         // Write content
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
         ByteArrayInputStream source = new ByteArrayInputStream(bytes);
 
-        if (file.exists()) {
-            file.setContents(source, IResource.FORCE, new NullProgressMonitor());
-        } else {
-            file.create(source, IResource.FORCE, new NullProgressMonitor());
-        }
+        file.setContents(source, IResource.FORCE, new NullProgressMonitor());
 
         // Refresh
         file.refreshLocal(IResource.DEPTH_ZERO, new NullProgressMonitor());
 
         // Build result
         StringBuilder result = new StringBuilder();
-        result.append("**Файл создан:** `").append(file.getFullPath()).append("`\n");
+        result.append("**Файл обновлен:** `").append(file.getFullPath()).append("`\n");
         result.append("**Размер:** ").append(bytes.length).append(" байт\n");
         result.append("**Строк:** ").append(countLines(content)).append("\n");
+        result.append("**Статус:** перезаписан");
 
-        if (file.exists()) {
-            result.append("**Статус:** ").append(overwrite ? "перезаписан" : "создан");
-        }
-
-        logInfo("Файл создан: " + file.getFullPath());
+        logInfo("Файл обновлен: " + file.getFullPath());
 
         return ToolResult.success(result.toString(), ToolResult.ToolResultType.TEXT);
     }
@@ -228,47 +221,6 @@ public class WriteTool implements ITool {
     }
 
     /**
-     * Создает родительские директории если нужно.
-     */
-    private void ensureParentExists(IFile file) throws CoreException {
-        IResource parent = file.getParent();
-
-        if (parent instanceof IFolder) {
-            ensureFolderExists((IFolder) parent);
-        } else if (parent instanceof IProject) {
-            IProject project = (IProject) parent;
-            if (!project.exists()) {
-                project.create(new NullProgressMonitor());
-                project.open(new NullProgressMonitor());
-            }
-        }
-    }
-
-    /**
-     * Рекурсивно создает папки.
-     */
-    private void ensureFolderExists(IFolder folder) throws CoreException {
-        if (folder.exists()) {
-            return;
-        }
-
-        // First ensure parent exists
-        IResource parent = folder.getParent();
-        if (parent instanceof IFolder) {
-            ensureFolderExists((IFolder) parent);
-        } else if (parent instanceof IProject) {
-            IProject project = (IProject) parent;
-            if (!project.exists()) {
-                project.create(new NullProgressMonitor());
-                project.open(new NullProgressMonitor());
-            }
-        }
-
-        // Create this folder
-        folder.create(IResource.FORCE, true, new NullProgressMonitor());
-    }
-
-    /**
      * Подсчитывает количество строк.
      */
     private int countLines(String content) {
@@ -276,6 +228,14 @@ public class WriteTool implements ITool {
             return 0;
         }
         return content.split("\r\n|\r|\n", -1).length;
+    }
+
+    private boolean isMetadataDescriptorPath(String normalizedPath) {
+        if (normalizedPath == null) {
+            return false;
+        }
+        String lower = normalizedPath.toLowerCase(java.util.Locale.ROOT);
+        return lower.endsWith(".mdo"); //$NON-NLS-1$
     }
 
     private void logInfo(String message) {

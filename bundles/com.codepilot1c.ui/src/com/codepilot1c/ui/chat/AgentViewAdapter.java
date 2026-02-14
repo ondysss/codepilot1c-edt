@@ -10,6 +10,8 @@ package com.codepilot1c.ui.chat;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
+import org.eclipse.core.runtime.preferences.IEclipsePreferences;
+import org.eclipse.core.runtime.preferences.InstanceScope;
 import org.eclipse.swt.widgets.Display;
 
 import com.codepilot1c.core.agent.AgentConfig;
@@ -29,6 +31,7 @@ import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
+import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.ui.dialogs.ToolConfirmationDialog;
 
@@ -47,6 +50,8 @@ import com.codepilot1c.ui.dialogs.ToolConfirmationDialog;
  * </pre>
  */
 public class AgentViewAdapter implements IAgentEventListener {
+
+    private static final String CORE_PLUGIN_ID = "com.codepilot1c.core"; //$NON-NLS-1$
 
     private final Display display;
     private AgentRunner currentRunner;
@@ -281,6 +286,11 @@ public class AgentViewAdapter implements IAgentEventListener {
     }
 
     private void handleConfirmation(ConfirmationRequiredEvent event) {
+        if (shouldSkipToolConfirmations()) {
+            event.confirm();
+            return;
+        }
+
         asyncExec(() -> {
             if (confirmationHandler != null) {
                 confirmationHandler.requestConfirmation(event);
@@ -311,6 +321,11 @@ public class AgentViewAdapter implements IAgentEventListener {
         } else {
             event.deny();
         }
+    }
+
+    private boolean shouldSkipToolConfirmations() {
+        IEclipsePreferences prefs = InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID);
+        return prefs.getBoolean(VibePreferenceConstants.PREF_AGENT_SKIP_TOOL_CONFIRMATIONS, false);
     }
 
     private void handleCompleted(AgentCompletedEvent event) {
@@ -365,6 +380,18 @@ public class AgentViewAdapter implements IAgentEventListener {
             case "grep" -> "Поиск текста";
             case "shell" -> "Команда оболочки";
             case "search_codebase" -> "Семантический поиск";
+            case "edt_content_assist" -> "EDT автодополнение";
+            case "edt_find_references" -> "EDT поиск ссылок";
+            case "edt_metadata_details" -> "EDT детали метаданных";
+            case "get_platform_documentation" -> "Справка платформы";
+            case "bsl_symbol_at_position" -> "BSL символ по позиции";
+            case "bsl_type_at_position" -> "BSL тип по позиции";
+            case "bsl_scope_members" -> "BSL элементы области";
+            case "edt_validate_request" -> "Валидация запроса EDT";
+            case "create_metadata" -> "Создание метаданных EDT";
+            case "add_metadata_child" -> "Создание вложенных метаданных EDT";
+            case "edt_trace_export" -> "Трейс экспорта EDT";
+            case "edt_metadata_smoke" -> "Smoke метаданных EDT";
             case "task" -> "Подзадача";
             default -> name;
         };

@@ -380,8 +380,14 @@ public class EdtPlatformDocumentationService {
 
     private String safeFqn(Type type) {
         if (type instanceof IBmObject bmObject) {
-            String fqn = bmObject.bmGetFqn();
-            return fqn != null ? fqn : ""; //$NON-NLS-1$
+            IBmObject top = bmObject;
+            if (!top.bmIsTop()) {
+                top = top.bmGetTopObject();
+            }
+            if (top != null) {
+                String fqn = top.bmGetFqn();
+                return fqn != null ? fqn : ""; //$NON-NLS-1$
+            }
         }
         return ""; //$NON-NLS-1$
     }

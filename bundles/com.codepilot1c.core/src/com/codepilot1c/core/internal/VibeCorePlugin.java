@@ -38,6 +38,7 @@ public class VibeCorePlugin extends Plugin {
 
     private static VibeCorePlugin plugin;
     private static ILog logger;
+    private static final long EDT_SERVICE_WAIT_MS = 5000L;
     private HttpClientFactory httpClientFactory;
     private ServiceTracker<IConfigurationProvider, IConfigurationProvider> configurationProviderTracker;
     private ServiceTracker<IBmModelManager, IBmModelManager> bmModelManagerTracker;
@@ -173,23 +174,44 @@ public class VibeCorePlugin extends Plugin {
     }
 
     public IConfigurationProvider getConfigurationProvider() {
-        return configurationProviderTracker != null ? configurationProviderTracker.getService() : null;
+        return getTrackedService(configurationProviderTracker, "IConfigurationProvider"); //$NON-NLS-1$
     }
 
     public IBmModelManager getBmModelManager() {
-        return bmModelManagerTracker != null ? bmModelManagerTracker.getService() : null;
+        return getTrackedService(bmModelManagerTracker, "IBmModelManager"); //$NON-NLS-1$
     }
 
     public IDtProjectManager getDtProjectManager() {
-        return dtProjectManagerTracker != null ? dtProjectManagerTracker.getService() : null;
+        return getTrackedService(dtProjectManagerTracker, "IDtProjectManager"); //$NON-NLS-1$
     }
 
     public IDerivedDataManagerProvider getDerivedDataManagerProvider() {
-        return derivedDataManagerProviderTracker != null ? derivedDataManagerProviderTracker.getService() : null;
+        return getTrackedService(derivedDataManagerProviderTracker, "IDerivedDataManagerProvider"); //$NON-NLS-1$
     }
 
     public BmAwareResourceSetProvider getResourceSetProvider() {
-        return resourceSetProviderTracker != null ? resourceSetProviderTracker.getService() : null;
+        return getTrackedService(resourceSetProviderTracker, "BmAwareResourceSetProvider"); //$NON-NLS-1$
+    }
+
+    private <T> T getTrackedService(ServiceTracker<T, T> tracker, String serviceName) {
+        if (tracker == null) {
+            return null;
+        }
+        T service = tracker.getService();
+        if (service != null) {
+            return service;
+        }
+        try {
+            service = tracker.waitForService(EDT_SERVICE_WAIT_MS);
+            if (service == null) {
+                logWarn("EDT service not available after wait: " + serviceName); //$NON-NLS-1$
+            }
+            return service;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logWarn("Interrupted while waiting for EDT service: " + serviceName, e); //$NON-NLS-1$
+            return null;
+        }
     }
 
     /**

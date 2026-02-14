@@ -49,6 +49,7 @@ public class VibePreferenceInitializer extends AbstractPreferenceInitializer {
         // Agent settings
         defaults.putInt(VibePreferenceConstants.PREF_MAX_TOOL_ITERATIONS,
                 VibePreferenceConstants.DEFAULT_MAX_TOOL_ITERATIONS);
+        defaults.putBoolean(VibePreferenceConstants.PREF_AGENT_SKIP_TOOL_CONFIRMATIONS, false);
 
         // Embedding defaults - use auto-detection for zero-config experience
         defaults.put(VibePreferenceConstants.PREF_EMBEDDING_PROVIDER_ID,
