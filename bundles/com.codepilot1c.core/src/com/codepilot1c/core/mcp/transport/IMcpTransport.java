@@ -10,6 +10,7 @@ package com.codepilot1c.core.mcp.transport;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import com.codepilot1c.core.mcp.model.McpMessage;
 
@@ -67,4 +68,31 @@ public interface IMcpTransport extends AutoCloseable {
      * @param handler the notification handler
      */
     void setNotificationHandler(Consumer<McpMessage> handler);
+
+    /**
+     * Sets the handler for server requests (messages with method and id).
+     *
+     * @param handler request handler that returns JSON-RPC response message
+     */
+    default void setRequestHandler(Function<McpMessage, CompletableFuture<McpMessage>> handler) {
+        // Optional for transports.
+    }
+
+    /**
+     * Optional transport-specific session initialization hook.
+     *
+     * @return completed future when session initialization is done
+     */
+    default CompletableFuture<Void> initializeSession() {
+        return CompletableFuture.completedFuture(null);
+    }
+
+    /**
+     * Optional transport-specific graceful shutdown hook.
+     *
+     * @return completed future when shutdown is done
+     */
+    default CompletableFuture<Void> shutdown() {
+        return CompletableFuture.completedFuture(null);
+    }
 }

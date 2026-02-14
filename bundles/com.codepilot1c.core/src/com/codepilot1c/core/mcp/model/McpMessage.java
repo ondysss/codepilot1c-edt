@@ -129,6 +129,15 @@ public class McpMessage {
     }
 
     /**
+     * Sets the message ID with raw JSON-RPC type.
+     *
+     * @param id the ID (String or Number)
+     */
+    public void setRawId(Object id) {
+        this.id = id;
+    }
+
+    /**
      * Returns the raw ID object (can be String or Number).
      *
      * @return the raw ID object

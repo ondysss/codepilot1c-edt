@@ -68,9 +68,6 @@ public class ChatView extends ViewPart {
     /** View ID - alias for ID for backwards compatibility */
     public static final String VIEW_ID = ID;
 
-    /** Maximum number of tool call iterations to prevent infinite loops */
-    private static final int MAX_TOOL_ITERATIONS = 30;
-
     /** Whether to enable tool calling (can be toggled) */
     private boolean toolsEnabled = true;
 
@@ -661,6 +658,7 @@ public class ChatView extends ViewPart {
      */
     private CompletableFuture<String> handleResponseWithTools(
             LlmResponse response, ILlmProvider provider, int iteration) {
+        final int maxToolIterations = getMaxToolIterations();
 
         LOG.debug("handleResponseWithTools: iteration=%d, hasToolCalls=%b, finishReason=%s", //$NON-NLS-1$
                 iteration, response.hasToolCalls(), response.getFinishReason());
@@ -668,22 +666,22 @@ public class ChatView extends ViewPart {
         final Display display = getDisplay();
 
         // Check for tool calls
-        if (response.hasToolCalls() && iteration < MAX_TOOL_ITERATIONS) {
+        if (response.hasToolCalls() && iteration < maxToolIterations) {
             LOG.debug("handleResponseWithTools: processing %d tool calls", response.getToolCalls().size()); //$NON-NLS-1$
             // Process tool calls
             return processToolCalls(response, provider, iteration, display);
         }
 
         // Check if we hit max iterations limit
-        if (response.hasToolCalls() && iteration >= MAX_TOOL_ITERATIONS) {
-            LOG.warn("handleResponseWithTools: max iterations (%d) reached, stopping tool loop", MAX_TOOL_ITERATIONS); //$NON-NLS-1$
+        if (response.hasToolCalls() && iteration >= maxToolIterations) {
+            LOG.warn("handleResponseWithTools: max iterations (%d) reached, stopping tool loop", maxToolIterations); //$NON-NLS-1$
             // Show warning to user
             if (!display.isDisposed()) {
                 display.asyncExec(() -> {
                     if (!isDisposed()) {
                         appendSystemMessage(String.format(
                             "⚠️ Достигнут лимит итераций (%d). Агент остановлен для предотвращения бесконечного цикла.", //$NON-NLS-1$
-                            MAX_TOOL_ITERATIONS));
+                            maxToolIterations));
                     }
                 });
             }
@@ -949,6 +947,13 @@ public class ChatView extends ViewPart {
     private boolean shouldSkipToolConfirmations() {
         IEclipsePreferences prefs = InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID);
         return prefs.getBoolean(VibePreferenceConstants.PREF_AGENT_SKIP_TOOL_CONFIRMATIONS, false);
+    }
+
+    private int getMaxToolIterations() {
+        IEclipsePreferences prefs = InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID);
+        return prefs.getInt(
+                VibePreferenceConstants.PREF_MAX_TOOL_ITERATIONS,
+                VibePreferenceConstants.DEFAULT_MAX_TOOL_ITERATIONS);
     }
 
     /**

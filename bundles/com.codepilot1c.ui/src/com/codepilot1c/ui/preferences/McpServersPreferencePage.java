@@ -250,12 +250,16 @@ public class McpServersPreferencePage extends PreferencePage implements IWorkben
                 case 1:
                     return config.getName();
                 case 2:
-                    String cmd = config.getCommand();
-                    List<String> args = config.getArgs();
-                    if (!args.isEmpty()) {
-                        cmd += " " + String.join(" ", args);
+                    if (config.getTransportType() == McpServerConfig.TransportType.STDIO) {
+                        String cmd = config.getCommand();
+                        List<String> args = config.getArgs();
+                        if (!args.isEmpty()) {
+                            cmd += " " + String.join(" ", args);
+                        }
+                        return cmd;
                     }
-                    return cmd;
+                    String url = config.getRemoteUrl() != null ? config.getRemoteUrl() : "";
+                    return config.getTransportType().name() + ": " + url;
                 case 3:
                     return getStatusText(config);
                 default:
@@ -267,6 +271,11 @@ public class McpServersPreferencePage extends PreferencePage implements IWorkben
             McpServerState state = McpServerManager.getInstance().getServerState(config.getId());
             switch (state) {
                 case RUNNING:
+                    var client = McpServerManager.getInstance().getClient(config.getId());
+                    if (client != null && client.getNegotiatedProtocolVersion() != null) {
+                        return Messages.McpServersPreferencePage_StatusRunning
+                            + " (" + client.getNegotiatedProtocolVersion() + ")"; //$NON-NLS-1$ //$NON-NLS-2$
+                    }
                     return Messages.McpServersPreferencePage_StatusRunning;
                 case STARTING:
                     return Messages.McpServersPreferencePage_StatusStarting;

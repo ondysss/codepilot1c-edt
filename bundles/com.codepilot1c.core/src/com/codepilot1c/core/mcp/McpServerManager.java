@@ -7,7 +7,6 @@
  */
 package com.codepilot1c.core.mcp;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -25,7 +24,7 @@ import com.codepilot1c.core.mcp.config.McpServerConfigStore;
 import com.codepilot1c.core.mcp.model.McpServerState;
 import com.codepilot1c.core.mcp.model.McpTool;
 import com.codepilot1c.core.mcp.transport.IMcpTransport;
-import com.codepilot1c.core.mcp.transport.McpStdioTransport;
+import com.codepilot1c.core.mcp.transport.McpTransportFactory;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
 
@@ -46,6 +45,7 @@ public class McpServerManager {
     private final Map<String, String> serverErrors = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<McpClient>> startingServers = new ConcurrentHashMap<>();
     private final List<IMcpServerListener> listeners = new CopyOnWriteArrayList<>();
+    private final McpTransportFactory transportFactory = new McpTransportFactory();
 
     /**
      * Returns the singleton instance.
@@ -103,7 +103,12 @@ public class McpServerManager {
         notifyStateChanged(config, McpServerState.STARTING);
 
         IMcpTransport transport = createTransport(config);
-        McpClient client = new McpClient(config.getName(), transport);
+        McpClient client = new McpClient(
+            config.getName(),
+            transport,
+            config.getPreferredProtocolVersion(),
+            config.getSupportedProtocolVersions()
+        );
 
         CompletableFuture<McpClient> startFuture = CompletableFuture
             .runAsync(() -> {
@@ -233,18 +238,7 @@ public class McpServerManager {
     }
 
     private IMcpTransport createTransport(McpServerConfig config) {
-        if (config.getTransportType() == McpServerConfig.TransportType.STDIO) {
-            return new McpStdioTransport(
-                config.getCommand(),
-                config.getArgs(),
-                config.getEnv(),
-                config.getWorkingDirectory() != null ?
-                    new File(config.getWorkingDirectory()) : null,
-                config.getRequestTimeoutMs()
-            );
-        } else {
-            throw new UnsupportedOperationException("HTTP transport not yet implemented");
-        }
+        return transportFactory.create(config);
     }
 
     private void registerToolsFromServer(String serverId, McpClient client) {

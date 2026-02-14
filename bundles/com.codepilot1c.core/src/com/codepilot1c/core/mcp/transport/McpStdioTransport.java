@@ -24,6 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.mcp.model.McpError;
@@ -59,6 +60,7 @@ public class McpStdioTransport implements IMcpTransport {
     private final Map<String, CompletableFuture<McpMessage>> pendingRequests = new ConcurrentHashMap<>();
     private final AtomicLong requestIdCounter = new AtomicLong(1);
     private Consumer<McpMessage> notificationHandler;
+    private Function<McpMessage, CompletableFuture<McpMessage>> requestHandler;
 
     private final Gson gson = new GsonBuilder().create();
 
@@ -170,10 +172,47 @@ public class McpStdioTransport implements IMcpTransport {
                 notificationHandler.accept(message);
             }
         } else if (message.isRequest()) {
-            // Server request (has both id and method) - we don't support server->client requests yet
-            // Reply with "method not found" error
+            handleServerRequest(message);
+        }
+    }
+
+    private void handleServerRequest(McpMessage message) {
+        Function<McpMessage, CompletableFuture<McpMessage>> handler = requestHandler;
+        if (handler == null) {
             LOG.warn("Received unsupported server request: %s", message.getMethod());
             sendErrorResponse(message.getId(), -32601, "Method not found: " + message.getMethod());
+            return;
+        }
+        handler.apply(message)
+            .thenAccept(response -> {
+                if (response == null) {
+                    sendErrorResponse(message.getId(), -32603, "Request handler returned null response");
+                    return;
+                }
+                Object rawId = message.getRawId();
+                if (rawId != null) {
+                    response.setRawId(rawId);
+                } else {
+                    response.setId(message.getId());
+                }
+                sendResponse(response);
+            })
+            .exceptionally(e -> {
+                sendErrorResponse(message.getId(), -32603, "Request handler failed: " + e.getMessage());
+                return null;
+            });
+    }
+
+    private void sendResponse(McpMessage response) {
+        try {
+            String json = gson.toJson(response);
+            synchronized (stdin) {
+                stdin.write(json);
+                stdin.newLine();
+                stdin.flush();
+            }
+        } catch (IOException e) {
+            LOG.warn("Failed to send response", e);
         }
     }
 
@@ -320,6 +359,11 @@ public class McpStdioTransport implements IMcpTransport {
     @Override
     public void setNotificationHandler(Consumer<McpMessage> handler) {
         this.notificationHandler = handler;
+    }
+
+    @Override
+    public void setRequestHandler(Function<McpMessage, CompletableFuture<McpMessage>> handler) {
+        this.requestHandler = handler;
     }
 
     /**

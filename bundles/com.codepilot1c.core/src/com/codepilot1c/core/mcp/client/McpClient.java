@@ -7,14 +7,15 @@
  */
 package com.codepilot1c.core.mcp.client;
 
-import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 
 import com.codepilot1c.core.logging.VibeLogger;
+import com.codepilot1c.core.mcp.model.McpContent;
 import com.codepilot1c.core.mcp.model.McpMessage;
 import com.codepilot1c.core.mcp.model.McpPrompt;
 import com.codepilot1c.core.mcp.model.McpPromptResult;
@@ -28,23 +29,26 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.reflect.TypeToken;
 
 /**
  * High-level MCP client for communicating with MCP servers.
- *
- * <p>This client handles the MCP protocol handshake and provides
- * methods for discovering and invoking tools, resources, and prompts.</p>
  */
 public class McpClient implements AutoCloseable {
 
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(McpClient.class);
-    private static final String PROTOCOL_VERSION = "2024-11-05";
-    private static final String CLIENT_NAME = "1C Copilot";
-    private static final String CLIENT_VERSION = "1.3.0";
+    private static final String CLIENT_NAME = "1C Copilot"; //$NON-NLS-1$
+    private static final String CLIENT_VERSION = "1.3.0"; //$NON-NLS-1$
+    private static final List<String> DEFAULT_PROTOCOL_VERSIONS = List.of(
+        "2025-11-25", //$NON-NLS-1$
+        "2025-06-18", //$NON-NLS-1$
+        "2024-11-05" //$NON-NLS-1$
+    );
 
     private final IMcpTransport transport;
     private final String serverName;
+    private final List<String> supportedProtocolVersions;
+    private String preferredProtocolVersion;
+    private String negotiatedProtocolVersion;
     private McpServerCapabilities serverCapabilities;
     private List<McpTool> tools = new ArrayList<>();
     private List<McpResource> resources = new ArrayList<>();
@@ -54,17 +58,38 @@ public class McpClient implements AutoCloseable {
 
     // Listener for tools list changes (e.g., for re-registering in ToolRegistry)
     private java.util.function.Consumer<List<McpTool>> toolsChangedListener;
+    private Function<McpMessage, CompletableFuture<McpMessage>> serverRequestHandler;
 
     /**
-     * Creates a new MCP client.
+     * Creates a new MCP client with default protocol negotiation matrix.
      *
      * @param serverName the server display name
      * @param transport the transport to use
      */
     public McpClient(String serverName, IMcpTransport transport) {
+        this(serverName, transport, DEFAULT_PROTOCOL_VERSIONS.get(0), DEFAULT_PROTOCOL_VERSIONS);
+    }
+
+    /**
+     * Creates a new MCP client with explicit protocol preferences.
+     *
+     * @param serverName the server display name
+     * @param transport the transport to use
+     * @param preferredProtocolVersion preferred protocol version
+     * @param supportedProtocolVersions supported protocol versions
+     */
+    public McpClient(String serverName, IMcpTransport transport,
+                     String preferredProtocolVersion, List<String> supportedProtocolVersions) {
         this.serverName = serverName;
         this.transport = transport;
+        this.preferredProtocolVersion = preferredProtocolVersion != null && !preferredProtocolVersion.isBlank()
+            ? preferredProtocolVersion
+            : DEFAULT_PROTOCOL_VERSIONS.get(0);
+        this.supportedProtocolVersions = supportedProtocolVersions != null && !supportedProtocolVersions.isEmpty()
+            ? new ArrayList<>(supportedProtocolVersions)
+            : new ArrayList<>(DEFAULT_PROTOCOL_VERSIONS);
         transport.setNotificationHandler(this::handleNotification);
+        transport.setRequestHandler(this::handleServerRequest);
     }
 
     /**
@@ -73,64 +98,98 @@ public class McpClient implements AutoCloseable {
      * @return a future that completes when initialization is done
      */
     public CompletableFuture<Void> initialize() {
-        // Don't advertise capabilities we don't support (roots, sampling)
-        // This avoids server->client requests that we can't handle
-        return transport.send(createRequest("initialize", Map.of(
-            "protocolVersion", PROTOCOL_VERSION,
-            "capabilities", Map.of(),
-            "clientInfo", Map.of(
-                "name", CLIENT_NAME,
-                "version", CLIENT_VERSION
+        return transport.initializeSession()
+            .thenCompose(v -> initializeWithProtocolFallback(0))
+            .thenCompose(v -> discoverCapabilities());
+    }
+
+    private CompletableFuture<Void> initializeWithProtocolFallback(int idx) {
+        if (idx >= supportedProtocolVersions.size()) {
+            return CompletableFuture.failedFuture(
+                new IllegalStateException("MCP initialization failed for all protocol versions")); //$NON-NLS-1$
+        }
+        String protocolVersion = idx == 0 ? preferredProtocolVersion : supportedProtocolVersions.get(idx);
+        return sendInitialize(protocolVersion)
+            .thenAccept(response -> {
+                this.negotiatedProtocolVersion = protocolVersion;
+                this.serverCapabilities = McpServerCapabilities.fromInitializeResult(response.getResult());
+                LOG.info("MCP server '%s' initialized with protocol=%s. capabilities: tools=%b, resources=%b, prompts=%b", //$NON-NLS-1$
+                    serverName,
+                    protocolVersion,
+                    serverCapabilities.supportsTools(),
+                    serverCapabilities.supportsResources(),
+                    serverCapabilities.supportsPrompts());
+                // Required by MCP lifecycle
+                sendNotification("notifications/initialized", null); //$NON-NLS-1$
+            })
+            .handle((ok, ex) -> {
+                if (ex == null) {
+                    return CompletableFuture.<Void>completedFuture(null);
+                }
+                LOG.warn("Initialize failed for protocol %s on server %s: %s", //$NON-NLS-1$
+                    protocolVersion, serverName, ex.getMessage());
+                return initializeWithProtocolFallback(idx + 1);
+            })
+            .thenCompose(f -> f);
+    }
+
+    private CompletableFuture<McpMessage> sendInitialize(String protocolVersion) {
+        return transport.send(createRequest("initialize", Map.of( //$NON-NLS-1$
+            "protocolVersion", protocolVersion, //$NON-NLS-1$
+            "capabilities", Map.of(), //$NON-NLS-1$
+            "clientInfo", Map.of( //$NON-NLS-1$
+                "name", CLIENT_NAME, //$NON-NLS-1$
+                "version", CLIENT_VERSION //$NON-NLS-1$
             )
-        ))).thenCompose(response -> {
-            this.serverCapabilities = McpServerCapabilities.fromInitializeResult(response.getResult());
-            LOG.info("MCP server '%s' initialized. Server capabilities: tools=%b, resources=%b, prompts=%b",
-                serverName,
-                serverCapabilities.supportsTools(),
-                serverCapabilities.supportsResources(),
-                serverCapabilities.supportsPrompts());
+        )));
+    }
 
-            // Send initialized notification (required by protocol)
-            sendNotification("notifications/initialized", null);
-
-            // Discover tools, resources, prompts based on server capabilities
-            return discoverCapabilities();
-        });
+    private CompletableFuture<McpMessage> handleServerRequest(McpMessage request) {
+        Function<McpMessage, CompletableFuture<McpMessage>> handler = serverRequestHandler;
+        if (handler != null) {
+            return handler.apply(request);
+        }
+        McpMessage response = new McpMessage();
+        response.setError(new com.codepilot1c.core.mcp.model.McpError(
+            -32601,
+            "Method not found: " + request.getMethod(), //$NON-NLS-1$
+            null
+        ));
+        return CompletableFuture.completedFuture(response);
     }
 
     private void handleNotification(McpMessage notification) {
         String method = notification.getMethod();
-        LOG.debug("Received notification: %s", method);
+        LOG.debug("Received notification: %s", method); //$NON-NLS-1$
 
-        // Handle list change notifications
-        if ("notifications/tools/list_changed".equals(method)) {
-            LOG.info("Tools list changed notification from %s, refreshing...", serverName);
+        if ("notifications/tools/list_changed".equals(method)) { //$NON-NLS-1$
+            LOG.info("Tools list changed notification from %s, refreshing...", serverName); //$NON-NLS-1$
             listTools().thenAccept(newTools -> {
                 this.tools = newTools;
-                LOG.info("Refreshed tools for %s: %d tools", serverName, newTools.size());
+                LOG.info("Refreshed tools for %s: %d tools", serverName, newTools.size()); //$NON-NLS-1$
                 if (toolsChangedListener != null) {
                     toolsChangedListener.accept(newTools);
                 }
             }).exceptionally(e -> {
-                LOG.warn("Failed to refresh tools for %s: %s", serverName, e.getMessage());
+                LOG.warn("Failed to refresh tools for %s: %s", serverName, e.getMessage()); //$NON-NLS-1$
                 return null;
             });
-        } else if ("notifications/resources/list_changed".equals(method)) {
-            LOG.info("Resources list changed notification from %s, refreshing...", serverName);
+        } else if ("notifications/resources/list_changed".equals(method)) { //$NON-NLS-1$
+            LOG.info("Resources list changed notification from %s, refreshing...", serverName); //$NON-NLS-1$
             listResources().thenAccept(newResources -> {
                 this.resources = newResources;
-                LOG.info("Refreshed resources for %s: %d resources", serverName, newResources.size());
+                LOG.info("Refreshed resources for %s: %d resources", serverName, newResources.size()); //$NON-NLS-1$
             }).exceptionally(e -> {
-                LOG.warn("Failed to refresh resources for %s: %s", serverName, e.getMessage());
+                LOG.warn("Failed to refresh resources for %s: %s", serverName, e.getMessage()); //$NON-NLS-1$
                 return null;
             });
-        } else if ("notifications/prompts/list_changed".equals(method)) {
-            LOG.info("Prompts list changed notification from %s, refreshing...", serverName);
+        } else if ("notifications/prompts/list_changed".equals(method)) { //$NON-NLS-1$
+            LOG.info("Prompts list changed notification from %s, refreshing...", serverName); //$NON-NLS-1$
             listPrompts().thenAccept(newPrompts -> {
                 this.prompts = newPrompts;
-                LOG.info("Refreshed prompts for %s: %d prompts", serverName, newPrompts.size());
+                LOG.info("Refreshed prompts for %s: %d prompts", serverName, newPrompts.size()); //$NON-NLS-1$
             }).exceptionally(e -> {
-                LOG.warn("Failed to refresh prompts for %s: %s", serverName, e.getMessage());
+                LOG.warn("Failed to refresh prompts for %s: %s", serverName, e.getMessage()); //$NON-NLS-1$
                 return null;
             });
         }
@@ -138,12 +197,20 @@ public class McpClient implements AutoCloseable {
 
     /**
      * Sets a listener for tools list changes.
-     * The listener is called when the server sends a tools/list_changed notification.
      *
      * @param listener the listener to set
      */
     public void setToolsChangedListener(java.util.function.Consumer<List<McpTool>> listener) {
         this.toolsChangedListener = listener;
+    }
+
+    /**
+     * Sets custom server request handler.
+     *
+     * @param handler request handler
+     */
+    public void setServerRequestHandler(Function<McpMessage, CompletableFuture<McpMessage>> handler) {
+        this.serverRequestHandler = handler;
     }
 
     private CompletableFuture<Void> discoverCapabilities() {
@@ -168,8 +235,7 @@ public class McpClient implements AutoCloseable {
      * @return a future containing the tool list
      */
     public CompletableFuture<List<McpTool>> listTools() {
-        return transport.send(createRequest("tools/list", null))
-            .thenApply(response -> parseToolList(response.getResult()));
+        return sendWithRetry("tools/list", null, true).thenApply(response -> parseToolList(response.getResult())); //$NON-NLS-1$
     }
 
     /**
@@ -180,10 +246,10 @@ public class McpClient implements AutoCloseable {
      * @return a future containing the result
      */
     public CompletableFuture<McpToolResult> callTool(String toolName, Map<String, Object> arguments) {
-        return transport.send(createRequest("tools/call", Map.of(
-            "name", toolName,
-            "arguments", arguments != null ? arguments : Map.of()
-        ))).thenApply(response -> parseToolResult(response.getResult()));
+        return sendWithRetry("tools/call", Map.of( //$NON-NLS-1$
+            "name", toolName, //$NON-NLS-1$
+            "arguments", arguments != null ? arguments : Map.of() //$NON-NLS-1$
+        ), false).thenApply(response -> parseToolResult(response.getResult()));
     }
 
     /**
@@ -192,8 +258,7 @@ public class McpClient implements AutoCloseable {
      * @return a future containing the resource list
      */
     public CompletableFuture<List<McpResource>> listResources() {
-        return transport.send(createRequest("resources/list", null))
-            .thenApply(response -> parseResourceList(response.getResult()));
+        return sendWithRetry("resources/list", null, true).thenApply(response -> parseResourceList(response.getResult())); //$NON-NLS-1$
     }
 
     /**
@@ -203,7 +268,7 @@ public class McpClient implements AutoCloseable {
      * @return a future containing the resource content
      */
     public CompletableFuture<McpResourceContent> readResource(String uri) {
-        return transport.send(createRequest("resources/read", Map.of("uri", uri)))
+        return sendWithRetry("resources/read", Map.of("uri", uri), true) //$NON-NLS-1$ //$NON-NLS-2$
             .thenApply(response -> parseResourceContent(response.getResult()));
     }
 
@@ -213,8 +278,7 @@ public class McpClient implements AutoCloseable {
      * @return a future containing the prompt list
      */
     public CompletableFuture<List<McpPrompt>> listPrompts() {
-        return transport.send(createRequest("prompts/list", null))
-            .thenApply(response -> parsePromptList(response.getResult()));
+        return sendWithRetry("prompts/list", null, true).thenApply(response -> parsePromptList(response.getResult())); //$NON-NLS-1$
     }
 
     /**
@@ -225,10 +289,36 @@ public class McpClient implements AutoCloseable {
      * @return a future containing the prompt result
      */
     public CompletableFuture<McpPromptResult> getPrompt(String name, Map<String, String> arguments) {
-        return transport.send(createRequest("prompts/get", Map.of(
-            "name", name,
-            "arguments", arguments != null ? arguments : Map.of()
-        ))).thenApply(response -> parsePromptResult(response.getResult()));
+        return sendWithRetry("prompts/get", Map.of( //$NON-NLS-1$
+            "name", name, //$NON-NLS-1$
+            "arguments", arguments != null ? arguments : Map.of() //$NON-NLS-1$
+        ), true).thenApply(response -> parsePromptResult(response.getResult()));
+    }
+
+    private CompletableFuture<McpMessage> sendWithRetry(String method, Object params, boolean idempotent) {
+        return transport.send(createRequest(method, params)).handle((response, error) -> {
+            if (error == null) {
+                return CompletableFuture.completedFuture(response);
+            }
+            if (!idempotent || !isSessionError(error)) {
+                return CompletableFuture.<McpMessage>failedFuture(asThrowable(error));
+            }
+            LOG.warn("Retrying idempotent MCP request after transport/session error: %s", method); //$NON-NLS-1$
+            return transport.initializeSession()
+                .thenCompose(v -> transport.send(createRequest(method, params)));
+        }).thenCompose(f -> f);
+    }
+
+    private boolean isSessionError(Throwable error) {
+        String text = error != null && error.getMessage() != null ? error.getMessage().toLowerCase() : ""; //$NON-NLS-1$
+        return text.contains("session") || text.contains("404"); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private Throwable asThrowable(Throwable error) {
+        if (error instanceof java.util.concurrent.CompletionException && error.getCause() != null) {
+            return error.getCause();
+        }
+        return error;
     }
 
     /**
@@ -238,6 +328,15 @@ public class McpClient implements AutoCloseable {
      */
     public String getServerName() {
         return serverName;
+    }
+
+    /**
+     * Returns negotiated protocol version.
+     *
+     * @return negotiated version or null
+     */
+    public String getNegotiatedProtocolVersion() {
+        return negotiatedProtocolVersion;
     }
 
     /**
@@ -288,9 +387,10 @@ public class McpClient implements AutoCloseable {
     @Override
     public void close() {
         try {
+            transport.shutdown().exceptionally(e -> null).join();
             transport.close();
         } catch (Exception e) {
-            LOG.warn("Error closing MCP transport", e);
+            LOG.warn("Error closing MCP transport", e); //$NON-NLS-1$
         }
     }
 
@@ -305,20 +405,12 @@ public class McpClient implements AutoCloseable {
         McpMessage msg = new McpMessage();
         msg.setMethod(method);
         msg.setParams(params);
-        // No id for notifications - use sendNotification method
         transport.sendNotification(msg).exceptionally(e -> {
-            LOG.warn("Failed to send notification %s: %s", method, e.getMessage());
+            LOG.warn("Failed to send notification %s: %s", method, e.getMessage()); //$NON-NLS-1$
             return null;
         });
     }
 
-    // Parsing helpers
-
-    /**
-     * Converts a result object to JsonObject.
-     * Gson deserializes objects as LinkedTreeMap, not JsonObject.
-     * This method handles both cases.
-     */
     private JsonObject toJsonObject(Object result) {
         if (result == null) {
             return null;
@@ -326,7 +418,6 @@ public class McpClient implements AutoCloseable {
         if (result instanceof JsonObject) {
             return (JsonObject) result;
         }
-        // Gson deserializes to LinkedTreeMap, convert via toJsonTree
         JsonElement element = gson.toJsonTree(result);
         if (element.isJsonObject()) {
             return element.getAsJsonObject();
@@ -335,26 +426,24 @@ public class McpClient implements AutoCloseable {
     }
 
     private List<McpTool> parseToolList(Object result) {
-        List<McpTool> tools = new ArrayList<>();
+        List<McpTool> parsedTools = new ArrayList<>();
         JsonObject obj = toJsonObject(result);
-        if (obj != null && obj.has("tools")) {
-            JsonArray arr = obj.getAsJsonArray("tools");
+        if (obj != null && obj.has("tools")) { //$NON-NLS-1$
+            JsonArray arr = obj.getAsJsonArray("tools"); //$NON-NLS-1$
             for (JsonElement elem : arr) {
-                tools.add(gson.fromJson(elem, McpTool.class));
+                parsedTools.add(gson.fromJson(elem, McpTool.class));
             }
-            LOG.debug("Parsed %d tools from server %s", tools.size(), serverName);
+            LOG.debug("Parsed %d tools from server %s", parsedTools.size(), serverName); //$NON-NLS-1$
         }
-        return tools;
+        return parsedTools;
     }
 
     private McpToolResult parseToolResult(Object result) {
         JsonObject obj = toJsonObject(result);
         if (obj != null) {
             McpToolResult parsed = gson.fromJson(obj, McpToolResult.class);
-            // Compatibility: if server returns only structuredContent and no content array.
             if (parsed.getContent().isEmpty() && obj.has("structuredContent")) { //$NON-NLS-1$
-                parsed.setContent(List.of(com.codepilot1c.core.mcp.model.McpContent
-                        .text(gson.toJson(obj.get("structuredContent"))))); //$NON-NLS-1$
+                parsed.setContent(List.of(McpContent.text(gson.toJson(obj.get("structuredContent"))))); //$NON-NLS-1$
             }
             return parsed;
         }
@@ -362,16 +451,16 @@ public class McpClient implements AutoCloseable {
     }
 
     private List<McpResource> parseResourceList(Object result) {
-        List<McpResource> resources = new ArrayList<>();
+        List<McpResource> parsedResources = new ArrayList<>();
         JsonObject obj = toJsonObject(result);
-        if (obj != null && obj.has("resources")) {
-            JsonArray arr = obj.getAsJsonArray("resources");
+        if (obj != null && obj.has("resources")) { //$NON-NLS-1$
+            JsonArray arr = obj.getAsJsonArray("resources"); //$NON-NLS-1$
             for (JsonElement elem : arr) {
-                resources.add(gson.fromJson(elem, McpResource.class));
+                parsedResources.add(gson.fromJson(elem, McpResource.class));
             }
-            LOG.debug("Parsed %d resources from server %s", resources.size(), serverName);
+            LOG.debug("Parsed %d resources from server %s", parsedResources.size(), serverName); //$NON-NLS-1$
         }
-        return resources;
+        return parsedResources;
     }
 
     private McpResourceContent parseResourceContent(Object result) {
@@ -383,16 +472,16 @@ public class McpClient implements AutoCloseable {
     }
 
     private List<McpPrompt> parsePromptList(Object result) {
-        List<McpPrompt> prompts = new ArrayList<>();
+        List<McpPrompt> parsedPrompts = new ArrayList<>();
         JsonObject obj = toJsonObject(result);
-        if (obj != null && obj.has("prompts")) {
-            JsonArray arr = obj.getAsJsonArray("prompts");
+        if (obj != null && obj.has("prompts")) { //$NON-NLS-1$
+            JsonArray arr = obj.getAsJsonArray("prompts"); //$NON-NLS-1$
             for (JsonElement elem : arr) {
-                prompts.add(gson.fromJson(elem, McpPrompt.class));
+                parsedPrompts.add(gson.fromJson(elem, McpPrompt.class));
             }
-            LOG.debug("Parsed %d prompts from server %s", prompts.size(), serverName);
+            LOG.debug("Parsed %d prompts from server %s", parsedPrompts.size(), serverName); //$NON-NLS-1$
         }
-        return prompts;
+        return parsedPrompts;
     }
 
     private McpPromptResult parsePromptResult(Object result) {

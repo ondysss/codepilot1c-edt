@@ -167,9 +167,18 @@ public class Messages extends NLS {
     public static String McpServerEditDialog_Description;
     public static String McpServerEditDialog_Name;
     public static String McpServerEditDialog_Enabled;
+    public static String McpServerEditDialog_TransportType;
+    public static String McpServerEditDialog_AuthMode;
     public static String McpServerEditDialog_Command;
     public static String McpServerEditDialog_Arguments;
     public static String McpServerEditDialog_WorkingDirectory;
+    public static String McpServerEditDialog_RemoteUrl;
+    public static String McpServerEditDialog_RemoteSseUrl;
+    public static String McpServerEditDialog_AllowLegacyFallback;
+    public static String McpServerEditDialog_PreferredProtocol;
+    public static String McpServerEditDialog_SupportedProtocols;
+    public static String McpServerEditDialog_StaticHeaders;
+    public static String McpServerEditDialog_OAuthProfileId;
     public static String McpServerEditDialog_Browse;
     public static String McpServerEditDialog_SelectDirectory;
     public static String McpServerEditDialog_Environment;
@@ -183,6 +192,7 @@ public class Messages extends NLS {
     public static String McpServerEditDialog_RequestTimeout;
     public static String McpServerEditDialog_NameRequired;
     public static String McpServerEditDialog_CommandRequired;
+    public static String McpServerEditDialog_RemoteUrlRequired;
 
     static {
         NLS.initializeMessages(BUNDLE_NAME, Messages.class);

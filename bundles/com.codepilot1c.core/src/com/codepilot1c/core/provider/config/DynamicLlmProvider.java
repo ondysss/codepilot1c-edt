@@ -20,6 +20,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
+import org.eclipse.core.runtime.preferences.IEclipsePreferences;
+import org.eclipse.core.runtime.preferences.InstanceScope;
+
 import com.codepilot1c.core.internal.VibeCorePlugin;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
@@ -31,6 +34,7 @@ import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderException;
+import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -341,7 +345,7 @@ public class DynamicLlmProvider implements ILlmProvider {
 
             // Accumulate id (usually in first chunk)
             if (tcObj.has("id") && !tcObj.get("id").isJsonNull()) { //$NON-NLS-1$ //$NON-NLS-2$
-                accumulator.id += tcObj.get("id").getAsString(); //$NON-NLS-1$
+                accumulator.id = mergeStableField(accumulator.id, tcObj.get("id").getAsString()); //$NON-NLS-1$
             }
 
             // Accumulate function name and arguments
@@ -349,7 +353,7 @@ public class DynamicLlmProvider implements ILlmProvider {
                 JsonObject function = tcObj.getAsJsonObject("function"); //$NON-NLS-1$
 
                 if (function.has("name") && !function.get("name").isJsonNull()) { //$NON-NLS-1$ //$NON-NLS-2$
-                    accumulator.name += function.get("name").getAsString(); //$NON-NLS-1$
+                    accumulator.name = mergeStableField(accumulator.name, function.get("name").getAsString()); //$NON-NLS-1$
                 }
 
                 if (function.has("arguments") && !function.get("arguments").isJsonNull()) { //$NON-NLS-1$ //$NON-NLS-2$
@@ -357,6 +361,23 @@ public class DynamicLlmProvider implements ILlmProvider {
                 }
             }
         }
+    }
+
+    private String mergeStableField(String current, String incoming) {
+        if (incoming == null || incoming.isBlank()) {
+            return current;
+        }
+        if (current == null || current.isBlank()) {
+            return incoming;
+        }
+        if (current.equals(incoming) || current.endsWith(incoming)) {
+            return current;
+        }
+        if (incoming.endsWith(current)) {
+            return incoming;
+        }
+        // Some providers resend full value in later chunks; prefer the latest stable value.
+        return incoming;
     }
 
     /**
@@ -393,15 +414,17 @@ public class DynamicLlmProvider implements ILlmProvider {
      */
     private HttpRequest buildHttpRequest(String body) {
         String url = config.getChatEndpointUrl();
+        int timeoutSeconds = getRequestTimeoutSeconds();
 
         LOG.info("=== HTTP REQUEST BUILD ==="); //$NON-NLS-1$
         LOG.info("URL: %s", url); //$NON-NLS-1$
         LOG.info("Base URL from config: %s", config.getBaseUrl()); //$NON-NLS-1$
         LOG.info("Provider type: %s", config.getType()); //$NON-NLS-1$
+        LOG.info("Request timeout (seconds): %d", timeoutSeconds); //$NON-NLS-1$
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(120))
+                .timeout(Duration.ofSeconds(timeoutSeconds))
                 .header("Content-Type", "application/json"); //$NON-NLS-1$ //$NON-NLS-2$
 
         // Add authorization header based on provider type
@@ -435,6 +458,11 @@ public class DynamicLlmProvider implements ILlmProvider {
         builder.POST(HttpRequest.BodyPublishers.ofString(body));
         LOG.info("=== END HTTP REQUEST BUILD ==="); //$NON-NLS-1$
         return builder.build();
+    }
+
+    private int getRequestTimeoutSeconds() {
+        IEclipsePreferences prefs = InstanceScope.INSTANCE.getNode(VibeCorePlugin.PLUGIN_ID);
+        return prefs.getInt(VibePreferenceConstants.PREF_REQUEST_TIMEOUT, 60);
     }
 
     /**
