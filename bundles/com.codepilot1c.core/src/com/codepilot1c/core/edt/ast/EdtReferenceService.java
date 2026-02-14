@@ -160,12 +160,23 @@ public class EdtReferenceService {
                 }
                 EStructuralFeature feature = ref.getFeature();
                 String featureName = feature != null ? feature.getName() : "reference"; //$NON-NLS-1$
-                String path = source.bmGetFqn();
+                String path = resolveTopFqn(source);
                 if (path == null || path.isBlank()) {
                     path = source.eClass().getName();
                 }
                 add("Metadata", path, 0, featureName); //$NON-NLS-1$
             }
+        }
+
+        private String resolveTopFqn(IBmObject object) {
+            if (object == null) {
+                return ""; //$NON-NLS-1$
+            }
+            IBmObject top = object;
+            if (!top.bmIsTop()) {
+                top = top.bmGetTopObject();
+            }
+            return top != null ? top.bmGetFqn() : ""; //$NON-NLS-1$
         }
 
         private void collectBslReferences() {
