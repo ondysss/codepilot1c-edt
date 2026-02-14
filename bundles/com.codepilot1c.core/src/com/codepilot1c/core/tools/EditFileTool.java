@@ -37,7 +37,7 @@ import com.codepilot1c.core.logging.VibeLogger;
 /**
  * Tool for editing file contents.
  *
- * <p>Supports creating new files and modifying existing ones.</p>
+ * <p>Supports modifying existing files only.</p>
  */
 public class EditFileTool implements ITool {
 
@@ -69,7 +69,7 @@ public class EditFileTool implements ITool {
                     },
                     "create": {
                         "type": "boolean",
-                        "description": "Create file if it doesn't exist (default: false)"
+                        "description": "Deprecated. Creating new files is not allowed."
                     }
                 },
                 "required": ["path"]
@@ -88,7 +88,7 @@ public class EditFileTool implements ITool {
     @Override
     public String getDescription() {
         return "Edit a file in the workspace. Can replace entire file content " + //$NON-NLS-1$
-               "or perform search-and-replace operations. Can also create new files. " + //$NON-NLS-1$
+               "or perform search-and-replace operations in existing files only. " + //$NON-NLS-1$
                "⚠️ НЕ используйте для СОЗДАНИЯ новых объектов метаданных 1С (.mdo файлов)! " + //$NON-NLS-1$
                "Для top-level используйте create_metadata, для вложенных объектов — add_metadata_child."; //$NON-NLS-1$
     }
@@ -131,41 +131,26 @@ public class EditFileTool implements ITool {
             try {
                 // Normalize path for cross-platform compatibility
                 String normalizedPath = normalizePath(pathStr);
+                if (isMetadataDescriptorPath(normalizedPath)) {
+                    LOG.warn("edit_file: заблокирована попытка редактирования metadata descriptor: %s", normalizedPath); //$NON-NLS-1$
+                    return ToolResult.failure(
+                            "❌ Редактирование .mdo файлов через edit_file запрещено.\n" + //$NON-NLS-1$
+                            "Используйте create_metadata (top-level) и add_metadata_child (вложенные объекты)."); //$NON-NLS-1$
+                }
 
                 // Find or create file in workspace
                 IFile file = findWorkspaceFile(normalizedPath);
 
                 if (file == null || !file.exists()) {
-                    if (create && content != null) {
-                        // КРИТИЧНО: Блокируем создание .mdo файлов напрямую
-                        if (normalizedPath.endsWith(".mdo") && !normalizedPath.contains("Configuration.mdo")) { //$NON-NLS-1$ //$NON-NLS-2$
-                            LOG.warn("═══════════════════════════════════════════════════════════════"); //$NON-NLS-1$
-                            LOG.warn("[EDIT_FILE] ✗ ЗАБЛОКИРОВАНО: Попытка создать .mdo файл напрямую!"); //$NON-NLS-1$
-                            LOG.warn("[EDIT_FILE] Путь: %s", pathStr); //$NON-NLS-1$
-                            LOG.warn("[EDIT_FILE] Размер контента: %d символов", content != null ? content.length() : 0); //$NON-NLS-1$
-                            LOG.warn("[EDIT_FILE] РЕШЕНИЕ: Используйте create_metadata для создания объектов метаданных"); //$NON-NLS-1$
-                            LOG.warn("═══════════════════════════════════════════════════════════════"); //$NON-NLS-1$
-                            return ToolResult.failure(
-                                    "❌ ОШИБКА: Нельзя создавать .mdo файлы метаданных через edit_file!\n\n" + //$NON-NLS-1$
-                                    "Используйте инструмент **create_metadata** для создания объектов метаданных.\n" + //$NON-NLS-1$
-                                    "Для табличных частей и реквизитов табличных частей используйте **add_metadata_child**.\n" + //$NON-NLS-1$
-                                    "Это необходимо, чтобы объект был автоматически добавлен в Configuration.mdo.\n\n" + //$NON-NLS-1$
-                                    "Пример: create_metadata(kind=\"Catalog\", name=\"Контрагенты\", synonym=\"Контрагенты\")"); //$NON-NLS-1$
-                        }
+                    LOG.warn("edit_file: файл не найден: %s", pathStr); //$NON-NLS-1$
+                    return ToolResult.failure(
+                            "File not found: " + pathStr + ". " + //$NON-NLS-1$ //$NON-NLS-2$
+                            "Creating new files via edit_file is not allowed. " + //$NON-NLS-1$
+                            "Use create_metadata/add_metadata_child for metadata objects and edit existing module files only."); //$NON-NLS-1$
+                }
 
-                        // Create new file - need to get a file handle for creation
-                        LOG.info("edit_file: создание нового файла %s", pathStr); //$NON-NLS-1$
-                        IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
-                        file = root.getFile(Path.fromPortableString(normalizedPath.replace('\\', '/')));
-                        ToolResult result = createFile(file, content);
-                        LOG.debug("edit_file: файл создан за %s", //$NON-NLS-1$
-                                LogSanitizer.formatDuration(System.currentTimeMillis() - startTime));
-                        return result;
-                    } else {
-                        LOG.warn("edit_file: файл не найден: %s", pathStr); //$NON-NLS-1$
-                        return ToolResult.failure("File not found: " + pathStr + //$NON-NLS-1$
-                                ". Use create=true to create a new file."); //$NON-NLS-1$
-                    }
+                if (create) {
+                    LOG.warn("edit_file: параметр create=true игнорируется и запрещен"); //$NON-NLS-1$
                 }
 
                 ToolResult result;
@@ -267,31 +252,12 @@ public class EditFileTool implements ITool {
         return null;
     }
 
-    private ToolResult createFile(IFile file, String content) throws CoreException {
-        // Ensure parent folders exist
-        createParentFolders(file);
-
-        ByteArrayInputStream stream = new ByteArrayInputStream(
-                content.getBytes(StandardCharsets.UTF_8));
-        file.create(stream, true, new NullProgressMonitor());
-
-        return ToolResult.success(
-                "Created file: " + file.getFullPath().toString(), //$NON-NLS-1$
-                ToolResult.ToolResultType.CONFIRMATION);
-    }
-
-    private void createParentFolders(IFile file) throws CoreException {
-        org.eclipse.core.resources.IContainer parent = file.getParent();
-        java.util.Stack<org.eclipse.core.resources.IFolder> foldersToCreate = new java.util.Stack<>();
-
-        while (parent instanceof org.eclipse.core.resources.IFolder && !parent.exists()) {
-            foldersToCreate.push((org.eclipse.core.resources.IFolder) parent);
-            parent = parent.getParent();
+    private boolean isMetadataDescriptorPath(String normalizedPath) {
+        if (normalizedPath == null) {
+            return false;
         }
-
-        while (!foldersToCreate.isEmpty()) {
-            foldersToCreate.pop().create(true, true, new NullProgressMonitor());
-        }
+        String lower = normalizedPath.toLowerCase(java.util.Locale.ROOT);
+        return lower.endsWith(".mdo"); //$NON-NLS-1$
     }
 
     private ToolResult replaceContent(IFile file, String content) throws CoreException {
