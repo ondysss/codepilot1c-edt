@@ -38,14 +38,7 @@ mvn -B -V --no-transfer-progress clean verify
 
 Автоматическая публикация p2 из GitHub Actions отключена. Публикация выполняется локально:
 
-```bash
-./tools/publish-p2-local.sh
-```
 
-Скрипт:
-- собирает проект (`clean verify`);
-- обновляет landing pages в p2-репозитории;
-- публикует содержимое `repositories/com.codepilot1c.update/target/repository/` в ветку `gh-pages`.
 
 ## Структура
 
@@ -54,11 +47,6 @@ mvn -B -V --no-transfer-progress clean verify
 - `repositories/` — p2 update site
 - `targets/` — target platform
 
-## Инженерные заметки (EDT API/BM)
-
-- `docs/reports/edt-api-patterns-retrospective-2026-02-14.md` — ретроспектива и рабочие паттерны по EDT BM/API (top-object контракт, export/sync инварианты, anti-patterns).
-- `docs/reports/edt-bm-model-investigation-2026-02-13.md` — исследование асинхронности `forceExport` и ограничений `waitModelSynchronization`.
-- `docs/reports/edt-metadata-uuid-export-runbook.md` — runbook по инциденту `uuid=null` при экспорте.
 
 ## Публикация на Infostart
 
