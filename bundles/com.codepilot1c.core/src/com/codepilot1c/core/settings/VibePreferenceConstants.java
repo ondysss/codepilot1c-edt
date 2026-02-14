@@ -24,6 +24,8 @@ public final class VibePreferenceConstants {
     // Agent preferences
     /** Maximum number of tool call iterations before stopping agent loop. */
     public static final String PREF_MAX_TOOL_ITERATIONS = "agent.maxToolIterations"; //$NON-NLS-1$
+    /** Allow agent to execute tools without user confirmation dialogs. */
+    public static final String PREF_AGENT_SKIP_TOOL_CONFIRMATIONS = "agent.skipToolConfirmations"; //$NON-NLS-1$
     /** Default value for max tool iterations. */
     public static final int DEFAULT_MAX_TOOL_ITERATIONS = 100;
 
