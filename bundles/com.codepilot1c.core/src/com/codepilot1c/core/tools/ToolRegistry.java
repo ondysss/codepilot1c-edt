@@ -80,9 +80,14 @@ public class ToolRegistry {
         register(new EdtFindReferencesTool());
         register(new EdtMetadataDetailsTool());
         register(new GetPlatformDocumentationTool());
+        register(new BslSymbolAtPositionTool());
+        register(new BslTypeAtPositionTool());
+        register(new BslScopeMembersTool());
         register(new EdtValidateRequestTool());
         register(new CreateMetadataTool());
         register(new AddMetadataChildTool());
+        register(new EdtMetadataSmokeTool());
+        register(new EdtTraceExportTool());
 
         // Extra tools may be contributed by an overlay (e.g. Pro) via extension point.
         loadToolsFromExtensionPoint();

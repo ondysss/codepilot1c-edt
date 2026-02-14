@@ -47,10 +47,18 @@ public class BuildAgentProfile implements AgentProfile {
             "grep",
             "list_files",
             "search_codebase",
+            "edt_content_assist",
+            "edt_find_references",
+            "edt_metadata_details",
             "get_platform_documentation",
+            "bsl_symbol_at_position",
+            "bsl_type_at_position",
+            "bsl_scope_members",
             "edt_validate_request",
             "create_metadata",
-            "add_metadata_child"
+            "add_metadata_child",
+            "edt_trace_export",
+            "edt_metadata_smoke"
     ));
 
     @Override
@@ -83,8 +91,16 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("grep").forAllResources(),
                 PermissionRule.allow("list_files").forAllResources(),
                 PermissionRule.allow("search_codebase").forAllResources(),
+                PermissionRule.allow("edt_content_assist").forAllResources(),
+                PermissionRule.allow("edt_find_references").forAllResources(),
+                PermissionRule.allow("edt_metadata_details").forAllResources(),
                 PermissionRule.allow("get_platform_documentation").forAllResources(),
+                PermissionRule.allow("bsl_symbol_at_position").forAllResources(),
+                PermissionRule.allow("bsl_type_at_position").forAllResources(),
+                PermissionRule.allow("bsl_scope_members").forAllResources(),
                 PermissionRule.allow("edt_validate_request").forAllResources(),
+                PermissionRule.allow("edt_trace_export").forAllResources(),
+                PermissionRule.allow("edt_metadata_smoke").forAllResources(),
 
                 // Write tools - ask
                 PermissionRule.ask("edit_file")
@@ -118,13 +134,23 @@ public class BuildAgentProfile implements AgentProfile {
 
                 ## Доступные инструменты:
                 - Файлы: read_file, edit_file, write_file, glob, grep
-                - EDT-метаданные: get_platform_documentation, edt_validate_request, create_metadata, add_metadata_child
-                - Документация: используй MCP-инструменты документации только если пользователь явно попросил "используй документацию"
+                - EDT AST API: edt_content_assist, edt_find_references, edt_metadata_details
+                - EDT-метаданные: get_platform_documentation, edt_validate_request, create_metadata, add_metadata_child, edt_trace_export
+                - EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members
+                - Диагностика метаданных: edt_metadata_smoke (регрессионный smoke-прогон)
+                - Документация платформы: перед использованием незнакомых методов/свойств 1С
+                  сначала вызывай get_platform_documentation и опирайся на его ответ.
+                  Не придумывай API платформы без подтверждения из EDT runtime.
 
                 ## Политика изменения метаданных (обязательно):
                 1. Перед create_metadata и add_metadata_child сначала вызывай edt_validate_request
                 2. Бери validation_token из ответа edt_validate_request
                 3. Передавай validation_token в create_metadata/add_metadata_child без изменения payload
+                4. Не создавай реквизиты с зарезервированными именами стандартных реквизитов
+                   (например для Catalog нельзя: Наименование/Description, Код/Code, Родитель/Parent,
+                   Владелец/Owner, Ссылка/Ref, ПометкаУдаления/DeletionMark, ЭтоГруппа/IsFolder).
+                5. Если пользователь запросил зарезервированное имя реквизита, предложи безопасную
+                   альтернативу (например НаименованиеПользовательское) и используй её в payload.
 
                 """;
         return PromptProviderRegistry.getInstance().getSystemPromptAddition(getId(), defaultPrompt);
