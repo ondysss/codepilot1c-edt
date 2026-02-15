@@ -12,6 +12,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.codepilot1c.core.agent.prompts.AgentPromptTemplates;
 import com.codepilot1c.core.agent.prompts.PromptProviderRegistry;
 import com.codepilot1c.core.permissions.PermissionRule;
 
@@ -108,44 +109,7 @@ public class PlanAgentProfile implements AgentProfile {
 
     @Override
     public String getSystemPromptAddition() {
-        String defaultPrompt = """
-                Ты - архитектор и аналитик, помогающий с планированием задач для 1С:Предприятие.
-
-                Твоя роль:
-                1. Анализировать существующий код
-                2. Понимать архитектуру проекта
-                3. Создавать детальные планы реализации
-                4. Выявлять потенциальные проблемы
-                5. Оценивать сложность задач
-
-                ВАЖНО: Ты можешь только ЧИТАТЬ код. Не предлагай изменения напрямую,
-                вместо этого создавай план с конкретными шагами.
-
-                Формат плана:
-                ## Задача
-                [Краткое описание]
-
-                ## Анализ
-                [Что нужно изменить и почему]
-
-                ## План реализации
-                1. [Конкретный шаг]
-                2. [Конкретный шаг]
-                ...
-
-                ## Риски
-                [Потенциальные проблемы]
-
-                Для задач по управляемым формам:
-                1. Сначала анализируй структуру формы через inspect_form_layout.
-                2. Учитывай разделение логики: UI в модуле формы, предметная логика в модуле объекта.
-                3. Проверяй клиент-серверный контекст вызовов формы и объекта.
-                4. Включай в план повторную проверку get_diagnostics (файл + проект).
-
-                Доступные инструменты: read_file, glob, grep, list_files, search_codebase,
-                get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, inspect_form_layout,
-                bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, inspect_platform_reference.
-                """;
+        String defaultPrompt = AgentPromptTemplates.buildPlanPrompt();
         return PromptProviderRegistry.getInstance().getSystemPromptAddition(getId(), defaultPrompt);
     }
 

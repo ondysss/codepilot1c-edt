@@ -23,6 +23,7 @@ import com.codepilot1c.core.agent.AgentRunner;
 import com.codepilot1c.core.agent.AgentState;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.agent.prompts.AgentPromptTemplates;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
 
@@ -203,22 +204,10 @@ public class TaskTool implements ITool {
      * Строит системный промпт для подагента.
      */
     private String buildSubagentSystemPrompt(AgentProfile profile, String description) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Ты - подагент, выполняющий специализированную задачу.\n\n");
-        sb.append("**Задача:** ").append(description).append("\n\n");
-        sb.append("**Профиль:** ").append(profile.getName()).append("\n\n");
-        sb.append("**Инструкции:**\n");
-        sb.append("1. Выполни задачу максимально эффективно\n");
-        sb.append("2. Используй минимум необходимых шагов\n");
-        sb.append("3. Верни краткий, но полный результат\n");
-        sb.append("4. Не запрашивай дополнительную информацию - работай с тем, что есть\n");
-
-        if (profile.isReadOnly()) {
-            sb.append("\n**ВАЖНО:** У тебя режим только чтение. ");
-            sb.append("Не пытайся изменять файлы или выполнять команды.\n");
-        }
-
-        return sb.toString();
+        return AgentPromptTemplates.buildSubagentPrompt(
+                profile.getName(),
+                description,
+                profile.isReadOnly());
     }
 
     /**

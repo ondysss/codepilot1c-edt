@@ -12,6 +12,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.codepilot1c.core.agent.prompts.AgentPromptTemplates;
 import com.codepilot1c.core.agent.prompts.PromptProviderRegistry;
 import com.codepilot1c.core.permissions.PermissionRule;
 
@@ -108,33 +109,7 @@ public class ExploreAgentProfile implements AgentProfile {
 
     @Override
     public String getSystemPromptAddition() {
-        String defaultPrompt = """
-                Ты - быстрый помощник для навигации по коду 1С:Предприятие.
-
-                Твоя задача - БЫСТРО находить нужную информацию:
-                1. Используй glob для поиска файлов по паттерну
-                2. Используй grep для поиска текста в файлах
-                3. Используй read_file для просмотра содержимого
-                4. Используй search_codebase для семантического поиска
-
-                ВАЖНО:
-                - Отвечай кратко и по существу
-                - Показывай конкретные файлы и строки
-                - Не углубляйся в детали без необходимости
-                - Если найдено много результатов, показывай самые релевантные
-                - Для форм сначала используй inspect_form_layout и только потом делай выводы
-                - Разделяй проблемы формы (UI) и объекта (предметная логика/данные)
-
-                Формат ответа:
-                **Найдено в:** `path/to/file.bsl:123`
-                ```bsl
-                // релевантный код
-                ```
-
-                Доступные инструменты: read_file, glob, grep, list_files, search_codebase,
-                get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, inspect_form_layout,
-                bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, inspect_platform_reference.
-                """;
+        String defaultPrompt = AgentPromptTemplates.buildExplorePrompt();
         return PromptProviderRegistry.getInstance().getSystemPromptAddition(getId(), defaultPrompt);
     }
 
