@@ -23,6 +23,9 @@ import com._1c.g5.v8.dt.core.platform.IBmModelManager;
 import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.core.platform.IDerivedDataManagerProvider;
 import com._1c.g5.v8.dt.core.platform.IDtProjectManager;
+import com._1c.g5.v8.dt.validation.marker.IMarkerManager;
+import com.e1c.g5.dt.applications.IApplicationManager;
+import com.e1c.g5.v8.dt.check.settings.ICheckRepository;
 import com.codepilot1c.core.http.DefaultHttpClientFactory;
 import com.codepilot1c.core.http.HttpClientFactory;
 import com.codepilot1c.core.logging.VibeLogger;
@@ -47,6 +50,9 @@ public class VibeCorePlugin extends Plugin {
     private ServiceTracker<IDerivedDataManagerProvider, IDerivedDataManagerProvider> derivedDataManagerProviderTracker;
     private ServiceTracker<BmAwareResourceSetProvider, BmAwareResourceSetProvider> resourceSetProviderTracker;
     private ServiceTracker<ITopObjectFqnGenerator, ITopObjectFqnGenerator> topObjectFqnGeneratorTracker;
+    private ServiceTracker<IMarkerManager, IMarkerManager> markerManagerTracker;
+    private ServiceTracker<ICheckRepository, ICheckRepository> checkRepositoryTracker;
+    private ServiceTracker<IApplicationManager, IApplicationManager> applicationManagerTracker;
 
     @Override
     public void start(BundleContext context) throws Exception {
@@ -105,6 +111,12 @@ public class VibeCorePlugin extends Plugin {
         resourceSetProviderTracker.open();
         topObjectFqnGeneratorTracker = new ServiceTracker<>(context, ITopObjectFqnGenerator.class, null);
         topObjectFqnGeneratorTracker.open();
+        markerManagerTracker = new ServiceTracker<>(context, IMarkerManager.class, null);
+        markerManagerTracker.open();
+        checkRepositoryTracker = new ServiceTracker<>(context, ICheckRepository.class, null);
+        checkRepositoryTracker.open();
+        applicationManagerTracker = new ServiceTracker<>(context, IApplicationManager.class, null);
+        applicationManagerTracker.open();
     }
 
     @Override
@@ -146,6 +158,12 @@ public class VibeCorePlugin extends Plugin {
         resourceSetProviderTracker = null;
         closeTracker(topObjectFqnGeneratorTracker);
         topObjectFqnGeneratorTracker = null;
+        closeTracker(markerManagerTracker);
+        markerManagerTracker = null;
+        closeTracker(checkRepositoryTracker);
+        checkRepositoryTracker = null;
+        closeTracker(applicationManagerTracker);
+        applicationManagerTracker = null;
 
         plugin = null;
         super.stop(context);
@@ -201,6 +219,18 @@ public class VibeCorePlugin extends Plugin {
 
     public ITopObjectFqnGenerator getTopObjectFqnGenerator() {
         return getTrackedService(topObjectFqnGeneratorTracker, "ITopObjectFqnGenerator"); //$NON-NLS-1$
+    }
+
+    public IMarkerManager getMarkerManager() {
+        return getTrackedService(markerManagerTracker, "IMarkerManager"); //$NON-NLS-1$
+    }
+
+    public ICheckRepository getCheckRepository() {
+        return getTrackedService(checkRepositoryTracker, "ICheckRepository"); //$NON-NLS-1$
+    }
+
+    public IApplicationManager getApplicationManager() {
+        return getTrackedService(applicationManagerTracker, "IApplicationManager"); //$NON-NLS-1$
     }
 
     private <T> T getTrackedService(ServiceTracker<T, T> tracker, String serviceName) {

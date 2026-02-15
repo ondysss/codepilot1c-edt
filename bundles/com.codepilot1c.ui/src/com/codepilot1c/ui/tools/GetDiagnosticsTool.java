@@ -39,9 +39,18 @@ public class GetDiagnosticsTool implements ITool {
             {
                 "type": "object",
                 "properties": {
+                    "scope": {
+                        "type": "string",
+                        "enum": ["active_editor", "file", "project"],
+                        "description": "Область диагностики: active_editor (по активному редактору), file (по path), project (по project_name)"
+                    },
                     "path": {
                         "type": "string",
                         "description": "Путь к файлу (workspace-relative). Если не указан — используется активный редактор."
+                    },
+                    "project_name": {
+                        "type": "string",
+                        "description": "Имя проекта EDT для scope=project"
                     },
                     "severity": {
                         "type": "string",
@@ -55,6 +64,10 @@ public class GetDiagnosticsTool implements ITool {
                     "wait_ms": {
                         "type": "integer",
                         "description": "Время ожидания пересчёта диагностик в мс (0-2000). По умолчанию: 0"
+                    },
+                    "include_runtime_markers": {
+                        "type": "boolean",
+                        "description": "Включить дополнительные диагностики из EDT marker manager (для scope=project). По умолчанию: true"
                     }
                 },
                 "required": []
@@ -80,10 +93,13 @@ public class GetDiagnosticsTool implements ITool {
     @Override
     public CompletableFuture<ToolResult> execute(Map<String, Object> parameters) {
         // Parse parameters
+        String scope = (String) parameters.getOrDefault("scope", ""); //$NON-NLS-1$ //$NON-NLS-2$
         String path = (String) parameters.get("path"); //$NON-NLS-1$
+        String projectName = (String) parameters.get("project_name"); //$NON-NLS-1$
         String severityStr = (String) parameters.getOrDefault("severity", "error"); //$NON-NLS-1$ //$NON-NLS-2$
         int maxItems = getIntParam(parameters, "max_items", 50); //$NON-NLS-1$
         long waitMs = getIntParam(parameters, "wait_ms", 0); //$NON-NLS-1$
+        boolean includeRuntimeMarkers = getBooleanParam(parameters, "include_runtime_markers", true); //$NON-NLS-1$
 
         // Validate parameters
         if (maxItems < 1) maxItems = 1;
@@ -94,22 +110,21 @@ public class GetDiagnosticsTool implements ITool {
         // Parse severity
         Severity minSeverity = parseSeverity(severityStr);
 
-        DiagnosticsQuery query = new DiagnosticsQuery(minSeverity, maxItems, true, waitMs);
+        DiagnosticsQuery query = new DiagnosticsQuery(minSeverity, maxItems, true, waitMs, includeRuntimeMarkers);
 
-        LOG.debug("get_diagnostics: path=%s, severity=%s, max=%d, wait=%d", //$NON-NLS-1$
-                path, minSeverity, maxItems, waitMs);
+        String normalizedScope = normalizeScope(scope, path, projectName);
+        LOG.debug("get_diagnostics: scope=%s, project=%s, path=%s, severity=%s, max=%d, wait=%d, runtime=%s", //$NON-NLS-1$
+                normalizedScope, projectName, path, minSeverity, maxItems, waitMs, includeRuntimeMarkers);
 
         EdtDiagnosticsCollector collector = EdtDiagnosticsCollector.getInstance();
 
         CompletableFuture<DiagnosticsResult> resultFuture;
 
-        if (path != null && !path.isBlank()) {
-            // Collect from specific file
-            resultFuture = collector.collectFromFile(path, query);
-        } else {
-            // Collect from active editor
-            resultFuture = collector.collectFromActiveEditor(query);
-        }
+        resultFuture = switch (normalizedScope) {
+            case "project" -> collector.collectFromProject(projectName, query); //$NON-NLS-1$
+            case "file" -> collector.collectFromFile(path, query); //$NON-NLS-1$
+            default -> collector.collectFromActiveEditor(query);
+        };
 
         return resultFuture.thenApply(result -> {
             String formatted = result.formatForLlm();
@@ -142,5 +157,42 @@ public class GetDiagnosticsTool implements ITool {
         } catch (NumberFormatException e) {
             return defaultValue;
         }
+    }
+
+    private boolean getBooleanParam(Map<String, Object> params, String key, boolean defaultValue) {
+        Object value = params.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        String str = String.valueOf(value).trim();
+        if (str.isEmpty()) {
+            return defaultValue;
+        }
+        return Boolean.parseBoolean(str);
+    }
+
+    private String normalizeScope(String scope, String path, String projectName) {
+        if (scope != null && !scope.isBlank()) {
+            String normalized = scope.trim().toLowerCase();
+            if ("project".equals(normalized) || "file".equals(normalized) || "active_editor".equals(normalized)) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                if ("project".equals(normalized) && (projectName == null || projectName.isBlank())) { //$NON-NLS-1$
+                    return "active_editor"; //$NON-NLS-1$
+                }
+                if ("file".equals(normalized) && (path == null || path.isBlank())) { //$NON-NLS-1$
+                    return "active_editor"; //$NON-NLS-1$
+                }
+                return normalized;
+            }
+        }
+        if (projectName != null && !projectName.isBlank()) {
+            return "project"; //$NON-NLS-1$
+        }
+        if (path != null && !path.isBlank()) {
+            return "file"; //$NON-NLS-1$
+        }
+        return "active_editor"; //$NON-NLS-1$
     }
 }

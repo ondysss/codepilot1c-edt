@@ -51,13 +51,15 @@ public class PlanAgentProfile implements AgentProfile {
             "grep",
             "list_files",
             "search_codebase",
+            "get_diagnostics",
             "edt_content_assist",
             "edt_find_references",
             "edt_metadata_details",
+            "scan_metadata_index",
             "bsl_symbol_at_position",
             "bsl_type_at_position",
             "bsl_scope_members",
-            "get_platform_documentation"
+            "inspect_platform_reference"
     ));
 
     @Override
@@ -90,13 +92,15 @@ public class PlanAgentProfile implements AgentProfile {
                 PermissionRule.allow("grep").forAllResources(),
                 PermissionRule.allow("list_files").forAllResources(),
                 PermissionRule.allow("search_codebase").forAllResources(),
+                PermissionRule.allow("get_diagnostics").forAllResources(),
                 PermissionRule.allow("edt_content_assist").forAllResources(),
                 PermissionRule.allow("edt_find_references").forAllResources(),
                 PermissionRule.allow("edt_metadata_details").forAllResources(),
+                PermissionRule.allow("scan_metadata_index").forAllResources(),
                 PermissionRule.allow("bsl_symbol_at_position").forAllResources(),
                 PermissionRule.allow("bsl_type_at_position").forAllResources(),
                 PermissionRule.allow("bsl_scope_members").forAllResources(),
-                PermissionRule.allow("get_platform_documentation").forAllResources()
+                PermissionRule.allow("inspect_platform_reference").forAllResources()
         );
     }
 
@@ -131,8 +135,8 @@ public class PlanAgentProfile implements AgentProfile {
                 [Потенциальные проблемы]
 
                 Доступные инструменты: read_file, glob, grep, list_files, search_codebase,
-                edt_content_assist, edt_find_references, edt_metadata_details,
-                bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, get_platform_documentation.
+                get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index,
+                bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, inspect_platform_reference.
                 """;
         return PromptProviderRegistry.getInstance().getSystemPromptAddition(getId(), defaultPrompt);
     }

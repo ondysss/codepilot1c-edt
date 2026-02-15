@@ -38,6 +38,9 @@ Require-Bundle: org.eclipse.ui;bundle-version="[3.201.0,4.0.0)",
  com.codepilot1c.rag;bundle-version="[1.0.0,2.0.0)"
 Import-Package: com.google.gson;version="[2.10.0,3.0.0)",
  com.google.gson.reflect;version="[2.10.0,3.0.0)",
+ com._1c.g5.v8.dt.validation.marker,
+ com._1c.g5.wiring,
+ com.e1c.g5.v8.dt.check.settings,
  org.eclipse.equinox.security.storage;version="[1.0.0,2.0.0)",
  org.osgi.framework;version="[1.10.0,2.0.0)"
 Export-Package: com.codepilot1c.ui.chat,
