@@ -12,6 +12,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Locale;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.LinkedHashSet;
 import java.util.IdentityHashMap;
@@ -26,6 +27,7 @@ import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
+import org.eclipse.core.runtime.Platform;
 import org.eclipse.emf.common.util.EMap;
 import org.eclipse.emf.common.util.TreeIterator;
 import org.eclipse.emf.common.util.URI;
@@ -51,22 +53,34 @@ import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.core.platform.IDtProject;
 import com._1c.g5.v8.dt.core.platform.IDtProjectManager;
 import com._1c.g5.v8.dt.mcore.DateQualifiers;
+import com._1c.g5.v8.dt.mcore.DateFractions;
 import com._1c.g5.v8.dt.mcore.McoreFactory;
 import com._1c.g5.v8.dt.mcore.McorePackage;
 import com._1c.g5.v8.dt.mcore.NumberQualifiers;
 import com._1c.g5.v8.dt.mcore.StringQualifiers;
 import com._1c.g5.v8.dt.mcore.TypeDescription;
 import com._1c.g5.v8.dt.mcore.TypeItem;
+import com._1c.g5.v8.dt.mcore.util.McoreUtil;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicFeature;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicForm;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
 import com._1c.g5.v8.dt.metadata.mdclass.DataProcessor;
 import com._1c.g5.v8.dt.metadata.mdclass.Document;
 import com._1c.g5.v8.dt.metadata.mdclass.FormType;
+import com._1c.g5.v8.dt.platform.core.typeinfo.TypeDescriptionInfoWithTypeInfo;
+import com._1c.g5.v8.dt.platform.core.typeinfo.TypeInfo;
+import com._1c.g5.v8.dt.platform.core.typeinfo.TypeProviderService;
+import com._1c.g5.v8.dt.metadata.mdclass.ScriptVariant;
+import com._1c.g5.v8.dt.metadata.mdclass.MdClassPackage;
 import com._1c.g5.v8.dt.metadata.mdclass.MdClassFactory;
 import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
+import com.codepilot1c.core.edt.forms.CreateFormRequest;
+import com.codepilot1c.core.edt.forms.CreateFormResult;
+import com.codepilot1c.core.edt.forms.FormOwnerStrategy;
+import com.codepilot1c.core.edt.forms.FormUsage;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
+import org.osgi.framework.Bundle;
 
 /**
  * Service for EDT BM metadata creation.
@@ -79,12 +93,40 @@ public class EdtMetadataService {
     private static final long EXPORT_DERIVED_WAIT_MS = Long.getLong("codepilot1c.edt.export.wait.ms", 120_000L); //$NON-NLS-1$
     private static final String EXPORT_SEGMENT_OBJECTS = "EXP_O"; //$NON-NLS-1$
     private static final String EXPORT_SEGMENT_BLOBS = "EXP_B"; //$NON-NLS-1$
+    private static final long FORM_MATERIALIZATION_POLL_MS =
+            Long.getLong("codepilot1c.edt.form.materialization.poll.ms", 500L); //$NON-NLS-1$
+    private static final String EN_LANGUAGE = "en"; //$NON-NLS-1$
+    private static final String FORM_BUNDLE_ID = "com._1c.g5.v8.dt.form"; //$NON-NLS-1$
+    private static final String PLATFORM_BUNDLE_ID = "com._1c.g5.v8.dt.platform"; //$NON-NLS-1$
+    private static final String FORM_PLUGIN_CLASS = "com._1c.g5.v8.dt.internal.form.FormPlugin"; //$NON-NLS-1$
+    private static final String FORM_GENERATOR_CLASS = "com._1c.g5.v8.dt.form.generator.IFormGenerator"; //$NON-NLS-1$
+    private static final String FORM_FIELD_GENERATOR_CLASS = "com._1c.g5.v8.dt.form.generator.IFormFieldGenerator"; //$NON-NLS-1$
+    private static final String FORM_FIELD_INFO_CLASS = "com._1c.g5.v8.dt.form.generator.FormFieldInfo"; //$NON-NLS-1$
+    private static final String FORM_GENERATOR_TYPE_CLASS = "com._1c.g5.v8.dt.form.generator.FormType"; //$NON-NLS-1$
+    private static final String VERSION_CLASS = "com._1c.g5.v8.dt.platform.version.Version"; //$NON-NLS-1$
+    private static final String GUICE_INJECTOR_CLASS = "com.google.inject.Injector"; //$NON-NLS-1$
+    private static final String DEFAULT_BASIC_FEATURE_TYPE = "String"; //$NON-NLS-1$
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(EdtMetadataService.class);
     private static final Map<String, String> ATTRIBUTE_NAME_ALIASES = createAttributeNameAliases();
     private static final Map<String, Set<String>> RESERVED_ATTRIBUTE_FALLBACK = createReservedAttributeFallback();
 
     private final EdtMetadataGateway gateway;
     private final MetadataProjectReadinessChecker readinessChecker;
+    private final FormOwnerStrategy formOwnerStrategy;
+
+    private record TypeSpec(
+            String typeQuery,
+            Integer stringLength,
+            Boolean stringFixed,
+            Integer numberPrecision,
+            Integer numberScale,
+            Boolean numberNonNegative,
+            DateFractions dateFractions
+    ) {
+        static TypeSpec of(String typeQuery) {
+            return new TypeSpec(typeQuery, null, null, null, null, null, null);
+        }
+    }
 
     public EdtMetadataService() {
         this(new EdtMetadataGateway());
@@ -93,6 +135,7 @@ public class EdtMetadataService {
     public EdtMetadataService(EdtMetadataGateway gateway) {
         this.gateway = gateway;
         this.readinessChecker = new MetadataProjectReadinessChecker(gateway);
+        this.formOwnerStrategy = FormOwnerStrategy.defaultStrategy();
     }
 
     public boolean isEdtAvailable() {
@@ -170,12 +213,124 @@ public class EdtMetadataService {
                 "Metadata object created successfully"); //$NON-NLS-1$
     }
 
+    public CreateFormResult createForm(CreateFormRequest request) {
+        String opId = LogSanitizer.newId("edt-form"); //$NON-NLS-1$
+        long startedAt = System.currentTimeMillis();
+        request.validate();
+        FormUsage effectiveUsage = resolveEffectiveFormUsage(request.ownerFqn(), request.name(), request.usage());
+        String effectiveName = resolveEffectiveFormName(request.ownerFqn(), request.name(), effectiveUsage);
+        boolean bindAsDefault = resolveDefaultBinding(request.setAsDefault(), effectiveUsage);
+        LOG.info("[%s] createForm START project=%s owner=%s name=%s usage=%s setAsDefault=%s", // $NON-NLS-1$
+                opId,
+                request.projectName(),
+                request.ownerFqn(),
+                effectiveName,
+                effectiveUsage,
+                bindAsDefault);
+        gateway.ensureMutationRuntimeAvailable();
+        IProject project = requireProject(request.projectName());
+        readinessChecker.ensureReady(project);
+        repairConfigurationMissingUuids(project, opId);
+
+        IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
+        Configuration configuration = configurationProvider.getConfiguration(project);
+        if (configuration == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "Cannot resolve project configuration", false); //$NON-NLS-1$
+        }
+
+        String formFqn = request.ownerFqn() + ".Form." + effectiveName; //$NON-NLS-1$
+        final FormUsage capturedUsage = effectiveUsage;
+        final boolean capturedBindAsDefault = bindAsDefault;
+        final String capturedName = effectiveName;
+
+        executeWrite(project, transaction -> {
+            Configuration txConfiguration = transaction.toTransactionObject(configuration);
+            if (txConfiguration == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                        "Cannot access configuration in BM transaction", false); //$NON-NLS-1$
+            }
+
+            MdObject owner = resolveByFqn(txConfiguration, request.ownerFqn());
+            if (owner == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_PARENT_NOT_FOUND,
+                        "Owner not found: " + request.ownerFqn(), false); //$NON-NLS-1$
+            }
+            validateReservedChildName(owner, MetadataChildKind.FORM, capturedName);
+            MdObject form = createFormByParent(owner);
+            setCommonProperties(form, capturedName, request.synonym(), request.comment());
+            initializeFormForRequest(form, request);
+            ensureUuidsRecursively(form, opId, formFqn);
+            try {
+                addChildToParent(owner, form, MetadataChildKind.FORM);
+            } catch (MetadataOperationException e) {
+                if (e.getCode() == MetadataOperationCode.METADATA_ALREADY_EXISTS) {
+                    throw new MetadataOperationException(
+                            MetadataOperationCode.FORM_ALREADY_EXISTS,
+                            "Form already exists: " + formFqn, false, e); //$NON-NLS-1$
+                }
+                throw e;
+            }
+            populateFormContent(project, transaction, owner, form, txConfiguration, capturedUsage, opId);
+            ensureUuidsRecursively(form, opId, formFqn);
+            if (capturedBindAsDefault) {
+                bindDefaultForm(owner, form, capturedUsage, opId);
+            }
+            ensureUuidsRecursively(owner, opId, request.ownerFqn());
+            LOG.debug("[%s] createForm transaction ownerClass=%s formClass=%s usage=%s bindDefault=%s", // $NON-NLS-1$
+                    opId,
+                    owner.eClass().getName(),
+                    form.eClass().getName(),
+                    capturedUsage,
+                    capturedBindAsDefault);
+            return null;
+        });
+
+        String topLevelFqn = extractTopLevelFqn(formFqn);
+        forceExportTopLevelObject(project, topLevelFqn, opId);
+        verifyObjectPersisted(project, formFqn, opId);
+
+        FormArtifactPaths artifacts = waitForFormMaterialization(
+                project,
+                request.ownerFqn(),
+                effectiveName,
+                request.effectiveWaitMs(),
+                opId);
+        refreshProjectSafely(project);
+        LOG.info("[%s] createForm SUCCESS in %s form=%s", opId, //$NON-NLS-1$
+                LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),
+                formFqn);
+
+        return new CreateFormResult(
+                request.ownerFqn(),
+                formFqn,
+                capturedUsage,
+                capturedBindAsDefault,
+                true,
+                artifacts.formAbsolutePath(),
+                artifacts.moduleAbsolutePath(),
+                artifacts.diagnostics());
+    }
+
     public MetadataOperationResult addMetadataChild(AddMetadataChildRequest request) {
         String opId = LogSanitizer.newId("edt-child"); //$NON-NLS-1$
         long startedAt = System.currentTimeMillis();
         LOG.info("[%s] addMetadataChild START project=%s parent=%s kind=%s name=%s", // $NON-NLS-1$
                 opId, request.projectName(), request.parentFqn(), request.childKind(), request.name());
         request.validate();
+        if (request.childKind() == MetadataChildKind.FORM) {
+            CreateFormRequest formRequest = createFormRequestFromAddChild(request);
+            CreateFormResult formResult = createForm(formRequest);
+            LOG.info("[%s] addMetadataChild FORM routed to createForm in %s fqn=%s", opId, //$NON-NLS-1$
+                    LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),
+                    formResult.formFqn());
+            return formResult.toMetadataOperationResult(
+                    request.projectName(),
+                    extractNameFromFqn(formResult.formFqn()));
+        }
         gateway.ensureMutationRuntimeAvailable();
         IProject project = requireProject(request.projectName());
         readinessChecker.ensureReady(project);
@@ -191,6 +346,9 @@ public class EdtMetadataService {
                     "Cannot resolve project configuration", false); //$NON-NLS-1$
         }
 
+        Map<String, TypeItem> preResolvedTypes = preResolveChildTypes(project, request);
+        final Map<String, TypeItem> capturedTypes = preResolvedTypes;
+
         String childFqn = executeWrite(project, transaction -> {
             LOG.debug("[%s] Transaction started for addMetadataChild", opId); //$NON-NLS-1$
             Configuration txConfiguration = transaction.toTransactionObject(configuration);
@@ -200,7 +358,7 @@ public class EdtMetadataService {
                         MetadataOperationCode.EDT_TRANSACTION_FAILED,
                         "Cannot access configuration in BM transaction", false); //$NON-NLS-1$
             }
-            return createGenericChild(txConfiguration, request);
+            return createGenericChild(txConfiguration, request, transaction, capturedTypes);
         });
         verifyObjectPersisted(project, childFqn, opId);
         LOG.info("[%s] addMetadataChild SUCCESS in %s fqn=%s", opId, // $NON-NLS-1$
@@ -241,12 +399,14 @@ public class EdtMetadataService {
             executeRead(project, readTx -> {
                 for (String typeString : typeStrings) {
                     TypeItem item = resolveTypeItem(typeString, readTx);
-                    if (item == null) {
+                    if (item == null && !isSimpleTypeQuery(typeString)) {
                         throw new MetadataOperationException(
                                 MetadataOperationCode.INVALID_PROPERTY_VALUE,
                                 "Type not found in BM: " + typeString, false); //$NON-NLS-1$
                     }
-                    preResolvedTypes.put(typeString, item);
+                    if (item != null) {
+                        cacheResolvedTypeItem(preResolvedTypes, typeString, item);
+                    }
                 }
                 return null;
             });
@@ -287,6 +447,68 @@ public class EdtMetadataService {
                 extractNameFromFqn(targetFqn),
                 targetFqn,
                 "Metadata object updated successfully"); //$NON-NLS-1$
+    }
+
+    public FieldTypeCandidatesResult listFieldTypeCandidates(FieldTypeCandidatesRequest request) {
+        request.validate();
+        IProject project = requireProject(request.projectName());
+        readinessChecker.ensureReady(project);
+
+        IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
+        Configuration configuration = configurationProvider.getConfiguration(project);
+        if (configuration == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "Cannot resolve project configuration", false); //$NON-NLS-1$
+        }
+
+        String fieldName = request.effectiveFieldName();
+        int limit = request.effectiveLimit();
+        return executeRead(project, tx -> {
+            Configuration txConfiguration = tx.toTransactionObject(configuration);
+            Configuration contextConfiguration = txConfiguration != null ? txConfiguration : configuration;
+            MdObject target = resolveByFqn(contextConfiguration, request.targetFqn());
+            if (target == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_NOT_FOUND,
+                        "Metadata object not found: " + request.targetFqn(), false); //$NON-NLS-1$
+            }
+            EStructuralFeature feature = resolveFeatureIgnoreCase(target, fieldName);
+            if (!(feature instanceof EReference typeReference)) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Field is not a reference: " + fieldName, false); //$NON-NLS-1$
+            }
+
+            LinkedHashMap<String, FieldTypeCandidate> unique = new LinkedHashMap<>();
+            collectTypeCandidates(
+                    unique,
+                    TypeProviderService.INSTANCE.getTypeDescriptionInfoWithTypeInfo(
+                            target,
+                            contextConfiguration,
+                            typeReference,
+                            null));
+            if (unique.isEmpty()) {
+                collectTypeCandidates(
+                        unique,
+                        TypeProviderService.INSTANCE.getTypeDescriptionInfoWithTypeInfo(
+                                target,
+                                typeReference,
+                                null));
+            }
+
+            List<FieldTypeCandidate> allCandidates = new ArrayList<>(unique.values());
+            int total = allCandidates.size();
+            if (allCandidates.size() > limit) {
+                allCandidates = new ArrayList<>(allCandidates.subList(0, limit));
+            }
+            return new FieldTypeCandidatesResult(
+                    request.projectName(),
+                    request.targetFqn(),
+                    fieldName,
+                    total,
+                    allCandidates);
+        });
     }
 
     public MetadataOperationResult deleteMetadata(DeleteMetadataRequest request) {
@@ -389,6 +611,13 @@ public class EdtMetadataService {
                     MetadataOperationCode.METADATA_NOT_FOUND,
                     "Metadata object not found: " + request.objectFqn(), false); //$NON-NLS-1$
         }
+        if (target.formName() != null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_KIND,
+                    "Form module artifact is unavailable: forms are stored in owner .mdo in current EDT format: "
+                            + request.objectFqn(),
+                    false); //$NON-NLS-1$
+        }
 
         List<String> candidates = buildModuleCandidates(target, request.moduleKind());
         if (candidates.isEmpty()) {
@@ -460,6 +689,11 @@ public class EdtMetadataService {
 
     private List<String> buildModuleCandidates(ModuleTarget target, ModuleArtifactKind requestedKind) {
         LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        if (target.formName() != null && target.topKind() != null && target.topName() != null) {
+            String formsPath = "src/" + mapTopFolder(target.topKind()) + "/" + target.topName() + "/Forms/" + target.formName() + "/Module.bsl"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            candidates.add(formsPath);
+        }
+
         String resourcePath = target.resourcePath();
         if (resourcePath != null && !resourcePath.isBlank()) {
             String normalized = resourcePath.replace('\\', '/');
@@ -469,13 +703,15 @@ public class EdtMetadataService {
             if (lower.endsWith(".form")) { //$NON-NLS-1$
                 candidates.add(dir + "/Module.bsl"); //$NON-NLS-1$
             } else if (lower.endsWith(".mdo")) { //$NON-NLS-1$
+                if (target.formName() != null) {
+                    candidates.add(dir + "/Forms/" + target.formName() + "/Module.bsl"); //$NON-NLS-1$ //$NON-NLS-2$
+                } else {
+                    candidates.add(dir + "/" + moduleFileName(requestedKind, target.className())); //$NON-NLS-1$
+                }
+            }
+            if (target.formName() == null) {
                 candidates.add(dir + "/" + moduleFileName(requestedKind, target.className())); //$NON-NLS-1$
             }
-        }
-
-        if (target.formName() != null && target.topKind() != null && target.topName() != null) {
-            String formsPath = "src/" + mapTopFolder(target.topKind()) + "/" + target.topName() + "/Forms/" + target.formName() + "/Module.bsl"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
-            candidates.add(formsPath);
         }
 
         if (target.topKind() != null && target.topName() != null) {
@@ -539,6 +775,275 @@ public class EdtMetadataService {
         return null;
     }
 
+    private CreateFormRequest createFormRequestFromAddChild(AddMetadataChildRequest request) {
+        if (!request.hasSingleName()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_NAME,
+                    "Form creation via add_metadata_child requires a single form name", false); //$NON-NLS-1$
+        }
+        Map<String, Object> properties = request.properties() == null ? Map.of() : request.properties();
+        String usageValue = firstNonBlank(
+                asString(pickFirst(properties, "form_usage", "formUsage")), //$NON-NLS-1$ //$NON-NLS-2$
+                asString(pickFirst(properties, "usage"))); //$NON-NLS-1$
+        Boolean managed = parseBooleanProperty(properties, "managed"); //$NON-NLS-1$
+        Boolean setAsDefault = parseBooleanProperty(properties, "set_as_default", "setAsDefault", "default"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        Long waitMs = parseLongProperty(properties, "wait_ms", "waitMs"); //$NON-NLS-1$ //$NON-NLS-2$
+        return new CreateFormRequest(
+                request.projectName(),
+                request.parentFqn(),
+                request.name(),
+                FormUsage.fromOptionalString(usageValue),
+                managed,
+                setAsDefault,
+                request.synonym(),
+                request.comment(),
+                waitMs);
+    }
+
+    private FormUsage resolveEffectiveFormUsage(String ownerFqn, String requestedName, FormUsage requestedUsage) {
+        if (requestedUsage != null) {
+            return requestedUsage;
+        }
+        FormUsage fromName = detectUsageFromName(requestedName);
+        if (fromName != null) {
+            return fromName;
+        }
+        String ownerType = topKindFromFqn(ownerFqn);
+        if (ownerType == null) {
+            return FormUsage.AUXILIARY;
+        }
+        return switch (normalizeToken(ownerType)) {
+            case "catalog", "document", "task", "businessprocess", "dataprocessor", "report" -> FormUsage.OBJECT; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$
+            case "enum", "informationregister", "accumulationregister", "accountingregister", "calculationregister" -> FormUsage.LIST; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+            default -> FormUsage.AUXILIARY;
+        };
+    }
+
+    private FormUsage detectUsageFromName(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        String normalized = normalizeToken(name);
+        if (normalized.contains("выбора") || normalized.contains("choice")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return FormUsage.CHOICE;
+        }
+        if (normalized.contains("списка") || normalized.contains("list")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return FormUsage.LIST;
+        }
+        if (normalized.contains("элемента") || normalized.contains("объекта") || normalized.contains("object")) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            return FormUsage.OBJECT;
+        }
+        return null;
+    }
+
+    private String resolveEffectiveFormName(String ownerFqn, String requestedName, FormUsage usage) {
+        String trimmed = requestedName == null ? "" : requestedName.trim(); //$NON-NLS-1$
+        String ownerType = topKindFromFqn(ownerFqn);
+        if (trimmed.isBlank()) {
+            return defaultFormName(ownerType, usage);
+        }
+        if (usage == FormUsage.OBJECT && isGenericObjectFormName(trimmed)) {
+            if ("catalog".equals(normalizeToken(ownerType))) { //$NON-NLS-1$
+                return "ФормаЭлемента"; //$NON-NLS-1$
+            }
+            if ("document".equals(normalizeToken(ownerType))) { //$NON-NLS-1$
+                return "ФормаДокумента"; //$NON-NLS-1$
+            }
+        }
+        return trimmed;
+    }
+
+    private String defaultFormName(String ownerType, FormUsage usage) {
+        if (usage == FormUsage.LIST) {
+            return "ФормаСписка"; //$NON-NLS-1$
+        }
+        if (usage == FormUsage.CHOICE) {
+            return "ФормаВыбора"; //$NON-NLS-1$
+        }
+        if (usage == FormUsage.OBJECT) {
+            if ("catalog".equals(normalizeToken(ownerType))) { //$NON-NLS-1$
+                return "ФормаЭлемента"; //$NON-NLS-1$
+            }
+            if ("document".equals(normalizeToken(ownerType))) { //$NON-NLS-1$
+                return "ФормаДокумента"; //$NON-NLS-1$
+            }
+            return "ФормаОбъекта"; //$NON-NLS-1$
+        }
+        return "Форма"; //$NON-NLS-1$
+    }
+
+    private boolean isGenericObjectFormName(String name) {
+        String normalized = normalizeToken(name);
+        return normalized.equals(normalizeToken("ФормаОбъекта")) //$NON-NLS-1$
+                || normalized.equals(normalizeToken("ObjectForm")) //$NON-NLS-1$
+                || normalized.equals(normalizeToken("Object")); //$NON-NLS-1$
+    }
+
+    private boolean resolveDefaultBinding(Boolean requestedSetAsDefault, FormUsage usage) {
+        if (usage == FormUsage.AUXILIARY) {
+            return false;
+        }
+        return requestedSetAsDefault == null || requestedSetAsDefault.booleanValue();
+    }
+
+    private FormArtifactPaths waitForFormMaterialization(
+            IProject project,
+            String ownerFqn,
+            String formName,
+            long waitMs,
+            String opId
+    ) {
+        String topKind = topKindFromFqn(ownerFqn);
+        String topName = topNameFromFqn(ownerFqn);
+        if (topKind == null || topName == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_FORM_USAGE,
+                    "Invalid owner FQN for form materialization: " + ownerFqn, false); //$NON-NLS-1$
+        }
+
+        String ownerBasePath = "src/" + mapTopFolder(topKind) + "/" + topName + "/"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        IFile ownerMdoFile = project.getFile(ownerBasePath + topName + ".mdo"); //$NON-NLS-1$
+        long startedAt = System.currentTimeMillis();
+        long deadline = startedAt + waitMs;
+
+        while (System.currentTimeMillis() < deadline) {
+            refreshFileSafely(ownerMdoFile);
+
+            String ownerContent = readFileSafely(ownerMdoFile);
+            if (ownerContent == null) {
+                ownerContent = readFileFromDiskSafely(ownerMdoFile);
+            }
+            boolean formEntryInOwner = containsFormEntryInOwnerMdo(ownerContent, formName);
+            if (formEntryInOwner) {
+                String diagnostics = "materialized in " //$NON-NLS-1$
+                        + LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt)
+                        + ", storage=embedded-in-owner-mdo" //$NON-NLS-1$
+                        + ", ownerMdo=" + toAbsolutePath(ownerMdoFile); //$NON-NLS-1$
+                return new FormArtifactPaths(
+                        toAbsolutePath(ownerMdoFile),
+                        null,
+                        diagnostics);
+            }
+            try {
+                Thread.sleep(FORM_MATERIALIZATION_POLL_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new MetadataOperationException(
+                        MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                        "Interrupted while waiting form materialization for " + ownerFqn + ".Form." + formName, true, e); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+        }
+
+        String ownerContent = readFileSafely(ownerMdoFile);
+        if (ownerContent == null) {
+            ownerContent = readFileFromDiskSafely(ownerMdoFile);
+        }
+        boolean formEntryInOwner = containsFormEntryInOwnerMdo(ownerContent, formName);
+        String diagnostics = "timeout=" + waitMs //$NON-NLS-1$
+                + "ms, ownerMdo=" + toAbsolutePath(ownerMdoFile) //$NON-NLS-1$
+                + ", ownerMdoExists=" + ownerMdoFile.exists() //$NON-NLS-1$
+                + ", ownerHasFormEntry=" + formEntryInOwner; //$NON-NLS-1$
+        throw new MetadataOperationException(
+                MetadataOperationCode.FORM_MATERIALIZATION_TIMEOUT,
+                "Form created in BM but artifacts are not materialized: " + diagnostics, true); //$NON-NLS-1$
+    }
+
+    private boolean containsFormEntryInOwnerMdo(String ownerContent, String formName) {
+        if (ownerContent == null || ownerContent.isBlank() || formName == null || formName.isBlank()) {
+            return false;
+        }
+        String lower = ownerContent.toLowerCase(Locale.ROOT);
+        String expectedNameTag = "<name>" + formName.toLowerCase(Locale.ROOT) + "</name>"; //$NON-NLS-1$ //$NON-NLS-2$
+        int fromIndex = 0;
+        while (true) {
+            int start = lower.indexOf("<forms", fromIndex); //$NON-NLS-1$
+            if (start < 0) {
+                return false;
+            }
+            int end = lower.indexOf("</forms>", start); //$NON-NLS-1$
+            if (end < 0) {
+                return false;
+            }
+            int endExclusive = end + "</forms>".length(); //$NON-NLS-1$
+            String formsBlock = lower.substring(start, endExclusive);
+            if (formsBlock.contains(expectedNameTag)) {
+                return true;
+            }
+            fromIndex = endExclusive;
+        }
+    }
+
+    private String toAbsolutePath(IFile file) {
+        if (file == null) {
+            return null;
+        }
+        if (file.getLocation() != null) {
+            return file.getLocation().toOSString();
+        }
+        return file.getFullPath() != null ? file.getFullPath().toString() : null;
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private Object pickFirst(Map<String, Object> properties, String... keys) {
+        if (properties == null || properties.isEmpty()) {
+            return null;
+        }
+        for (String key : keys) {
+            if (properties.containsKey(key)) {
+                return properties.get(key);
+            }
+        }
+        return null;
+    }
+
+    private Boolean parseBooleanProperty(Map<String, Object> properties, String... keys) {
+        Object raw = pickFirst(properties, keys);
+        if (raw == null) {
+            return null;
+        }
+        if (raw instanceof Boolean bool) {
+            return bool;
+        }
+        if (raw instanceof Number number) {
+            return number.intValue() != 0;
+        }
+        String value = String.valueOf(raw).trim().toLowerCase(Locale.ROOT);
+        if ("true".equals(value) || "1".equals(value)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return Boolean.TRUE;
+        }
+        if ("false".equals(value) || "0".equals(value)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return Boolean.FALSE;
+        }
+        throw new MetadataOperationException(
+                MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                "Invalid boolean value for " + String.join("/", keys) + ": " + raw, false); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private Long parseLongProperty(Map<String, Object> properties, String... keys) {
+        Object raw = pickFirst(properties, keys);
+        if (raw == null) {
+            return null;
+        }
+        if (raw instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return Long.valueOf(String.valueOf(raw).trim());
+        } catch (NumberFormatException e) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "Invalid numeric value for " + String.join("/", keys) + ": " + raw, false); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+    }
+
     private String toProjectRelativePath(IProject project, URI uri) {
         if (project == null || uri == null) {
             return null;
@@ -584,7 +1089,12 @@ public class EdtMetadataService {
         }
     }
 
-    private String createGenericChild(Configuration configuration, AddMetadataChildRequest request) {
+    private String createGenericChild(
+            Configuration configuration,
+            AddMetadataChildRequest request,
+            IBmPlatformTransaction transaction,
+            Map<String, TypeItem> preResolvedTypes
+    ) {
         LOG.debug("createGenericChild parent=%s childKind=%s name=%s", // $NON-NLS-1$
                 request.parentFqn(), request.childKind(), request.name());
         MdObject parent = resolveByFqn(configuration, request.parentFqn());
@@ -609,9 +1119,25 @@ public class EdtMetadataService {
             initializeFormIfNeeded(child);
             ensureUuidsRecursively(child, "child", request.parentFqn()); //$NON-NLS-1$
             addChildToParent(parent, child, effectiveKind);
+            applyDefaultTypeIfNeeded(
+                    configuration,
+                    child,
+                    effectiveKind,
+                    request.properties(),
+                    preResolvedTypes,
+                    transaction,
+                    request.parentFqn(),
+                    request.name());
             createdFqns.add(buildChildFqn(request.parentFqn(), effectiveKind, request.name()));
         }
-        createdFqns.addAll(addChildrenBatch(parent, effectiveKind, request.properties(), request.parentFqn()));
+        createdFqns.addAll(addChildrenBatch(
+                configuration,
+                parent,
+                effectiveKind,
+                request.properties(),
+                request.parentFqn(),
+                preResolvedTypes,
+                transaction));
 
         if (createdFqns.isEmpty()) {
             throw new MetadataOperationException(
@@ -634,23 +1160,14 @@ public class EdtMetadataService {
 
     private MdObject createFormByParent(MdObject parent) {
         String parentClass = parent.eClass().getName();
-        return switch (parentClass) {
-            case "Catalog" -> MdClassFactory.eINSTANCE.createCatalogForm(); //$NON-NLS-1$
-            case "Document" -> MdClassFactory.eINSTANCE.createDocumentForm(); //$NON-NLS-1$
-            case "InformationRegister" -> MdClassFactory.eINSTANCE.createInformationRegisterForm(); //$NON-NLS-1$
-            case "AccumulationRegister" -> MdClassFactory.eINSTANCE.createAccumulationRegisterForm(); //$NON-NLS-1$
-            case "Report" -> MdClassFactory.eINSTANCE.createReportForm(); //$NON-NLS-1$
-            case "DataProcessor" -> MdClassFactory.eINSTANCE.createDataProcessorForm(); //$NON-NLS-1$
-            case "Enum" -> MdClassFactory.eINSTANCE.createEnumForm(); //$NON-NLS-1$
-            case "Task" -> MdClassFactory.eINSTANCE.createTaskForm(); //$NON-NLS-1$
-            case "BusinessProcess" -> MdClassFactory.eINSTANCE.createBusinessProcessForm(); //$NON-NLS-1$
-            case "ChartOfAccounts" -> MdClassFactory.eINSTANCE.createChartOfAccountsForm(); //$NON-NLS-1$
-            case "ChartOfCalculationTypes" -> MdClassFactory.eINSTANCE.createChartOfCalculationTypesForm(); //$NON-NLS-1$
-            case "ChartOfCharacteristicTypes" -> MdClassFactory.eINSTANCE.createChartOfCharacteristicTypesForm(); //$NON-NLS-1$
-            default -> throw new MetadataOperationException(
+        String factoryMethod = formOwnerStrategy.resolveFactoryMethod(parentClass);
+        MdObject created = invokeFactory(factoryMethod);
+        if (created == null) {
+            throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_KIND,
-                    "Unsupported parent for Form: " + parentClass, false); //$NON-NLS-1$
-        };
+                    "Cannot create form by factory method: " + factoryMethod, false); //$NON-NLS-1$
+        }
+        return created;
     }
 
     private void initializeFormIfNeeded(MdObject child) {
@@ -660,6 +1177,342 @@ public class EdtMetadataService {
         if (basicForm.getFormType() == null) {
             basicForm.setFormType(FormType.MANAGED);
         }
+    }
+
+    private void initializeFormForRequest(MdObject child, CreateFormRequest request) {
+        initializeFormIfNeeded(child);
+        if (!(child instanceof BasicForm basicForm)) {
+            return;
+        }
+        if (!request.managedEnabled()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_FORM_USAGE,
+                    "Only managed forms are supported in MVP", false); //$NON-NLS-1$
+        }
+        basicForm.setFormType(FormType.MANAGED);
+    }
+
+    private void bindDefaultForm(MdObject owner, MdObject form, FormUsage usage, String opId) {
+        String setter = formOwnerStrategy.resolveDefaultSetter(usage);
+        if (setter == null) {
+            return;
+        }
+        Method targetMethod = findCompatibleSetter(owner.getClass(), setter, form.getClass());
+        if (targetMethod == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_FORM_USAGE,
+                    "Form usage " + usage + " is not supported for owner " + owner.eClass().getName(), false); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        try {
+            targetMethod.invoke(owner, form);
+            LOG.debug("[%s] Bound default form via %s for owner=%s form=%s", opId, setter, //$NON-NLS-1$
+                    owner.eClass().getName(), form.getName());
+        } catch (ReflectiveOperationException e) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Failed to bind default form via " + setter + ": " + e.getMessage(), false, e); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+    }
+
+    private void populateFormContent(
+            IProject project,
+            IBmPlatformTransaction transaction,
+            MdObject owner,
+            MdObject form,
+            Configuration configuration,
+            FormUsage usage,
+            String opId
+    ) {
+        if (!(form instanceof BasicForm basicForm)) {
+            return;
+        }
+        try {
+            Bundle formBundle = requireBundle(FORM_BUNDLE_ID);
+            Class<?> formTypeClass = loadBundleClass(formBundle, FORM_GENERATOR_TYPE_CLASS);
+            Class<?> formGeneratorClass = loadBundleClass(formBundle, FORM_GENERATOR_CLASS);
+            Class<?> formFieldGeneratorClass = loadBundleClass(formBundle, FORM_FIELD_GENERATOR_CLASS);
+            Class<?> formFieldInfoClass = loadBundleClass(formBundle, FORM_FIELD_INFO_CLASS);
+
+            Bundle platformBundle = requireBundle(PLATFORM_BUNDLE_ID);
+            Class<?> versionClass = loadBundleClass(platformBundle, VERSION_CLASS);
+
+            Object injector = resolveFormInjector(formBundle);
+            Object formGenerator = resolveInjectorService(injector, formGeneratorClass);
+            Object formFieldGenerator = resolveInjectorService(injector, formFieldGeneratorClass);
+
+            Object generatorFormType = resolveFormGeneratorType(owner, usage, formTypeClass);
+            ScriptVariant scriptVariant = resolveScriptVariant(configuration);
+            String languageCode = resolveLanguageCode(scriptVariant);
+            Object runtimeVersion = resolveRuntimeVersion(configuration, versionClass, opId);
+
+            Method getFieldsMethod = formFieldGeneratorClass.getMethod(
+                    "getFormGeneratorFields", //$NON-NLS-1$
+                    MdObject.class,
+                    formTypeClass,
+                    ScriptVariant.class,
+                    versionClass);
+            Object formFieldInfo = getFieldsMethod.invoke(
+                    formFieldGenerator,
+                    owner,
+                    generatorFormType,
+                    scriptVariant,
+                    runtimeVersion);
+            if (formFieldInfo == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                        "EDT form generator returned null FormFieldInfo for " + owner.eClass().getName(), false); //$NON-NLS-1$
+            }
+
+            Method generateFormMethod = formGeneratorClass.getMethod(
+                    "generateForm", //$NON-NLS-1$
+                    MdObject.class,
+                    BasicForm.class,
+                    formTypeClass,
+                    ScriptVariant.class,
+                    String.class,
+                    versionClass,
+                    formFieldInfoClass,
+                    Integer.class,
+                    com._1c.g5.v8.dt.metadata.mdclass.InterfaceCompatibilityMode.class);
+            Object generatedForm = generateFormMethod.invoke(
+                    formGenerator,
+                    owner,
+                    basicForm,
+                    generatorFormType,
+                    scriptVariant,
+                    languageCode,
+                    runtimeVersion,
+                    formFieldInfo,
+                    Integer.valueOf(1),
+                    configuration.getInterfaceCompatibilityMode());
+            if (generatedForm == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                        "EDT form generator returned null form model for " + basicForm.getName(), false); //$NON-NLS-1$
+            }
+
+            Method setMdForm = generatedForm.getClass().getMethod("setMdForm", BasicForm.class); //$NON-NLS-1$
+            setMdForm.invoke(generatedForm, basicForm);
+            linkGeneratedFormToTransaction(project, transaction, basicForm, generatedForm, opId);
+
+            LOG.debug("[%s] Form content generated via EDT IFormGenerator: owner=%s form=%s usage=%s formType=%s", // $NON-NLS-1$
+                    opId,
+                    owner.eClass().getName(),
+                    basicForm.getName(),
+                    usage,
+                    String.valueOf(generatorFormType));
+        } catch (MetadataOperationException e) {
+            throw e;
+        } catch (ReflectiveOperationException e) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "EDT form generator is unavailable: " + e.getMessage(), false, e); //$NON-NLS-1$
+        } catch (RuntimeException e) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Failed to generate form content: " + e.getMessage(), false, e); //$NON-NLS-1$
+        }
+    }
+
+    private void linkGeneratedFormToTransaction(
+            IProject project,
+            IBmPlatformTransaction transaction,
+            BasicForm basicForm,
+            Object generatedForm,
+            String opId
+    ) throws ReflectiveOperationException {
+        if (!(generatedForm instanceof EObject generatedFormEObject) || !(generatedForm instanceof IBmObject generatedFormBm)) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Generated form is not BM EObject: " + generatedForm.getClass().getName(), false); //$NON-NLS-1$
+        }
+        String externalFqn = gateway.getTopObjectFqnGenerator()
+                .generateExternalPropertyFqn(basicForm, MdClassPackage.Literals.BASIC_FORM__FORM);
+        if (externalFqn == null || externalFqn.isBlank()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Cannot generate external FQN for BasicForm.form", false); //$NON-NLS-1$
+        }
+        IBmNamespace namespace = gateway.getBmModelManager().getBmNamespace(project);
+        if (namespace == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "Cannot resolve BM namespace for project: " + project.getName(), false); //$NON-NLS-1$
+        }
+
+        Object transactionForm = generatedForm;
+        if (generatedFormBm.bmGetEngine() == null) {
+            transaction.attachTopObject(namespace, generatedFormBm, externalFqn);
+            transactionForm = transaction.getTopObjectByFqn(namespace, externalFqn);
+        } else {
+            Object txForm = transaction.toTransactionObject(generatedFormEObject);
+            if (txForm != null) {
+                transactionForm = txForm;
+            }
+        }
+        bindBasicFormReference(basicForm, transactionForm, opId, externalFqn);
+    }
+
+    private void bindBasicFormReference(BasicForm basicForm, Object formObject, String opId, String externalFqn)
+            throws ReflectiveOperationException {
+        for (Method method : BasicForm.class.getMethods()) {
+            if (!"setForm".equals(method.getName()) || method.getParameterCount() != 1) { //$NON-NLS-1$
+                continue;
+            }
+            if (method.getParameterTypes()[0].isInstance(formObject)) {
+                method.invoke(basicForm, formObject);
+                LOG.debug("[%s] Attached generated form to transaction: basicForm=%s externalFqn=%s formClass=%s", //$NON-NLS-1$
+                        opId,
+                        basicForm.getName(),
+                        externalFqn,
+                        formObject.getClass().getName());
+                return;
+            }
+        }
+        throw new MetadataOperationException(
+                MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                "BasicForm.setForm compatible setter not found for generated form class: "
+                        + formObject.getClass().getName(),
+                false); //$NON-NLS-1$
+    }
+
+    private Object resolveFormGeneratorType(MdObject owner, FormUsage usage, Class<?> formTypeClass) {
+        String typeName = switch (usage) {
+            case OBJECT -> "OBJECT"; //$NON-NLS-1$
+            case LIST -> "LIST"; //$NON-NLS-1$
+            case CHOICE -> "CHOICE"; //$NON-NLS-1$
+            case AUXILIARY -> inferAuxiliaryFormType(owner);
+        };
+        @SuppressWarnings({ "unchecked", "rawtypes" })
+        Object enumValue = Enum.valueOf((Class<? extends Enum>) formTypeClass.asSubclass(Enum.class), typeName);
+        return enumValue;
+    }
+
+    private String inferAuxiliaryFormType(MdObject owner) {
+        if (owner == null || owner.eClass() == null) {
+            return "GENERIC"; //$NON-NLS-1$
+        }
+        String ownerType = owner.eClass().getName();
+        return switch (ownerType) {
+            case "Report" -> "REPORT"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "Enum", "InformationRegister", "AccumulationRegister", "AccountingRegister", "CalculationRegister" -> "LIST"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$
+            default -> "OBJECT"; //$NON-NLS-1$
+        };
+    }
+
+    private ScriptVariant resolveScriptVariant(Configuration configuration) {
+        ScriptVariant variant = configuration != null ? configuration.getScriptVariant() : null;
+        return variant == null ? ScriptVariant.RUSSIAN : variant;
+    }
+
+    private String resolveLanguageCode(ScriptVariant scriptVariant) {
+        if (scriptVariant == ScriptVariant.ENGLISH) {
+            return EN_LANGUAGE;
+        }
+        return RU_LANGUAGE;
+    }
+
+    private Object resolveRuntimeVersion(Configuration configuration, Class<?> versionClass, String opId)
+            throws ReflectiveOperationException {
+        if (configuration != null && configuration.getCompatibilityMode() != null) {
+            try {
+                Method parseCompatibilityMode = versionClass.getMethod(
+                        "parseCompatibilityMode", configuration.getCompatibilityMode().getClass()); //$NON-NLS-1$
+                Object parsed = parseCompatibilityMode.invoke(null, configuration.getCompatibilityMode());
+                if (parsed != null) {
+                    return parsed;
+                }
+            } catch (ReflectiveOperationException e) {
+                LOG.debug("[%s] Failed to parse compatibility mode, fallback to LATEST: %s", opId, e.getMessage()); //$NON-NLS-1$
+            }
+        }
+        return versionClass.getField("LATEST").get(null); //$NON-NLS-1$
+    }
+
+    private Object resolveFormInjector(Bundle formBundle) throws ReflectiveOperationException {
+        Class<?> formPluginClass = loadBundleClass(formBundle, FORM_PLUGIN_CLASS);
+        Method getDefault = formPluginClass.getMethod("getDefault"); //$NON-NLS-1$
+        Object plugin = getDefault.invoke(null);
+        if (plugin == null) {
+            try {
+                formBundle.start(Bundle.START_TRANSIENT);
+            } catch (Exception e) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                        "Failed to start EDT form bundle: " + e.getMessage(), false, e); //$NON-NLS-1$
+            }
+            plugin = getDefault.invoke(null);
+        }
+        if (plugin == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "FormPlugin instance is unavailable", false); //$NON-NLS-1$
+        }
+        Method getInjector = formPluginClass.getMethod("getInjector"); //$NON-NLS-1$
+        Object injector = getInjector.invoke(plugin);
+        if (injector == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "FormPlugin injector is unavailable", false); //$NON-NLS-1$
+        }
+        return injector;
+    }
+
+    private Object resolveInjectorService(Object injector, Class<?> serviceClass) throws ReflectiveOperationException {
+        Class<?> injectorApiClass = resolveInjectorApiClass(injector);
+        Method getInstance = injectorApiClass.getMethod("getInstance", Class.class); //$NON-NLS-1$
+        Object service = getInstance.invoke(injector, serviceClass);
+        if (service == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "Injector returned null for " + serviceClass.getName(), false); //$NON-NLS-1$
+        }
+        return service;
+    }
+
+    private Class<?> resolveInjectorApiClass(Object injector) {
+        ClassLoader classLoader = injector.getClass().getClassLoader();
+        try {
+            Class<?> injectorInterface = Class.forName(GUICE_INJECTOR_CLASS, false, classLoader);
+            if (injectorInterface.isAssignableFrom(injector.getClass())) {
+                return injectorInterface;
+            }
+        } catch (ClassNotFoundException e) {
+            LOG.debug("Guice Injector interface was not resolved from injector classloader: %s", e.getMessage()); //$NON-NLS-1$
+        }
+        for (Class<?> iface : injector.getClass().getInterfaces()) {
+            if (GUICE_INJECTOR_CLASS.equals(iface.getName())) {
+                return iface;
+            }
+        }
+        return injector.getClass();
+    }
+
+    private Bundle requireBundle(String bundleId) {
+        Bundle bundle = Platform.getBundle(bundleId);
+        if (bundle == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "Required EDT bundle is unavailable: " + bundleId, false); //$NON-NLS-1$
+        }
+        return bundle;
+    }
+
+    private Class<?> loadBundleClass(Bundle bundle, String className) throws ClassNotFoundException {
+        return bundle.loadClass(className);
+    }
+
+    private Method findCompatibleSetter(Class<?> ownerClass, String methodName, Class<?> argumentType) {
+        for (Method method : ownerClass.getMethods()) {
+            if (!methodName.equals(method.getName()) || method.getParameterCount() != 1) {
+                continue;
+            }
+            Class<?> parameterType = method.getParameterTypes()[0];
+            if (parameterType.isAssignableFrom(argumentType)) {
+                return method;
+            }
+        }
+        return null;
     }
 
     private MdObject resolveByFqn(Configuration configuration, String fqn) {
@@ -876,10 +1729,13 @@ public class EdtMetadataService {
     }
 
     private List<String> addChildrenBatch(
+            Configuration configuration,
             MdObject parent,
             MetadataChildKind kind,
             Map<String, Object> properties,
-            String parentFqn
+            String parentFqn,
+            Map<String, TypeItem> preResolvedTypes,
+            IBmPlatformTransaction transaction
     ) {
         List<String> createdFqns = new ArrayList<>();
         if (properties == null || properties.isEmpty()) {
@@ -903,8 +1759,19 @@ public class EdtMetadataService {
             validateReservedChildName(parent, kind, name);
             MdObject child = createChildByFactory(parent, kind);
             setCommonProperties(child, name, asString(rawMap.get("synonym")), asString(rawMap.get("comment"))); //$NON-NLS-1$ //$NON-NLS-2$
+            @SuppressWarnings("unchecked")
+            Map<String, Object> childProperties = (Map<String, Object>) rawMap;
             try {
                 addChildToParent(parent, child, kind);
+                applyDefaultTypeIfNeeded(
+                        configuration,
+                        child,
+                        kind,
+                        childProperties,
+                        preResolvedTypes,
+                        transaction,
+                        parentFqn,
+                        name);
                 createdFqns.add(buildChildFqn(parentFqn, kind, name));
             } catch (MetadataOperationException e) {
                 if (e.getCode() != MetadataOperationCode.METADATA_ALREADY_EXISTS) {
@@ -913,6 +1780,113 @@ public class EdtMetadataService {
             }
         }
         return createdFqns;
+    }
+
+    private Map<String, TypeItem> preResolveChildTypes(
+            IProject project,
+            AddMetadataChildRequest request
+    ) {
+        Set<String> typeStrings = collectChildTypeStrings(request);
+        if (typeStrings.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, TypeItem> preResolvedTypes = new HashMap<>();
+        executeRead(project, readTx -> {
+            for (String typeString : typeStrings) {
+                TypeItem item = resolveTypeItem(typeString, readTx);
+                if (item == null && !isSimpleTypeQuery(typeString)) {
+                    throw new MetadataOperationException(
+                            MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                            "Type not found in BM: " + typeString, false); //$NON-NLS-1$
+                }
+                if (item != null) {
+                    cacheResolvedTypeItem(preResolvedTypes, typeString, item);
+                }
+            }
+            return null;
+        });
+        return preResolvedTypes;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Set<String> collectChildTypeStrings(AddMetadataChildRequest request) {
+        Set<String> typeStrings = new LinkedHashSet<>();
+        Map<String, Object> properties = request.properties();
+        if (properties != null && !properties.isEmpty()) {
+            String directType = normalizeTypeLookupQuery(getMapValueIgnoreCase(properties, "type")); //$NON-NLS-1$
+            if (directType != null && !directType.isBlank()) {
+                typeStrings.add(directType);
+            }
+            Object rawChildren = getMapValueIgnoreCase(properties, "children"); //$NON-NLS-1$
+            if (rawChildren == null && request.childKind() == MetadataChildKind.ATTRIBUTE) {
+                rawChildren = getMapValueIgnoreCase(properties, "attributes"); //$NON-NLS-1$
+            }
+            if (rawChildren instanceof List<?> entries) {
+                for (Object entry : entries) {
+                    if (entry instanceof Map<?, ?> entryMap) {
+                        String entryType = normalizeTypeLookupQuery(getMapValueIgnoreCase((Map<String, Object>) entryMap, "type")); //$NON-NLS-1$
+                        if (entryType != null && !entryType.isBlank()) {
+                            typeStrings.add(entryType);
+                        }
+                    }
+                }
+            }
+        }
+        if (isKindWithRequiredType(request.childKind())) {
+            typeStrings.add(DEFAULT_BASIC_FEATURE_TYPE);
+        }
+        return typeStrings;
+    }
+
+    private void applyDefaultTypeIfNeeded(
+            Configuration configuration,
+            MdObject child,
+            MetadataChildKind kind,
+            Map<String, Object> properties,
+            Map<String, TypeItem> preResolvedTypes,
+            IBmPlatformTransaction transaction,
+            String parentFqn,
+            String childName
+    ) {
+        if (!(child instanceof BasicFeature feature)) {
+            return;
+        }
+        if (feature.getType() != null && !feature.getType().getTypes().isEmpty()) {
+            return;
+        }
+        Object requestedTypeValue = properties == null ? null : getMapValueIgnoreCase(properties, "type"); //$NON-NLS-1$
+        TypeSpec requestedSpec = requestedTypeValue == null ? null : normalizeTypeSpec(requestedTypeValue);
+        String requestedType = requestedSpec == null ? null : requestedSpec.typeQuery();
+        String typeToApply = requestedType != null ? requestedType
+                : (isKindWithRequiredType(kind) ? DEFAULT_BASIC_FEATURE_TYPE : null);
+        if (typeToApply == null || typeToApply.isBlank()) {
+            return;
+        }
+        TypeItem typeItem = resolveTypeItemForFeature(
+                feature,
+                configuration,
+                typeToApply,
+                preResolvedTypes);
+        if (typeItem == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "Type not found in BM/type provider for add_metadata_child: " + typeToApply, false); //$NON-NLS-1$
+        }
+        if (requestedType == null) {
+            LOG.info("Auto-assign default type=%s for child kind=%s parent=%s child=%s", //$NON-NLS-1$
+                    typeToApply, kind, parentFqn, childName);
+        }
+        TypeSpec effectiveSpec = requestedSpec != null
+                ? requestedSpec
+                : TypeSpec.of(typeToApply);
+        setAttributeType(feature, typeItem, effectiveSpec, transaction);
+    }
+
+    private boolean isKindWithRequiredType(MetadataChildKind kind) {
+        return kind == MetadataChildKind.ATTRIBUTE
+                || kind == MetadataChildKind.REQUISITE
+                || kind == MetadataChildKind.DIMENSION
+                || kind == MetadataChildKind.RESOURCE;
     }
 
     private String buildChildFqn(String parentFqn, MetadataChildKind kind, String name) {
@@ -940,7 +1914,7 @@ public class EdtMetadataService {
             IBmPlatformTransaction transaction,
             Map<String, TypeItem> preResolvedTypes
     ) {
-        Map<String, Object> setChanges = asMap(changes.get("set")); //$NON-NLS-1$
+        Map<String, Object> setChanges = normalizeSetChangesForTarget(target, asMap(changes.get("set"))); //$NON-NLS-1$
         List<?> unsetChanges = changes.get("unset") instanceof List<?> list ? list : List.of(); //$NON-NLS-1$
         List<Map<String, Object>> childOps = asListOfMaps(changes.get("children_ops")); //$NON-NLS-1$
 
@@ -953,6 +1927,7 @@ public class EdtMetadataService {
         // Collect synthetic child ops from set keys that look like child attribute names
         // (i.e. key is not an EMF feature AND value is a Map, e.g. {"type":"CatalogRef.Контрагенты"})
         List<Map<String, Object>> syntheticChildOps = new ArrayList<>();
+        Set<String> consumedSetKeys = new HashSet<>();
 
         for (Map.Entry<String, Object> entry : setChanges.entrySet()) {
             String key = entry.getKey();
@@ -978,6 +1953,15 @@ public class EdtMetadataService {
             // Auto-redirect: if key is not an EMF feature but value is a Map,
             // treat it as a child attribute property update (e.g. set type on Attribute)
             EStructuralFeature probe = target.eClass().getEStructuralFeature(key);
+            if (probe instanceof EReference ref && ref.isContainment() && entry.getValue() instanceof List<?> rawChildren) {
+                List<Map<String, Object>> redirected = buildChildOpsFromContainmentSet(
+                        configuration, targetFqn, key, rawChildren);
+                if (!redirected.isEmpty()) {
+                    syntheticChildOps.addAll(redirected);
+                    consumedSetKeys.add(key);
+                    continue;
+                }
+            }
             if (probe == null && entry.getValue() instanceof Map<?, ?> childProps) {
                 // Try resolving as child: targetFqn.Attribute.key
                 String candidateFqn = targetFqn + ".Attribute." + key; //$NON-NLS-1$
@@ -993,6 +1977,9 @@ public class EdtMetadataService {
                     syntheticChildOps.add(syntheticOp);
                     continue;
                 }
+            }
+            if (consumedSetKeys.contains(key)) {
+                continue;
             }
             setFeatureValue(configuration, target, key, entry.getValue(), transaction, preResolvedTypes);
         }
@@ -1026,6 +2013,214 @@ public class EdtMetadataService {
             allChildOps.addAll(syntheticChildOps);
         }
         applyChildOperations(configuration, targetFqn, allChildOps, transaction, preResolvedTypes);
+    }
+
+    private Map<String, Object> normalizeSetChangesForTarget(MdObject target, Map<String, Object> rawSetChanges) {
+        if (rawSetChanges == null || rawSetChanges.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> normalized = new LinkedHashMap<>(rawSetChanges);
+        if (!(target instanceof BasicFeature)) {
+            return normalized;
+        }
+
+        Map<String, Object> typePatch = new LinkedHashMap<>();
+        List<String> consumedKeys = new ArrayList<>();
+        for (Map.Entry<String, Object> entry : rawSetChanges.entrySet()) {
+            String key = entry.getKey();
+            if (key == null || key.isBlank()) {
+                continue;
+            }
+            if (key.equalsIgnoreCase("length")) { //$NON-NLS-1$
+                @SuppressWarnings("unchecked")
+                Map<String, Object> sq = (Map<String, Object>) typePatch.computeIfAbsent(
+                        "stringQualifiers", //$NON-NLS-1$
+                        k -> new LinkedHashMap<String, Object>());
+                sq.put("length", entry.getValue()); //$NON-NLS-1$
+                consumedKeys.add(key);
+                continue;
+            }
+            if (key.equalsIgnoreCase("fixed") || key.equalsIgnoreCase("fixedLength")) { //$NON-NLS-1$ //$NON-NLS-2$
+                @SuppressWarnings("unchecked")
+                Map<String, Object> sq = (Map<String, Object>) typePatch.computeIfAbsent(
+                        "stringQualifiers", //$NON-NLS-1$
+                        k -> new LinkedHashMap<String, Object>());
+                sq.put("fixed", entry.getValue()); //$NON-NLS-1$
+                consumedKeys.add(key);
+                continue;
+            }
+            if (key.equalsIgnoreCase("precision") || key.equalsIgnoreCase("scale") || key.equalsIgnoreCase("nonNegative")) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                @SuppressWarnings("unchecked")
+                Map<String, Object> nq = (Map<String, Object>) typePatch.computeIfAbsent(
+                        "numberQualifiers", //$NON-NLS-1$
+                        k -> new LinkedHashMap<String, Object>());
+                nq.put(key, entry.getValue());
+                consumedKeys.add(key);
+                continue;
+            }
+            if (key.equalsIgnoreCase("dateFractions") || key.equalsIgnoreCase("fractions")) { //$NON-NLS-1$ //$NON-NLS-2$
+                @SuppressWarnings("unchecked")
+                Map<String, Object> dq = (Map<String, Object>) typePatch.computeIfAbsent(
+                        "dateQualifiers", //$NON-NLS-1$
+                        k -> new LinkedHashMap<String, Object>());
+                dq.put("dateFractions", entry.getValue()); //$NON-NLS-1$
+                consumedKeys.add(key);
+                continue;
+            }
+            if (key.equalsIgnoreCase("type.stringQualifiers")) { //$NON-NLS-1$
+                Map<String, Object> nested = asMap(entry.getValue());
+                if (!nested.isEmpty()) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> sq = (Map<String, Object>) typePatch.computeIfAbsent(
+                            "stringQualifiers", //$NON-NLS-1$
+                            k -> new LinkedHashMap<String, Object>());
+                    sq.putAll(nested);
+                }
+                consumedKeys.add(key);
+                continue;
+            }
+            if (key.equalsIgnoreCase("type.numberQualifiers")) { //$NON-NLS-1$
+                Map<String, Object> nested = asMap(entry.getValue());
+                if (!nested.isEmpty()) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> nq = (Map<String, Object>) typePatch.computeIfAbsent(
+                            "numberQualifiers", //$NON-NLS-1$
+                            k -> new LinkedHashMap<String, Object>());
+                    nq.putAll(nested);
+                }
+                consumedKeys.add(key);
+                continue;
+            }
+            if (key.equalsIgnoreCase("type.dateQualifiers")) { //$NON-NLS-1$
+                Map<String, Object> nested = asMap(entry.getValue());
+                if (!nested.isEmpty()) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> dq = (Map<String, Object>) typePatch.computeIfAbsent(
+                            "dateQualifiers", //$NON-NLS-1$
+                            k -> new LinkedHashMap<String, Object>());
+                    dq.putAll(nested);
+                }
+                consumedKeys.add(key);
+                continue;
+            }
+            if (key.equalsIgnoreCase("type.types")) { //$NON-NLS-1$
+                typePatch.put("types", entry.getValue()); //$NON-NLS-1$
+                consumedKeys.add(key);
+                continue;
+            }
+            if (key.regionMatches(true, 0, "type.types[", 0, "type.types[".length()) && key.endsWith("]")) { //$NON-NLS-1$ //$NON-NLS-2$
+                int indexStart = "type.types[".length(); //$NON-NLS-1$
+                int indexEnd = key.length() - 1;
+                Integer index = parseInteger(key.substring(indexStart, indexEnd));
+                if (index != null && index.intValue() >= 0) {
+                    List<Object> values = toMutableList(typePatch.get("types")); //$NON-NLS-1$
+                    ensureListSize(values, index.intValue() + 1);
+                    values.set(index.intValue(), entry.getValue());
+                    typePatch.put("types", values); //$NON-NLS-1$
+                    consumedKeys.add(key);
+                    continue;
+                }
+            }
+            if (key.regionMatches(true, 0, "type.", 0, "type.".length()) && key.length() > "type.".length()) { //$NON-NLS-1$ //$NON-NLS-2$
+                String nestedPath = key.substring("type.".length()); //$NON-NLS-1$
+                putNestedMapValue(typePatch, nestedPath, entry.getValue());
+                consumedKeys.add(key);
+            }
+        }
+
+        for (String consumed : consumedKeys) {
+            normalized.remove(consumed);
+        }
+        if (typePatch.isEmpty()) {
+            return normalized;
+        }
+        Object existingType = normalized.get("type"); //$NON-NLS-1$
+        normalized.put("type", mergeTypeSetPayload(existingType, typePatch)); //$NON-NLS-1$
+        return normalized;
+    }
+
+    private Object mergeTypeSetPayload(Object existingType, Map<String, Object> typePatch) {
+        if (typePatch == null || typePatch.isEmpty()) {
+            return existingType;
+        }
+        Map<String, Object> merged = new LinkedHashMap<>();
+        if (existingType instanceof Map<?, ?> existingMap) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> cast = (Map<String, Object>) existingMap;
+            mergeNestedMaps(merged, cast);
+            mergeNestedMaps(merged, typePatch);
+            return merged;
+        }
+        mergeNestedMaps(merged, typePatch);
+        if (existingType != null) {
+            merged.putIfAbsent("type", existingType); //$NON-NLS-1$
+        }
+        return merged;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void mergeNestedMaps(Map<String, Object> target, Map<String, Object> patch) {
+        if (target == null || patch == null || patch.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, Object> entry : patch.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            Object current = target.get(key);
+            if (current instanceof Map<?, ?> currentMap && value instanceof Map<?, ?> valueMap) {
+                Map<String, Object> currentMutable = new LinkedHashMap<>((Map<String, Object>) currentMap);
+                mergeNestedMaps(currentMutable, (Map<String, Object>) valueMap);
+                target.put(key, currentMutable);
+            } else {
+                target.put(key, value);
+            }
+        }
+    }
+
+    private void putNestedMapValue(Map<String, Object> root, String dottedPath, Object value) {
+        if (root == null || dottedPath == null || dottedPath.isBlank()) {
+            return;
+        }
+        String[] parts = dottedPath.split("\\."); //$NON-NLS-1$
+        Map<String, Object> cursor = root;
+        for (int i = 0; i < parts.length; i++) {
+            String part = parts[i] == null ? "" : parts[i].trim(); //$NON-NLS-1$
+            if (part.isBlank()) {
+                continue;
+            }
+            boolean last = i == parts.length - 1;
+            if (last) {
+                cursor.put(part, value);
+                return;
+            }
+            Object next = cursor.get(part);
+            Map<String, Object> nextMap;
+            if (next instanceof Map<?, ?> existingMap) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> cast = (Map<String, Object>) existingMap;
+                nextMap = cast;
+            } else {
+                nextMap = new LinkedHashMap<>();
+                cursor.put(part, nextMap);
+            }
+            cursor = nextMap;
+        }
+    }
+
+    private List<Object> toMutableList(Object value) {
+        if (value instanceof List<?> list) {
+            return new ArrayList<>(list);
+        }
+        return new ArrayList<>();
+    }
+
+    private void ensureListSize(List<Object> list, int size) {
+        if (list == null || size <= 0) {
+            return;
+        }
+        while (list.size() < size) {
+            list.add(null);
+        }
     }
 
     private void applyChildOperations(
@@ -1080,6 +2275,8 @@ public class EdtMetadataService {
                         Object set = op.get("set"); //$NON-NLS-1$
                         Object unset = op.get("unset"); //$NON-NLS-1$
                         Object nestedChildOps = op.get("children_ops"); //$NON-NLS-1$
+                        Object shorthandType = op.get("type"); //$NON-NLS-1$
+                        Map<String, Object> shorthandProperties = asMap(op.get("properties")); //$NON-NLS-1$
                         if (set != null) {
                             nestedChanges.put("set", set); //$NON-NLS-1$
                         }
@@ -1088,6 +2285,20 @@ public class EdtMetadataService {
                         }
                         if (nestedChildOps != null) {
                             nestedChanges.put("children_ops", nestedChildOps); //$NON-NLS-1$
+                        }
+                        if (shorthandType != null || !shorthandProperties.isEmpty()) {
+                            Map<String, Object> synthesizedSet = new HashMap<>();
+                            if (shorthandType != null) {
+                                synthesizedSet.put("type", shorthandType); //$NON-NLS-1$
+                            }
+                            if (!shorthandProperties.isEmpty()) {
+                                synthesizedSet.putAll(shorthandProperties);
+                            }
+                            Map<String, Object> existingSet = asMap(nestedChanges.get("set")); //$NON-NLS-1$
+                            if (!existingSet.isEmpty()) {
+                                synthesizedSet.putAll(existingSet);
+                            }
+                            nestedChanges.put("set", synthesizedSet); //$NON-NLS-1$
                         }
                     }
                     applyObjectChanges(configuration, child, nestedChanges, childFqn,
@@ -1098,6 +2309,76 @@ public class EdtMetadataService {
                         "Unsupported children_ops op: " + opType, false); //$NON-NLS-1$
             }
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> buildChildOpsFromContainmentSet(
+            Configuration configuration,
+            String parentTargetFqn,
+            String featureKey,
+            List<?> rawChildren
+    ) {
+        if (rawChildren == null || rawChildren.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> syntheticOps = new ArrayList<>();
+        String marker = resolveChildMarkerByFeature(featureKey);
+        for (Object raw : rawChildren) {
+            if (!(raw instanceof Map<?, ?> childMapRaw)) {
+                continue;
+            }
+            Map<String, Object> childMap = (Map<String, Object>) childMapRaw;
+            String childName = asString(childMap.get("name")); //$NON-NLS-1$
+            if (childName == null || childName.isBlank()) {
+                continue;
+            }
+            String childFqn = parentTargetFqn + "." + marker + "." + childName; //$NON-NLS-1$ //$NON-NLS-2$
+            MdObject child = resolveByFqn(configuration, childFqn);
+            if (child == null) {
+                continue;
+            }
+            Map<String, Object> childSet = new HashMap<>();
+            for (Map.Entry<String, Object> entry : childMap.entrySet()) {
+                String key = entry.getKey();
+                if (key == null || key.isBlank() || "name".equalsIgnoreCase(key)) { //$NON-NLS-1$
+                    continue;
+                }
+                childSet.put(key, entry.getValue());
+            }
+            if (childSet.isEmpty()) {
+                continue;
+            }
+            Map<String, Object> op = new HashMap<>();
+            op.put("op", "update"); //$NON-NLS-1$ //$NON-NLS-2$
+            op.put("child_fqn", childFqn); //$NON-NLS-1$
+            op.put("set", childSet); //$NON-NLS-1$
+            syntheticOps.add(op);
+        }
+        return syntheticOps;
+    }
+
+    private String resolveChildMarkerByFeature(String featureKey) {
+        String token = normalizeToken(featureKey);
+        if ("attributes".equals(token) || "attribute".equals(token)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "Attribute"; //$NON-NLS-1$
+        }
+        if ("tabularsections".equals(token) || "tabularsection".equals(token)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "TabularSection"; //$NON-NLS-1$
+        }
+        if ("forms".equals(token) || "form".equals(token)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "Form"; //$NON-NLS-1$
+        }
+        if ("commands".equals(token) || "command".equals(token)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "Command"; //$NON-NLS-1$
+        }
+        if ("templates".equals(token) || "template".equals(token)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "Template"; //$NON-NLS-1$
+        }
+        String singular = singularize(token);
+        if (singular == null || singular.isBlank()) {
+            return "Attribute"; //$NON-NLS-1$
+        }
+        return Character.toUpperCase(singular.charAt(0)) + singular.substring(1);
     }
 
     private void renameChildObject(MdObject child, String childFqn, String newName) {
@@ -1159,18 +2440,19 @@ public class EdtMetadataService {
         // Special case: "type" on BasicFeature is a containment reference (TypeDescription),
         // which cannot be set via the generic applyReferenceValue path.
         // Instead, use dedicated TypeItem resolution from BM.
-        if ("type".equals(fieldName) && target instanceof BasicFeature feature) { //$NON-NLS-1$
-            String typeString = value == null ? null : String.valueOf(value);
-            TypeItem preResolvedTypeItem = typeString != null ? preResolvedTypes.get(typeString) : null;
-            if (preResolvedTypeItem == null) {
+        if ("type".equalsIgnoreCase(fieldName) && target instanceof BasicFeature feature) { //$NON-NLS-1$
+            TypeSpec typeSpec = normalizeTypeSpec(value);
+            String typeString = typeSpec.typeQuery();
+            TypeItem typeItem = resolveTypeItemForFeature(feature, configuration, typeString, preResolvedTypes);
+            if (typeItem == null) {
                 throw new MetadataOperationException(
                         MetadataOperationCode.INVALID_PROPERTY_VALUE,
-                        "Type was not pre-resolved. Ensure 'type' key is in changes.set: " + typeString, false); //$NON-NLS-1$
+                        "Type not found in BM/type provider for field 'type': " + typeString, false); //$NON-NLS-1$
             }
-            setAttributeType(feature, preResolvedTypeItem, transaction);
+            setAttributeType(feature, typeItem, typeSpec, transaction);
             return;
         }
-        EStructuralFeature eFeature = target.eClass().getEStructuralFeature(fieldName);
+        EStructuralFeature eFeature = resolveFeatureIgnoreCase(target, fieldName);
         if (eFeature == null) {
             throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_CHANGE,
@@ -1205,28 +2487,556 @@ public class EdtMetadataService {
      * <p>The TypeItem must have been resolved in a read transaction before entering
      * the write transaction, then converted via {@code transaction.toTransactionObject()}.</p>
      */
-    private void setAttributeType(BasicFeature feature, TypeItem preResolvedTypeItem,
-            IBmPlatformTransaction transaction) {
-        TypeItem txTypeItem = transaction.toTransactionObject(preResolvedTypeItem);
+    private void setAttributeType(
+            BasicFeature feature,
+            TypeItem preResolvedTypeItem,
+            TypeSpec typeSpec,
+            IBmPlatformTransaction transaction
+    ) {
+        TypeItem txTypeItem = null;
+        if (preResolvedTypeItem != null) {
+            try {
+                txTypeItem = transaction.toTransactionObject(preResolvedTypeItem);
+            } catch (RuntimeException e) {
+                LOG.debug("setAttributeType: toTransactionObject failed for type=%s feature=%s: %s", //$NON-NLS-1$
+                        typeSpec == null ? null : typeSpec.typeQuery(),
+                        feature == null ? null : feature.eClass().getName(),
+                        e.getMessage());
+            }
+        }
+        if (txTypeItem == null) {
+            txTypeItem = resolveTypeItemInCurrentNamespace(transaction, feature, typeSpec, preResolvedTypeItem);
+        }
+        if (txTypeItem == null) {
+            txTypeItem = resolveTypeItemInCandidateNamespace(transaction, preResolvedTypeItem, typeSpec);
+        }
+        if (txTypeItem == null) {
+            txTypeItem = resolveExternalTypeItemCandidate(transaction, preResolvedTypeItem, typeSpec);
+        }
+        if (txTypeItem == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "Type value cannot be resolved in transaction namespace: " //$NON-NLS-1$
+                            + (typeSpec == null ? null : typeSpec.typeQuery()),
+                    false);
+        }
         TypeDescription typeDesc = McoreFactory.eINSTANCE.createTypeDescription();
         typeDesc.getTypes().add(txTypeItem);
 
-        String typeName = preResolvedTypeItem.getName();
+        String typeName = resolveTypeNameForQualifiers(preResolvedTypeItem, typeSpec);
+        TypeDescription existingType = feature.getType();
         if (isNumberType(typeName)) {
             NumberQualifiers nq = McoreFactory.eINSTANCE.createNumberQualifiers();
-            nq.setPrecision(15);
-            nq.setScale(2);
+            Integer precision = typeSpec == null ? null : typeSpec.numberPrecision();
+            Integer scale = typeSpec == null ? null : typeSpec.numberScale();
+            Boolean nonNegative = typeSpec == null ? null : typeSpec.numberNonNegative();
+            NumberQualifiers existing = existingType == null ? null : existingType.getNumberQualifiers();
+            nq.setPrecision(firstPositive(precision, existing == null ? null : existing.getPrecision(), 15));
+            nq.setScale(firstNonNegative(scale, existing == null ? null : existing.getScale(), 2));
+            nq.setNonNegative(nonNegative != null
+                    ? nonNegative.booleanValue()
+                    : (existing != null && existing.isNonNegative()));
             typeDesc.setNumberQualifiers(nq);
         } else if (isStringType(typeName)) {
             StringQualifiers sq = McoreFactory.eINSTANCE.createStringQualifiers();
-            sq.setLength(150);
+            Integer length = typeSpec == null ? null : typeSpec.stringLength();
+            Boolean fixed = typeSpec == null ? null : typeSpec.stringFixed();
+            StringQualifiers existing = existingType == null ? null : existingType.getStringQualifiers();
+            sq.setLength(firstPositive(length, existing == null ? null : existing.getLength(), 150));
+            sq.setFixed(fixed != null
+                    ? fixed.booleanValue()
+                    : (existing != null && existing.isFixed()));
             typeDesc.setStringQualifiers(sq);
         } else if (isDateType(typeName)) {
             DateQualifiers dq = McoreFactory.eINSTANCE.createDateQualifiers();
+            DateFractions fractions = typeSpec == null ? null : typeSpec.dateFractions();
+            DateQualifiers existing = existingType == null ? null : existingType.getDateQualifiers();
+            dq.setDateFractions(fractions != null
+                    ? fractions
+                    : (existing != null && existing.getDateFractions() != null
+                            ? existing.getDateFractions()
+                            : DateFractions.DATE_TIME));
             typeDesc.setDateQualifiers(dq);
         }
 
         feature.setType(typeDesc);
+    }
+
+    private TypeItem resolveExternalTypeItemCandidate(
+            IBmPlatformTransaction transaction,
+            TypeItem candidate,
+            TypeSpec typeSpec
+    ) {
+        if (candidate == null) {
+            return null;
+        }
+        if (!(candidate instanceof IBmObject bmObject)) {
+            return candidate;
+        }
+
+        URI uri = null;
+        try {
+            uri = bmObject.bmGetUri();
+        } catch (RuntimeException e) {
+            LOG.debug("resolveExternalTypeItemCandidate: cannot read URI for type=%s: %s", //$NON-NLS-1$
+                    typeSpec == null ? null : typeSpec.typeQuery(),
+                    e.getMessage());
+        }
+        if (uri != null) {
+            try {
+                EObject external = transaction.getExternalObjectByUri(uri);
+                if (external instanceof TypeItem externalType) {
+                    LOG.debug("resolveExternalTypeItemCandidate: using external TypeItem by URI for type=%s", //$NON-NLS-1$
+                            typeSpec == null ? null : typeSpec.typeQuery());
+                    return externalType;
+                }
+            } catch (RuntimeException e) {
+                LOG.debug("resolveExternalTypeItemCandidate: external lookup failed for type=%s uri=%s: %s", //$NON-NLS-1$
+                        typeSpec == null ? null : typeSpec.typeQuery(),
+                        uri,
+                        e.getMessage());
+            }
+        }
+
+        try {
+            IBmNamespace namespace = bmObject.bmGetNamespace();
+            if (namespace == null) {
+                LOG.debug("resolveExternalTypeItemCandidate: fallback to detached TypeItem for type=%s", //$NON-NLS-1$
+                        typeSpec == null ? null : typeSpec.typeQuery());
+                return candidate;
+            }
+            if (isSimpleTypeSpec(typeSpec, candidate)) {
+                LOG.debug("resolveExternalTypeItemCandidate: fallback to cross-namespace simple TypeItem for type=%s", //$NON-NLS-1$
+                        typeSpec == null ? null : typeSpec.typeQuery());
+                return candidate;
+            }
+        } catch (RuntimeException e) {
+            LOG.debug("resolveExternalTypeItemCandidate: namespace probe failed for type=%s: %s", //$NON-NLS-1$
+                    typeSpec == null ? null : typeSpec.typeQuery(),
+                    e.getMessage());
+        }
+        return null;
+    }
+
+    private TypeItem resolveTypeItemInCandidateNamespace(
+            IBmPlatformTransaction transaction,
+            TypeItem candidate,
+            TypeSpec typeSpec
+    ) {
+        if (!(candidate instanceof IBmObject bmObject)) {
+            return null;
+        }
+        IBmNamespace candidateNamespace;
+        try {
+            candidateNamespace = bmObject.bmGetNamespace();
+        } catch (RuntimeException e) {
+            LOG.debug("resolveTypeItemInCandidateNamespace: failed to get namespace for type=%s: %s", //$NON-NLS-1$
+                    typeSpec == null ? null : typeSpec.typeQuery(),
+                    e.getMessage());
+            return null;
+        }
+        if (candidateNamespace == null) {
+            return null;
+        }
+
+        Set<String> queries = new LinkedHashSet<>();
+        if (typeSpec != null && typeSpec.typeQuery() != null && !typeSpec.typeQuery().isBlank()) {
+            queries.addAll(expandTypeQueries(typeSpec.typeQuery()));
+        }
+        String candidateName = firstNonBlank(
+                candidate.getName(),
+                candidate.getNameRu(),
+                McoreUtil.getTypeName(candidate),
+                McoreUtil.getTypeNameRu(candidate));
+        if (candidateName != null) {
+            queries.addAll(expandTypeQueries(candidateName));
+        }
+        if (queries.isEmpty()) {
+            return null;
+        }
+
+        try {
+            IBmTransaction namespaceTx = transaction.getNamespaceBoundTransaction(candidateNamespace);
+            TypeItem mapped = namespaceTx.toTransactionObject(candidate);
+            if (mapped != null && matchesTypeRef(mapped, queries)) {
+                return mapped;
+            }
+            TypeItem fromNamespaceTx = findTypeItemInTransaction(namespaceTx, queries);
+            if (fromNamespaceTx != null) {
+                return fromNamespaceTx;
+            }
+            TypeItem top = findTypeItem(transaction.getTopObjectIterator(candidateNamespace, McorePackage.eINSTANCE.getType()),
+                    queries);
+            if (top != null) {
+                return top;
+            }
+            return findTypeItem(
+                    transaction.getContainedObjectIterator(candidateNamespace, McorePackage.eINSTANCE.getType()),
+                    queries);
+        } catch (RuntimeException e) {
+            LOG.debug("resolveTypeItemInCandidateNamespace: failed for type=%s: %s", //$NON-NLS-1$
+                    typeSpec == null ? null : typeSpec.typeQuery(),
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    private boolean isSimpleTypeSpec(TypeSpec typeSpec, TypeItem typeItem) {
+        if (canonicalSimpleTypeName(typeSpec == null ? null : typeSpec.typeQuery()) != null) {
+            return true;
+        }
+        String byTypeItem = firstNonBlank(
+                typeItem == null ? null : typeItem.getName(),
+                typeItem == null ? null : typeItem.getNameRu(),
+                typeItem == null ? null : McoreUtil.getTypeName(typeItem),
+                typeItem == null ? null : McoreUtil.getTypeNameRu(typeItem));
+        return isSimpleTypeToken(byTypeItem);
+    }
+
+    private TypeItem resolveTypeItemInCurrentNamespace(
+            IBmPlatformTransaction transaction,
+            EObject contextObject,
+            TypeSpec typeSpec,
+            TypeItem fallbackTypeItem
+    ) {
+        Set<String> queries = new LinkedHashSet<>();
+        if (typeSpec != null && typeSpec.typeQuery() != null && !typeSpec.typeQuery().isBlank()) {
+            queries.addAll(expandTypeQueries(typeSpec.typeQuery()));
+        }
+        if (fallbackTypeItem != null) {
+            String fallbackName = firstNonBlank(
+                    fallbackTypeItem.getName(),
+                    fallbackTypeItem.getNameRu(),
+                    McoreUtil.getTypeName(fallbackTypeItem),
+                    McoreUtil.getTypeNameRu(fallbackTypeItem));
+            if (fallbackName != null) {
+                queries.addAll(expandTypeQueries(fallbackName));
+            }
+        }
+        if (queries.isEmpty()) {
+            return null;
+        }
+
+        // First try namespace-bound transaction from the context BM object.
+        TypeItem fromContext = findTypeItemInContextTransaction(contextObject, queries);
+        if (fromContext != null) {
+            return fromContext;
+        }
+
+        // Then resolve via platform namespace iterators.
+        IBmNamespace namespace = resolveNamespace(contextObject);
+        if (namespace != null) {
+            IBmTransaction namespaceTx = transaction.getNamespaceBoundTransaction(namespace);
+            TypeItem fromNamespaceTx = findTypeItemInTransaction(namespaceTx, queries);
+            if (fromNamespaceTx != null) {
+                return fromNamespaceTx;
+            }
+            TypeItem top = findTypeItem(transaction.getTopObjectIterator(namespace, McorePackage.eINSTANCE.getType()), queries);
+            if (top != null) {
+                return top;
+            }
+            TypeItem contained = findTypeItem(
+                    transaction.getContainedObjectIterator(namespace, McorePackage.eINSTANCE.getType()),
+                    queries);
+            if (contained != null) {
+                return contained;
+            }
+        }
+
+        // Final fallback: if platform transaction is also namespace-bound transaction,
+        // search all visible types from this transaction view.
+        if (transaction instanceof IBmTransaction plainTx) {
+            TypeItem fromPlainTx = findTypeItemInTransaction(plainTx, queries);
+            if (fromPlainTx != null) {
+                return fromPlainTx;
+            }
+        }
+        return null;
+    }
+
+    private IBmNamespace resolveNamespace(EObject object) {
+        if (object == null) {
+            return null;
+        }
+        if (object instanceof IBmObject bmObject) {
+            try {
+                IBmNamespace namespace = bmObject.bmGetNamespace();
+                if (namespace != null) {
+                    return namespace;
+                }
+            } catch (RuntimeException e) {
+                LOG.debug("Failed to read namespace from BM object=%s: %s", //$NON-NLS-1$
+                        object.eClass().getName(),
+                        e.getMessage());
+            }
+        }
+        try {
+            IBmModelManager modelManager = gateway.getBmModelManager();
+            var model = modelManager.getModel(object);
+            if (model == null) {
+                return null;
+            }
+            IProject project = modelManager.getProject(model);
+            if (project == null || !project.exists()) {
+                return null;
+            }
+            return modelManager.getBmNamespace(project);
+        } catch (RuntimeException e) {
+            LOG.debug("Failed to resolve BM namespace for object=%s: %s", //$NON-NLS-1$
+                    object.eClass().getName(),
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    private TypeItem findTypeItemInContextTransaction(EObject contextObject, Set<String> queries) {
+        if (!(contextObject instanceof IBmObject bmObject)) {
+            return null;
+        }
+        IBmTransaction tx;
+        try {
+            tx = bmObject.bmGetTransaction();
+        } catch (RuntimeException e) {
+            LOG.debug("Failed to read BM transaction from context=%s: %s", //$NON-NLS-1$
+                    contextObject.eClass().getName(),
+                    e.getMessage());
+            return null;
+        }
+        return findTypeItemInTransaction(tx, queries);
+    }
+
+    private TypeItem findTypeItemInTransaction(IBmTransaction tx, Set<String> queries) {
+        if (tx == null || queries == null || queries.isEmpty()) {
+            return null;
+        }
+        TypeItem top = findTypeItem(tx.getTopObjectIterator(McorePackage.eINSTANCE.getType()), queries);
+        if (top != null) {
+            return top;
+        }
+        return findTypeItem(tx.getContainedObjectIterator(McorePackage.eINSTANCE.getType()), queries);
+    }
+
+    private String resolveTypeNameForQualifiers(TypeItem resolvedTypeItem, TypeSpec typeSpec) {
+        String byTypeItem = firstNonBlank(
+                resolvedTypeItem == null ? null : resolvedTypeItem.getName(),
+                resolvedTypeItem == null ? null : resolvedTypeItem.getNameRu(),
+                resolvedTypeItem == null ? null : McoreUtil.getTypeName(resolvedTypeItem),
+                resolvedTypeItem == null ? null : McoreUtil.getTypeNameRu(resolvedTypeItem));
+        if (byTypeItem != null) {
+            return byTypeItem;
+        }
+        String byQuery = canonicalSimpleTypeName(typeSpec == null ? null : typeSpec.typeQuery());
+        if (byQuery != null) {
+            return byQuery;
+        }
+        return typeSpec == null ? null : typeSpec.typeQuery();
+    }
+
+    private void cacheResolvedTypeItem(Map<String, TypeItem> cache, String typeQuery, TypeItem item) {
+        if (cache == null || item == null || typeQuery == null || typeQuery.isBlank()) {
+            return;
+        }
+        cache.put(typeQuery, item);
+        for (String alias : expandTypeQueries(typeQuery)) {
+            cache.putIfAbsent(alias, item);
+        }
+    }
+
+    private TypeItem lookupPreResolvedTypeItem(Map<String, TypeItem> cache, String typeQuery) {
+        if (cache == null || typeQuery == null || typeQuery.isBlank()) {
+            return null;
+        }
+        TypeItem direct = cache.get(typeQuery);
+        if (direct != null) {
+            return direct;
+        }
+        for (String alias : expandTypeQueries(typeQuery)) {
+            TypeItem item = cache.get(alias);
+            if (item != null) {
+                return item;
+            }
+        }
+        return null;
+    }
+
+    private TypeItem resolveTypeItemForFeature(
+            BasicFeature feature,
+            Configuration configuration,
+            String typeQuery,
+            Map<String, TypeItem> preResolvedTypes
+    ) {
+        if (typeQuery == null || typeQuery.isBlank()) {
+            return null;
+        }
+        TypeItem fromFeature = resolveTypeItemFromFeature(feature, typeQuery);
+        if (fromFeature != null) {
+            cacheResolvedTypeItem(preResolvedTypes, typeQuery, fromFeature);
+            return fromFeature;
+        }
+        TypeItem fromTypeProvider = resolveTypeItemFromTypeProvider(feature, configuration, typeQuery);
+        if (fromTypeProvider != null) {
+            cacheResolvedTypeItem(preResolvedTypes, typeQuery, fromTypeProvider);
+            return fromTypeProvider;
+        }
+        TypeItem fromConfiguration = resolveSimpleTypeItemFromConfiguration(configuration, typeQuery);
+        if (fromConfiguration != null) {
+            cacheResolvedTypeItem(preResolvedTypes, typeQuery, fromConfiguration);
+            return fromConfiguration;
+        }
+        return lookupPreResolvedTypeItem(preResolvedTypes, typeQuery);
+    }
+
+    private TypeItem resolveTypeItemFromFeature(BasicFeature feature, String typeQuery) {
+        if (feature == null || typeQuery == null || typeQuery.isBlank()) {
+            return null;
+        }
+        TypeDescription typeDescription = feature.getType();
+        if (typeDescription == null || typeDescription.getTypes().isEmpty()) {
+            return null;
+        }
+        Set<String> queries = expandTypeQueries(typeQuery);
+        for (TypeItem item : typeDescription.getTypes()) {
+            if (item != null && matchesTypeRef(item, queries)) {
+                return item;
+            }
+        }
+        return null;
+    }
+
+    private TypeItem resolveTypeItemFromTypeProvider(BasicFeature feature, EObject context, String typeQuery) {
+        if (feature == null || typeQuery == null || typeQuery.isBlank()) {
+            return null;
+        }
+        EReference typeReference = resolveTypeReference(feature);
+        if (typeReference == null) {
+            return null;
+        }
+        Set<String> queries = expandTypeQueries(typeQuery);
+        try {
+            TypeDescriptionInfoWithTypeInfo info = TypeProviderService.INSTANCE
+                    .getTypeDescriptionInfoWithTypeInfo(feature, typeReference, null);
+            TypeItem direct = findTypeItemInTypeInfo(info, queries);
+            if (direct != null) {
+                return direct;
+            }
+        } catch (RuntimeException e) {
+            LOG.debug("TypeProviderService resolve failed for type=%s feature=%s: %s", //$NON-NLS-1$
+                    typeQuery,
+                    feature.eClass().getName(),
+                    e.getMessage());
+        }
+        if (context == null) {
+            return null;
+        }
+        try {
+            TypeDescriptionInfoWithTypeInfo contextualInfo = TypeProviderService.INSTANCE
+                    .getTypeDescriptionInfoWithTypeInfo(feature, context, typeReference, null);
+            TypeItem contextual = findTypeItemInTypeInfo(contextualInfo, queries);
+            if (contextual != null) {
+                return contextual;
+            }
+            LOG.debug("TypeProviderService returned no matching types for type=%s feature=%s context=%s", //$NON-NLS-1$
+                    typeQuery,
+                    feature.eClass().getName(),
+                    context.eClass().getName());
+            return null;
+        } catch (RuntimeException e) {
+            LOG.debug("TypeProviderService contextual resolve failed for type=%s feature=%s context=%s: %s", //$NON-NLS-1$
+                    typeQuery,
+                    feature.eClass().getName(),
+                    context.eClass().getName(),
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    private TypeItem findTypeItemInTypeInfo(TypeDescriptionInfoWithTypeInfo info, Set<String> queries) {
+        if (info == null || info.getTypeInfos() == null || info.getTypeInfos().isEmpty() || queries == null
+                || queries.isEmpty()) {
+            return null;
+        }
+        for (String query : queries) {
+            TypeItem byCode = findTypeItemByCode(info, query);
+            if (byCode != null) {
+                return byCode;
+            }
+        }
+        for (TypeInfo typeInfo : info.getTypeInfos()) {
+            if (typeInfo == null || typeInfo.getType() == null) {
+                continue;
+            }
+            if (matchesTypeInfo(typeInfo, queries)) {
+                return typeInfo.getType();
+            }
+        }
+        return null;
+    }
+
+    private TypeItem findTypeItemByCode(TypeDescriptionInfoWithTypeInfo info, String query) {
+        if (info == null || query == null || query.isBlank()) {
+            return null;
+        }
+        TypeInfo nonSetType = info.getTypeInfo(query, false);
+        if (nonSetType != null && nonSetType.getType() != null) {
+            return nonSetType.getType();
+        }
+        TypeInfo typeSet = info.getTypeInfo(query, true);
+        if (typeSet != null && typeSet.getType() != null) {
+            return typeSet.getType();
+        }
+        return null;
+    }
+
+    private boolean matchesTypeInfo(TypeInfo typeInfo, Set<String> queries) {
+        if (typeInfo == null || queries == null || queries.isEmpty()) {
+            return false;
+        }
+        TypeItem typeItem = typeInfo.getType();
+        if (typeItem != null && matchesTypeRef(typeItem, queries)) {
+            return true;
+        }
+        String code = typeInfo.getCode() != null ? String.valueOf(typeInfo.getCode()) : null;
+        String codeRu = typeInfo.getCodeRu() != null ? String.valueOf(typeInfo.getCodeRu()) : null;
+        for (String query : queries) {
+            if (matchesTypeToken(code, query) || matchesTypeToken(codeRu, query)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void collectTypeCandidates(
+            Map<String, FieldTypeCandidate> sink,
+            TypeDescriptionInfoWithTypeInfo info
+    ) {
+        if (sink == null || info == null || info.getTypeInfos() == null || info.getTypeInfos().isEmpty()) {
+            return;
+        }
+        for (TypeInfo typeInfo : info.getTypeInfos()) {
+            if (typeInfo == null || typeInfo.getType() == null) {
+                continue;
+            }
+            TypeItem type = typeInfo.getType();
+            String name = firstNonBlank(type.getName(), ""); //$NON-NLS-1$
+            String nameRu = firstNonBlank(type.getNameRu(), ""); //$NON-NLS-1$
+            String code = typeInfo.getCode() != null ? String.valueOf(typeInfo.getCode()) : ""; //$NON-NLS-1$
+            String codeRu = typeInfo.getCodeRu() != null ? String.valueOf(typeInfo.getCodeRu()) : ""; //$NON-NLS-1$
+            String typeClass = typeInfo.getTypeClass() != null ? String.valueOf(typeInfo.getTypeClass()) : ""; //$NON-NLS-1$
+            boolean simpleType = isSimpleTypeCandidate(name, nameRu, code, codeRu);
+            String key = (name + "|" + nameRu + "|" + code + "|" + codeRu).toLowerCase(Locale.ROOT); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            sink.putIfAbsent(key, new FieldTypeCandidate(name, nameRu, code, codeRu, typeClass, simpleType));
+        }
+    }
+
+    private EReference resolveTypeReference(BasicFeature feature) {
+        if (feature == null) {
+            return null;
+        }
+        EStructuralFeature resolved = resolveFeatureIgnoreCase(feature, "type"); //$NON-NLS-1$
+        if (resolved instanceof EReference reference) {
+            return reference;
+        }
+        return MdClassPackage.eINSTANCE.getBasicFeature_Type();
     }
 
     /**
@@ -1234,31 +3044,211 @@ public class EdtMetadataService {
      * <p>Must be called within a read transaction ({@link IBmTransaction}).</p>
      */
     private TypeItem resolveTypeItem(String typeString, IBmTransaction tx) {
-        String normalized = typeString.trim();
-        for (var it = tx.getTopObjectIterator(McorePackage.eINSTANCE.getType()); it.hasNext();) {
-            IBmObject obj = it.next();
-            if (obj instanceof TypeItem item) {
-                if (matchesTypeRef(item, normalized)) {
-                    return item;
-                }
+        Set<String> queries = expandTypeQueries(typeString);
+        if (queries.isEmpty()) {
+            return null;
+        }
+
+        TypeItem found = findTypeItem(tx.getTopObjectIterator(McorePackage.eINSTANCE.getType()), queries);
+        if (found != null) {
+            return found;
+        }
+        return findTypeItem(tx.getContainedObjectIterator(McorePackage.eINSTANCE.getType()), queries);
+    }
+
+    private TypeItem resolveSimpleTypeItemFromConfiguration(Configuration configuration, String typeString) {
+        if (configuration == null || !isSimpleTypeQuery(typeString)) {
+            return null;
+        }
+        Set<String> queries = expandTypeQueries(typeString);
+        if (queries.isEmpty()) {
+            return null;
+        }
+        TypeDescription rootType = extractTypeDescriptionFromEObject(configuration);
+        if (rootType != null) {
+            TypeItem item = findMatchingTypeItem(rootType, queries);
+            if (item != null) {
+                return item;
+            }
+        }
+        TreeIterator<EObject> iterator = configuration.eAllContents();
+        while (iterator.hasNext()) {
+            EObject node = iterator.next();
+            TypeDescription existingType = extractTypeDescriptionFromEObject(node);
+            if (existingType == null) {
+                continue;
+            }
+            TypeItem item = findMatchingTypeItem(existingType, queries);
+            if (item != null) {
+                return item;
             }
         }
         return null;
     }
 
-    private boolean matchesTypeRef(TypeItem item, String query) {
-        String name = item.getName();
-        String nameRu = item.getNameRu();
-        if (query.equalsIgnoreCase(name) || query.equalsIgnoreCase(nameRu)) {
-            return true;
+    private TypeItem findMatchingTypeItem(TypeDescription typeDescription, Set<String> queries) {
+        if (typeDescription == null || typeDescription.getTypes() == null || typeDescription.getTypes().isEmpty()) {
+            return null;
         }
-        if (name != null && name.contains(query)) {
-            return true;
+        for (TypeItem item : typeDescription.getTypes()) {
+            if (item != null && matchesTypeRef(item, queries)) {
+                return item;
+            }
         }
-        if (nameRu != null && nameRu.contains(query)) {
-            return true;
+        return null;
+    }
+
+    private TypeDescription extractTypeDescriptionFromEObject(EObject node) {
+        if (node == null) {
+            return null;
+        }
+        if (node instanceof BasicFeature feature) {
+            return feature.getType();
+        }
+        EStructuralFeature typeFeature = resolveStructuralFeatureIgnoreCase(node, "type"); //$NON-NLS-1$
+        if (typeFeature != null) {
+            Object typeValue = node.eGet(typeFeature);
+            if (typeValue instanceof TypeDescription typeDescription) {
+                return typeDescription;
+            }
+        }
+        EStructuralFeature typeDescriptionFeature = resolveStructuralFeatureIgnoreCase(node, "typeDescription"); //$NON-NLS-1$
+        if (typeDescriptionFeature != null) {
+            Object typeDescriptionValue = node.eGet(typeDescriptionFeature);
+            if (typeDescriptionValue instanceof TypeDescription typeDescription) {
+                return typeDescription;
+            }
+        }
+        return null;
+    }
+
+    private TypeItem findTypeItem(java.util.Iterator<IBmObject> iterator, Set<String> queries) {
+        while (iterator.hasNext()) {
+            IBmObject obj = iterator.next();
+            if (obj instanceof TypeItem item && matchesTypeRef(item, queries)) {
+                return item;
+            }
+        }
+        return null;
+    }
+
+    private Set<String> expandTypeQueries(String rawType) {
+        String normalized = rawType == null ? null : rawType.trim();
+        if (normalized == null || normalized.isBlank()) {
+            return Set.of();
+        }
+
+        LinkedHashSet<String> queries = new LinkedHashSet<>();
+        queries.add(normalized);
+
+        int dot = normalized.indexOf('.');
+        if (dot > 0 && dot + 1 < normalized.length()) {
+            String prefix = normalized.substring(0, dot);
+            String suffix = normalized.substring(dot + 1);
+            String refPrefix = toRefPrefix(prefix);
+            if (refPrefix != null) {
+                queries.add(refPrefix + "." + suffix); //$NON-NLS-1$
+            }
+        }
+        addSimpleTypeAliases(queries, normalized);
+        return queries;
+    }
+
+    private void addSimpleTypeAliases(Set<String> queries, String normalized) {
+        String base = normalized;
+        int dot = normalized.indexOf('.');
+        if (dot > 0) {
+            base = normalized.substring(0, dot);
+        }
+        String token = normalizeToken(base);
+        if (token == null || token.isBlank()) {
+            return;
+        }
+        switch (token) {
+            case "string", "строка" -> {
+                queries.add("String"); //$NON-NLS-1$
+                queries.add("Строка"); //$NON-NLS-1$
+            }
+            case "number", "число" -> {
+                queries.add("Number"); //$NON-NLS-1$
+                queries.add("Число"); //$NON-NLS-1$
+            }
+            case "date", "дата" -> {
+                queries.add("Date"); //$NON-NLS-1$
+                queries.add("Дата"); //$NON-NLS-1$
+            }
+            case "boolean", "булево", "bool" -> {
+                queries.add("Boolean"); //$NON-NLS-1$
+                queries.add("Булево"); //$NON-NLS-1$
+            }
+            default -> {
+                // no-op
+            }
+        }
+    }
+
+    private String toRefPrefix(String prefix) {
+        String token = normalizeToken(prefix);
+        return switch (token) {
+            case "catalog", "справочник", "catalogref", "справочникссылка" -> "CatalogRef"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "document", "документ", "documentref", "документссылка" -> "DocumentRef"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "enum", "перечисление", "enumref", "перечислениессылка" -> "EnumRef"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "chartofaccounts", "плансчетов", "chartofaccountsref", "плансчетовссылка" -> "ChartOfAccountsRef"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "chartofcharacteristictypes", "планвидовхарактеристик", "chartofcharacteristictypesref", "планвидовхарактеристикссылка" -> "ChartOfCharacteristicTypesRef"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "chartofcalculationtypes", "планвидоврасчета", "chartofcalculationtypesref", "планвидоврасчетассылка" -> "ChartOfCalculationTypesRef"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "task", "задача", "taskref", "задачассылка" -> "TaskRef"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "businessprocess", "бизнеспроцесс", "businessprocessref", "бизнеспроцессссылка" -> "BusinessProcessRef"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            default -> null;
+        };
+    }
+
+    private boolean matchesTypeRef(TypeItem item, Set<String> queries) {
+        for (String query : queries) {
+            if (matchesTypeRef(item, query)) {
+                return true;
+            }
         }
         return false;
+    }
+
+    private boolean matchesTypeRef(TypeItem item, String query) {
+        if (query == null || query.isBlank()) {
+            return false;
+        }
+        String normalizedQuery = query.trim();
+        String name = item.getName();
+        String nameRu = item.getNameRu();
+        String typeName = McoreUtil.getTypeName(item);
+        String typeNameRu = McoreUtil.getTypeNameRu(item);
+        return matchesTypeToken(name, normalizedQuery)
+                || matchesTypeToken(nameRu, normalizedQuery)
+                || matchesTypeToken(typeName, normalizedQuery)
+                || matchesTypeToken(typeNameRu, normalizedQuery);
+    }
+
+    private boolean matchesTypeToken(String candidate, String query) {
+        if (query == null || query.isBlank()) {
+            return false;
+        }
+        return equalsIgnoreCaseSafe(query, candidate) || endsWithTypeSegment(candidate, query);
+    }
+
+    private boolean equalsIgnoreCaseSafe(String left, String right) {
+        return left != null && right != null && left.equalsIgnoreCase(right);
+    }
+
+    private boolean endsWithTypeSegment(String candidate, String query) {
+        if (candidate == null || query == null || query.isBlank()) {
+            return false;
+        }
+        if (candidate.equalsIgnoreCase(query)) {
+            return true;
+        }
+        String suffix = "." + query; //$NON-NLS-1$
+        if (candidate.length() <= suffix.length()) {
+            return false;
+        }
+        return candidate.regionMatches(true, candidate.length() - suffix.length(), suffix, 0, suffix.length());
     }
 
     private boolean isNumberType(String name) {
@@ -1274,6 +3264,27 @@ public class EdtMetadataService {
     private boolean isDateType(String name) {
         return name != null
                 && (name.equalsIgnoreCase("Date") || name.equalsIgnoreCase("Дата")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private boolean isBooleanType(String name) {
+        return name != null
+                && (name.equalsIgnoreCase("Boolean")
+                        || name.equalsIgnoreCase("Булево")
+                        || name.equalsIgnoreCase("Bool")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+    }
+
+    private boolean isSimpleTypeCandidate(String name, String nameRu, String code, String codeRu) {
+        return isSimpleTypeToken(name)
+                || isSimpleTypeToken(nameRu)
+                || isSimpleTypeToken(code)
+                || isSimpleTypeToken(codeRu);
+    }
+
+    private boolean isSimpleTypeToken(String token) {
+        return isStringType(token)
+                || isNumberType(token)
+                || isDateType(token)
+                || isBooleanType(token);
     }
 
     @SuppressWarnings("unchecked")
@@ -1294,8 +3305,8 @@ public class EdtMetadataService {
         // Top-level set.type
         Map<String, Object> setMap = extractSetMap(changes);
         if (setMap != null) {
-            if (setMap.containsKey("type")) { //$NON-NLS-1$
-                String typeStr = String.valueOf(setMap.get("type")); //$NON-NLS-1$
+            if (hasMapKeyIgnoreCase(setMap, "type")) { //$NON-NLS-1$
+                String typeStr = normalizeTypeLookupQuery(getMapValueIgnoreCase(setMap, "type")); //$NON-NLS-1$
                 if (typeStr != null && !typeStr.isBlank()) {
                     typeStrings.add(typeStr);
                 }
@@ -1304,11 +3315,17 @@ public class EdtMetadataService {
             // (auto-redirect case: {"set":{"AttrName":{"type":"CatalogRef.Foo"}}})
             for (Object val : setMap.values()) {
                 if (val instanceof Map<?, ?> nestedMap) {
-                    Object nestedType = ((Map<String, Object>) nestedMap).get("type"); //$NON-NLS-1$
-                    if (nestedType != null) {
-                        String ts = String.valueOf(nestedType);
-                        if (!ts.isBlank()) {
-                            typeStrings.add(ts);
+                    String ts = normalizeTypeLookupQuery(getMapValueIgnoreCase((Map<String, Object>) nestedMap, "type")); //$NON-NLS-1$
+                    if (ts != null && !ts.isBlank()) {
+                        typeStrings.add(ts);
+                    }
+                } else if (val instanceof List<?> list) {
+                    for (Object item : list) {
+                        if (item instanceof Map<?, ?> nestedItemMap) {
+                            String ts = normalizeTypeLookupQuery(getMapValueIgnoreCase((Map<String, Object>) nestedItemMap, "type")); //$NON-NLS-1$
+                            if (ts != null && !ts.isBlank()) {
+                                typeStrings.add(ts);
+                            }
                         }
                     }
                 }
@@ -1317,14 +3334,25 @@ public class EdtMetadataService {
         // children_ops[].set.type and children_ops[].changes.set.type
         List<Map<String, Object>> childOps = asListOfMaps(changes.get("children_ops")); //$NON-NLS-1$
         for (Map<String, Object> op : childOps) {
-            Object setObj = op.get("set"); //$NON-NLS-1$
+            Object setObj = getMapValueIgnoreCase(op, "set"); //$NON-NLS-1$
             if (setObj instanceof Map<?, ?> childSet) {
-                Object typeObj = ((Map<String, Object>) childSet).get("type"); //$NON-NLS-1$
-                if (typeObj != null) {
-                    String ts = String.valueOf(typeObj);
-                    if (!ts.isBlank()) {
-                        typeStrings.add(ts);
-                    }
+                String ts = normalizeTypeLookupQuery(getMapValueIgnoreCase((Map<String, Object>) childSet, "type")); //$NON-NLS-1$
+                if (ts != null && !ts.isBlank()) {
+                    typeStrings.add(ts);
+                }
+            }
+            // shorthand support in children_ops:
+            // 1) {op:"update", child_fqn:"...", type:"String.50"}
+            // 2) {op:"update", child_fqn:"...", properties:{type:{...}}}
+            String opType = normalizeTypeLookupQuery(getMapValueIgnoreCase(op, "type")); //$NON-NLS-1$
+            if (opType != null && !opType.isBlank()) {
+                typeStrings.add(opType);
+            }
+            Object propertiesObj = getMapValueIgnoreCase(op, "properties"); //$NON-NLS-1$
+            if (propertiesObj instanceof Map<?, ?> propertiesMap) {
+                String propsType = normalizeTypeLookupQuery(getMapValueIgnoreCase((Map<String, Object>) propertiesMap, "type")); //$NON-NLS-1$
+                if (propsType != null && !propsType.isBlank()) {
+                    typeStrings.add(propsType);
                 }
             }
             Object changesObj = op.get("changes"); //$NON-NLS-1$
@@ -1335,13 +3363,430 @@ public class EdtMetadataService {
         return typeStrings;
     }
 
+    @SuppressWarnings("unchecked")
+    private String normalizeTypeLookupQuery(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof List<?> list) {
+            for (Object item : list) {
+                String normalized = normalizeTypeLookupQuery(item);
+                if (normalized != null) {
+                    return normalized;
+                }
+            }
+            return null;
+        }
+        if (value instanceof String str) {
+            String trimmed = str.trim();
+            return trimmed.isBlank() ? null : trimmed;
+        }
+        if (value instanceof Map<?, ?> map) {
+            Object nestedType = getMapValueIgnoreCase(map, "type"); //$NON-NLS-1$
+            if (nestedType != null && nestedType != value) {
+                return normalizeTypeLookupQuery(nestedType);
+            }
+            Object types = getMapValueIgnoreCase(map, "types"); //$NON-NLS-1$
+            if (types != null && types != value) {
+                String normalizedTypes = normalizeTypeLookupQuery(types);
+                if (normalizedTypes != null) {
+                    return normalizedTypes;
+                }
+            }
+            Object directValue = getMapValueIgnoreCase(map, "value"); //$NON-NLS-1$
+            if (directValue != null && directValue != value) {
+                String normalizedValue = normalizeTypeLookupQuery(directValue);
+                if (normalizedValue != null) {
+                    return normalizedValue;
+                }
+            }
+            Object name = getMapValueIgnoreCase(map, "name"); //$NON-NLS-1$
+            if (name != null) {
+                String normalizedName = normalizeTypeLookupQuery(name);
+                if (normalizedName != null) {
+                    return normalizedName;
+                }
+            }
+            Object nameRu = getMapValueIgnoreCase(map, "nameRu"); //$NON-NLS-1$
+            if (nameRu != null) {
+                String normalizedNameRu = normalizeTypeLookupQuery(nameRu);
+                if (normalizedNameRu != null) {
+                    return normalizedNameRu;
+                }
+            }
+            Object code = getMapValueIgnoreCase(map, "code"); //$NON-NLS-1$
+            if (code != null) {
+                String normalizedCode = normalizeTypeLookupQuery(code);
+                if (normalizedCode != null) {
+                    return normalizedCode;
+                }
+            }
+            Object codeRu = getMapValueIgnoreCase(map, "codeRu"); //$NON-NLS-1$
+            if (codeRu != null) {
+                String normalizedCodeRu = normalizeTypeLookupQuery(codeRu);
+                if (normalizedCodeRu != null) {
+                    return normalizedCodeRu;
+                }
+            }
+            Object catalog = getMapValueIgnoreCase(map, "catalog"); //$NON-NLS-1$
+            if (catalog != null) {
+                String catalogName = String.valueOf(catalog).trim();
+                if (!catalogName.isBlank()) {
+                    return "CatalogRef." + catalogName; //$NON-NLS-1$
+                }
+            }
+            Object document = getMapValueIgnoreCase(map, "document"); //$NON-NLS-1$
+            if (document != null) {
+                String documentName = String.valueOf(document).trim();
+                if (!documentName.isBlank()) {
+                    return "DocumentRef." + documentName; //$NON-NLS-1$
+                }
+            }
+            Object enumeration = getMapValueIgnoreCase(map, "enum"); //$NON-NLS-1$
+            if (enumeration != null) {
+                String enumName = String.valueOf(enumeration).trim();
+                if (!enumName.isBlank()) {
+                    return "EnumRef." + enumName; //$NON-NLS-1$
+                }
+            }
+            Object fqn = getMapValueIgnoreCase(map, "fqn"); //$NON-NLS-1$
+            if (fqn != null) {
+                return normalizeTypeLookupQuery(fqn);
+            }
+            return null;
+        }
+        String fallback = String.valueOf(value).trim();
+        return fallback.isBlank() ? null : fallback;
+    }
+
+    private TypeSpec normalizeTypeSpec(Object value) {
+        if (value == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "Type value cannot be null", false); //$NON-NLS-1$
+        }
+        InlineTypeSpec inline = parseInlineTypeSpec(value);
+        Map<String, Object> root = asMap(value);
+        Object rootType = getMapValueIgnoreCase(root, "type"); //$NON-NLS-1$
+        Object typeCarrier = rootType != null ? rootType : value;
+        String typeQuery = normalizeTypeLookupQuery(typeCarrier);
+        if ((typeQuery == null || typeQuery.isBlank()) && inline != null) {
+            typeQuery = inline.typeQuery();
+        }
+        if (inline != null && typeQuery != null && typeQuery.equalsIgnoreCase(inline.rawLiteral())) {
+            typeQuery = inline.typeQuery();
+        }
+        if (typeQuery == null || typeQuery.isBlank()) {
+            typeQuery = normalizeTypeLookupQuery(value);
+        }
+        if ((typeQuery == null || typeQuery.isBlank()) && inline != null) {
+            typeQuery = inline.typeQuery();
+        }
+        if (typeQuery == null || typeQuery.isBlank()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "Type query is empty or invalid: " + value, false); //$NON-NLS-1$
+        }
+
+        Map<String, Object> nestedTypeMap = !root.isEmpty() ? asMap(getMapValueIgnoreCase(root, "type")) : Map.of(); //$NON-NLS-1$
+        Map<String, Object> stringQualifiers = mergeMaps(
+                asMap(getMapValueIgnoreCase(root, "stringQualifiers")), //$NON-NLS-1$
+                asMap(getMapValueIgnoreCase(nestedTypeMap, "stringQualifiers"))); //$NON-NLS-1$
+        Map<String, Object> numberQualifiers = mergeMaps(
+                asMap(getMapValueIgnoreCase(root, "numberQualifiers")), //$NON-NLS-1$
+                asMap(getMapValueIgnoreCase(nestedTypeMap, "numberQualifiers"))); //$NON-NLS-1$
+        Map<String, Object> dateQualifiers = mergeMaps(
+                asMap(getMapValueIgnoreCase(root, "dateQualifiers")), //$NON-NLS-1$
+                asMap(getMapValueIgnoreCase(nestedTypeMap, "dateQualifiers"))); //$NON-NLS-1$
+
+        Integer stringLength = firstParsedInteger(
+                getMapValueIgnoreCase(stringQualifiers, "length"), //$NON-NLS-1$
+                getMapValueIgnoreCase(root, "stringLength"), //$NON-NLS-1$
+                getMapValueIgnoreCase(nestedTypeMap, "stringLength"), //$NON-NLS-1$
+                inline == null ? null : inline.stringLength());
+        Boolean stringFixed = firstParsedBoolean(
+                getMapValueIgnoreCase(stringQualifiers, "fixed"), //$NON-NLS-1$
+                getMapValueIgnoreCase(stringQualifiers, "fixedLength"), //$NON-NLS-1$
+                getMapValueIgnoreCase(root, "stringFixed"), //$NON-NLS-1$
+                getMapValueIgnoreCase(nestedTypeMap, "stringFixed")); //$NON-NLS-1$
+
+        Integer numberPrecision = firstParsedInteger(
+                getMapValueIgnoreCase(numberQualifiers, "precision"), //$NON-NLS-1$
+                getMapValueIgnoreCase(numberQualifiers, "length"), //$NON-NLS-1$
+                getMapValueIgnoreCase(root, "precision"), //$NON-NLS-1$
+                getMapValueIgnoreCase(nestedTypeMap, "precision"), //$NON-NLS-1$
+                inline == null ? null : inline.numberPrecision());
+        Integer numberScale = firstParsedInteger(
+                getMapValueIgnoreCase(numberQualifiers, "scale"), //$NON-NLS-1$
+                getMapValueIgnoreCase(root, "scale"), //$NON-NLS-1$
+                getMapValueIgnoreCase(nestedTypeMap, "scale"), //$NON-NLS-1$
+                inline == null ? null : inline.numberScale());
+        Boolean numberNonNegative = firstParsedBoolean(
+                getMapValueIgnoreCase(numberQualifiers, "nonNegative"), //$NON-NLS-1$
+                getMapValueIgnoreCase(root, "nonNegative"), //$NON-NLS-1$
+                getMapValueIgnoreCase(nestedTypeMap, "nonNegative")); //$NON-NLS-1$
+
+        DateFractions dateFractions = firstParsedDateFractions(
+                getMapValueIgnoreCase(dateQualifiers, "dateFractions"), //$NON-NLS-1$
+                getMapValueIgnoreCase(dateQualifiers, "fractions"), //$NON-NLS-1$
+                getMapValueIgnoreCase(root, "dateFractions"), //$NON-NLS-1$
+                getMapValueIgnoreCase(root, "fractions"), //$NON-NLS-1$
+                getMapValueIgnoreCase(nestedTypeMap, "dateFractions"), //$NON-NLS-1$
+                getMapValueIgnoreCase(nestedTypeMap, "fractions"), //$NON-NLS-1$
+                inline == null ? null : inline.dateFractions());
+
+        return new TypeSpec(
+                typeQuery,
+                stringLength,
+                stringFixed,
+                numberPrecision,
+                numberScale,
+                numberNonNegative,
+                dateFractions);
+    }
+
+    private record InlineTypeSpec(
+            String rawLiteral,
+            String typeQuery,
+            Integer stringLength,
+            Integer numberPrecision,
+            Integer numberScale,
+            DateFractions dateFractions
+    ) {
+    }
+
+    private InlineTypeSpec parseInlineTypeSpec(Object value) {
+        if (!(value instanceof String literal)) {
+            return null;
+        }
+        String raw = literal.trim();
+        if (raw.isBlank()) {
+            return null;
+        }
+        int open = raw.indexOf('(');
+        int close = raw.lastIndexOf(')');
+        if (open <= 0 || close <= open) {
+            return null;
+        }
+
+        String baseRaw = raw.substring(0, open).trim();
+        String argsRaw = raw.substring(open + 1, close).trim();
+        if (baseRaw.isBlank()) {
+            return null;
+        }
+        String baseType = canonicalSimpleTypeName(baseRaw);
+        if (baseType == null) {
+            return null;
+        }
+
+        List<String> parts = new ArrayList<>();
+        if (!argsRaw.isBlank()) {
+            for (String piece : argsRaw.split(",")) { //$NON-NLS-1$
+                String token = piece.trim();
+                if (!token.isBlank()) {
+                    parts.add(token);
+                }
+            }
+        }
+
+        if (isStringType(baseType)) {
+            Integer length = parts.isEmpty() ? null : parseInteger(parts.get(0));
+            return new InlineTypeSpec(raw, baseType, length, null, null, null);
+        }
+        if (isNumberType(baseType)) {
+            Integer precision = parts.isEmpty() ? null : parseInteger(parts.get(0));
+            Integer scale = parts.size() > 1 ? parseInteger(parts.get(1)) : null;
+            return new InlineTypeSpec(raw, baseType, null, precision, scale, null);
+        }
+        if (isDateType(baseType)) {
+            DateFractions fractions = parts.isEmpty() ? null : parseDateFractions(parts.get(0));
+            return new InlineTypeSpec(raw, baseType, null, null, null, fractions);
+        }
+        return new InlineTypeSpec(raw, baseType, null, null, null, null);
+    }
+
+    private Map<String, Object> mergeMaps(Map<String, Object> primary, Map<String, Object> secondary) {
+        if ((primary == null || primary.isEmpty()) && (secondary == null || secondary.isEmpty())) {
+            return Map.of();
+        }
+        Map<String, Object> merged = new HashMap<>();
+        if (secondary != null && !secondary.isEmpty()) {
+            merged.putAll(secondary);
+        }
+        if (primary != null && !primary.isEmpty()) {
+            merged.putAll(primary);
+        }
+        return merged;
+    }
+
+    private Integer firstParsedInteger(Object... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Object value : values) {
+            Integer parsed = parseInteger(value);
+            if (parsed != null) {
+                return parsed;
+            }
+        }
+        return null;
+    }
+
+    private Boolean firstParsedBoolean(Object... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Object value : values) {
+            Boolean parsed = parseBoolean(value);
+            if (parsed != null) {
+                return parsed;
+            }
+        }
+        return null;
+    }
+
+    private DateFractions firstParsedDateFractions(Object... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Object value : values) {
+            DateFractions parsed = parseDateFractions(value);
+            if (parsed != null) {
+                return parsed;
+            }
+        }
+        return null;
+    }
+
+    private Integer parseInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Map<?, ?> map) {
+            Object nested = map.get("value"); //$NON-NLS-1$
+            if (nested != null && nested != value) {
+                return parseInteger(nested);
+            }
+            return null;
+        }
+        if (value instanceof Number number) {
+            return Integer.valueOf(number.intValue());
+        }
+        String raw = String.valueOf(value).trim();
+        if (raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(raw);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Boolean parseBoolean(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Map<?, ?> map) {
+            Object nested = map.get("value"); //$NON-NLS-1$
+            if (nested != null && nested != value) {
+                return parseBoolean(nested);
+            }
+            return null;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        String raw = String.valueOf(value).trim();
+        if (raw.isBlank()) {
+            return null;
+        }
+        if ("1".equals(raw)) { //$NON-NLS-1$
+            return Boolean.TRUE;
+        }
+        if ("0".equals(raw)) { //$NON-NLS-1$
+            return Boolean.FALSE;
+        }
+        if ("yes".equalsIgnoreCase(raw) || "true".equalsIgnoreCase(raw)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return Boolean.TRUE;
+        }
+        if ("no".equalsIgnoreCase(raw) || "false".equalsIgnoreCase(raw)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return Boolean.FALSE;
+        }
+        return null;
+    }
+
+    private DateFractions parseDateFractions(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String raw = normalizeTypeLookupQuery(value);
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String token = normalizeToken(raw);
+        return switch (token) {
+            case "date", "дата" -> DateFractions.DATE; //$NON-NLS-1$ //$NON-NLS-2$
+            case "time", "время" -> DateFractions.TIME; //$NON-NLS-1$ //$NON-NLS-2$
+            case "datetime", "date_time", "dateandtime", "датавремя", "датиивремя" -> DateFractions.DATE_TIME; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+            default -> DateFractions.getByName(raw);
+        };
+    }
+
+    private Integer firstPositive(Integer first, Integer second, int fallback) {
+        if (first != null && first.intValue() > 0) {
+            return first;
+        }
+        if (second != null && second.intValue() > 0) {
+            return second;
+        }
+        return Integer.valueOf(fallback);
+    }
+
+    private Integer firstNonNegative(Integer first, Integer second, int fallback) {
+        if (first != null && first.intValue() >= 0) {
+            return first;
+        }
+        if (second != null && second.intValue() >= 0) {
+            return second;
+        }
+        return Integer.valueOf(fallback);
+    }
+
+    private boolean isSimpleTypeQuery(String typeString) {
+        return canonicalSimpleTypeName(typeString) != null;
+    }
+
+    private String canonicalSimpleTypeName(String typeString) {
+        if (typeString == null || typeString.isBlank()) {
+            return null;
+        }
+        String base = typeString.trim();
+        int openParen = base.indexOf('(');
+        if (openParen > 0) {
+            base = base.substring(0, openParen).trim();
+        }
+        int dot = base.indexOf('.');
+        if (dot > 0) {
+            base = base.substring(0, dot);
+        }
+        String token = normalizeToken(base);
+        return switch (token) {
+            case "string", "строка" -> "String"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "number", "число" -> "Number"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "date", "дата" -> "Date"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "boolean", "bool", "булево" -> "Boolean"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            default -> null;
+        };
+    }
+
     private void unsetFeatureValue(MdObject target, String fieldName) {
         if ("uuid".equalsIgnoreCase(fieldName)) { //$NON-NLS-1$
             throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_CHANGE,
                     "Cannot unset required field: uuid", false); //$NON-NLS-1$
         }
-        EStructuralFeature feature = target.eClass().getEStructuralFeature(fieldName);
+        EStructuralFeature feature = resolveFeatureIgnoreCase(target, fieldName);
         if (feature == null) {
             throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_CHANGE,
@@ -1620,6 +4065,60 @@ public class EdtMetadataService {
             return (Map<String, Object>) map;
         }
         return Collections.emptyMap();
+    }
+
+    private Object getMapValueIgnoreCase(Map<?, ?> map, String key) {
+        if (map == null || map.isEmpty() || key == null || key.isBlank()) {
+            return null;
+        }
+        if (map.containsKey(key)) {
+            return map.get(key);
+        }
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            Object rawKey = entry.getKey();
+            if (rawKey instanceof String str && str.equalsIgnoreCase(key)) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    private boolean hasMapKeyIgnoreCase(Map<?, ?> map, String key) {
+        if (map == null || map.isEmpty() || key == null || key.isBlank()) {
+            return false;
+        }
+        if (map.containsKey(key)) {
+            return true;
+        }
+        for (Object rawKey : map.keySet()) {
+            if (rawKey instanceof String str && str.equalsIgnoreCase(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private EStructuralFeature resolveFeatureIgnoreCase(MdObject target, String fieldName) {
+        if (target == null || fieldName == null || fieldName.isBlank()) {
+            return null;
+        }
+        return resolveStructuralFeatureIgnoreCase(target, fieldName);
+    }
+
+    private EStructuralFeature resolveStructuralFeatureIgnoreCase(EObject object, String fieldName) {
+        if (object == null || object.eClass() == null || fieldName == null || fieldName.isBlank()) {
+            return null;
+        }
+        EStructuralFeature direct = object.eClass().getEStructuralFeature(fieldName);
+        if (direct != null) {
+            return direct;
+        }
+        for (EStructuralFeature candidate : object.eClass().getEAllStructuralFeatures()) {
+            if (candidate != null && candidate.getName().equalsIgnoreCase(fieldName)) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     private boolean asBoolean(Object value) {
@@ -2471,6 +4970,13 @@ public class EdtMetadataService {
             String topKind,
             String topName,
             String formName
+    ) {
+    }
+
+    private record FormArtifactPaths(
+            String formAbsolutePath,
+            String moduleAbsolutePath,
+            String diagnostics
     ) {
     }
 }

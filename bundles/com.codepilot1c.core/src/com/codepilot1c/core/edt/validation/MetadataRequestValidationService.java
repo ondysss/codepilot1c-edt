@@ -7,6 +7,8 @@ import java.util.Map;
 
 import org.eclipse.core.resources.IProject;
 
+import com.codepilot1c.core.edt.forms.CreateFormRequest;
+import com.codepilot1c.core.edt.forms.FormUsage;
 import com.codepilot1c.core.edt.metadata.AddMetadataChildRequest;
 import com.codepilot1c.core.edt.metadata.CreateMetadataRequest;
 import com.codepilot1c.core.edt.metadata.DeleteMetadataRequest;
@@ -152,6 +154,55 @@ public class MetadataRequestValidationService {
         return payload;
     }
 
+    public Map<String, Object> normalizeCreateFormPayload(
+            String projectName,
+            String ownerFqn,
+            String name,
+            String usageValue,
+            Boolean managed,
+            Boolean setAsDefault,
+            String synonym,
+            String comment,
+            Long waitMs
+    ) {
+        FormUsage usage = FormUsage.fromOptionalString(usageValue);
+        CreateFormRequest request = new CreateFormRequest(
+                projectName,
+                ownerFqn,
+                name,
+                usage,
+                managed,
+                setAsDefault,
+                synonym,
+                comment,
+                waitMs);
+        request.validate();
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("project", projectName); //$NON-NLS-1$
+        payload.put("owner_fqn", ownerFqn); //$NON-NLS-1$
+        payload.put("name", name); //$NON-NLS-1$
+        if (usage != null) {
+            payload.put("usage", usage.name()); //$NON-NLS-1$
+        }
+        if (managed != null) {
+            payload.put("managed", managed); //$NON-NLS-1$
+        }
+        if (setAsDefault != null) {
+            payload.put("set_as_default", setAsDefault); //$NON-NLS-1$
+        }
+        if (synonym != null && !synonym.isBlank()) {
+            payload.put("synonym", synonym); //$NON-NLS-1$
+        }
+        if (comment != null && !comment.isBlank()) {
+            payload.put("comment", comment); //$NON-NLS-1$
+        }
+        if (waitMs != null) {
+            payload.put("wait_ms", waitMs); //$NON-NLS-1$
+        }
+        return payload;
+    }
+
     public Map<String, Object> normalizeUpdatePayload(
             String projectName,
             String targetFqn,
@@ -195,6 +246,20 @@ public class MetadataRequestValidationService {
                         asOptionalString(request.payload().get("comment")), //$NON-NLS-1$
                         asMap(request.payload().get("properties"))); //$NON-NLS-1$
                 checks.add("Операция create_metadata валидирована по обязательным полям и имени."); //$NON-NLS-1$
+                yield payload;
+            }
+            case CREATE_FORM -> {
+                Map<String, Object> payload = normalizeCreateFormPayload(
+                        coalesceProject(request.projectName(), request.payload()),
+                        asString(request.payload().get("owner_fqn")), //$NON-NLS-1$
+                        asString(request.payload().get("name")), //$NON-NLS-1$
+                        asOptionalString(request.payload().get("usage")), //$NON-NLS-1$
+                        asOptionalBoolean(request.payload().get("managed")), //$NON-NLS-1$
+                        asOptionalBoolean(request.payload().get("set_as_default")), //$NON-NLS-1$
+                        asOptionalString(request.payload().get("synonym")), //$NON-NLS-1$
+                        asOptionalString(request.payload().get("comment")), //$NON-NLS-1$
+                        asOptionalLong(request.payload().get("wait_ms"))); //$NON-NLS-1$
+                checks.add("Операция create_form валидирована по обязательным полям и имени."); //$NON-NLS-1$
                 yield payload;
             }
             case ADD_METADATA_CHILD -> {
@@ -268,6 +333,49 @@ public class MetadataRequestValidationService {
     private String asOptionalString(Object value) {
         String str = asString(value);
         return str == null || str.isBlank() ? null : str;
+    }
+
+    private Boolean asOptionalBoolean(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value instanceof Number number) {
+            return number.intValue() != 0;
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isBlank()) {
+            return null;
+        }
+        if ("1".equals(text)) { //$NON-NLS-1$
+            return Boolean.TRUE;
+        }
+        if ("0".equals(text)) { //$NON-NLS-1$
+            return Boolean.FALSE;
+        }
+        return Boolean.valueOf(Boolean.parseBoolean(text));
+    }
+
+    private Long asOptionalLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return Long.valueOf(number.longValue());
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(text);
+        } catch (NumberFormatException e) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "wait_ms must be numeric: " + value, false); //$NON-NLS-1$
+        }
     }
 
     @SuppressWarnings("unchecked")

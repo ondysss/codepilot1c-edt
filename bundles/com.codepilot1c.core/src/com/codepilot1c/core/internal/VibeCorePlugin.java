@@ -18,6 +18,7 @@ import org.osgi.framework.BundleContext;
 import org.osgi.util.tracker.ServiceTracker;
 
 import com._1c.g5.v8.dt.bm.xtext.BmAwareResourceSetProvider;
+import com._1c.g5.v8.dt.core.naming.ITopObjectFqnGenerator;
 import com._1c.g5.v8.dt.core.platform.IBmModelManager;
 import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.core.platform.IDerivedDataManagerProvider;
@@ -45,6 +46,7 @@ public class VibeCorePlugin extends Plugin {
     private ServiceTracker<IDtProjectManager, IDtProjectManager> dtProjectManagerTracker;
     private ServiceTracker<IDerivedDataManagerProvider, IDerivedDataManagerProvider> derivedDataManagerProviderTracker;
     private ServiceTracker<BmAwareResourceSetProvider, BmAwareResourceSetProvider> resourceSetProviderTracker;
+    private ServiceTracker<ITopObjectFqnGenerator, ITopObjectFqnGenerator> topObjectFqnGeneratorTracker;
 
     @Override
     public void start(BundleContext context) throws Exception {
@@ -101,6 +103,8 @@ public class VibeCorePlugin extends Plugin {
         derivedDataManagerProviderTracker.open();
         resourceSetProviderTracker = new ServiceTracker<>(context, BmAwareResourceSetProvider.class, null);
         resourceSetProviderTracker.open();
+        topObjectFqnGeneratorTracker = new ServiceTracker<>(context, ITopObjectFqnGenerator.class, null);
+        topObjectFqnGeneratorTracker.open();
     }
 
     @Override
@@ -140,6 +144,8 @@ public class VibeCorePlugin extends Plugin {
         derivedDataManagerProviderTracker = null;
         closeTracker(resourceSetProviderTracker);
         resourceSetProviderTracker = null;
+        closeTracker(topObjectFqnGeneratorTracker);
+        topObjectFqnGeneratorTracker = null;
 
         plugin = null;
         super.stop(context);
@@ -191,6 +197,10 @@ public class VibeCorePlugin extends Plugin {
 
     public BmAwareResourceSetProvider getResourceSetProvider() {
         return getTrackedService(resourceSetProviderTracker, "BmAwareResourceSetProvider"); //$NON-NLS-1$
+    }
+
+    public ITopObjectFqnGenerator getTopObjectFqnGenerator() {
+        return getTrackedService(topObjectFqnGeneratorTracker, "ITopObjectFqnGenerator"); //$NON-NLS-1$
     }
 
     private <T> T getTrackedService(ServiceTracker<T, T> tracker, String serviceName) {
