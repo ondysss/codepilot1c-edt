@@ -73,7 +73,6 @@ public class EdtDiagnosticsCollector {
 
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(EdtDiagnosticsCollector.class);
 
-    private static final int DEFAULT_MAX_ITEMS = 50;
     private static final int MAX_SNIPPET_LENGTH = 120;
 
     private static EdtDiagnosticsCollector instance;
@@ -103,11 +102,11 @@ public class EdtDiagnosticsCollector {
             boolean includeRuntimeMarkers) {
 
         public static DiagnosticsQuery defaults() {
-            return new DiagnosticsQuery(Severity.ERROR, DEFAULT_MAX_ITEMS, true, 0, true);
+            return new DiagnosticsQuery(Severity.INFO, 0, true, 0, true);
         }
 
         public static DiagnosticsQuery withSeverity(Severity minSeverity) {
-            return new DiagnosticsQuery(minSeverity, DEFAULT_MAX_ITEMS, true, 0, true);
+            return new DiagnosticsQuery(minSeverity, 0, true, 0, true);
         }
     }
 
@@ -220,10 +219,7 @@ public class EdtDiagnosticsCollector {
                             .thenComparing(EdtDiagnostic::lineNumber));
 
                     // Limit results (ensure maxItems is positive)
-                    int maxItems = Math.max(1, q.maxItems());
-                    if (diagnostics.size() > maxItems) {
-                        diagnostics = new ArrayList<>(diagnostics.subList(0, maxItems));
-                    }
+                    diagnostics = applyResultLimit(diagnostics, q.maxItems());
 
                     // Count by severity
                     int errors = (int) diagnostics.stream().filter(d -> d.severity() == Severity.ERROR).count();
@@ -280,10 +276,7 @@ public class EdtDiagnosticsCollector {
                         .thenComparing(EdtDiagnostic::filePath, Comparator.nullsLast(String::compareTo))
                         .thenComparing(EdtDiagnostic::lineNumber));
 
-                int maxItems = Math.max(1, query.maxItems());
-                if (diagnostics.size() > maxItems) {
-                    diagnostics = new ArrayList<>(diagnostics.subList(0, maxItems));
-                }
+                diagnostics = applyResultLimit(diagnostics, query.maxItems());
 
                 int errors = (int) diagnostics.stream().filter(d -> d.severity() == Severity.ERROR).count();
                 int warnings = (int) diagnostics.stream().filter(d -> d.severity() == Severity.WARNING).count();
@@ -513,7 +506,7 @@ public class EdtDiagnosticsCollector {
         MarkerFilter projectFilter = MarkerFilter.createProjectFilter(context.project());
 
         try (Stream<Marker> stream = markerManager.markers(projectFilter)) {
-            int preLimit = Math.max(1, query.maxItems()) * 10;
+            int preLimit = getSoftScanLimit(query.maxItems(), 10);
             stream
                     .filter(marker -> markerMatchesContext(marker, context))
                     .limit(preLimit)
@@ -612,6 +605,24 @@ public class EdtDiagnosticsCollector {
         }
     }
 
+    private List<EdtDiagnostic> applyResultLimit(List<EdtDiagnostic> diagnostics, int maxItems) {
+        if (diagnostics == null || diagnostics.isEmpty() || maxItems <= 0) {
+            return diagnostics;
+        }
+        if (diagnostics.size() <= maxItems) {
+            return diagnostics;
+        }
+        return new ArrayList<>(diagnostics.subList(0, maxItems));
+    }
+
+    private int getSoftScanLimit(int maxItems, int multiplier) {
+        if (maxItems <= 0) {
+            return Integer.MAX_VALUE;
+        }
+        long result = (long) maxItems * Math.max(1, multiplier);
+        return result >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) result;
+    }
+
     /**
      * Collects diagnostics for the whole project.
      *
@@ -653,10 +664,7 @@ public class EdtDiagnosticsCollector {
                         .thenComparing(EdtDiagnostic::filePath, Comparator.nullsLast(String::compareTo))
                         .thenComparing(EdtDiagnostic::lineNumber));
 
-                int maxItems = Math.max(1, query.maxItems());
-                if (diagnostics.size() > maxItems) {
-                    diagnostics = new ArrayList<>(diagnostics.subList(0, maxItems));
-                }
+                diagnostics = applyResultLimit(diagnostics, query.maxItems());
 
                 int errors = (int) diagnostics.stream().filter(d -> d.severity() == Severity.ERROR).count();
                 int warnings = (int) diagnostics.stream().filter(d -> d.severity() == Severity.WARNING).count();
@@ -709,10 +717,7 @@ public class EdtDiagnosticsCollector {
                         .thenComparing(EdtDiagnostic::filePath, Comparator.nullsLast(String::compareTo))
                         .thenComparing(EdtDiagnostic::lineNumber));
 
-                int maxItems = Math.max(1, query.maxItems());
-                if (diagnostics.size() > maxItems) {
-                    diagnostics = new ArrayList<>(diagnostics.subList(0, maxItems));
-                }
+                diagnostics = applyResultLimit(diagnostics, query.maxItems());
 
                 int errors = (int) diagnostics.stream().filter(d -> d.severity() == Severity.ERROR).count();
                 int warnings = (int) diagnostics.stream().filter(d -> d.severity() == Severity.WARNING).count();
@@ -856,7 +861,7 @@ public class EdtDiagnosticsCollector {
             IMarker[] markers = project.findMarkers(null, true, IResource.DEPTH_INFINITE);
             LOG.debug("Found %d workspace markers for project %s", markers.length, project.getName()); //$NON-NLS-1$
 
-            int preLimit = Math.max(1, query.maxItems()) * 5;
+            int preLimit = getSoftScanLimit(query.maxItems(), 5);
             int count = 0;
             for (IMarker marker : markers) {
                 if (count >= preLimit) {
@@ -911,7 +916,7 @@ public class EdtDiagnosticsCollector {
         MarkerFilter projectFilter = MarkerFilter.createProjectFilter(project);
 
         try (Stream<Marker> stream = markerManager.markers(projectFilter)) {
-            int preLimit = Math.max(1, query.maxItems()) * 5;
+            int preLimit = getSoftScanLimit(query.maxItems(), 5);
             stream.limit(preLimit).forEach(marker -> {
                 Severity sev = fromRuntimeSeverity(marker.getSeverity());
                 if (sev.getLevel() < query.minSeverity().getLevel()) {
@@ -1020,7 +1025,7 @@ public class EdtDiagnosticsCollector {
                     markerType != null ? markerType : annType, snippet));
 
             count++;
-            if (count >= query.maxItems() * 2) { // Pre-limit before dedup sort
+            if (count >= getSoftScanLimit(query.maxItems(), 2)) { // Pre-limit before dedup sort
                 break;
             }
         }

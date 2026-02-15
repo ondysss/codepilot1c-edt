@@ -55,11 +55,11 @@ public class GetDiagnosticsTool implements ITool {
                     "severity": {
                         "type": "string",
                         "enum": ["error", "warning", "info"],
-                        "description": "Минимальный уровень серьёзности: error (только ошибки), warning (ошибки и предупреждения), info (все). По умолчанию: warning"
+                        "description": "Минимальный уровень серьёзности: error (только ошибки), warning (ошибки и предупреждения), info (все). По умолчанию: info"
                     },
                     "max_items": {
                         "type": "integer",
-                        "description": "Максимальное количество диагностик. По умолчанию: 50"
+                        "description": "Максимальное количество диагностик. 0 означает без ограничений. По умолчанию: 0"
                     },
                     "wait_ms": {
                         "type": "integer",
@@ -96,14 +96,13 @@ public class GetDiagnosticsTool implements ITool {
         String scope = (String) parameters.getOrDefault("scope", ""); //$NON-NLS-1$ //$NON-NLS-2$
         String path = (String) parameters.get("path"); //$NON-NLS-1$
         String projectName = (String) parameters.get("project_name"); //$NON-NLS-1$
-        String severityStr = (String) parameters.getOrDefault("severity", "warning"); //$NON-NLS-1$ //$NON-NLS-2$
-        int maxItems = getIntParam(parameters, "max_items", 50); //$NON-NLS-1$
+        String severityStr = (String) parameters.getOrDefault("severity", "info"); //$NON-NLS-1$ //$NON-NLS-2$
+        int maxItems = getIntParam(parameters, "max_items", 0); //$NON-NLS-1$
         long waitMs = getIntParam(parameters, "wait_ms", 0); //$NON-NLS-1$
         boolean includeRuntimeMarkers = getBooleanParam(parameters, "include_runtime_markers", true); //$NON-NLS-1$
 
         // Validate parameters
-        if (maxItems < 1) maxItems = 1;
-        if (maxItems > 200) maxItems = 200;
+        if (maxItems < 0) maxItems = 0;
         if (waitMs < 0) waitMs = 0;
         if (waitMs > 2000) waitMs = 2000;
 
@@ -146,11 +145,11 @@ public class GetDiagnosticsTool implements ITool {
     }
 
     private Severity parseSeverity(String str) {
-        if (str == null) return Severity.WARNING;
+        if (str == null) return Severity.INFO;
         return switch (str.toLowerCase()) {
             case "warning", "warn" -> Severity.WARNING; //$NON-NLS-1$ //$NON-NLS-2$
             case "info", "all" -> Severity.INFO; //$NON-NLS-1$ //$NON-NLS-2$
-            default -> Severity.ERROR;
+            default -> Severity.INFO;
         };
     }
 
