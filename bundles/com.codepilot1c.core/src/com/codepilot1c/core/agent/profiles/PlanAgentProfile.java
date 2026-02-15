@@ -136,6 +136,12 @@ public class PlanAgentProfile implements AgentProfile {
                 ## Риски
                 [Потенциальные проблемы]
 
+                Для задач по управляемым формам:
+                1. Сначала анализируй структуру формы через inspect_form_layout.
+                2. Учитывай разделение логики: UI в модуле формы, предметная логика в модуле объекта.
+                3. Проверяй клиент-серверный контекст вызовов формы и объекта.
+                4. Включай в план повторную проверку get_diagnostics (файл + проект).
+
                 Доступные инструменты: read_file, glob, grep, list_files, search_codebase,
                 get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, inspect_form_layout,
                 bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, inspect_platform_reference.
