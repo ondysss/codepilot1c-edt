@@ -52,10 +52,20 @@ import com._1c.g5.v8.dt.core.platform.IBmModelManager;
 import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.core.platform.IDtProject;
 import com._1c.g5.v8.dt.core.platform.IDtProjectManager;
+import com._1c.g5.v8.dt.form.model.DataPath;
+import com._1c.g5.v8.dt.form.model.Form;
+import com._1c.g5.v8.dt.form.model.FormFactory;
+import com._1c.g5.v8.dt.form.model.FormField;
+import com._1c.g5.v8.dt.form.model.FormGroup;
+import com._1c.g5.v8.dt.form.model.FormItem;
+import com._1c.g5.v8.dt.form.model.FormItemContainer;
+import com._1c.g5.v8.dt.form.model.Titled;
+import com._1c.g5.v8.dt.form.model.Visible;
 import com._1c.g5.v8.dt.mcore.DateQualifiers;
 import com._1c.g5.v8.dt.mcore.DateFractions;
 import com._1c.g5.v8.dt.mcore.McoreFactory;
 import com._1c.g5.v8.dt.mcore.McorePackage;
+import com._1c.g5.v8.dt.mcore.NamedElement;
 import com._1c.g5.v8.dt.mcore.NumberQualifiers;
 import com._1c.g5.v8.dt.mcore.StringQualifiers;
 import com._1c.g5.v8.dt.mcore.TypeDescription;
@@ -78,6 +88,8 @@ import com.codepilot1c.core.edt.forms.CreateFormRequest;
 import com.codepilot1c.core.edt.forms.CreateFormResult;
 import com.codepilot1c.core.edt.forms.FormOwnerStrategy;
 import com.codepilot1c.core.edt.forms.FormUsage;
+import com.codepilot1c.core.edt.forms.UpdateFormModelRequest;
+import com.codepilot1c.core.edt.forms.UpdateFormModelResult;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
 import org.osgi.framework.Bundle;
@@ -315,6 +327,64 @@ public class EdtMetadataService {
                 artifacts.diagnostics());
     }
 
+    public UpdateFormModelResult updateFormModel(UpdateFormModelRequest request) {
+        String opId = LogSanitizer.newId("edt-form-model"); //$NON-NLS-1$
+        long startedAt = System.currentTimeMillis();
+        request.validate();
+        LOG.info("[%s] updateFormModel START project=%s form=%s operations=%d", //$NON-NLS-1$
+                opId,
+                request.projectName(),
+                request.formFqn(),
+                Integer.valueOf(request.operations().size()));
+        gateway.ensureMutationRuntimeAvailable();
+        IProject project = requireProject(request.projectName());
+        readinessChecker.ensureReady(project);
+        repairConfigurationMissingUuids(project, opId);
+
+        IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
+        Configuration configuration = configurationProvider.getConfiguration(project);
+        if (configuration == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "Cannot resolve project configuration", false); //$NON-NLS-1$
+        }
+
+        List<String> operationSummaries = executeWrite(project, transaction -> {
+            Configuration txConfiguration = transaction.toTransactionObject(configuration);
+            if (txConfiguration == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                        "Cannot access configuration in BM transaction", false); //$NON-NLS-1$
+            }
+            MdObject resolved = resolveByFqn(txConfiguration, request.formFqn());
+            if (!(resolved instanceof BasicForm basicForm)) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_NOT_FOUND,
+                        "Form metadata not found: " + request.formFqn(), false); //$NON-NLS-1$
+            }
+            Form formModel = resolveManagedFormModel(basicForm, request.formFqn());
+            List<String> applied = applyFormModelOperations(formModel, request.operations());
+            ensureUuidsRecursively(basicForm, opId, request.formFqn());
+            return applied;
+        });
+
+        String topLevelFqn = extractTopLevelFqn(request.formFqn());
+        forceExportTopLevelObject(project, topLevelFqn, opId);
+        verifyObjectPersisted(project, request.formFqn(), opId);
+        refreshProjectSafely(project);
+        LOG.info("[%s] updateFormModel SUCCESS in %s form=%s operations=%d", //$NON-NLS-1$
+                opId,
+                LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),
+                request.formFqn(),
+                Integer.valueOf(operationSummaries.size()));
+
+        return new UpdateFormModelResult(
+                request.projectName(),
+                request.formFqn(),
+                operationSummaries.size(),
+                operationSummaries);
+    }
+
     public MetadataOperationResult addMetadataChild(AddMetadataChildRequest request) {
         String opId = LogSanitizer.newId("edt-child"); //$NON-NLS-1$
         long startedAt = System.currentTimeMillis();
@@ -372,6 +442,368 @@ public class EdtMetadataService {
                 extractNameFromFqn(childFqn),
                 childFqn,
                 "Metadata child object created successfully"); //$NON-NLS-1$
+    }
+
+    private Form resolveManagedFormModel(BasicForm basicForm, String formFqn) {
+        if (basicForm.getForm() == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Form model is not initialized for: " + formFqn, false); //$NON-NLS-1$
+        }
+        if (!(basicForm.getForm() instanceof Form formModel)) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Unsupported form model type: " + basicForm.getForm().getClass().getName(), false); //$NON-NLS-1$
+        }
+        return formModel;
+    }
+
+    private List<String> applyFormModelOperations(Form formModel, List<Map<String, Object>> operations) {
+        List<String> summaries = new ArrayList<>();
+        int operationIndex = 1;
+        for (Map<String, Object> operation : operations) {
+            String rawOp = asString(operation.get("op")); //$NON-NLS-1$
+            String op = normalizeToken(rawOp);
+            switch (op) {
+                case "setformprops", "setformproperties", "setform" -> {
+                    Map<String, Object> set = asMap(operation.get("set")); //$NON-NLS-1$
+                    if (set.isEmpty()) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                                "set_form_props operation requires non-empty 'set' map", false); //$NON-NLS-1$
+                    }
+                    applyFormPropertySet(formModel, set);
+                    summaries.add("set_form_props[" + operationIndex + "]"); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                case "addgroup", "creategroup" -> {
+                    FormItemContainer parentContainer = resolveTargetContainer(formModel, operation);
+                    String name = asString(getMapValueIgnoreCase(operation, "name")); //$NON-NLS-1$
+                    if (!MetadataNameValidator.isValidName(name)) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_NAME,
+                                "Invalid group name: " + name, false); //$NON-NLS-1$
+                    }
+                    FormGroup group = FormFactory.eINSTANCE.createFormGroup();
+                    group.setId(nextFormItemId(formModel));
+                    group.setName(name);
+                    applyTitleValue(group, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
+                    Map<String, Object> set = asMap(operation.get("set")); //$NON-NLS-1$
+                    if (!set.isEmpty()) {
+                        applyFormPropertySet(group, set);
+                    }
+                    if (hasMapKeyIgnoreCase(operation, "group_type")) { //$NON-NLS-1$
+                        applySimpleFeatureValue(group, "type", getMapValueIgnoreCase(operation, "group_type")); //$NON-NLS-1$ //$NON-NLS-2$
+                    }
+                    insertItemIntoContainer(parentContainer, group, asOptionalInteger(operation.get("index"), "index")); //$NON-NLS-1$ //$NON-NLS-2$
+                    summaries.add("add_group[" + operationIndex + "]: name=" + name + ", id=" + group.getId()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                }
+                case "addfield", "createfield" -> {
+                    FormItemContainer parentContainer = resolveTargetContainer(formModel, operation);
+                    String name = asString(getMapValueIgnoreCase(operation, "name")); //$NON-NLS-1$
+                    if (!MetadataNameValidator.isValidName(name)) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_NAME,
+                                "Invalid field name: " + name, false); //$NON-NLS-1$
+                    }
+                    FormField field = FormFactory.eINSTANCE.createFormField();
+                    field.setId(nextFormItemId(formModel));
+                    field.setName(name);
+                    applyTitleValue(field, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
+                    applyDataPath(field, getMapValueIgnoreCase(operation, "data_path")); //$NON-NLS-1$
+                    if (hasMapKeyIgnoreCase(operation, "field_type")) { //$NON-NLS-1$
+                        applySimpleFeatureValue(field, "type", getMapValueIgnoreCase(operation, "field_type")); //$NON-NLS-1$ //$NON-NLS-2$
+                    }
+                    if (hasMapKeyIgnoreCase(operation, "read_only")) { //$NON-NLS-1$
+                        field.setReadOnly(asBoolean(getMapValueIgnoreCase(operation, "read_only"))); //$NON-NLS-1$
+                    }
+                    Map<String, Object> set = asMap(operation.get("set")); //$NON-NLS-1$
+                    if (!set.isEmpty()) {
+                        applyFormPropertySet(field, set);
+                    }
+                    insertItemIntoContainer(parentContainer, field, asOptionalInteger(operation.get("index"), "index")); //$NON-NLS-1$ //$NON-NLS-2$
+                    summaries.add("add_field[" + operationIndex + "]: name=" + name + ", id=" + field.getId()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                }
+                case "setitemprops", "setitem", "updateitem", "set" -> {
+                    FormItem item = resolveRequiredItem(formModel, operation);
+                    Map<String, Object> set = asMap(operation.get("set")); //$NON-NLS-1$
+                    if (set.isEmpty()) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                                "set_item operation requires non-empty 'set' map", false); //$NON-NLS-1$
+                    }
+                    applyFormPropertySet(item, set);
+                    summaries.add("set_item[" + operationIndex + "]: id=" + item.getId()); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                case "removeitem", "deleteitem" -> {
+                    FormItem item = resolveRequiredItem(formModel, operation);
+                    FormItemContainer parent = findParentContainer(formModel, item);
+                    if (parent == null) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                                "Cannot remove root form container item", false); //$NON-NLS-1$
+                    }
+                    parent.getItems().remove(item);
+                    summaries.add("remove_item[" + operationIndex + "]: id=" + item.getId()); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                case "moveitem" -> {
+                    FormItem item = resolveRequiredItem(formModel, operation);
+                    FormItemContainer source = findParentContainer(formModel, item);
+                    if (source == null) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                                "Cannot move root form container item", false); //$NON-NLS-1$
+                    }
+                    FormItemContainer target = resolveTargetContainer(formModel, operation);
+                    source.getItems().remove(item);
+                    insertItemIntoContainer(target, item, asOptionalInteger(operation.get("index"), "index")); //$NON-NLS-1$ //$NON-NLS-2$
+                    summaries.add("move_item[" + operationIndex + "]: id=" + item.getId()); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                default -> throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Unsupported form operation: " + rawOp, false); //$NON-NLS-1$
+            }
+            operationIndex++;
+        }
+        return summaries;
+    }
+
+    private FormItemContainer resolveTargetContainer(Form formModel, Map<String, Object> operation) {
+        Integer parentItemId = asOptionalInteger(getMapValueIgnoreCase(operation, "parent_item_id"), "parent_item_id"); //$NON-NLS-1$ //$NON-NLS-2$
+        String parentItemName = asString(getMapValueIgnoreCase(operation, "parent_item_name")); //$NON-NLS-1$
+        if (parentItemId == null && parentItemName == null) {
+            return formModel;
+        }
+        FormItem parentItem = findFormItem(formModel, parentItemId, parentItemName);
+        if (!(parentItem instanceof FormItemContainer container)) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Target parent item is not a container: id=" + parentItemId + ", name=" + parentItemName, false); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        return container;
+    }
+
+    private FormItem resolveRequiredItem(Form formModel, Map<String, Object> operation) {
+        Integer itemId = asOptionalInteger(getMapValueIgnoreCase(operation, "item_id"), "item_id"); //$NON-NLS-1$ //$NON-NLS-2$
+        String itemName = asString(getMapValueIgnoreCase(operation, "item_name")); //$NON-NLS-1$
+        if (itemName == null) {
+            itemName = asString(getMapValueIgnoreCase(operation, "name")); //$NON-NLS-1$
+        }
+        if (itemId == null && itemName == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Operation requires item_id or item_name", false); //$NON-NLS-1$
+        }
+        FormItem item = findFormItem(formModel, itemId, itemName);
+        if (item == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.METADATA_NOT_FOUND,
+                    "Form item not found: id=" + itemId + ", name=" + itemName, false); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        return item;
+    }
+
+    private FormItem findFormItem(FormItemContainer container, Integer id, String name) {
+        if (container == null) {
+            return null;
+        }
+        for (FormItem item : container.getItems()) {
+            if (item == null) {
+                continue;
+            }
+            if (id != null && item.getId() == id.intValue()) {
+                return item;
+            }
+            if (name != null && item instanceof NamedElement namedElement
+                    && name.equalsIgnoreCase(namedElement.getName())) {
+                return item;
+            }
+            if (item instanceof FormItemContainer nestedContainer) {
+                FormItem nested = findFormItem(nestedContainer, id, name);
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        }
+        return null;
+    }
+
+    private FormItemContainer findParentContainer(FormItemContainer container, FormItem target) {
+        if (container == null || target == null) {
+            return null;
+        }
+        for (FormItem item : container.getItems()) {
+            if (item == target) {
+                return container;
+            }
+            if (item instanceof FormItemContainer nestedContainer) {
+                FormItemContainer nestedParent = findParentContainer(nestedContainer, target);
+                if (nestedParent != null) {
+                    return nestedParent;
+                }
+            }
+        }
+        return null;
+    }
+
+    private void insertItemIntoContainer(FormItemContainer container, FormItem item, Integer index) {
+        if (container == null || item == null) {
+            return;
+        }
+        if (index == null || index.intValue() < 0 || index.intValue() > container.getItems().size()) {
+            container.getItems().add(item);
+            return;
+        }
+        container.getItems().add(index.intValue(), item);
+    }
+
+    private int nextFormItemId(FormItemContainer container) {
+        int maxId = 0;
+        for (FormItem item : container.getItems()) {
+            if (item == null) {
+                continue;
+            }
+            maxId = Math.max(maxId, item.getId());
+            if (item instanceof FormItemContainer nestedContainer) {
+                maxId = Math.max(maxId, nextFormItemId(nestedContainer));
+            }
+        }
+        return maxId + 1;
+    }
+
+    private void applyFormPropertySet(EObject target, Map<String, Object> set) {
+        for (Map.Entry<String, Object> entry : set.entrySet()) {
+            String key = entry.getKey();
+            if (key == null || key.isBlank()) {
+                continue;
+            }
+            Object value = entry.getValue();
+            String normalized = normalizeToken(key);
+            if ("title".equals(normalized) && target instanceof Titled titled) { //$NON-NLS-1$
+                applyTitleValue(titled, value);
+                continue;
+            }
+            if ("name".equals(normalized) && target instanceof NamedElement namedElement) { //$NON-NLS-1$
+                String name = asString(value);
+                if (!MetadataNameValidator.isValidName(name)) {
+                    throw new MetadataOperationException(
+                            MetadataOperationCode.INVALID_METADATA_NAME,
+                            "Invalid form item name: " + name, false); //$NON-NLS-1$
+                }
+                namedElement.setName(name);
+                continue;
+            }
+            if ("visible".equals(normalized) && target instanceof Visible visible) { //$NON-NLS-1$
+                visible.setVisible(asBoolean(value));
+                continue;
+            }
+            if ("enabled".equals(normalized) && target instanceof Visible visible) { //$NON-NLS-1$
+                visible.setEnabled(asBoolean(value));
+                continue;
+            }
+            if (("readonly".equals(normalized) || "readonlyfield".equals(normalized)) //$NON-NLS-1$ //$NON-NLS-2$
+                    && target instanceof FormField field) {
+                field.setReadOnly(asBoolean(value));
+                continue;
+            }
+            if (("datapath".equals(normalized) || "fielddatapath".equals(normalized)) //$NON-NLS-1$ //$NON-NLS-2$
+                    && target instanceof FormField field) {
+                applyDataPath(field, value);
+                continue;
+            }
+            applySimpleFeatureValue(target, key, value);
+        }
+    }
+
+    private void applyTitleValue(Titled titled, Object value) {
+        if (titled == null || value == null) {
+            return;
+        }
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) {
+                    continue;
+                }
+                String language = String.valueOf(entry.getKey()).trim();
+                String title = String.valueOf(entry.getValue());
+                if (!language.isBlank() && !title.isBlank()) {
+                    titled.getTitle().put(language, title);
+                }
+            }
+            return;
+        }
+        String title = asString(value);
+        if (title != null && !title.isBlank()) {
+            titled.getTitle().put(RU_LANGUAGE, title);
+        }
+    }
+
+    private void applyDataPath(FormField field, Object value) {
+        if (field == null || value == null) {
+            return;
+        }
+        List<String> segments = new ArrayList<>();
+        if (value instanceof List<?> list) {
+            for (Object entry : list) {
+                if (entry == null) {
+                    continue;
+                }
+                String segment = String.valueOf(entry).trim();
+                if (!segment.isBlank()) {
+                    segments.add(segment);
+                }
+            }
+        } else {
+            String raw = String.valueOf(value).trim();
+            if (!raw.isBlank()) {
+                for (String token : raw.split("\\.")) { //$NON-NLS-1$
+                    String segment = token.trim();
+                    if (!segment.isBlank()) {
+                        segments.add(segment);
+                    }
+                }
+            }
+        }
+        if (segments.isEmpty()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "data_path must contain at least one segment", false); //$NON-NLS-1$
+        }
+        DataPath dataPath = FormFactory.eINSTANCE.createDataPath();
+        dataPath.getSegments().addAll(segments);
+        field.setDataPath(dataPath);
+    }
+
+    private void applySimpleFeatureValue(EObject target, String fieldName, Object value) {
+        EStructuralFeature feature = resolveStructuralFeatureIgnoreCase(target, fieldName);
+        if (feature == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Unknown form property: " + fieldName, false); //$NON-NLS-1$
+        }
+        if (feature instanceof EReference reference) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Reference property updates are not supported directly: " + reference.getName(), false); //$NON-NLS-1$
+        }
+        if (!(feature instanceof EAttribute attribute)) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Unsupported form property: " + fieldName, false); //$NON-NLS-1$
+        }
+        target.eSet(attribute, convertAttributeValue(attribute, value));
+    }
+
+    private Integer asOptionalInteger(Object value, String fieldName) {
+        if (value == null) {
+            return null;
+        }
+        Integer parsed = parseInteger(value);
+        if (parsed != null) {
+            return parsed;
+        }
+        throw new MetadataOperationException(
+                MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                "Expected integer for " + fieldName + ": " + value, false); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     public MetadataOperationResult updateMetadata(UpdateMetadataRequest request) {

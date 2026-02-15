@@ -63,6 +63,7 @@ public class BuildAgentProfile implements AgentProfile {
             "add_metadata_child",
             "ensure_module_artifact",
             "update_metadata",
+            "mutate_form_model",
             "delete_metadata",
             "update_metadata_properties",
             "delete_metadata_object",
@@ -136,6 +137,9 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.ask("update_metadata")
                         .withDescription("Обновление свойств объектов метаданных EDT")
                         .forAllResources(),
+                PermissionRule.ask("mutate_form_model")
+                        .withDescription("Обновление модели управляемых форм EDT")
+                        .forAllResources(),
                 PermissionRule.ask("delete_metadata")
                         .withDescription("Удаление объектов метаданных EDT")
                         .forAllResources(),
@@ -166,7 +170,7 @@ public class BuildAgentProfile implements AgentProfile {
                 - Файлы: read_file, edit_file, write_file, glob, grep
                 - EDT AST API: edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, get_diagnostics
                 - EDT type provider: edt_field_type_candidates (допустимые типы для поля метаданных)
-                - EDT-метаданные: inspect_platform_reference, edt_validate_request, create_metadata, create_form, add_metadata_child, ensure_module_artifact, update_metadata, delete_metadata, edt_trace_export
+                - EDT-метаданные: inspect_platform_reference, edt_validate_request, create_metadata, create_form, add_metadata_child, ensure_module_artifact, update_metadata, mutate_form_model, delete_metadata, edt_trace_export
                 - EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members
                 - Диагностика метаданных: edt_metadata_smoke (регрессионный smoke-прогон)
                 - Документация платформы: перед использованием незнакомых методов/свойств 1С
@@ -176,7 +180,7 @@ public class BuildAgentProfile implements AgentProfile {
                   (например DocumentObject), а искомый метод/свойство передавай в contains.
 
                 ## Политика изменения метаданных (обязательно):
-                1. Перед create_metadata, create_form, add_metadata_child, update_metadata_properties и delete_metadata_object
+                1. Перед create_metadata, create_form, add_metadata_child, update_metadata, mutate_form_model и delete_metadata
                    сначала вызывай edt_validate_request
                 2. Бери validation_token из ответа edt_validate_request
                 3. Передавай validation_token в мутационный инструмент без изменения payload
@@ -208,12 +212,14 @@ public class BuildAgentProfile implements AgentProfile {
                    всегда сначала вызывай ensure_module_artifact с create_if_missing=true.
                    Используй путь из ответа ensure_module_artifact для edit_file/write_file.
                    Не пытайся создавать Module.bsl/ObjectModule.bsl/ManagerModule.bsl напрямую через write_file.
-                10. Для форм в текущем EDT-формате отдельный Form.form/Module.bsl не используется:
+                10. Для изменения структуры элементов формы (группы/поля/видимость/позиции) используй mutate_form_model
+                    по FQN формы (например Document.Имя.Form.ФормаДокумента) в headless-режиме без active editor.
+                11. Для форм в текущем EDT-формате отдельный Form.form/Module.bsl не используется:
                     данные формы хранятся в owner .mdo. Не вызывай ensure_module_artifact для Form FQN.
-                11. Если пользователь просит "проверь и исправь типы реквизитов", сначала прочитай текущие
+                12. Если пользователь просит "проверь и исправь типы реквизитов", сначала прочитай текущие
                     метаданные через edt_metadata_details/get_diagnostics, затем отправь update_metadata c children_ops
                     только для реквизитов без типа или с неверным типом, и в конце повторно проверь диагностику.
-                12. После любых изменений BSL/метаданных, перед финальным ответом всегда вызывай get_diagnostics
+                13. После любых изменений BSL/метаданных, перед финальным ответом всегда вызывай get_diagnostics
                     (для файла: scope=file, для полной проверки: scope=project) и явно сообщай результат.
 
                 """;

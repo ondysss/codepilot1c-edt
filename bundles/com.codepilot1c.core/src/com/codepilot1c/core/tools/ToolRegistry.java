@@ -90,6 +90,7 @@ public class ToolRegistry {
         register(new AddMetadataChildTool());
         register(new EnsureModuleArtifactTool());
         register(new UpdateMetadataTool());
+        register(new MutateFormModelTool());
         register(new DeleteMetadataTool());
         register(new EdtMetadataSmokeTool());
         register(new EdtTraceExportTool());

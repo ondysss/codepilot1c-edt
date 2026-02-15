@@ -20,4 +20,8 @@ public class EdtFormService {
     public CreateFormResult createForm(CreateFormRequest request) {
         return metadataService.createForm(request);
     }
+
+    public UpdateFormModelResult updateFormModel(UpdateFormModelRequest request) {
+        return metadataService.updateFormModel(request);
+    }
 }

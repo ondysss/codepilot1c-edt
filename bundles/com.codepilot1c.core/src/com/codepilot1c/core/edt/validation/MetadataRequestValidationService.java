@@ -9,6 +9,7 @@ import org.eclipse.core.resources.IProject;
 
 import com.codepilot1c.core.edt.forms.CreateFormRequest;
 import com.codepilot1c.core.edt.forms.FormUsage;
+import com.codepilot1c.core.edt.forms.UpdateFormModelRequest;
 import com.codepilot1c.core.edt.metadata.AddMetadataChildRequest;
 import com.codepilot1c.core.edt.metadata.CreateMetadataRequest;
 import com.codepilot1c.core.edt.metadata.DeleteMetadataRequest;
@@ -235,6 +236,21 @@ public class MetadataRequestValidationService {
         return payload;
     }
 
+    public Map<String, Object> normalizeUpdateFormModelPayload(
+            String projectName,
+            String formFqn,
+            List<Map<String, Object>> operations
+    ) {
+        UpdateFormModelRequest request = new UpdateFormModelRequest(projectName, formFqn, operations);
+        request.validate();
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("project", projectName); //$NON-NLS-1$
+        payload.put("form_fqn", formFqn); //$NON-NLS-1$
+        payload.put("operations", operations == null ? List.of() : new ArrayList<>(operations)); //$NON-NLS-1$
+        return payload;
+    }
+
     private Map<String, Object> normalizePayload(ValidationRequest request, List<String> checks) {
         return switch (request.operation()) {
             case CREATE_METADATA -> {
@@ -290,6 +306,14 @@ public class MetadataRequestValidationService {
                         asString(request.payload().get("target_fqn")), //$NON-NLS-1$
                         recursive);
                 checks.add("Операция delete_metadata валидирована по обязательным полям."); //$NON-NLS-1$
+                yield payload;
+            }
+            case MUTATE_FORM_MODEL -> {
+                Map<String, Object> payload = normalizeUpdateFormModelPayload(
+                        coalesceProject(request.projectName(), request.payload()),
+                        asString(request.payload().get("form_fqn")), //$NON-NLS-1$
+                        asListOfMaps(request.payload().get("operations"))); //$NON-NLS-1$
+                checks.add("Операция mutate_form_model валидирована по обязательным полям."); //$NON-NLS-1$
                 yield payload;
             }
         };
@@ -356,6 +380,20 @@ public class MetadataRequestValidationService {
             return Boolean.FALSE;
         }
         return Boolean.valueOf(Boolean.parseBoolean(text));
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> asListOfMaps(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> map) {
+                result.add((Map<String, Object>) map);
+            }
+        }
+        return result;
     }
 
     private Long asOptionalLong(Object value) {
