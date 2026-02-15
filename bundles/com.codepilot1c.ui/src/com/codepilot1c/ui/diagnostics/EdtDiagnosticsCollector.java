@@ -7,13 +7,17 @@
  */
 package com.codepilot1c.ui.diagnostics;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -27,7 +31,6 @@ import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
-import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.Path;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.IDocument;
@@ -258,22 +261,23 @@ public class EdtDiagnosticsCollector {
                     }
                 }
 
-                IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
-                IPath path = new Path(filePath);
-                IFile file = root.getFile(path);
-
-                if (!file.exists()) {
-                    return new DiagnosticsResult(filePath, false, List.of(), 0, 0, 0);
-                }
+                ResolvedFileContext context = resolveFileContext(filePath);
+                String resultPath = context.resolvedPath() != null ? context.resolvedPath() : normalizePath(filePath);
 
                 List<EdtDiagnostic> diagnostics = new ArrayList<>();
                 Set<String> seen = new HashSet<>();
 
-                collectFromMarkers(file, filePath, query, diagnostics, seen);
+                if (context.file() != null && context.file().exists()) {
+                    collectFromMarkers(context.file(), resultPath, query, diagnostics, seen);
+                }
+                if (query.includeRuntimeMarkers() && context.project() != null) {
+                    collectRuntimeFileMarkers(context, query, diagnostics, seen);
+                }
 
                 // Sort and limit (ensure maxItems is positive)
                 diagnostics.sort(Comparator
                         .comparing((EdtDiagnostic d) -> d.severity().getLevel()).reversed()
+                        .thenComparing(EdtDiagnostic::filePath, Comparator.nullsLast(String::compareTo))
                         .thenComparing(EdtDiagnostic::lineNumber));
 
                 int maxItems = Math.max(1, query.maxItems());
@@ -285,13 +289,327 @@ public class EdtDiagnosticsCollector {
                 int warnings = (int) diagnostics.stream().filter(d -> d.severity() == Severity.WARNING).count();
                 int infos = diagnostics.size() - errors - warnings;
 
-                return new DiagnosticsResult(filePath, false, diagnostics, errors, warnings, infos);
+                return new DiagnosticsResult(resultPath, false, diagnostics, errors, warnings, infos);
 
             } catch (Exception e) {
                 LOG.error("Error collecting diagnostics for file %s: %s", filePath, e.getMessage()); //$NON-NLS-1$
                 return new DiagnosticsResult(filePath, false, List.of(), 0, 0, 0);
             }
         });
+    }
+
+    private ResolvedFileContext resolveFileContext(String requestedPath) {
+        String normalizedPath = normalizePath(requestedPath);
+        String pathWithoutLeadingSlash = removeLeadingSlash(normalizedPath);
+        List<String> relativeCandidates = buildRelativePathCandidates(pathWithoutLeadingSlash);
+
+        IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
+
+        // 1) Workspace-relative form: /<project>/...
+        IFile directFile = root.getFile(new Path(withLeadingSlash(pathWithoutLeadingSlash)));
+        if (directFile != null && directFile.exists()) {
+            String resolvedPath = directFile.getFullPath().toString();
+            return new ResolvedFileContext(
+                    requestedPath,
+                    resolvedPath,
+                    directFile.getProject(),
+                    directFile,
+                    buildRuntimePathHints(pathWithoutLeadingSlash, relativeCandidates),
+                    buildMatchTokens(relativeCandidates),
+                    computeTokenThreshold(buildMatchTokens(relativeCandidates)));
+        }
+
+        // 2) Project-relative form: src/... or Configuration/src/...
+        List<IProject> projects = resolveDiagnosticsProjects();
+        if (projects.isEmpty()) {
+            projects = Arrays.stream(root.getProjects())
+                    .filter(this::isAccessibleProject)
+                    .sorted(Comparator.comparing(IProject::getName, String.CASE_INSENSITIVE_ORDER))
+                    .toList();
+        }
+        for (IProject project : projects) {
+            for (String candidate : relativeCandidates) {
+                IFile file = project.getFile(candidate);
+                if (file != null && file.exists()) {
+                    String resolvedPath = file.getFullPath().toString();
+                    return new ResolvedFileContext(
+                            requestedPath,
+                            resolvedPath,
+                            project,
+                            file,
+                            buildRuntimePathHints(candidate, relativeCandidates),
+                            buildMatchTokens(relativeCandidates),
+                            computeTokenThreshold(buildMatchTokens(relativeCandidates)));
+                }
+            }
+        }
+
+        IProject project = resolveProjectForPath(pathWithoutLeadingSlash, projects, root);
+        String synthesizedPath = project != null
+                ? "/" + project.getName() + "/" + preferredRelativePath(relativeCandidates) //$NON-NLS-1$ //$NON-NLS-2$
+                : withLeadingSlash(pathWithoutLeadingSlash);
+        List<String> tokens = buildMatchTokens(relativeCandidates);
+        return new ResolvedFileContext(
+                requestedPath,
+                synthesizedPath,
+                project,
+                null,
+                buildRuntimePathHints(preferredRelativePath(relativeCandidates), relativeCandidates),
+                tokens,
+                computeTokenThreshold(tokens));
+    }
+
+    private IProject resolveProjectForPath(String pathWithoutLeadingSlash, List<IProject> projects, IWorkspaceRoot root) {
+        String normalized = normalizePath(pathWithoutLeadingSlash);
+        int firstSlash = normalized.indexOf('/');
+        String firstSegment = firstSlash > 0 ? normalized.substring(0, firstSlash) : normalized;
+        if (!firstSegment.isBlank()) {
+            IProject byName = root.getProject(firstSegment);
+            if (isAccessibleProject(byName)) {
+                return byName;
+            }
+        }
+
+        String defaultProjectName = resolveDefaultProjectName();
+        if (defaultProjectName != null && !defaultProjectName.isBlank()) {
+            IProject defaultProject = root.getProject(defaultProjectName);
+            if (isAccessibleProject(defaultProject)) {
+                return defaultProject;
+            }
+        }
+
+        return projects.size() == 1 ? projects.get(0) : null;
+    }
+
+    private String normalizePath(String rawPath) {
+        if (rawPath == null || rawPath.isBlank()) {
+            return ""; //$NON-NLS-1$
+        }
+        return rawPath.trim().replace('\\', '/');
+    }
+
+    private String removeLeadingSlash(String path) {
+        if (path == null) {
+            return ""; //$NON-NLS-1$
+        }
+        String normalized = path;
+        while (normalized.startsWith("/")) { //$NON-NLS-1$
+            normalized = normalized.substring(1);
+        }
+        return normalized;
+    }
+
+    private String withLeadingSlash(String pathWithoutLeadingSlash) {
+        String normalized = removeLeadingSlash(pathWithoutLeadingSlash);
+        return "/" + normalized; //$NON-NLS-1$
+    }
+
+    private List<String> buildRelativePathCandidates(String pathWithoutLeadingSlash) {
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        String normalized = normalizePath(pathWithoutLeadingSlash);
+        if (!normalized.isBlank()) {
+            candidates.add(normalized);
+        }
+
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("configuration/")) { //$NON-NLS-1$
+            candidates.add(normalized.substring("configuration/".length())); //$NON-NLS-1$
+        }
+        if (lower.startsWith("конфигурация/")) { //$NON-NLS-1$
+            candidates.add(normalized.substring("конфигурация/".length())); //$NON-NLS-1$
+        }
+        return List.copyOf(candidates);
+    }
+
+    private String preferredRelativePath(List<String> relativeCandidates) {
+        if (relativeCandidates == null || relativeCandidates.isEmpty()) {
+            return ""; //$NON-NLS-1$
+        }
+        for (String candidate : relativeCandidates) {
+            String lower = candidate.toLowerCase(Locale.ROOT);
+            if (!lower.startsWith("configuration/") && !lower.startsWith("конфигурация/")) { //$NON-NLS-1$ //$NON-NLS-2$
+                return candidate;
+            }
+        }
+        return relativeCandidates.get(0);
+    }
+
+    private List<String> buildRuntimePathHints(String preferredRelativePath, List<String> relativeCandidates) {
+        LinkedHashSet<String> hints = new LinkedHashSet<>();
+        if (preferredRelativePath != null && !preferredRelativePath.isBlank()) {
+            String normalized = preferredRelativePath.toLowerCase(Locale.ROOT);
+            hints.add(normalized);
+            hints.add(normalized.replace('/', '.'));
+        }
+
+        for (String candidate : relativeCandidates) {
+            if (candidate == null || candidate.isBlank()) {
+                continue;
+            }
+            String normalized = candidate.toLowerCase(Locale.ROOT);
+            hints.add(normalized);
+            hints.add(normalized.replace('/', '.'));
+        }
+        return List.copyOf(hints);
+    }
+
+    private List<String> buildMatchTokens(List<String> relativeCandidates) {
+        Set<String> generic = Set.of(
+                "src", //$NON-NLS-1$
+                "configuration", //$NON-NLS-1$
+                "конфигурация", //$NON-NLS-1$
+                "forms", //$NON-NLS-1$
+                "documents", //$NON-NLS-1$
+                "catalogs", //$NON-NLS-1$
+                "commonmodules", //$NON-NLS-1$
+                "module", //$NON-NLS-1$
+                "module.bsl", //$NON-NLS-1$
+                "mdo"); //$NON-NLS-1$
+
+        LinkedHashSet<String> tokens = new LinkedHashSet<>();
+        for (String candidate : relativeCandidates) {
+            if (candidate == null || candidate.isBlank()) {
+                continue;
+            }
+            String[] segments = candidate.split("/"); //$NON-NLS-1$
+            for (String rawSegment : segments) {
+                if (rawSegment == null || rawSegment.isBlank()) {
+                    continue;
+                }
+                String segment = rawSegment.toLowerCase(Locale.ROOT);
+                if (segment.endsWith(".bsl")) { //$NON-NLS-1$
+                    segment = segment.substring(0, segment.length() - 4);
+                } else if (segment.endsWith(".mdo")) { //$NON-NLS-1$
+                    segment = segment.substring(0, segment.length() - 4);
+                }
+                if (segment.length() < 3 || generic.contains(segment)) {
+                    continue;
+                }
+                tokens.add(segment);
+            }
+        }
+        return List.copyOf(tokens);
+    }
+
+    private int computeTokenThreshold(List<String> tokens) {
+        if (tokens == null || tokens.isEmpty()) {
+            return 0;
+        }
+        return tokens.size() > 1 ? 2 : 1;
+    }
+
+    private void collectRuntimeFileMarkers(
+            ResolvedFileContext context,
+            DiagnosticsQuery query,
+            List<EdtDiagnostic> diagnostics,
+            Set<String> seen) {
+
+        IMarkerManager markerManager = getMarkerManager();
+        if (markerManager == null || context.project() == null) {
+            return;
+        }
+
+        Map<String, CheckMetadata> checkMetadata = loadCheckMetadata();
+        MarkerFilter projectFilter = MarkerFilter.createProjectFilter(context.project());
+
+        try (Stream<Marker> stream = markerManager.markers(projectFilter)) {
+            int preLimit = Math.max(1, query.maxItems()) * 10;
+            stream
+                    .filter(marker -> markerMatchesContext(marker, context))
+                    .limit(preLimit)
+                    .forEach(marker -> {
+                        Severity sev = fromRuntimeSeverity(marker.getSeverity());
+                        if (sev.getLevel() < query.minSeverity().getLevel()) {
+                            return;
+                        }
+
+                        String message = safeString(marker.getMessage());
+                        if (message.isBlank()) {
+                            return;
+                        }
+
+                        String checkId = safeString(marker.getCheckId());
+                        CheckMetadata meta = checkMetadata.get(checkId);
+                        String key = context.resolvedPath() + ":" + checkId + ":" + message + ":" //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                                + safeString(marker.getLocation()) + ":" + safeString(marker.getObjectPresentation()); //$NON-NLS-1$
+                        if (!seen.add(key)) {
+                            return;
+                        }
+
+                        diagnostics.add(EdtDiagnostic.fromRuntimeMarker(
+                                context.resolvedPath(),
+                                message,
+                                sev,
+                                safeString(marker.getSourceType()),
+                                checkId,
+                                meta != null ? meta.title() : null,
+                                meta != null ? meta.description() : null,
+                                meta != null ? meta.issueType() : null,
+                                meta != null ? meta.issueSeverity() : null,
+                                safeString(marker.getObjectPresentation()),
+                                safeString(marker.getLocation())));
+                    });
+        } catch (Exception e) {
+            LOG.warn("Runtime marker manager file diagnostics unavailable for %s: %s", //$NON-NLS-1$
+                    context.resolvedPath(), e.getMessage());
+        }
+    }
+
+    private boolean markerMatchesContext(Marker marker, ResolvedFileContext context) {
+        if (marker == null || context == null) {
+            return false;
+        }
+        String haystack = buildRuntimeMarkerHaystack(marker);
+        if (haystack.isBlank()) {
+            return false;
+        }
+
+        for (String hint : context.pathHints()) {
+            if (hint != null && !hint.isBlank() && haystack.contains(hint)) {
+                return true;
+            }
+        }
+
+        int threshold = context.tokenThreshold();
+        if (threshold <= 0) {
+            return false;
+        }
+
+        int matches = 0;
+        for (String token : context.matchTokens()) {
+            if (token != null && !token.isBlank() && haystack.contains(token)) {
+                matches++;
+                if (matches >= threshold) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private String buildRuntimeMarkerHaystack(Marker marker) {
+        String markerObjectId = safeObjectString(marker.getMarkerObjectId());
+        String sourceObjectId = safeObjectString(marker.getSourceObjectId());
+        String topObjectId = safeObjectString(marker.getTopObjectId());
+        String objectPresentation = safeString(marker.getObjectPresentation());
+        String location = safeString(marker.getLocation());
+        String haystack = String.join(" ", markerObjectId, sourceObjectId, topObjectId, objectPresentation, location); //$NON-NLS-1$
+        return decodePercentEncoded(haystack).toLowerCase(Locale.ROOT);
+    }
+
+    private String safeObjectString(Object value) {
+        return value != null ? String.valueOf(value) : ""; //$NON-NLS-1$
+    }
+
+    private String decodePercentEncoded(String value) {
+        if (value == null || value.isBlank() || value.indexOf('%') < 0) {
+            return value != null ? value : ""; //$NON-NLS-1$
+        }
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            return value;
+        }
     }
 
     /**
@@ -840,6 +1158,16 @@ public class EdtDiagnosticsCollector {
         } catch (BadLocationException e) {
             return null;
         }
+    }
+
+    private record ResolvedFileContext(
+            String requestedPath,
+            String resolvedPath,
+            IProject project,
+            IFile file,
+            List<String> pathHints,
+            List<String> matchTokens,
+            int tokenThreshold) {
     }
 
     private record CheckMetadata(
