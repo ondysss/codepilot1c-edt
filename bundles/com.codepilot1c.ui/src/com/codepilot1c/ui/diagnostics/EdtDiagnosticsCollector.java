@@ -21,7 +21,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
@@ -41,7 +40,6 @@ import org.eclipse.jface.text.source.IAnnotationModel;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.ui.IEditorInput;
 import org.eclipse.ui.IEditorPart;
-import org.eclipse.ui.IEditorReference;
 import org.eclipse.ui.IWorkbenchPage;
 import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
@@ -268,14 +266,9 @@ public class EdtDiagnosticsCollector {
 
                 List<EdtDiagnostic> diagnostics = new ArrayList<>();
                 Set<String> seen = new HashSet<>();
-                boolean editorDirty = false;
 
                 if (context.file() != null && context.file().exists()) {
-                    editorDirty = collectOpenEditorAnnotations(
-                            context.file(), resultPath, query, diagnostics, seen);
-                    if (!editorDirty) {
-                        collectFromMarkers(context.file(), resultPath, query, diagnostics, seen);
-                    }
+                    collectFromMarkers(context.file(), resultPath, query, diagnostics, seen);
                 }
                 if (query.includeRuntimeMarkers() && context.project() != null) {
                     collectRuntimeFileMarkers(context, query, diagnostics, seen);
@@ -296,7 +289,7 @@ public class EdtDiagnosticsCollector {
                 int warnings = (int) diagnostics.stream().filter(d -> d.severity() == Severity.WARNING).count();
                 int infos = diagnostics.size() - errors - warnings;
 
-                return new DiagnosticsResult(resultPath, editorDirty, diagnostics, errors, warnings, infos);
+                return new DiagnosticsResult(resultPath, false, diagnostics, errors, warnings, infos);
 
             } catch (Exception e) {
                 LOG.error("Error collecting diagnostics for file %s: %s", filePath, e.getMessage()); //$NON-NLS-1$
@@ -503,66 +496,6 @@ public class EdtDiagnosticsCollector {
             return 0;
         }
         return tokens.size() > 1 ? 2 : 1;
-    }
-
-    private boolean collectOpenEditorAnnotations(
-            IFile file,
-            String filePath,
-            DiagnosticsQuery query,
-            List<EdtDiagnostic> diagnostics,
-            Set<String> seen) {
-
-        Display display = Display.getDefault();
-        if (display == null || display.isDisposed()) {
-            return false;
-        }
-
-        AtomicBoolean editorDirty = new AtomicBoolean(false);
-        display.syncExec(() -> {
-            try {
-                for (IWorkbenchWindow window : PlatformUI.getWorkbench().getWorkbenchWindows()) {
-                    if (window == null) {
-                        continue;
-                    }
-                    for (IWorkbenchPage page : window.getPages()) {
-                        if (page == null) {
-                            continue;
-                        }
-                        for (IEditorReference ref : page.getEditorReferences()) {
-                            IEditorPart part = ref.getEditor(false);
-                            if (!(part instanceof ITextEditor textEditor)) {
-                                continue;
-                            }
-                            IFile editorFile = resolveFile(textEditor.getEditorInput());
-                            if (editorFile == null || !editorFile.equals(file)) {
-                                continue;
-                            }
-
-                            if (textEditor.isDirty()) {
-                                editorDirty.set(true);
-                            }
-
-                            IDocumentProvider provider = textEditor.getDocumentProvider();
-                            if (provider == null) {
-                                continue;
-                            }
-
-                            IEditorInput input = textEditor.getEditorInput();
-                            IDocument document = provider.getDocument(input);
-                            IAnnotationModel annotationModel = provider.getAnnotationModel(input);
-                            if (document == null || annotationModel == null) {
-                                continue;
-                            }
-                            collectFromAnnotations(annotationModel, document, filePath, query, diagnostics, seen);
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                LOG.warn("Failed to collect open editor annotations for %s: %s", //$NON-NLS-1$
-                        filePath, e.getMessage());
-            }
-        });
-        return editorDirty.get();
     }
 
     private void collectRuntimeFileMarkers(
