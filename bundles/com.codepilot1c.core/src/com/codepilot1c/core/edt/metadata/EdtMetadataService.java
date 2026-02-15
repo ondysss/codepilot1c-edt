@@ -122,6 +122,7 @@ public class EdtMetadataService {
     private static final String DEFAULT_BASIC_FEATURE_TYPE = "String"; //$NON-NLS-1$
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(EdtMetadataService.class);
     private static final Map<String, String> ATTRIBUTE_NAME_ALIASES = createAttributeNameAliases();
+    private static final Map<String, String> TOP_LEVEL_PROPERTY_ALIASES = createTopLevelPropertyAliases();
     private static final Map<String, Set<String>> RESERVED_ATTRIBUTE_FALLBACK = createReservedAttributeFallback();
 
     private final EdtMetadataGateway gateway;
@@ -205,6 +206,14 @@ public class EdtMetadataService {
             ensureUuidsRecursively(txObject, opId, fqn);
             // Keep eager link for immediate in-memory visibility in EDT UI.
             addTopLevelObject(txConfiguration, request.kind(), txObject);
+            applyTopLevelProperties(
+                    txConfiguration,
+                    txObject,
+                    request.kind(),
+                    request.properties(),
+                    transaction,
+                    opId,
+                    fqn);
             LOG.debug("[%s] Eager linked object into Configuration collections", opId); //$NON-NLS-1$
             LOG.debug("[%s] Transaction steps completed for %s", opId, fqn); //$NON-NLS-1$
             return null;
@@ -4611,6 +4620,106 @@ public class EdtMetadataService {
         };
     }
 
+    private void applyTopLevelProperties(
+            Configuration configuration,
+            MdObject target,
+            MetadataKind kind,
+            Map<String, Object> properties,
+            IBmPlatformTransaction transaction,
+            String opId,
+            String targetFqn
+    ) {
+        if (target == null || properties == null || properties.isEmpty()) {
+            return;
+        }
+        Map<String, TypeItem> preResolvedTypes = new HashMap<>();
+        List<String> applied = new ArrayList<>();
+        for (Map.Entry<String, Object> entry : properties.entrySet()) {
+            String rawKey = entry.getKey();
+            if (rawKey == null || rawKey.isBlank()) {
+                continue;
+            }
+            if (isReservedCreateProperty(rawKey)) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Property '" + rawKey + "' is managed by dedicated create_metadata arguments", false); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            String resolvedField = resolveTopLevelPropertyField(target, kind, rawKey);
+            setFeatureValue(configuration, target, resolvedField, entry.getValue(), transaction, preResolvedTypes);
+            applied.add(rawKey + "->" + resolvedField); //$NON-NLS-1$
+        }
+        if (!applied.isEmpty()) {
+            LOG.info("[%s] Applied %d top-level properties for %s (%s)", //$NON-NLS-1$
+                    opId,
+                    Integer.valueOf(applied.size()),
+                    targetFqn,
+                    String.join(", ", applied)); //$NON-NLS-1$
+        }
+    }
+
+    private boolean isReservedCreateProperty(String key) {
+        String token = normalizeToken(key);
+        return "name".equals(token) //$NON-NLS-1$
+                || "synonym".equals(token) //$NON-NLS-1$
+                || "comment".equals(token) //$NON-NLS-1$
+                || "uuid".equals(token); //$NON-NLS-1$
+    }
+
+    private String resolveTopLevelPropertyField(MdObject target, MetadataKind kind, String requestedKey) {
+        String normalizedRequested = normalizeToken(requestedKey);
+        String alias = TOP_LEVEL_PROPERTY_ALIASES.get(normalizedRequested);
+        String candidate = alias != null ? alias : requestedKey;
+
+        EStructuralFeature direct = resolveFeatureIgnoreCase(target, candidate);
+        if (direct != null) {
+            return direct.getName();
+        }
+
+        String normalizedCandidate = normalizeToken(candidate);
+        for (EStructuralFeature feature : target.eClass().getEAllStructuralFeatures()) {
+            if (feature == null || feature.getName() == null) {
+                continue;
+            }
+            if (normalizedCandidate.equals(normalizeToken(feature.getName()))) {
+                return feature.getName();
+            }
+        }
+
+        List<String> supported = collectSupportedTopLevelProperties(target);
+        throw new MetadataOperationException(
+                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                "Unknown metadata property for " + kind.name() + ": " + requestedKey //$NON-NLS-1$ //$NON-NLS-2$
+                        + ". Supported fields: " + String.join(", ", supported), //$NON-NLS-1$ //$NON-NLS-2$
+                false);
+    }
+
+    private List<String> collectSupportedTopLevelProperties(MdObject target) {
+        if (target == null || target.eClass() == null) {
+            return List.of();
+        }
+        List<String> names = new ArrayList<>();
+        for (EStructuralFeature feature : target.eClass().getEAllStructuralFeatures()) {
+            if (feature == null || feature.getName() == null || feature.getName().isBlank()) {
+                continue;
+            }
+            if ("uuid".equalsIgnoreCase(feature.getName())) { //$NON-NLS-1$
+                continue;
+            }
+            if (feature.isDerived() || feature.isTransient() || feature.isVolatile()) {
+                continue;
+            }
+            if (feature instanceof EReference reference && reference.isContainment()) {
+                continue;
+            }
+            if (feature.isMany() && !(feature instanceof EReference)) {
+                continue;
+            }
+            names.add(feature.getName());
+        }
+        Collections.sort(names, String.CASE_INSENSITIVE_ORDER);
+        return names;
+    }
+
     private void unsetFeatureValue(MdObject target, String fieldName) {
         if ("uuid".equalsIgnoreCase(fieldName)) { //$NON-NLS-1$
             throw new MetadataOperationException(
@@ -5117,6 +5226,16 @@ public class EdtMetadataService {
         aliases.put("отправленныйномер", "sentno"); //$NON-NLS-1$ //$NON-NLS-2$
         aliases.put("этотузел", "thisnode"); //$NON-NLS-1$ //$NON-NLS-2$
         aliases.put("порядок", "order"); //$NON-NLS-1$ //$NON-NLS-2$
+        return Collections.unmodifiableMap(aliases);
+    }
+
+    private static Map<String, String> createTopLevelPropertyAliases() {
+        Map<String, String> aliases = new HashMap<>();
+        aliases.put("привилегированныйрежимприпроведении", "postInPrivilegedMode"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("привилегированныйрежимприотменепроведения", "unpostInPrivilegedMode"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("привилегированныйрежимприотменепроведении", "unpostInPrivilegedMode"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("режимпроведенияпривилегированный", "postInPrivilegedMode"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("режимотменыпроведенияпривилегированный", "unpostInPrivilegedMode"); //$NON-NLS-1$ //$NON-NLS-2$
         return Collections.unmodifiableMap(aliases);
     }
 

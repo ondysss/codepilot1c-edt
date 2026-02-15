@@ -97,7 +97,7 @@ public class CreateMetadataTool implements ITool {
                 },
                 "properties": {
                   "type": "object",
-                  "description": "Дополнительные свойства (MVP: зарезервировано)"
+                  "description": "Дополнительные свойства объекта метаданных (устанавливаются по именам полей EDT-модели)"
                 },
                 "validation_token": {
                   "type": "string",
