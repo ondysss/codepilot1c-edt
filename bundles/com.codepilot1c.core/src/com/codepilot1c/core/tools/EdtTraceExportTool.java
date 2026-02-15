@@ -289,11 +289,23 @@ public class EdtTraceExportTool implements ITool {
             case DOCUMENT -> "documents"; //$NON-NLS-1$
             case INFORMATION_REGISTER -> "informationRegisters"; //$NON-NLS-1$
             case ACCUMULATION_REGISTER -> "accumulationRegisters"; //$NON-NLS-1$
+            case ACCOUNTING_REGISTER -> "accountingRegisters"; //$NON-NLS-1$
+            case CALCULATION_REGISTER -> "calculationRegisters"; //$NON-NLS-1$
             case COMMON_MODULE -> "commonModules"; //$NON-NLS-1$
+            case COMMON_ATTRIBUTE -> "commonAttributes"; //$NON-NLS-1$
             case ENUM -> "enums"; //$NON-NLS-1$
             case REPORT -> "reports"; //$NON-NLS-1$
             case DATA_PROCESSOR -> "dataProcessors"; //$NON-NLS-1$
             case CONSTANT -> "constants"; //$NON-NLS-1$
+            case COMMAND_GROUP -> "commandGroups"; //$NON-NLS-1$
+            case INTERFACE -> "interfaces"; //$NON-NLS-1$
+            case LANGUAGE -> "languages"; //$NON-NLS-1$
+            case STYLE -> "styles"; //$NON-NLS-1$
+            case STYLE_ITEM -> "styleItems"; //$NON-NLS-1$
+            case SESSION_PARAMETER -> "sessionParameters"; //$NON-NLS-1$
+            case SETTINGS_STORAGE -> "settingsStorages"; //$NON-NLS-1$
+            case XDTO_PACKAGE -> "xdtoPackages"; //$NON-NLS-1$
+            case WS_REFERENCE -> "wsReferences"; //$NON-NLS-1$
             case ROLE -> "roles"; //$NON-NLS-1$
             case SUBSYSTEM -> "subsystems"; //$NON-NLS-1$
             case EXCHANGE_PLAN -> "exchangePlans"; //$NON-NLS-1$

@@ -1536,11 +1536,23 @@ public class EdtMetadataService {
             case "document", "documents" -> "Documents"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "informationregister", "informationregisters" -> "InformationRegisters"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "accumulationregister", "accumulationregisters" -> "AccumulationRegisters"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "accountingregister", "accountingregisters" -> "AccountingRegisters"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "calculationregister", "calculationregisters" -> "CalculationRegisters"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "commonmodule", "commonmodules" -> "CommonModules"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "commonattribute", "commonattributes" -> "CommonAttributes"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "enum", "enums" -> "Enums"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "report", "reports" -> "Reports"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "dataprocessor", "dataprocessors" -> "DataProcessors"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "constant", "constants" -> "Constants"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "commandgroup", "commandgroups" -> "CommandGroups"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "interface", "interfaces" -> "Interfaces"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "language", "languages" -> "Languages"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "style", "styles" -> "Styles"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "styleitem", "styleitems" -> "StyleItems"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "sessionparameter", "sessionparameters" -> "SessionParameters"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "settingsstorage", "settingsstorages" -> "SettingsStorages"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "xdtopackage", "xdtopackages" -> "XDTOPackages"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "wsreference", "wsreferences" -> "WsReferences"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "role", "roles" -> "Roles"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "subsystem", "subsystems" -> "Subsystems"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "exchangeplan", "exchangeplans" -> "ExchangePlans"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -5165,11 +5177,23 @@ public class EdtMetadataService {
             case DOCUMENT -> MdClassFactory.eINSTANCE.createDocument();
             case INFORMATION_REGISTER -> MdClassFactory.eINSTANCE.createInformationRegister();
             case ACCUMULATION_REGISTER -> MdClassFactory.eINSTANCE.createAccumulationRegister();
+            case ACCOUNTING_REGISTER -> MdClassFactory.eINSTANCE.createAccountingRegister();
+            case CALCULATION_REGISTER -> MdClassFactory.eINSTANCE.createCalculationRegister();
             case COMMON_MODULE -> MdClassFactory.eINSTANCE.createCommonModule();
+            case COMMON_ATTRIBUTE -> MdClassFactory.eINSTANCE.createCommonAttribute();
             case ENUM -> MdClassFactory.eINSTANCE.createEnum();
             case REPORT -> MdClassFactory.eINSTANCE.createReport();
             case DATA_PROCESSOR -> MdClassFactory.eINSTANCE.createDataProcessor();
             case CONSTANT -> MdClassFactory.eINSTANCE.createConstant();
+            case COMMAND_GROUP -> MdClassFactory.eINSTANCE.createCommandGroup();
+            case INTERFACE -> MdClassFactory.eINSTANCE.createInterface();
+            case LANGUAGE -> MdClassFactory.eINSTANCE.createLanguage();
+            case STYLE -> MdClassFactory.eINSTANCE.createStyle();
+            case STYLE_ITEM -> MdClassFactory.eINSTANCE.createStyleItem();
+            case SESSION_PARAMETER -> MdClassFactory.eINSTANCE.createSessionParameter();
+            case SETTINGS_STORAGE -> MdClassFactory.eINSTANCE.createSettingsStorage();
+            case XDTO_PACKAGE -> MdClassFactory.eINSTANCE.createXDTOPackage();
+            case WS_REFERENCE -> MdClassFactory.eINSTANCE.createWSReference();
             case ROLE -> MdClassFactory.eINSTANCE.createRole();
             case SUBSYSTEM -> MdClassFactory.eINSTANCE.createSubsystem();
             case EXCHANGE_PLAN -> MdClassFactory.eINSTANCE.createExchangePlan();
@@ -5214,12 +5238,29 @@ public class EdtMetadataService {
             case ACCUMULATION_REGISTER ->
                     configuration.getAccumulationRegisters().add(
                             (com._1c.g5.v8.dt.metadata.mdclass.AccumulationRegister) object);
+            case ACCOUNTING_REGISTER ->
+                    configuration.getAccountingRegisters().add(
+                            (com._1c.g5.v8.dt.metadata.mdclass.AccountingRegister) object);
+            case CALCULATION_REGISTER ->
+                    configuration.getCalculationRegisters().add(
+                            (com._1c.g5.v8.dt.metadata.mdclass.CalculationRegister) object);
             case COMMON_MODULE ->
                     configuration.getCommonModules().add((com._1c.g5.v8.dt.metadata.mdclass.CommonModule) object);
+            case COMMON_ATTRIBUTE ->
+                    configuration.getCommonAttributes().add((com._1c.g5.v8.dt.metadata.mdclass.CommonAttribute) object);
             case ENUM -> configuration.getEnums().add((com._1c.g5.v8.dt.metadata.mdclass.Enum) object);
             case REPORT -> configuration.getReports().add((com._1c.g5.v8.dt.metadata.mdclass.Report) object);
             case DATA_PROCESSOR -> configuration.getDataProcessors().add((DataProcessor) object);
             case CONSTANT -> configuration.getConstants().add((com._1c.g5.v8.dt.metadata.mdclass.Constant) object);
+            case COMMAND_GROUP -> configuration.getCommandGroups().add((com._1c.g5.v8.dt.metadata.mdclass.CommandGroup) object);
+            case INTERFACE -> configuration.getInterfaces().add((com._1c.g5.v8.dt.metadata.mdclass.Interface) object);
+            case LANGUAGE -> configuration.getLanguages().add((com._1c.g5.v8.dt.metadata.mdclass.Language) object);
+            case STYLE -> configuration.getStyles().add((com._1c.g5.v8.dt.metadata.mdclass.Style) object);
+            case STYLE_ITEM -> configuration.getStyleItems().add((com._1c.g5.v8.dt.metadata.mdclass.StyleItem) object);
+            case SESSION_PARAMETER -> configuration.getSessionParameters().add((com._1c.g5.v8.dt.metadata.mdclass.SessionParameter) object);
+            case SETTINGS_STORAGE -> configuration.getSettingsStorages().add((com._1c.g5.v8.dt.metadata.mdclass.SettingsStorage) object);
+            case XDTO_PACKAGE -> configuration.getXDTOPackages().add((com._1c.g5.v8.dt.metadata.mdclass.XDTOPackage) object);
+            case WS_REFERENCE -> configuration.getWsReferences().add((com._1c.g5.v8.dt.metadata.mdclass.WSReference) object);
             case ROLE -> configuration.getRoles().add((com._1c.g5.v8.dt.metadata.mdclass.Role) object);
             case SUBSYSTEM -> configuration.getSubsystems().add((com._1c.g5.v8.dt.metadata.mdclass.Subsystem) object);
             case EXCHANGE_PLAN -> configuration.getExchangePlans().add((com._1c.g5.v8.dt.metadata.mdclass.ExchangePlan) object);
@@ -5300,11 +5341,23 @@ public class EdtMetadataService {
             case DOCUMENT -> containsMdObjectName(configuration.getDocuments(), name);
             case INFORMATION_REGISTER -> containsMdObjectName(configuration.getInformationRegisters(), name);
             case ACCUMULATION_REGISTER -> containsMdObjectName(configuration.getAccumulationRegisters(), name);
+            case ACCOUNTING_REGISTER -> containsMdObjectName(configuration.getAccountingRegisters(), name);
+            case CALCULATION_REGISTER -> containsMdObjectName(configuration.getCalculationRegisters(), name);
             case COMMON_MODULE -> containsMdObjectName(configuration.getCommonModules(), name);
+            case COMMON_ATTRIBUTE -> containsMdObjectName(configuration.getCommonAttributes(), name);
             case ENUM -> containsMdObjectName(configuration.getEnums(), name);
             case REPORT -> containsMdObjectName(configuration.getReports(), name);
             case DATA_PROCESSOR -> containsMdObjectName(configuration.getDataProcessors(), name);
             case CONSTANT -> containsMdObjectName(configuration.getConstants(), name);
+            case COMMAND_GROUP -> containsMdObjectName(configuration.getCommandGroups(), name);
+            case INTERFACE -> containsMdObjectName(configuration.getInterfaces(), name);
+            case LANGUAGE -> containsMdObjectName(configuration.getLanguages(), name);
+            case STYLE -> containsMdObjectName(configuration.getStyles(), name);
+            case STYLE_ITEM -> containsMdObjectName(configuration.getStyleItems(), name);
+            case SESSION_PARAMETER -> containsMdObjectName(configuration.getSessionParameters(), name);
+            case SETTINGS_STORAGE -> containsMdObjectName(configuration.getSettingsStorages(), name);
+            case XDTO_PACKAGE -> containsMdObjectName(configuration.getXDTOPackages(), name);
+            case WS_REFERENCE -> containsMdObjectName(configuration.getWsReferences(), name);
             case ROLE -> containsMdObjectName(configuration.getRoles(), name);
             case SUBSYSTEM -> containsMdObjectName(configuration.getSubsystems(), name);
             case EXCHANGE_PLAN -> containsMdObjectName(configuration.getExchangePlans(), name);
@@ -5672,11 +5725,23 @@ public class EdtMetadataService {
             case DOCUMENT -> "documents"; //$NON-NLS-1$
             case INFORMATION_REGISTER -> "informationRegisters"; //$NON-NLS-1$
             case ACCUMULATION_REGISTER -> "accumulationRegisters"; //$NON-NLS-1$
+            case ACCOUNTING_REGISTER -> "accountingRegisters"; //$NON-NLS-1$
+            case CALCULATION_REGISTER -> "calculationRegisters"; //$NON-NLS-1$
             case COMMON_MODULE -> "commonModules"; //$NON-NLS-1$
+            case COMMON_ATTRIBUTE -> "commonAttributes"; //$NON-NLS-1$
             case ENUM -> "enums"; //$NON-NLS-1$
             case REPORT -> "reports"; //$NON-NLS-1$
             case DATA_PROCESSOR -> "dataProcessors"; //$NON-NLS-1$
             case CONSTANT -> "constants"; //$NON-NLS-1$
+            case COMMAND_GROUP -> "commandGroups"; //$NON-NLS-1$
+            case INTERFACE -> "interfaces"; //$NON-NLS-1$
+            case LANGUAGE -> "languages"; //$NON-NLS-1$
+            case STYLE -> "styles"; //$NON-NLS-1$
+            case STYLE_ITEM -> "styleItems"; //$NON-NLS-1$
+            case SESSION_PARAMETER -> "sessionParameters"; //$NON-NLS-1$
+            case SETTINGS_STORAGE -> "settingsStorages"; //$NON-NLS-1$
+            case XDTO_PACKAGE -> "xdtoPackages"; //$NON-NLS-1$
+            case WS_REFERENCE -> "wsReferences"; //$NON-NLS-1$
             case ROLE -> "roles"; //$NON-NLS-1$
             case SUBSYSTEM -> "subsystems"; //$NON-NLS-1$
             case EXCHANGE_PLAN -> "exchangePlans"; //$NON-NLS-1$
@@ -5877,11 +5942,23 @@ public class EdtMetadataService {
             case DOCUMENT -> removeByName(configuration.getDocuments(), name);
             case INFORMATION_REGISTER -> removeByName(configuration.getInformationRegisters(), name);
             case ACCUMULATION_REGISTER -> removeByName(configuration.getAccumulationRegisters(), name);
+            case ACCOUNTING_REGISTER -> removeByName(configuration.getAccountingRegisters(), name);
+            case CALCULATION_REGISTER -> removeByName(configuration.getCalculationRegisters(), name);
             case COMMON_MODULE -> removeByName(configuration.getCommonModules(), name);
+            case COMMON_ATTRIBUTE -> removeByName(configuration.getCommonAttributes(), name);
             case ENUM -> removeByName(configuration.getEnums(), name);
             case REPORT -> removeByName(configuration.getReports(), name);
             case DATA_PROCESSOR -> removeByName(configuration.getDataProcessors(), name);
             case CONSTANT -> removeByName(configuration.getConstants(), name);
+            case COMMAND_GROUP -> removeByName(configuration.getCommandGroups(), name);
+            case INTERFACE -> removeByName(configuration.getInterfaces(), name);
+            case LANGUAGE -> removeByName(configuration.getLanguages(), name);
+            case STYLE -> removeByName(configuration.getStyles(), name);
+            case STYLE_ITEM -> removeByName(configuration.getStyleItems(), name);
+            case SESSION_PARAMETER -> removeByName(configuration.getSessionParameters(), name);
+            case SETTINGS_STORAGE -> removeByName(configuration.getSettingsStorages(), name);
+            case XDTO_PACKAGE -> removeByName(configuration.getXDTOPackages(), name);
+            case WS_REFERENCE -> removeByName(configuration.getWsReferences(), name);
             case ROLE -> removeByName(configuration.getRoles(), name);
             case SUBSYSTEM -> removeByName(configuration.getSubsystems(), name);
             case EXCHANGE_PLAN -> removeByName(configuration.getExchangePlans(), name);

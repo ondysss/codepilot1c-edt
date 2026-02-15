@@ -10,11 +10,23 @@ public enum MetadataKind {
     DOCUMENT("Document", "Документ"),
     INFORMATION_REGISTER("InformationRegister", "РегистрСведений"),
     ACCUMULATION_REGISTER("AccumulationRegister", "РегистрНакопления"),
+    ACCOUNTING_REGISTER("AccountingRegister", "РегистрБухгалтерии"),
+    CALCULATION_REGISTER("CalculationRegister", "РегистрРасчета"),
     COMMON_MODULE("CommonModule", "ОбщийМодуль"),
+    COMMON_ATTRIBUTE("CommonAttribute", "ОбщийРеквизит"),
     ENUM("Enum", "Перечисление"),
     REPORT("Report", "Отчет"),
     DATA_PROCESSOR("DataProcessor", "Обработка"),
     CONSTANT("Constant", "Константа"),
+    COMMAND_GROUP("CommandGroup", "ГруппаКоманд"),
+    INTERFACE("Interface", "Интерфейс"),
+    LANGUAGE("Language", "Язык"),
+    STYLE("Style", "Стиль"),
+    STYLE_ITEM("StyleItem", "ЭлементСтиля"),
+    SESSION_PARAMETER("SessionParameter", "ПараметрСеанса"),
+    SETTINGS_STORAGE("SettingsStorage", "ХранилищеНастроек"),
+    XDTO_PACKAGE("XDTOPackage", "XDTOПакет"),
+    WS_REFERENCE("WSReference", "WSСсылка"),
     ROLE("Role", "Роль"),
     SUBSYSTEM("Subsystem", "Подсистема"),
     EXCHANGE_PLAN("ExchangePlan", "ПланОбмена"),
@@ -71,11 +83,23 @@ public enum MetadataKind {
             case "document", "documents", "документ", "документы" -> DOCUMENT; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
             case "informationregister", "informationregisters", "информационныйрегистр", "регистрсведений", "регистрысведений" -> INFORMATION_REGISTER; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
             case "accumulationregister", "accumulationregisters", "регистрнакопления", "регистрынакопления" -> ACCUMULATION_REGISTER; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "accountingregister", "accountingregisters", "регистрбухгалтерии", "регистрыбухгалтерии" -> ACCOUNTING_REGISTER; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "calculationregister", "calculationregisters", "регистррасчета", "регистрырасчета" -> CALCULATION_REGISTER; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
             case "commonmodule", "commonmodules", "общиймодуль", "общиемодули" -> COMMON_MODULE; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "commonattribute", "commonattributes", "общийреквизит", "общиереквизиты" -> COMMON_ATTRIBUTE; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
             case "enum", "enums", "перечисление", "перечисления" -> ENUM; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
             case "report", "reports", "отчет", "отчеты" -> REPORT; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
             case "dataprocessor", "dataprocessors", "обработка", "обработки" -> DATA_PROCESSOR; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
             case "constant", "constants", "константа", "константы" -> CONSTANT; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "commandgroup", "commandgroups", "группакоманд", "группыкоманд" -> COMMAND_GROUP; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "interface", "interfaces", "интерфейс", "интерфейсы" -> INTERFACE; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "language", "languages", "язык", "языки" -> LANGUAGE; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "style", "styles", "стиль", "стили" -> STYLE; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "styleitem", "styleitems", "элементстиля", "элементыстиля" -> STYLE_ITEM; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "sessionparameter", "sessionparameters", "параметрсеанса", "параметрысеанса" -> SESSION_PARAMETER; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "settingsstorage", "settingsstorages", "хранилищенастроек", "хранилищанастроек" -> SETTINGS_STORAGE; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "xdtopackage", "xdtopackages", "xdtoпакет", "xdtoпакеты" -> XDTO_PACKAGE; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "wsreference", "wsreferences", "wsссылка", "wsссылки" -> WS_REFERENCE; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
             case "role", "roles", "роль", "роли" -> ROLE; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
             case "subsystem", "subsystems", "подсистема", "подсистемы" -> SUBSYSTEM; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
             case "exchangeplan", "exchangeplans", "планобмена", "планыобмена" -> EXCHANGE_PLAN; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
