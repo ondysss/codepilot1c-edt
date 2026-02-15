@@ -45,7 +45,7 @@ public class GetPlatformDocumentationTool implements ITool {
 
     @Override
     public String getName() {
-        return "get_platform_documentation"; //$NON-NLS-1$
+        return "inspect_platform_reference"; //$NON-NLS-1$
     }
 
     @Override
@@ -63,7 +63,10 @@ public class GetPlatformDocumentationTool implements ITool {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 if (!service.isEdtAvailable()) {
-                    return ToolResult.failure("{\"error\":\"EDT_SERVICE_UNAVAILABLE\",\"message\":\"EDT runtime services are unavailable\"}"); //$NON-NLS-1$
+                    return ToolResult.failure(toErrorJson(
+                            "EDT_SERVICE_UNAVAILABLE", //$NON-NLS-1$
+                            "EDT runtime services are unavailable", //$NON-NLS-1$
+                            true));
                 }
                 PlatformDocumentationRequest request = PlatformDocumentationRequest.fromParameters(parameters);
                 PlatformDocumentationResult result = service.getDocumentation(request);
@@ -71,8 +74,10 @@ public class GetPlatformDocumentationTool implements ITool {
             } catch (PlatformDocumentationException e) {
                 return ToolResult.failure(toErrorJson(e));
             } catch (Exception e) {
-                return ToolResult.failure("{\"error\":\"INTERNAL_ERROR\",\"message\":\"" //$NON-NLS-1$
-                        + escapeJson(e.getMessage()) + "\"}"); //$NON-NLS-1$
+                return ToolResult.failure(toErrorJson(
+                        "INTERNAL_ERROR", //$NON-NLS-1$
+                        e.getMessage(),
+                        false));
             }
         });
     }
@@ -85,10 +90,11 @@ public class GetPlatformDocumentationTool implements ITool {
         return GSON.toJson(obj);
     }
 
-    private String escapeJson(String text) {
-        if (text == null) {
-            return "unknown"; //$NON-NLS-1$
-        }
-        return text.replace("\\", "\\\\").replace("\"", "\\\""); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+    private String toErrorJson(String code, String message, boolean recoverable) {
+        JsonObject obj = new JsonObject();
+        obj.addProperty("error", code); //$NON-NLS-1$
+        obj.addProperty("message", message == null || message.isBlank() ? "unknown" : message); //$NON-NLS-1$ //$NON-NLS-2$
+        obj.addProperty("recoverable", recoverable); //$NON-NLS-1$
+        return GSON.toJson(obj);
     }
 }

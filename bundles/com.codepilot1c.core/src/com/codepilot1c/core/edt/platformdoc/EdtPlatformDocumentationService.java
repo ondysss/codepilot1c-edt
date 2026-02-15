@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 import org.eclipse.core.resources.IProject;
 import org.eclipse.emf.ecore.EObject;
@@ -33,6 +34,9 @@ import com.codepilot1c.core.edt.metadata.EdtMetadataGateway;
  * Query service for platform language documentation from EDT runtime mcore model.
  */
 public class EdtPlatformDocumentationService {
+
+    private static final String RU_LANGUAGE = "ru"; //$NON-NLS-1$
+    private static final int CANDIDATES_LIMIT = 30;
 
     private final EdtMetadataGateway gateway;
 
@@ -71,9 +75,11 @@ public class EdtPlatformDocumentationService {
         String query = normalize(request.typeName());
         String contains = request.normalizedContains();
         String lang = request.normalizedLanguage();
-        boolean useRussian = "ru".equals(lang); //$NON-NLS-1$
+        boolean useRussian = RU_LANGUAGE.equals(lang);
 
-        Type resolvedType = resolveType(allTypes, query);
+        TypeLookup lookup = resolveTypeLookup(allTypes, query, contains, useRussian);
+        Type resolvedType = lookup.resolvedType();
+        String effectiveContains = lookup.contains();
         List<PlatformDocumentationResult.TypeCandidate> candidates = buildCandidates(allTypes, query);
 
         if (request.typeName() == null || request.typeName().isBlank()) {
@@ -96,13 +102,6 @@ public class EdtPlatformDocumentationService {
                     List.of());
         }
 
-        if (resolvedType == null && (contains == null || contains.isBlank()) && !query.isBlank()) {
-            // Compatibility fallback: models sometimes pass member name in type_name.
-            // Try to infer owning type by method/property name and reuse the query as member filter.
-            resolvedType = resolveTypeByMemberName(allTypes, query, useRussian);
-            contains = query;
-        }
-
         if (resolvedType == null) {
             throw new PlatformDocumentationException(
                     PlatformDocumentationErrorCode.TYPE_NOT_FOUND,
@@ -117,8 +116,8 @@ public class EdtPlatformDocumentationService {
         allMethods.sort(Comparator.comparing(m -> safeString(m.getName()), String.CASE_INSENSITIVE_ORDER));
         allProperties.sort(Comparator.comparing(p -> safeString(p.getName()), String.CASE_INSENSITIVE_ORDER));
 
-        List<Method> filteredMethods = filterMethods(allMethods, contains, useRussian);
-        List<Property> filteredProperties = filterProperties(allProperties, contains, useRussian);
+        List<Method> filteredMethods = filterMethods(allMethods, effectiveContains, useRussian);
+        List<Property> filteredProperties = filterProperties(allProperties, effectiveContains, useRussian);
 
         Page<Method> methodsPage = page(filteredMethods, request.offset(), request.limit());
         Page<Property> propertiesPage = page(filteredProperties, request.offset(), request.limit());
@@ -159,6 +158,18 @@ public class EdtPlatformDocumentationService {
                 properties);
     }
 
+    private TypeLookup resolveTypeLookup(List<Type> types, String query, String contains, boolean useRussian) {
+        Type resolved = resolveTypeByName(types, query);
+        String effectiveContains = contains;
+        if (resolved == null && (contains == null || contains.isBlank()) && query != null && !query.isBlank()) {
+            // Compatibility fallback: models sometimes pass member name in type_name.
+            // Try to infer owning type by method/property name and reuse the query as member filter.
+            resolved = resolveTypeByMemberName(types, query, useRussian);
+            effectiveContains = query;
+        }
+        return new TypeLookup(resolved, effectiveContains);
+    }
+
     private IProject requireProject(String projectName) {
         IProject project = gateway.resolveProject(projectName);
         if (project == null || !project.exists()) {
@@ -195,7 +206,7 @@ public class EdtPlatformDocumentationService {
         }
     }
 
-    private Type resolveType(List<Type> types, String normalizedQuery) {
+    private Type resolveTypeByName(List<Type> types, String normalizedQuery) {
         if (normalizedQuery == null || normalizedQuery.isBlank()) {
             return null;
         }
@@ -228,10 +239,20 @@ public class EdtPlatformDocumentationService {
             if (context == null) {
                 continue;
             }
-            boolean hasExactMethod = context.allMethods().stream()
-                    .anyMatch(m -> memberMatchesExactly(m.getName(), m.getNameRu(), memberQuery, useRussian));
-            boolean hasExactProperty = context.allProperties().stream()
-                    .anyMatch(p -> memberMatchesExactly(p.getName(), p.getNameRu(), memberQuery, useRussian));
+            boolean hasExactMethod = hasMatchingMember(
+                    context.allMethods(),
+                    memberQuery,
+                    useRussian,
+                    Method::getName,
+                    Method::getNameRu,
+                    true);
+            boolean hasExactProperty = hasMatchingMember(
+                    context.allProperties(),
+                    memberQuery,
+                    useRussian,
+                    Property::getName,
+                    Property::getNameRu,
+                    true);
             if (hasExactMethod || hasExactProperty) {
                 return type;
             }
@@ -242,10 +263,20 @@ public class EdtPlatformDocumentationService {
             if (context == null) {
                 continue;
             }
-            boolean hasMethod = context.allMethods().stream()
-                    .anyMatch(m -> memberContains(m.getName(), m.getNameRu(), memberQuery, useRussian));
-            boolean hasProperty = context.allProperties().stream()
-                    .anyMatch(p -> memberContains(p.getName(), p.getNameRu(), memberQuery, useRussian));
+            boolean hasMethod = hasMatchingMember(
+                    context.allMethods(),
+                    memberQuery,
+                    useRussian,
+                    Method::getName,
+                    Method::getNameRu,
+                    false);
+            boolean hasProperty = hasMatchingMember(
+                    context.allProperties(),
+                    memberQuery,
+                    useRussian,
+                    Property::getName,
+                    Property::getNameRu,
+                    false);
             if (hasMethod || hasProperty) {
                 return type;
             }
@@ -274,31 +305,57 @@ public class EdtPlatformDocumentationService {
                         || normalize(t.getName()).contains(normalizedQuery)
                         || normalize(t.getNameRu()).contains(normalizedQuery)
                         || normalize(safeFqn(t)).contains(normalizedQuery))
-                .limit(30)
+                .limit(CANDIDATES_LIMIT)
                 .map(t -> new PlatformDocumentationResult.TypeCandidate(t.getName(), t.getNameRu(), safeFqn(t)))
                 .toList();
     }
 
     private List<Method> filterMethods(List<Method> methods, String contains, boolean useRussian) {
-        if (contains == null || contains.isBlank()) {
-            return methods;
-        }
-        return methods.stream()
-                .filter(m -> contains(normalize(m.getName()), contains)
-                        || contains(normalize(m.getNameRu()), contains)
-                        || contains(normalize(resolveMemberName(m.getName(), m.getNameRu(), useRussian)), contains))
-                .toList();
+        return filterMembers(methods, contains, useRussian, Method::getName, Method::getNameRu);
     }
 
     private List<Property> filterProperties(List<Property> properties, String contains, boolean useRussian) {
+        return filterMembers(properties, contains, useRussian, Property::getName, Property::getNameRu);
+    }
+
+    private <T> List<T> filterMembers(
+            List<T> members,
+            String contains,
+            boolean useRussian,
+            Function<T, String> nameExtractor,
+            Function<T, String> nameRuExtractor
+    ) {
         if (contains == null || contains.isBlank()) {
-            return properties;
+            return members;
         }
-        return properties.stream()
-                .filter(p -> contains(normalize(p.getName()), contains)
-                        || contains(normalize(p.getNameRu()), contains)
-                        || contains(normalize(resolveMemberName(p.getName(), p.getNameRu(), useRussian)), contains))
+        return members.stream()
+                .filter(member -> memberContains(
+                        nameExtractor.apply(member),
+                        nameRuExtractor.apply(member),
+                        contains,
+                        useRussian))
                 .toList();
+    }
+
+    private <T> boolean hasMatchingMember(
+            Collection<T> members,
+            String query,
+            boolean useRussian,
+            Function<T, String> nameExtractor,
+            Function<T, String> nameRuExtractor,
+            boolean exact
+    ) {
+        for (T member : members) {
+            String name = nameExtractor.apply(member);
+            String nameRu = nameRuExtractor.apply(member);
+            boolean matched = exact
+                    ? memberMatchesExactly(name, nameRu, query, useRussian)
+                    : memberContains(name, nameRu, query, useRussian);
+            if (matched) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<PlatformDocumentationResult.MethodDoc> mapMethods(List<Method> methods, String language, boolean useRussian) {
@@ -461,5 +518,8 @@ public class EdtPlatformDocumentationService {
     }
 
     private record Page<T>(List<T> items, boolean hasMore) {
+    }
+
+    private record TypeLookup(Type resolvedType, String contains) {
     }
 }

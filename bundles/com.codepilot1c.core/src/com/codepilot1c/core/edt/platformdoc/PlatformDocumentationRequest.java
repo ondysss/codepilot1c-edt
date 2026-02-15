@@ -1,5 +1,6 @@
 package com.codepilot1c.core.edt.platformdoc;
 
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -60,7 +61,7 @@ public record PlatformDocumentationRequest(
         if (language == null || language.isBlank()) {
             return "ru"; //$NON-NLS-1$
         }
-        return language.trim().toLowerCase();
+        return language.trim().toLowerCase(Locale.ROOT);
     }
 
     public String normalizedContains() {
