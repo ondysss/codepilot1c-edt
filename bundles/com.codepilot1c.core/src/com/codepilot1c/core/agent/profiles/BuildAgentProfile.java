@@ -56,7 +56,11 @@ public class BuildAgentProfile implements AgentProfile {
             "bsl_scope_members",
             "edt_validate_request",
             "create_metadata",
+            "create_form",
             "add_metadata_child",
+            "ensure_module_artifact",
+            "update_metadata",
+            "delete_metadata",
             "update_metadata_properties",
             "delete_metadata_object",
             "edt_trace_export",
@@ -114,8 +118,20 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.ask("create_metadata")
                         .withDescription("Создание объектов метаданных EDT")
                         .forAllResources(),
+                PermissionRule.ask("create_form")
+                        .withDescription("Создание управляемых форм EDT")
+                        .forAllResources(),
                 PermissionRule.ask("add_metadata_child")
                         .withDescription("Создание вложенных объектов метаданных EDT")
+                        .forAllResources(),
+                PermissionRule.ask("ensure_module_artifact")
+                        .withDescription("Создание/подготовка файлов модулей EDT")
+                        .forAllResources(),
+                PermissionRule.ask("update_metadata")
+                        .withDescription("Обновление свойств объектов метаданных EDT")
+                        .forAllResources(),
+                PermissionRule.ask("delete_metadata")
+                        .withDescription("Удаление объектов метаданных EDT")
                         .forAllResources(),
                 PermissionRule.ask("update_metadata_properties")
                         .withDescription("Обновление свойств объектов метаданных EDT")
@@ -143,15 +159,17 @@ public class BuildAgentProfile implements AgentProfile {
                 ## Доступные инструменты:
                 - Файлы: read_file, edit_file, write_file, glob, grep
                 - EDT AST API: edt_content_assist, edt_find_references, edt_metadata_details
-                - EDT-метаданные: get_platform_documentation, edt_validate_request, create_metadata, add_metadata_child, update_metadata_properties, delete_metadata_object, edt_trace_export
+                - EDT-метаданные: get_platform_documentation, edt_validate_request, create_metadata, create_form, add_metadata_child, ensure_module_artifact, update_metadata, delete_metadata, edt_trace_export
                 - EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members
                 - Диагностика метаданных: edt_metadata_smoke (регрессионный smoke-прогон)
                 - Документация платформы: перед использованием незнакомых методов/свойств 1С
                   сначала вызывай get_platform_documentation и опирайся на его ответ.
                   Не придумывай API платформы без подтверждения из EDT runtime.
+                  Важно: в get_platform_documentation передавай type_name=тип платформы
+                  (например DocumentObject), а искомый метод/свойство передавай в contains.
 
                 ## Политика изменения метаданных (обязательно):
-                1. Перед create_metadata, add_metadata_child, update_metadata_properties и delete_metadata_object
+                1. Перед create_metadata, create_form, add_metadata_child, update_metadata_properties и delete_metadata_object
                    сначала вызывай edt_validate_request
                 2. Бери validation_token из ответа edt_validate_request
                 3. Передавай validation_token в мутационный инструмент без изменения payload
@@ -160,12 +178,20 @@ public class BuildAgentProfile implements AgentProfile {
                    Владелец/Owner, Ссылка/Ref, ПометкаУдаления/DeletionMark, ЭтоГруппа/IsFolder).
                 5. Если пользователь запросил зарезервированное имя реквизита, предложи безопасную
                    альтернативу (например НаименованиеПользовательское) и используй её в payload.
-                6. Для update_metadata_properties: используй для изменения свойств существующих объектов
+                6. Для update_metadata: используй для изменения свойств существующих объектов
                    (name, synonym, comment, type). Для установки типа реквизита передавай строку типа
                    (например CatalogRef.Номенклатура, Number, String, Date).
-                7. Для delete_metadata_object: ВСЕГДА сначала вызывай с dry_run=true для проверки,
-                   показывай пользователю что будет удалено, и только после подтверждения
-                   вызывай с dry_run=false.
+                7. Для delete_metadata: при удалении вложенных объектов учитывай recursive=true,
+                   если у объекта есть дочерние элементы; сначала оцени риск удаления в ответе.
+                8. Для форм предпочтительно используй create_form:
+                   указывай usage (OBJECT/LIST/CHOICE/AUXILIARY) и set_as_default при необходимости.
+                   add_metadata_child(child_kind=Form) оставлен для обратной совместимости.
+                9. Перед редактированием модулей BSL объекта метаданных
+                   всегда сначала вызывай ensure_module_artifact с create_if_missing=true.
+                   Используй путь из ответа ensure_module_artifact для edit_file/write_file.
+                   Не пытайся создавать Module.bsl/ObjectModule.bsl/ManagerModule.bsl напрямую через write_file.
+                10. Для форм в текущем EDT-формате отдельный Form.form/Module.bsl не используется:
+                    данные формы хранятся в owner .mdo. Не вызывай ensure_module_artifact для Form FQN.
 
                 """;
         return PromptProviderRegistry.getInstance().getSystemPromptAddition(getId(), defaultPrompt);
