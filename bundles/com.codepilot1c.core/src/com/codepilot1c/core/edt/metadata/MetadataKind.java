@@ -38,20 +38,33 @@ public enum MetadataKind {
                     MetadataOperationCode.INVALID_METADATA_KIND,
                     "Metadata kind is required", false); //$NON-NLS-1$
         }
-        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        String normalized = normalizeToken(value);
         return switch (normalized) {
-            case "catalog", "справочник", "catalogs" -> CATALOG; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            case "document", "документ", "documents" -> DOCUMENT; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            case "informationregister", "информационныйрегистр", "регистрсведений" -> INFORMATION_REGISTER; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            case "accumulationregister", "регистрнакопления" -> ACCUMULATION_REGISTER; //$NON-NLS-1$ //$NON-NLS-2$
-            case "commonmodule", "общиймодуль" -> COMMON_MODULE; //$NON-NLS-1$ //$NON-NLS-2$
-            case "enum", "перечисление" -> ENUM; //$NON-NLS-1$ //$NON-NLS-2$
-            case "report", "отчет", "отчёт" -> REPORT; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            case "dataprocessor", "обработка" -> DATA_PROCESSOR; //$NON-NLS-1$ //$NON-NLS-2$
-            case "constant", "константа" -> CONSTANT; //$NON-NLS-1$ //$NON-NLS-2$
+            case "catalog", "catalogs", "справочник", "справочники" -> CATALOG; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "document", "documents", "документ", "документы" -> DOCUMENT; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "informationregister", "informationregisters", "информационныйрегистр", "регистрсведений", "регистрысведений" -> INFORMATION_REGISTER; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+            case "accumulationregister", "accumulationregisters", "регистрнакопления", "регистрынакопления" -> ACCUMULATION_REGISTER; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "commonmodule", "commonmodules", "общиймодуль", "общиемодули" -> COMMON_MODULE; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "enum", "enums", "перечисление", "перечисления" -> ENUM; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "report", "reports", "отчет", "отчеты" -> REPORT; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "dataprocessor", "dataprocessors", "обработка", "обработки" -> DATA_PROCESSOR; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "constant", "constants", "константа", "константы" -> CONSTANT; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
             default -> throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_KIND,
                     "Unsupported metadata kind: " + value, false); //$NON-NLS-1$
         };
+    }
+
+    private static String normalizeToken(String value) {
+        String lowered = value.trim().toLowerCase(Locale.ROOT).replace('ё', 'е');
+        StringBuilder sb = new StringBuilder(lowered.length());
+        for (int i = 0; i < lowered.length(); i++) {
+            char ch = lowered.charAt(i);
+            if (ch == '_' || ch == '-' || Character.isWhitespace(ch) || ch == '.') {
+                continue;
+            }
+            sb.append(ch);
+        }
+        return sb.toString();
     }
 }
