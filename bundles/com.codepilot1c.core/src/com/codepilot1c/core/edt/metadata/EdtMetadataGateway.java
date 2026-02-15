@@ -5,11 +5,15 @@ import org.eclipse.core.resources.IWorkspace;
 import org.eclipse.core.resources.ResourcesPlugin;
 
 import com._1c.g5.v8.bm.integration.IBmPlatformGlobalEditingContext;
+import com._1c.g5.v8.dt.bm.xtext.BmAwareResourceSetProvider;
 import com._1c.g5.v8.dt.core.naming.ITopObjectFqnGenerator;
 import com._1c.g5.v8.dt.core.platform.IBmModelManager;
 import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.core.platform.IDerivedDataManagerProvider;
 import com._1c.g5.v8.dt.core.platform.IDtProjectManager;
+import com._1c.g5.v8.dt.core.platform.IV8Project;
+import com._1c.g5.v8.dt.core.platform.IV8ProjectManager;
+import com._1c.g5.v8.dt.platform.version.Version;
 import com.codepilot1c.core.internal.VibeCorePlugin;
 
 /**
@@ -52,6 +56,15 @@ public class EdtMetadataGateway {
         return service;
     }
 
+    public IV8ProjectManager getV8ProjectManager() {
+        VibeCorePlugin plugin = requirePlugin();
+        IV8ProjectManager service = plugin.getV8ProjectManager();
+        if (service == null) {
+            throw serviceUnavailable("IV8ProjectManager"); //$NON-NLS-1$
+        }
+        return service;
+    }
+
     public IDerivedDataManagerProvider getDerivedDataManagerProvider() {
         VibeCorePlugin plugin = requirePlugin();
         IDerivedDataManagerProvider service = plugin.getDerivedDataManagerProvider();
@@ -68,6 +81,35 @@ public class EdtMetadataGateway {
             throw serviceUnavailable("ITopObjectFqnGenerator"); //$NON-NLS-1$
         }
         return service;
+    }
+
+    public BmAwareResourceSetProvider getResourceSetProvider() {
+        VibeCorePlugin plugin = requirePlugin();
+        BmAwareResourceSetProvider service = plugin.getResourceSetProvider();
+        if (service == null) {
+            throw serviceUnavailable("BmAwareResourceSetProvider"); //$NON-NLS-1$
+        }
+        return service;
+    }
+
+    public Version resolvePlatformVersion(IProject project) {
+        try {
+            IV8ProjectManager v8ProjectManager = getV8ProjectManager();
+            if (project != null) {
+                IV8Project v8Project = v8ProjectManager.getProject(project);
+                if (v8Project != null && v8Project.getVersion() != null) {
+                    return v8Project.getVersion();
+                }
+            }
+            for (IV8Project candidate : v8ProjectManager.getProjects(IV8Project.class)) {
+                if (candidate != null && candidate.getVersion() != null) {
+                    return candidate.getVersion();
+                }
+            }
+        } catch (RuntimeException e) {
+            // Fall back to latest when V8 project manager is not available.
+        }
+        return Version.LATEST;
     }
 
     public IBmPlatformGlobalEditingContext getGlobalEditingContext() {

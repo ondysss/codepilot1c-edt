@@ -40,7 +40,7 @@ public class EdtMetadataDetailsTool implements ITool {
 
     @Override
     public String getDescription() {
-        return "Inspect metadata objects and return markdown details."; //$NON-NLS-1$
+        return "Возвращает структуру объектов метаданных конфигурации (не справку по встроенным типам языка)."; //$NON-NLS-1$
     }
 
     @Override

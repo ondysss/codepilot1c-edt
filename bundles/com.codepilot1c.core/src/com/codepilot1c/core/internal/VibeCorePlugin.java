@@ -23,6 +23,7 @@ import com._1c.g5.v8.dt.core.platform.IBmModelManager;
 import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.core.platform.IDerivedDataManagerProvider;
 import com._1c.g5.v8.dt.core.platform.IDtProjectManager;
+import com._1c.g5.v8.dt.core.platform.IV8ProjectManager;
 import com._1c.g5.v8.dt.validation.marker.IMarkerManager;
 import com.e1c.g5.dt.applications.IApplicationManager;
 import com.e1c.g5.v8.dt.check.settings.ICheckRepository;
@@ -47,6 +48,7 @@ public class VibeCorePlugin extends Plugin {
     private ServiceTracker<IConfigurationProvider, IConfigurationProvider> configurationProviderTracker;
     private ServiceTracker<IBmModelManager, IBmModelManager> bmModelManagerTracker;
     private ServiceTracker<IDtProjectManager, IDtProjectManager> dtProjectManagerTracker;
+    private ServiceTracker<IV8ProjectManager, IV8ProjectManager> v8ProjectManagerTracker;
     private ServiceTracker<IDerivedDataManagerProvider, IDerivedDataManagerProvider> derivedDataManagerProviderTracker;
     private ServiceTracker<BmAwareResourceSetProvider, BmAwareResourceSetProvider> resourceSetProviderTracker;
     private ServiceTracker<ITopObjectFqnGenerator, ITopObjectFqnGenerator> topObjectFqnGeneratorTracker;
@@ -105,6 +107,8 @@ public class VibeCorePlugin extends Plugin {
         bmModelManagerTracker.open();
         dtProjectManagerTracker = new ServiceTracker<>(context, IDtProjectManager.class, null);
         dtProjectManagerTracker.open();
+        v8ProjectManagerTracker = new ServiceTracker<>(context, IV8ProjectManager.class, null);
+        v8ProjectManagerTracker.open();
         derivedDataManagerProviderTracker = new ServiceTracker<>(context, IDerivedDataManagerProvider.class, null);
         derivedDataManagerProviderTracker.open();
         resourceSetProviderTracker = new ServiceTracker<>(context, BmAwareResourceSetProvider.class, null);
@@ -152,6 +156,8 @@ public class VibeCorePlugin extends Plugin {
         bmModelManagerTracker = null;
         closeTracker(dtProjectManagerTracker);
         dtProjectManagerTracker = null;
+        closeTracker(v8ProjectManagerTracker);
+        v8ProjectManagerTracker = null;
         closeTracker(derivedDataManagerProviderTracker);
         derivedDataManagerProviderTracker = null;
         closeTracker(resourceSetProviderTracker);
@@ -207,6 +213,10 @@ public class VibeCorePlugin extends Plugin {
 
     public IDtProjectManager getDtProjectManager() {
         return getTrackedService(dtProjectManagerTracker, "IDtProjectManager"); //$NON-NLS-1$
+    }
+
+    public IV8ProjectManager getV8ProjectManager() {
+        return getTrackedService(v8ProjectManagerTracker, "IV8ProjectManager"); //$NON-NLS-1$
     }
 
     public IDerivedDataManagerProvider getDerivedDataManagerProvider() {

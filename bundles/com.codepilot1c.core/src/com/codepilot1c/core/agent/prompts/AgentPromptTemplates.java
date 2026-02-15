@@ -50,6 +50,16 @@ public final class AgentPromptTemplates {
         sb.append("- EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members\n"); //$NON-NLS-1$
         sb.append("- Диагностика метаданных: edt_metadata_smoke (регрессионный smoke-прогон)\n\n"); //$NON-NLS-1$
 
+        sb.append("## Маршрутизация справки (обязательно)\n"); //$NON-NLS-1$
+        sb.append("1. Если вопрос про встроенный язык 1С (например: Запрос, ТаблицаЗначений, Структура, методы языка) —\n"); //$NON-NLS-1$
+        sb.append("   сначала вызывай inspect_platform_reference.\n"); //$NON-NLS-1$
+        sb.append("2. Если вопрос про объекты конфигурации (Документ/Справочник/Регистр, реквизиты, табличные части, формы, команды) —\n"); //$NON-NLS-1$
+        sb.append("   сначала вызывай edt_metadata_details (при необходимости после scan_metadata_index).\n"); //$NON-NLS-1$
+        sb.append("3. Для русских имен типов передавай их как есть (например type_name=Запрос), не переводи вручную.\n"); //$NON-NLS-1$
+        sb.append("4. Если запрос неоднозначен (может быть и BSL-тип, и метаданные), вызывай оба инструмента и сверяй результат.\n"); //$NON-NLS-1$
+        sb.append("5. Если inspect_platform_reference вернул ошибку EDT_SERVICE_UNAVAILABLE/TYPE_NOT_FOUND, "); //$NON-NLS-1$
+        sb.append("не подменяй ответ \"общими знаниями\": верни ошибку инструмента и что нужно проверить в EDT runtime.\n\n"); //$NON-NLS-1$
+
         if (metadataRulesEnabled) {
             sb.append("## Политика изменения метаданных (обязательно)\n"); //$NON-NLS-1$
             sb.append("1. Перед create_metadata, create_form, add_metadata_child, update_metadata, mutate_form_model и delete_metadata\n"); //$NON-NLS-1$
@@ -112,6 +122,10 @@ public final class AgentPromptTemplates {
         } else {
             sb.append("4. Для UI-задач сначала подтверждай фактическую структуру через инструменты анализа.\n\n"); //$NON-NLS-1$
         }
+        sb.append("5. Для вопросов по встроенному языку используй inspect_platform_reference, "); //$NON-NLS-1$
+        sb.append("для объектов конфигурации — edt_metadata_details.\n"); //$NON-NLS-1$
+        sb.append("6. Если inspect_platform_reference вернул EDT_SERVICE_UNAVAILABLE/TYPE_NOT_FOUND, "); //$NON-NLS-1$
+        sb.append("не заменяй результат справкой \"из памяти\".\n\n"); //$NON-NLS-1$
 
         sb.append("## Шаблон ответа\n"); //$NON-NLS-1$
         sb.append("## Задача\n[Краткое описание]\n\n"); //$NON-NLS-1$
@@ -144,8 +158,12 @@ public final class AgentPromptTemplates {
         } else {
             sb.append("2. Для UI-структур сначала подтверждай модель через доступные инструменты.\n"); //$NON-NLS-1$
         }
-        sb.append("3. Разделяй проблемы UI формы и объектной логики.\n"); //$NON-NLS-1$
-        sb.append("4. Не предлагай изменения, если пользователь не просил реализацию.\n\n"); //$NON-NLS-1$
+        sb.append("3. Для встроенных типов языка (Запрос, ТаблицаЗначений, Структура и т.п.) используй inspect_platform_reference.\n"); //$NON-NLS-1$
+        sb.append("4. Для объектов конфигурации и их структуры используй edt_metadata_details.\n"); //$NON-NLS-1$
+        sb.append("5. Разделяй проблемы UI формы и объектной логики.\n"); //$NON-NLS-1$
+        sb.append("6. Если inspect_platform_reference вернул EDT_SERVICE_UNAVAILABLE/TYPE_NOT_FOUND, "); //$NON-NLS-1$
+        sb.append("фиксируй ошибку инструмента, не пиши справку \"из общих знаний\".\n"); //$NON-NLS-1$
+        sb.append("7. Не предлагай изменения, если пользователь не просил реализацию.\n\n"); //$NON-NLS-1$
 
         sb.append("## Формат ответа\n"); //$NON-NLS-1$
         sb.append("- Короткий вывод (1-3 пункта).\n"); //$NON-NLS-1$

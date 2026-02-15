@@ -3,6 +3,7 @@ package com.codepilot1c.core.edt.platformdoc;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -14,10 +15,16 @@ import java.util.function.Function;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.EStructuralFeature;
+import org.eclipse.emf.ecore.resource.ResourceSet;
+import org.eclipse.emf.ecore.resource.impl.ResourceSetImpl;
+import org.eclipse.emf.ecore.util.EcoreUtil;
+import org.eclipse.xtext.resource.IEObjectDescription;
 
 import com._1c.g5.v8.bm.core.IBmObject;
 import com._1c.g5.v8.bm.core.IBmTransaction;
 import com._1c.g5.v8.dt.core.platform.IBmModelManager;
+import com._1c.g5.v8.dt.platform.IEObjectProvider;
+import com._1c.g5.v8.dt.platform.version.Version;
 import com._1c.g5.v8.dt.mcore.ContextDef;
 import com._1c.g5.v8.dt.mcore.Help;
 import com._1c.g5.v8.dt.mcore.HelpPage;
@@ -37,6 +44,7 @@ public class EdtPlatformDocumentationService {
 
     private static final String RU_LANGUAGE = "ru"; //$NON-NLS-1$
     private static final int CANDIDATES_LIMIT = 30;
+    private static final Map<String, String> TYPE_QUERY_ALIASES = createTypeQueryAliases();
 
     private final EdtMetadataGateway gateway;
 
@@ -55,10 +63,9 @@ public class EdtPlatformDocumentationService {
     public PlatformDocumentationResult getDocumentation(PlatformDocumentationRequest request) {
         request.validate();
         IProject project = requireProject(request.projectName());
-        IBmModelManager modelManager = gateway.getBmModelManager();
-
         try {
-            return modelManager.executeReadOnlyTask(project, tx -> doCollect(tx, request));
+            List<Type> allTypes = collectAllTypes(project);
+            return doCollect(allTypes, request);
         } catch (PlatformDocumentationException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -68,8 +75,22 @@ public class EdtPlatformDocumentationService {
         }
     }
 
-    private PlatformDocumentationResult doCollect(IBmTransaction transaction, PlatformDocumentationRequest request) {
-        List<Type> allTypes = findAllTypes(transaction);
+    private List<Type> collectAllTypes(IProject project) {
+        List<Type> providerTypes = findAllTypesFromProvider(project);
+        if (!providerTypes.isEmpty()) {
+            return providerTypes;
+        }
+        IBmModelManager modelManager = gateway.getBmModelManager();
+        return modelManager.executeReadOnlyTask(project, this::findAllTypesFromTransaction);
+    }
+
+    private PlatformDocumentationResult doCollect(List<Type> allTypes, PlatformDocumentationRequest request) {
+        if (allTypes.isEmpty()) {
+            throw new PlatformDocumentationException(
+                    PlatformDocumentationErrorCode.EDT_SERVICE_UNAVAILABLE,
+                    "Platform type index is unavailable in EDT runtime for project: " + request.projectName()
+                            + ". IEObjectProvider and BM transaction returned no platform types.", true); //$NON-NLS-1$
+        }
         allTypes.sort(Comparator.comparing(this::safeName, String.CASE_INSENSITIVE_ORDER));
 
         String query = normalize(request.typeName());
@@ -180,7 +201,77 @@ public class EdtPlatformDocumentationService {
         return project;
     }
 
-    private List<Type> findAllTypes(IBmTransaction tx) {
+    private List<Type> findAllTypesFromProvider(IProject project) {
+        Version version = gateway.resolvePlatformVersion(project);
+        IEObjectProvider.Registry registry = IEObjectProvider.Registry.INSTANCE;
+        IEObjectProvider typeProvider = registry.get(McorePackage.Literals.TYPE, version);
+        IEObjectProvider typeItemProvider = registry.get(McorePackage.Literals.TYPE_ITEM, version);
+        if (!hasDescriptions(typeProvider) && hasDescriptions(typeItemProvider)) {
+            typeProvider = typeItemProvider;
+        }
+        if (typeProvider == null) {
+            return List.of();
+        }
+
+        Iterable<IEObjectDescription> descriptions = typeProvider.getEObjectDescriptions(null);
+        if (descriptions == null) {
+            return List.of();
+        }
+
+        ResourceSet resourceSet = resolveResourceSet(project);
+        Set<String> seen = new LinkedHashSet<>();
+        List<Type> types = new ArrayList<>();
+        for (IEObjectDescription description : descriptions) {
+            if (description == null) {
+                continue;
+            }
+            EObject candidate = description.getEObjectOrProxy();
+            EObject resolved = resolveEObject(candidate, resourceSet);
+            if (resolved instanceof Type type && !resolved.eIsProxy()) {
+                addType(types, seen, type);
+            }
+        }
+        return types;
+    }
+
+    private boolean hasDescriptions(IEObjectProvider provider) {
+        if (provider == null) {
+            return false;
+        }
+        Iterable<IEObjectDescription> descriptions = provider.getEObjectDescriptions(null);
+        return descriptions != null && descriptions.iterator().hasNext();
+    }
+
+    private ResourceSet resolveResourceSet(IProject project) {
+        try {
+            return gateway.getResourceSetProvider().get(project);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private EObject resolveEObject(EObject object, ResourceSet resourceSet) {
+        if (object == null) {
+            return null;
+        }
+        if (!object.eIsProxy()) {
+            return object;
+        }
+        try {
+            if (resourceSet != null) {
+                EObject resolved = EcoreUtil.resolve(object, resourceSet);
+                if (resolved != null && !resolved.eIsProxy()) {
+                    return resolved;
+                }
+            }
+            EObject resolved = EcoreUtil.resolve(object, new ResourceSetImpl());
+            return resolved != null ? resolved : object;
+        } catch (RuntimeException e) {
+            return object;
+        }
+    }
+
+    private List<Type> findAllTypesFromTransaction(IBmTransaction tx) {
         Set<String> seen = new LinkedHashSet<>();
         List<Type> types = new ArrayList<>();
 
@@ -194,9 +285,12 @@ public class EdtPlatformDocumentationService {
     }
 
     private void addType(List<Type> types, Set<String> seen, IBmObject object) {
-        if (!(object instanceof Type type)) {
-            return;
+        if (object instanceof Type type) {
+            addType(types, seen, type);
         }
+    }
+
+    private void addType(List<Type> types, Set<String> seen, Type type) {
         String key = safeFqn(type);
         if (key.isBlank()) {
             key = safeName(type) + "|" + safeNameRu(type); //$NON-NLS-1$
@@ -211,22 +305,30 @@ public class EdtPlatformDocumentationService {
             return null;
         }
 
-        Type exact = types.stream()
-                .filter(t -> normalize(t.getName()).equals(normalizedQuery)
-                        || normalize(t.getNameRu()).equals(normalizedQuery)
-                        || normalize(safeFqn(t)).equals(normalizedQuery))
-                .findFirst()
-                .orElse(null);
-        if (exact != null) {
-            return exact;
+        for (String query : expandTypeQueries(normalizedQuery)) {
+            Type exact = types.stream()
+                    .filter(t -> normalize(t.getName()).equals(query)
+                            || normalize(t.getNameRu()).equals(query)
+                            || normalize(safeFqn(t)).equals(query))
+                    .findFirst()
+                    .orElse(null);
+            if (exact != null) {
+                return exact;
+            }
         }
 
-        return types.stream()
-                .filter(t -> normalize(t.getName()).contains(normalizedQuery)
-                        || normalize(t.getNameRu()).contains(normalizedQuery)
-                        || normalize(safeFqn(t)).contains(normalizedQuery))
-                .findFirst()
-                .orElse(null);
+        for (String query : expandTypeQueries(normalizedQuery)) {
+            Type matched = types.stream()
+                    .filter(t -> normalize(t.getName()).contains(query)
+                            || normalize(t.getNameRu()).contains(query)
+                            || normalize(safeFqn(t)).contains(query))
+                    .findFirst()
+                    .orElse(null);
+            if (matched != null) {
+                return matched;
+            }
+        }
+        return null;
     }
 
     private Type resolveTypeByMemberName(List<Type> types, String memberQuery, boolean useRussian) {
@@ -521,5 +623,56 @@ public class EdtPlatformDocumentationService {
     }
 
     private record TypeLookup(Type resolvedType, String contains) {
+    }
+
+    private static Map<String, String> createTypeQueryAliases() {
+        Map<String, String> aliases = new LinkedHashMap<>();
+        aliases.put("запрос", "query"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("результатзапроса", "queryresult"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("выборкаизрезультатазапроса", "queryresultselection"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("построительзапроса", "querybuilder"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("таблицазначений", "valuetable"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("строкатаблицызначений", "valuetablerow"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("деревозначений", "valuetree"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("структура", "structure"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("соответствие", "map"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("массив", "array"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("фиксированныймассив", "fixedarray"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("фиксированнаяструктура", "fixedstructure"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("списокзначений", "valuelist"); //$NON-NLS-1$ //$NON-NLS-2$
+        aliases.put("описаниеоповещения", "notificationdescription"); //$NON-NLS-1$ //$NON-NLS-2$
+        return Collections.unmodifiableMap(aliases);
+    }
+
+    private List<String> expandTypeQueries(String normalizedQuery) {
+        if (normalizedQuery == null || normalizedQuery.isBlank()) {
+            return List.of();
+        }
+        String compact = compactToken(normalizedQuery);
+        LinkedHashSet<String> queries = new LinkedHashSet<>();
+        queries.add(normalizedQuery);
+        queries.add(compact);
+        String alias = TYPE_QUERY_ALIASES.get(compact);
+        if (alias != null && !alias.isBlank()) {
+            queries.add(alias);
+            queries.add(alias.toLowerCase(Locale.ROOT));
+        }
+        return new ArrayList<>(queries);
+    }
+
+    private String compactToken(String value) {
+        if (value == null) {
+            return ""; //$NON-NLS-1$
+        }
+        String lowered = value.toLowerCase(Locale.ROOT).replace('ё', 'е');
+        StringBuilder sb = new StringBuilder(lowered.length());
+        for (int i = 0; i < lowered.length(); i++) {
+            char ch = lowered.charAt(i);
+            if (Character.isWhitespace(ch) || ch == '_' || ch == '-' || ch == '.') {
+                continue;
+            }
+            sb.append(ch);
+        }
+        return sb.toString();
     }
 }

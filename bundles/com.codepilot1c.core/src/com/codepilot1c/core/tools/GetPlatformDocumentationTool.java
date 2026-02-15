@@ -50,7 +50,7 @@ public class GetPlatformDocumentationTool implements ITool {
 
     @Override
     public String getDescription() {
-        return "Возвращает встроенную справку EDT по типам платформы 1С: методы, свойства, параметры и типы возврата."; //$NON-NLS-1$
+        return "Возвращает встроенную справку EDT по типам встроенного языка 1С (например Запрос/Query): методы, свойства, параметры и типы возврата."; //$NON-NLS-1$
     }
 
     @Override
