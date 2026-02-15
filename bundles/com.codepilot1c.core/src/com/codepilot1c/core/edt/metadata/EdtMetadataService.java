@@ -1541,6 +1541,33 @@ public class EdtMetadataService {
             case "report", "reports" -> "Reports"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "dataprocessor", "dataprocessors" -> "DataProcessors"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "constant", "constants" -> "Constants"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "role", "roles" -> "Roles"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "subsystem", "subsystems" -> "Subsystems"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "exchangeplan", "exchangeplans" -> "ExchangePlans"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "chartofaccounts", "chartsofaccounts" -> "ChartsOfAccounts"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "chartofcharacteristictypes", "chartsofcharacteristictypes" -> "ChartsOfCharacteristicTypes"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "chartofcalculationtypes", "chartsofcalculationtypes" -> "ChartsOfCalculationTypes"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "businessprocess", "businessprocesses" -> "BusinessProcesses"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "task", "tasks" -> "Tasks"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "commonform", "commonforms" -> "CommonForms"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "commoncommand", "commoncommands" -> "CommonCommands"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "commontemplate", "commontemplates" -> "CommonTemplates"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "commonpicture", "commonpictures" -> "CommonPictures"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "scheduledjob", "scheduledjobs" -> "ScheduledJobs"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "filtercriterion", "filtercriteria" -> "FilterCriteria"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "definedtype", "definedtypes" -> "DefinedTypes"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "sequence", "sequences" -> "Sequences"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "documentjournal", "documentjournals" -> "DocumentJournals"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "documentnumerator", "documentnumerators" -> "DocumentNumerators"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "eventsubscription", "eventsubscriptions" -> "EventSubscriptions"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "functionaloption", "functionaloptions" -> "FunctionalOptions"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "functionaloptionsparameter", "functionaloptionsparameters" -> "FunctionalOptionsParameters"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "webservice", "webservices" -> "WebServices"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "httpservice", "httpservices" -> "HTTPServices"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "externaldatasource", "externaldatasources" -> "ExternalDataSources"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "integrationservice", "integrationservices" -> "IntegrationServices"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "bot", "bots" -> "Bots"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "websocketclient", "websocketclients" -> "WebSocketClients"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             default -> throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_KIND,
                     "Unsupported top-level metadata kind: " + topKind, false); //$NON-NLS-1$
@@ -5143,6 +5170,33 @@ public class EdtMetadataService {
             case REPORT -> MdClassFactory.eINSTANCE.createReport();
             case DATA_PROCESSOR -> MdClassFactory.eINSTANCE.createDataProcessor();
             case CONSTANT -> MdClassFactory.eINSTANCE.createConstant();
+            case ROLE -> MdClassFactory.eINSTANCE.createRole();
+            case SUBSYSTEM -> MdClassFactory.eINSTANCE.createSubsystem();
+            case EXCHANGE_PLAN -> MdClassFactory.eINSTANCE.createExchangePlan();
+            case CHART_OF_ACCOUNTS -> MdClassFactory.eINSTANCE.createChartOfAccounts();
+            case CHART_OF_CHARACTERISTIC_TYPES -> MdClassFactory.eINSTANCE.createChartOfCharacteristicTypes();
+            case CHART_OF_CALCULATION_TYPES -> MdClassFactory.eINSTANCE.createChartOfCalculationTypes();
+            case BUSINESS_PROCESS -> MdClassFactory.eINSTANCE.createBusinessProcess();
+            case TASK -> MdClassFactory.eINSTANCE.createTask();
+            case COMMON_FORM -> MdClassFactory.eINSTANCE.createCommonForm();
+            case COMMON_COMMAND -> MdClassFactory.eINSTANCE.createCommonCommand();
+            case COMMON_TEMPLATE -> MdClassFactory.eINSTANCE.createCommonTemplate();
+            case COMMON_PICTURE -> MdClassFactory.eINSTANCE.createCommonPicture();
+            case SCHEDULED_JOB -> MdClassFactory.eINSTANCE.createScheduledJob();
+            case FILTER_CRITERION -> MdClassFactory.eINSTANCE.createFilterCriterion();
+            case DEFINED_TYPE -> MdClassFactory.eINSTANCE.createDefinedType();
+            case SEQUENCE -> MdClassFactory.eINSTANCE.createSequence();
+            case DOCUMENT_JOURNAL -> MdClassFactory.eINSTANCE.createDocumentJournal();
+            case DOCUMENT_NUMERATOR -> MdClassFactory.eINSTANCE.createDocumentNumerator();
+            case EVENT_SUBSCRIPTION -> MdClassFactory.eINSTANCE.createEventSubscription();
+            case FUNCTIONAL_OPTION -> MdClassFactory.eINSTANCE.createFunctionalOption();
+            case FUNCTIONAL_OPTIONS_PARAMETER -> MdClassFactory.eINSTANCE.createFunctionalOptionsParameter();
+            case WEB_SERVICE -> MdClassFactory.eINSTANCE.createWebService();
+            case HTTP_SERVICE -> MdClassFactory.eINSTANCE.createHTTPService();
+            case EXTERNAL_DATA_SOURCE -> MdClassFactory.eINSTANCE.createExternalDataSource();
+            case INTEGRATION_SERVICE -> MdClassFactory.eINSTANCE.createIntegrationService();
+            case BOT -> MdClassFactory.eINSTANCE.createBot();
+            case WEB_SOCKET_CLIENT -> MdClassFactory.eINSTANCE.createWebSocketClient();
         };
     }
 
@@ -5166,6 +5220,36 @@ public class EdtMetadataService {
             case REPORT -> configuration.getReports().add((com._1c.g5.v8.dt.metadata.mdclass.Report) object);
             case DATA_PROCESSOR -> configuration.getDataProcessors().add((DataProcessor) object);
             case CONSTANT -> configuration.getConstants().add((com._1c.g5.v8.dt.metadata.mdclass.Constant) object);
+            case ROLE -> configuration.getRoles().add((com._1c.g5.v8.dt.metadata.mdclass.Role) object);
+            case SUBSYSTEM -> configuration.getSubsystems().add((com._1c.g5.v8.dt.metadata.mdclass.Subsystem) object);
+            case EXCHANGE_PLAN -> configuration.getExchangePlans().add((com._1c.g5.v8.dt.metadata.mdclass.ExchangePlan) object);
+            case CHART_OF_ACCOUNTS -> configuration.getChartsOfAccounts().add((com._1c.g5.v8.dt.metadata.mdclass.ChartOfAccounts) object);
+            case CHART_OF_CHARACTERISTIC_TYPES ->
+                    configuration.getChartsOfCharacteristicTypes().add((com._1c.g5.v8.dt.metadata.mdclass.ChartOfCharacteristicTypes) object);
+            case CHART_OF_CALCULATION_TYPES ->
+                    configuration.getChartsOfCalculationTypes().add((com._1c.g5.v8.dt.metadata.mdclass.ChartOfCalculationTypes) object);
+            case BUSINESS_PROCESS -> configuration.getBusinessProcesses().add((com._1c.g5.v8.dt.metadata.mdclass.BusinessProcess) object);
+            case TASK -> configuration.getTasks().add((com._1c.g5.v8.dt.metadata.mdclass.Task) object);
+            case COMMON_FORM -> configuration.getCommonForms().add((com._1c.g5.v8.dt.metadata.mdclass.CommonForm) object);
+            case COMMON_COMMAND -> configuration.getCommonCommands().add((com._1c.g5.v8.dt.metadata.mdclass.CommonCommand) object);
+            case COMMON_TEMPLATE -> configuration.getCommonTemplates().add((com._1c.g5.v8.dt.metadata.mdclass.CommonTemplate) object);
+            case COMMON_PICTURE -> configuration.getCommonPictures().add((com._1c.g5.v8.dt.metadata.mdclass.CommonPicture) object);
+            case SCHEDULED_JOB -> configuration.getScheduledJobs().add((com._1c.g5.v8.dt.metadata.mdclass.ScheduledJob) object);
+            case FILTER_CRITERION -> configuration.getFilterCriteria().add((com._1c.g5.v8.dt.metadata.mdclass.FilterCriterion) object);
+            case DEFINED_TYPE -> configuration.getDefinedTypes().add((com._1c.g5.v8.dt.metadata.mdclass.DefinedType) object);
+            case SEQUENCE -> configuration.getSequences().add((com._1c.g5.v8.dt.metadata.mdclass.Sequence) object);
+            case DOCUMENT_JOURNAL -> configuration.getDocumentJournals().add((com._1c.g5.v8.dt.metadata.mdclass.DocumentJournal) object);
+            case DOCUMENT_NUMERATOR -> configuration.getDocumentNumerators().add((com._1c.g5.v8.dt.metadata.mdclass.DocumentNumerator) object);
+            case EVENT_SUBSCRIPTION -> configuration.getEventSubscriptions().add((com._1c.g5.v8.dt.metadata.mdclass.EventSubscription) object);
+            case FUNCTIONAL_OPTION -> configuration.getFunctionalOptions().add((com._1c.g5.v8.dt.metadata.mdclass.FunctionalOption) object);
+            case FUNCTIONAL_OPTIONS_PARAMETER ->
+                    configuration.getFunctionalOptionsParameters().add((com._1c.g5.v8.dt.metadata.mdclass.FunctionalOptionsParameter) object);
+            case WEB_SERVICE -> configuration.getWebServices().add((com._1c.g5.v8.dt.metadata.mdclass.WebService) object);
+            case HTTP_SERVICE -> configuration.getHttpServices().add((com._1c.g5.v8.dt.metadata.mdclass.HTTPService) object);
+            case EXTERNAL_DATA_SOURCE -> configuration.getExternalDataSources().add((com._1c.g5.v8.dt.metadata.mdclass.ExternalDataSource) object);
+            case INTEGRATION_SERVICE -> configuration.getIntegrationServices().add((com._1c.g5.v8.dt.metadata.mdclass.IntegrationService) object);
+            case BOT -> configuration.getBots().add((com._1c.g5.v8.dt.metadata.mdclass.Bot) object);
+            case WEB_SOCKET_CLIENT -> configuration.getWebSocketClients().add((com._1c.g5.v8.dt.metadata.mdclass.WebSocketClient) object);
             default -> throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_KIND,
                     "Unsupported metadata kind: " + kind, false); //$NON-NLS-1$
@@ -5221,6 +5305,33 @@ public class EdtMetadataService {
             case REPORT -> containsMdObjectName(configuration.getReports(), name);
             case DATA_PROCESSOR -> containsMdObjectName(configuration.getDataProcessors(), name);
             case CONSTANT -> containsMdObjectName(configuration.getConstants(), name);
+            case ROLE -> containsMdObjectName(configuration.getRoles(), name);
+            case SUBSYSTEM -> containsMdObjectName(configuration.getSubsystems(), name);
+            case EXCHANGE_PLAN -> containsMdObjectName(configuration.getExchangePlans(), name);
+            case CHART_OF_ACCOUNTS -> containsMdObjectName(configuration.getChartsOfAccounts(), name);
+            case CHART_OF_CHARACTERISTIC_TYPES -> containsMdObjectName(configuration.getChartsOfCharacteristicTypes(), name);
+            case CHART_OF_CALCULATION_TYPES -> containsMdObjectName(configuration.getChartsOfCalculationTypes(), name);
+            case BUSINESS_PROCESS -> containsMdObjectName(configuration.getBusinessProcesses(), name);
+            case TASK -> containsMdObjectName(configuration.getTasks(), name);
+            case COMMON_FORM -> containsMdObjectName(configuration.getCommonForms(), name);
+            case COMMON_COMMAND -> containsMdObjectName(configuration.getCommonCommands(), name);
+            case COMMON_TEMPLATE -> containsMdObjectName(configuration.getCommonTemplates(), name);
+            case COMMON_PICTURE -> containsMdObjectName(configuration.getCommonPictures(), name);
+            case SCHEDULED_JOB -> containsMdObjectName(configuration.getScheduledJobs(), name);
+            case FILTER_CRITERION -> containsMdObjectName(configuration.getFilterCriteria(), name);
+            case DEFINED_TYPE -> containsMdObjectName(configuration.getDefinedTypes(), name);
+            case SEQUENCE -> containsMdObjectName(configuration.getSequences(), name);
+            case DOCUMENT_JOURNAL -> containsMdObjectName(configuration.getDocumentJournals(), name);
+            case DOCUMENT_NUMERATOR -> containsMdObjectName(configuration.getDocumentNumerators(), name);
+            case EVENT_SUBSCRIPTION -> containsMdObjectName(configuration.getEventSubscriptions(), name);
+            case FUNCTIONAL_OPTION -> containsMdObjectName(configuration.getFunctionalOptions(), name);
+            case FUNCTIONAL_OPTIONS_PARAMETER -> containsMdObjectName(configuration.getFunctionalOptionsParameters(), name);
+            case WEB_SERVICE -> containsMdObjectName(configuration.getWebServices(), name);
+            case HTTP_SERVICE -> containsMdObjectName(configuration.getHttpServices(), name);
+            case EXTERNAL_DATA_SOURCE -> containsMdObjectName(configuration.getExternalDataSources(), name);
+            case INTEGRATION_SERVICE -> containsMdObjectName(configuration.getIntegrationServices(), name);
+            case BOT -> containsMdObjectName(configuration.getBots(), name);
+            case WEB_SOCKET_CLIENT -> containsMdObjectName(configuration.getWebSocketClients(), name);
         };
     }
 
@@ -5566,6 +5677,33 @@ public class EdtMetadataService {
             case REPORT -> "reports"; //$NON-NLS-1$
             case DATA_PROCESSOR -> "dataProcessors"; //$NON-NLS-1$
             case CONSTANT -> "constants"; //$NON-NLS-1$
+            case ROLE -> "roles"; //$NON-NLS-1$
+            case SUBSYSTEM -> "subsystems"; //$NON-NLS-1$
+            case EXCHANGE_PLAN -> "exchangePlans"; //$NON-NLS-1$
+            case CHART_OF_ACCOUNTS -> "chartsOfAccounts"; //$NON-NLS-1$
+            case CHART_OF_CHARACTERISTIC_TYPES -> "chartsOfCharacteristicTypes"; //$NON-NLS-1$
+            case CHART_OF_CALCULATION_TYPES -> "chartsOfCalculationTypes"; //$NON-NLS-1$
+            case BUSINESS_PROCESS -> "businessProcesses"; //$NON-NLS-1$
+            case TASK -> "tasks"; //$NON-NLS-1$
+            case COMMON_FORM -> "commonForms"; //$NON-NLS-1$
+            case COMMON_COMMAND -> "commonCommands"; //$NON-NLS-1$
+            case COMMON_TEMPLATE -> "commonTemplates"; //$NON-NLS-1$
+            case COMMON_PICTURE -> "commonPictures"; //$NON-NLS-1$
+            case SCHEDULED_JOB -> "scheduledJobs"; //$NON-NLS-1$
+            case FILTER_CRITERION -> "filterCriteria"; //$NON-NLS-1$
+            case DEFINED_TYPE -> "definedTypes"; //$NON-NLS-1$
+            case SEQUENCE -> "sequences"; //$NON-NLS-1$
+            case DOCUMENT_JOURNAL -> "documentJournals"; //$NON-NLS-1$
+            case DOCUMENT_NUMERATOR -> "documentNumerators"; //$NON-NLS-1$
+            case EVENT_SUBSCRIPTION -> "eventSubscriptions"; //$NON-NLS-1$
+            case FUNCTIONAL_OPTION -> "functionalOptions"; //$NON-NLS-1$
+            case FUNCTIONAL_OPTIONS_PARAMETER -> "functionalOptionsParameters"; //$NON-NLS-1$
+            case WEB_SERVICE -> "webServices"; //$NON-NLS-1$
+            case HTTP_SERVICE -> "httpServices"; //$NON-NLS-1$
+            case EXTERNAL_DATA_SOURCE -> "externalDataSources"; //$NON-NLS-1$
+            case INTEGRATION_SERVICE -> "integrationServices"; //$NON-NLS-1$
+            case BOT -> "bots"; //$NON-NLS-1$
+            case WEB_SOCKET_CLIENT -> "webSocketClients"; //$NON-NLS-1$
         };
     }
 
@@ -5744,6 +5882,33 @@ public class EdtMetadataService {
             case REPORT -> removeByName(configuration.getReports(), name);
             case DATA_PROCESSOR -> removeByName(configuration.getDataProcessors(), name);
             case CONSTANT -> removeByName(configuration.getConstants(), name);
+            case ROLE -> removeByName(configuration.getRoles(), name);
+            case SUBSYSTEM -> removeByName(configuration.getSubsystems(), name);
+            case EXCHANGE_PLAN -> removeByName(configuration.getExchangePlans(), name);
+            case CHART_OF_ACCOUNTS -> removeByName(configuration.getChartsOfAccounts(), name);
+            case CHART_OF_CHARACTERISTIC_TYPES -> removeByName(configuration.getChartsOfCharacteristicTypes(), name);
+            case CHART_OF_CALCULATION_TYPES -> removeByName(configuration.getChartsOfCalculationTypes(), name);
+            case BUSINESS_PROCESS -> removeByName(configuration.getBusinessProcesses(), name);
+            case TASK -> removeByName(configuration.getTasks(), name);
+            case COMMON_FORM -> removeByName(configuration.getCommonForms(), name);
+            case COMMON_COMMAND -> removeByName(configuration.getCommonCommands(), name);
+            case COMMON_TEMPLATE -> removeByName(configuration.getCommonTemplates(), name);
+            case COMMON_PICTURE -> removeByName(configuration.getCommonPictures(), name);
+            case SCHEDULED_JOB -> removeByName(configuration.getScheduledJobs(), name);
+            case FILTER_CRITERION -> removeByName(configuration.getFilterCriteria(), name);
+            case DEFINED_TYPE -> removeByName(configuration.getDefinedTypes(), name);
+            case SEQUENCE -> removeByName(configuration.getSequences(), name);
+            case DOCUMENT_JOURNAL -> removeByName(configuration.getDocumentJournals(), name);
+            case DOCUMENT_NUMERATOR -> removeByName(configuration.getDocumentNumerators(), name);
+            case EVENT_SUBSCRIPTION -> removeByName(configuration.getEventSubscriptions(), name);
+            case FUNCTIONAL_OPTION -> removeByName(configuration.getFunctionalOptions(), name);
+            case FUNCTIONAL_OPTIONS_PARAMETER -> removeByName(configuration.getFunctionalOptionsParameters(), name);
+            case WEB_SERVICE -> removeByName(configuration.getWebServices(), name);
+            case HTTP_SERVICE -> removeByName(configuration.getHttpServices(), name);
+            case EXTERNAL_DATA_SOURCE -> removeByName(configuration.getExternalDataSources(), name);
+            case INTEGRATION_SERVICE -> removeByName(configuration.getIntegrationServices(), name);
+            case BOT -> removeByName(configuration.getBots(), name);
+            case WEB_SOCKET_CLIENT -> removeByName(configuration.getWebSocketClients(), name);
         }
     }
 

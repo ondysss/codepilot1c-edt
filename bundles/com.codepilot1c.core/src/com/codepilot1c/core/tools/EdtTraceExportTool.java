@@ -294,6 +294,33 @@ public class EdtTraceExportTool implements ITool {
             case REPORT -> "reports"; //$NON-NLS-1$
             case DATA_PROCESSOR -> "dataProcessors"; //$NON-NLS-1$
             case CONSTANT -> "constants"; //$NON-NLS-1$
+            case ROLE -> "roles"; //$NON-NLS-1$
+            case SUBSYSTEM -> "subsystems"; //$NON-NLS-1$
+            case EXCHANGE_PLAN -> "exchangePlans"; //$NON-NLS-1$
+            case CHART_OF_ACCOUNTS -> "chartsOfAccounts"; //$NON-NLS-1$
+            case CHART_OF_CHARACTERISTIC_TYPES -> "chartsOfCharacteristicTypes"; //$NON-NLS-1$
+            case CHART_OF_CALCULATION_TYPES -> "chartsOfCalculationTypes"; //$NON-NLS-1$
+            case BUSINESS_PROCESS -> "businessProcesses"; //$NON-NLS-1$
+            case TASK -> "tasks"; //$NON-NLS-1$
+            case COMMON_FORM -> "commonForms"; //$NON-NLS-1$
+            case COMMON_COMMAND -> "commonCommands"; //$NON-NLS-1$
+            case COMMON_TEMPLATE -> "commonTemplates"; //$NON-NLS-1$
+            case COMMON_PICTURE -> "commonPictures"; //$NON-NLS-1$
+            case SCHEDULED_JOB -> "scheduledJobs"; //$NON-NLS-1$
+            case FILTER_CRITERION -> "filterCriteria"; //$NON-NLS-1$
+            case DEFINED_TYPE -> "definedTypes"; //$NON-NLS-1$
+            case SEQUENCE -> "sequences"; //$NON-NLS-1$
+            case DOCUMENT_JOURNAL -> "documentJournals"; //$NON-NLS-1$
+            case DOCUMENT_NUMERATOR -> "documentNumerators"; //$NON-NLS-1$
+            case EVENT_SUBSCRIPTION -> "eventSubscriptions"; //$NON-NLS-1$
+            case FUNCTIONAL_OPTION -> "functionalOptions"; //$NON-NLS-1$
+            case FUNCTIONAL_OPTIONS_PARAMETER -> "functionalOptionsParameters"; //$NON-NLS-1$
+            case WEB_SERVICE -> "webServices"; //$NON-NLS-1$
+            case HTTP_SERVICE -> "httpServices"; //$NON-NLS-1$
+            case EXTERNAL_DATA_SOURCE -> "externalDataSources"; //$NON-NLS-1$
+            case INTEGRATION_SERVICE -> "integrationServices"; //$NON-NLS-1$
+            case BOT -> "bots"; //$NON-NLS-1$
+            case WEB_SOCKET_CLIENT -> "webSocketClients"; //$NON-NLS-1$
         };
     }
 
