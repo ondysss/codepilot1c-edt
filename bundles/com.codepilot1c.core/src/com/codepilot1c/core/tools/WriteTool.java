@@ -73,11 +73,11 @@ public class WriteTool implements ITool {
     public String getDescription() {
         return "Записывает содержимое в существующий файл. Путь должен быть " +
                "относительным к workspace (например, 'project/src/Module.bsl'). " +
-               "Создание новых файлов запрещено: сначала создайте объект метаданных через create_metadata/add_metadata_child, " +
-               "после чего редактируйте уже созданные модульные файлы. " +
+               "Создание новых файлов запрещено: для модулей сначала вызовите ensure_module_artifact, " +
+               "после чего редактируйте уже подготовленные модульные файлы. " +
                "⚠️ ЗАПРЕЩЕНО использовать для создания объектов метаданных 1С (.mdo файлов)! " +
                "Для справочников, документов, регистров и др. ОБЯЗАТЕЛЬНО используйте " +
-               "инструменты create_metadata (top-level) и add_metadata_child (вложенные объекты).";
+               "инструменты create_metadata (top-level), create_form (формы) и add_metadata_child (вложенные объекты).";
     }
 
     @Override
@@ -140,11 +140,12 @@ public class WriteTool implements ITool {
             logWarning("[WRITE_FILE] ✗ ЗАБЛОКИРОВАНО: Попытка редактировать .mdo файл напрямую!");
             logWarning("[WRITE_FILE] Путь: " + normalizedPath);
             logWarning("[WRITE_FILE] Размер контента: " + (content != null ? content.length() : 0) + " символов");
-            logWarning("[WRITE_FILE] РЕШЕНИЕ: Используйте create_metadata/add_metadata_child для изменения метаданных");
+            logWarning("[WRITE_FILE] РЕШЕНИЕ: Используйте create_metadata/create_form/add_metadata_child для изменения метаданных");
             logWarning("═══════════════════════════════════════════════════════════════");
             return ToolResult.failure(
                     "❌ ОШИБКА: Нельзя редактировать .mdo файлы метаданных напрямую через write_file!\n\n" +
                     "Используйте инструмент **create_metadata** для создания top-level объектов метаданных.\n" +
+                    "Для форм используйте **create_form**.\n" +
                     "Для табличных частей и реквизитов табличных частей используйте **add_metadata_child**.\n" +
                     "Это необходимо, чтобы изменения проходили через штатный BM API EDT.\n\n" +
                     "Пример: create_metadata(kind=\"Catalog\", name=\"Контрагенты\", synonym=\"Контрагенты\")");
@@ -162,7 +163,8 @@ public class WriteTool implements ITool {
         if (!file.exists()) {
             return ToolResult.failure(
                     "Создание новых файлов через write_file запрещено: " + file.getFullPath() + ". " +
-                    "Используйте create_metadata/add_metadata_child для метаданных и edit_file для редактирования существующих модулей.");
+                    "Используйте ensure_module_artifact для подготовки Module.bsl/ObjectModule.bsl/ManagerModule.bsl, " +
+                    "после чего применяйте edit_file/write_file только к существующему файлу.");
         }
 
         // Write content

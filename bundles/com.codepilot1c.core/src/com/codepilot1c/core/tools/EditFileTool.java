@@ -90,7 +90,7 @@ public class EditFileTool implements ITool {
         return "Edit a file in the workspace. Can replace entire file content " + //$NON-NLS-1$
                "or perform search-and-replace operations in existing files only. " + //$NON-NLS-1$
                "⚠️ НЕ используйте для СОЗДАНИЯ новых объектов метаданных 1С (.mdo файлов)! " + //$NON-NLS-1$
-               "Для top-level используйте create_metadata, для вложенных объектов — add_metadata_child."; //$NON-NLS-1$
+               "Для top-level используйте create_metadata, для форм — create_form, для вложенных объектов — add_metadata_child."; //$NON-NLS-1$
     }
 
     @Override
@@ -135,7 +135,7 @@ public class EditFileTool implements ITool {
                     LOG.warn("edit_file: заблокирована попытка редактирования metadata descriptor: %s", normalizedPath); //$NON-NLS-1$
                     return ToolResult.failure(
                             "❌ Редактирование .mdo файлов через edit_file запрещено.\n" + //$NON-NLS-1$
-                            "Используйте create_metadata (top-level) и add_metadata_child (вложенные объекты)."); //$NON-NLS-1$
+                            "Используйте create_metadata (top-level), create_form (формы) и add_metadata_child (вложенные объекты)."); //$NON-NLS-1$
                 }
 
                 // Find or create file in workspace
@@ -146,7 +146,8 @@ public class EditFileTool implements ITool {
                     return ToolResult.failure(
                             "File not found: " + pathStr + ". " + //$NON-NLS-1$ //$NON-NLS-2$
                             "Creating new files via edit_file is not allowed. " + //$NON-NLS-1$
-                            "Use create_metadata/add_metadata_child for metadata objects and edit existing module files only."); //$NON-NLS-1$
+                            "Use ensure_module_artifact to prepare Module.bsl/ObjectModule.bsl/ManagerModule.bsl first, " + //$NON-NLS-1$
+                            "then edit existing module files only."); //$NON-NLS-1$
                 }
 
                 if (create) {
