@@ -77,6 +77,8 @@ import com.codepilot1c.core.tools.ToolResult;
 public class AgentRunner implements IAgentRunner {
 
     private static final String PLUGIN_ID = "com.codepilot1c.core";
+    private static final String PROP_PROMPT_TELEMETRY_ENABLED =
+            "codepilot1c.prompt.telemetry.enabled"; //$NON-NLS-1$
     private static final ILog LOG = Platform.getLog(AgentRunner.class);
 
     private final ILlmProvider provider;
@@ -140,6 +142,7 @@ public class AgentRunner implements IAgentRunner {
 
         // Reset state for reuse
         resetState();
+        AtomicReference<String> appliedSystemPrompt = new AtomicReference<>(""); //$NON-NLS-1$
 
         // Initialize conversation history
         synchronized (historyLock) {
@@ -151,9 +154,12 @@ public class AgentRunner implements IAgentRunner {
             // Add system prompt if not already present
             if (conversationHistory.isEmpty() || !isSystemMessage(conversationHistory.get(0))) {
                 String fullSystemPrompt = buildSystemPrompt(config);
+                appliedSystemPrompt.set(fullSystemPrompt);
                 if (!fullSystemPrompt.isEmpty()) {
                     conversationHistory.add(0, LlmMessage.system(fullSystemPrompt));
                 }
+            } else {
+                appliedSystemPrompt.set(conversationHistory.get(0).getContent());
             }
 
             // Add user message
@@ -190,6 +196,8 @@ public class AgentRunner implements IAgentRunner {
             if (res != null) {
                 emit(new AgentCompletedEvent(res));
             }
+
+            logPromptTelemetry(config, prompt, appliedSystemPrompt.get(), res, err);
 
             // Reset to IDLE for reuse
             state.set(AgentState.IDLE);
@@ -675,6 +683,66 @@ public class AgentRunner implements IAgentRunner {
 
     private void logWarning(String message, Throwable error) {
         LOG.log(new Status(IStatus.WARNING, PLUGIN_ID, message, error));
+    }
+
+    private void logPromptTelemetry(
+            AgentConfig config,
+            String userPrompt,
+            String appliedSystemPrompt,
+            AgentResult result,
+            Throwable error) {
+        if (!isPromptTelemetryEnabled()) {
+            return;
+        }
+        String profile = config.getProfileName() == null || config.getProfileName().isBlank()
+                ? "default" //$NON-NLS-1$
+                : config.getProfileName();
+        int userChars = userPrompt == null ? 0 : userPrompt.length();
+        int systemChars = appliedSystemPrompt == null ? 0 : appliedSystemPrompt.length();
+
+        String stateLabel;
+        int steps;
+        int toolCalls;
+        long execMs;
+        if (result != null) {
+            stateLabel = result.getFinalState().name();
+            steps = result.getStepsExecuted();
+            toolCalls = result.getToolCallsExecuted();
+            execMs = result.getExecutionTimeMs();
+        } else {
+            stateLabel = AgentState.ERROR.name();
+            steps = currentStep.get();
+            toolCalls = toolCallsCount.get();
+            execMs = Math.max(0L, System.currentTimeMillis() - startTimeMs.get());
+        }
+
+        String errorType = "-"; //$NON-NLS-1$
+        if (error != null) {
+            Throwable root = unwrapException(error);
+            if (root != null) {
+                errorType = root.getClass().getSimpleName();
+            }
+        }
+
+        String message = String.format(
+                "prompt_telemetry profile=%s state=%s steps=%d tool_calls=%d time_ms=%d system_chars=%d user_chars=%d error_type=%s", //$NON-NLS-1$
+                profile,
+                stateLabel,
+                Integer.valueOf(steps),
+                Integer.valueOf(toolCalls),
+                Long.valueOf(execMs),
+                Integer.valueOf(systemChars),
+                Integer.valueOf(userChars),
+                errorType);
+        LOG.log(new Status(IStatus.INFO, PLUGIN_ID, message));
+    }
+
+    private boolean isPromptTelemetryEnabled() {
+        String raw = System.getProperty(PROP_PROMPT_TELEMETRY_ENABLED);
+        if (raw == null || raw.isBlank()) {
+            return true;
+        }
+        return Boolean.parseBoolean(raw.trim());
     }
 
     // --- IAgentRunner implementation ---

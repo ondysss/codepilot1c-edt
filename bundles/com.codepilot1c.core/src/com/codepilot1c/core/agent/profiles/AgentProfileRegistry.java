@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import com.codepilot1c.core.agent.AgentConfig;
+import com.codepilot1c.core.agent.prompts.AgentPromptTemplates;
 
 /**
  * Реестр профилей агентов.
@@ -43,6 +44,7 @@ public class AgentProfileRegistry {
      * Регистрирует профили по умолчанию.
      */
     private void registerDefaultProfiles() {
+        AgentPromptTemplates.runStartupChecks();
         register(new BuildAgentProfile());
         register(new PlanAgentProfile());
         register(new ExploreAgentProfile());
