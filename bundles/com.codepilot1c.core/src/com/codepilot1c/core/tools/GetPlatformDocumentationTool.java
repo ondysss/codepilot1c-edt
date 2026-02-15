@@ -22,10 +22,10 @@ public class GetPlatformDocumentationTool implements ITool {
               "type": "object",
               "properties": {
                 "project": {"type": "string", "description": "Имя EDT проекта"},
-                "type_name": {"type": "string", "description": "Имя/синоним типа платформы (например: DocumentObject). Если не задано, возвращается список кандидатов."},
+                "type_name": {"type": "string", "description": "Имя/синоним типа платформы (например: DocumentObject). Не передавай сюда имя метода/свойства."},
                 "language": {"type": "string", "enum": ["ru", "en"], "description": "Предпочитаемый язык имен"},
                 "member_filter": {"type": "string", "enum": ["all", "methods", "properties"], "description": "Какие элементы вернуть"},
-                "contains": {"type": "string", "description": "Фильтр по имени метода/свойства"},
+                "contains": {"type": "string", "description": "Фильтр по имени метода/свойства (например: ПоказатьВопросПользователю)"},
                 "limit": {"type": "integer", "description": "Лимит элементов на страницу (1..500, default=100)"},
                 "offset": {"type": "integer", "description": "Смещение страницы (>=0)"}
               },

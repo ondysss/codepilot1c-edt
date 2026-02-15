@@ -96,10 +96,18 @@ public class EdtPlatformDocumentationService {
                     List.of());
         }
 
+        if (resolvedType == null && (contains == null || contains.isBlank()) && !query.isBlank()) {
+            // Compatibility fallback: models sometimes pass member name in type_name.
+            // Try to infer owning type by method/property name and reuse the query as member filter.
+            resolvedType = resolveTypeByMemberName(allTypes, query, useRussian);
+            contains = query;
+        }
+
         if (resolvedType == null) {
             throw new PlatformDocumentationException(
                     PlatformDocumentationErrorCode.TYPE_NOT_FOUND,
-                    "Type not found: " + request.typeName(), false); //$NON-NLS-1$
+                    "Type not found: " + request.typeName()
+                            + ". Pass platform type in 'type_name' and method/property in 'contains'.", true); //$NON-NLS-1$
         }
 
         ContextDef context = resolvedType.getContextDef();
@@ -208,6 +216,55 @@ public class EdtPlatformDocumentationService {
                         || normalize(safeFqn(t)).contains(normalizedQuery))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private Type resolveTypeByMemberName(List<Type> types, String memberQuery, boolean useRussian) {
+        if (memberQuery == null || memberQuery.isBlank()) {
+            return null;
+        }
+
+        for (Type type : types) {
+            ContextDef context = type.getContextDef();
+            if (context == null) {
+                continue;
+            }
+            boolean hasExactMethod = context.allMethods().stream()
+                    .anyMatch(m -> memberMatchesExactly(m.getName(), m.getNameRu(), memberQuery, useRussian));
+            boolean hasExactProperty = context.allProperties().stream()
+                    .anyMatch(p -> memberMatchesExactly(p.getName(), p.getNameRu(), memberQuery, useRussian));
+            if (hasExactMethod || hasExactProperty) {
+                return type;
+            }
+        }
+
+        for (Type type : types) {
+            ContextDef context = type.getContextDef();
+            if (context == null) {
+                continue;
+            }
+            boolean hasMethod = context.allMethods().stream()
+                    .anyMatch(m -> memberContains(m.getName(), m.getNameRu(), memberQuery, useRussian));
+            boolean hasProperty = context.allProperties().stream()
+                    .anyMatch(p -> memberContains(p.getName(), p.getNameRu(), memberQuery, useRussian));
+            if (hasMethod || hasProperty) {
+                return type;
+            }
+        }
+        return null;
+    }
+
+    private boolean memberMatchesExactly(String name, String nameRu, String query, boolean useRussian) {
+        String preferred = normalize(resolveMemberName(name, nameRu, useRussian));
+        return preferred.equals(query)
+                || normalize(name).equals(query)
+                || normalize(nameRu).equals(query);
+    }
+
+    private boolean memberContains(String name, String nameRu, String query, boolean useRussian) {
+        String preferred = normalize(resolveMemberName(name, nameRu, useRussian));
+        return contains(preferred, query)
+                || contains(normalize(name), query)
+                || contains(normalize(nameRu), query);
     }
 
     private List<PlatformDocumentationResult.TypeCandidate> buildCandidates(List<Type> allTypes, String normalizedQuery) {
