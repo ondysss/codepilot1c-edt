@@ -19,14 +19,14 @@ import com.codepilot1c.ui.diagnostics.EdtDiagnosticsCollector.DiagnosticsQuery;
 import com.codepilot1c.ui.diagnostics.EdtDiagnosticsCollector.DiagnosticsResult;
 
 /**
- * Tool for getting EDT diagnostics (errors, warnings) for the active editor or a specific file.
+ * Tool for getting EDT diagnostics (errors, warnings) for project, file or active editor.
  *
  * <p>This tool allows the LLM to retrieve compiler/checker diagnostics from 1C EDT,
  * enabling intelligent auto-fix workflows.</p>
  *
  * <p>Example usage by LLM:</p>
  * <ul>
- * <li>"get_diagnostics" → get errors from active editor</li>
+ * <li>"get_diagnostics" → get errors from project</li>
  * <li>"get_diagnostics(severity='warning')" → get errors and warnings</li>
  * <li>"get_diagnostics(path='/Project/Module.bsl')" → get diagnostics for specific file</li>
  * </ul>
@@ -41,16 +41,16 @@ public class GetDiagnosticsTool implements ITool {
                 "properties": {
                     "scope": {
                         "type": "string",
-                        "enum": ["active_editor", "file", "project"],
-                        "description": "Область диагностики: active_editor (по активному редактору), file (по path), project (по project_name)"
+                        "enum": ["project", "file", "active_editor"],
+                        "description": "Область диагностики: project (по project_name или по всем проектам), file (по path), active_editor (по активному редактору)"
                     },
                     "path": {
                         "type": "string",
-                        "description": "Путь к файлу (workspace-relative). Если не указан — используется активный редактор."
+                        "description": "Путь к файлу (workspace-relative) для scope=file"
                     },
                     "project_name": {
                         "type": "string",
-                        "description": "Имя проекта EDT для scope=project"
+                        "description": "Имя проекта EDT для scope=project. Если не указан, будет использован default project или диагностика по workspace"
                     },
                     "severity": {
                         "type": "string",
@@ -81,8 +81,8 @@ public class GetDiagnosticsTool implements ITool {
 
     @Override
     public String getDescription() {
-        return "Получить диагностики EDT (ошибки компиляции, предупреждения) для текущего файла. " + //$NON-NLS-1$
-               "Используй после внесения изменений для проверки корректности кода."; //$NON-NLS-1$
+        return "Получить диагностики EDT (ошибки компиляции, предупреждения) по проекту/файлу. " + //$NON-NLS-1$
+               "По умолчанию анализирует проект и не требует активного редактора."; //$NON-NLS-1$
     }
 
     @Override
@@ -111,17 +111,25 @@ public class GetDiagnosticsTool implements ITool {
         Severity minSeverity = parseSeverity(severityStr);
 
         DiagnosticsQuery query = new DiagnosticsQuery(minSeverity, maxItems, true, waitMs, includeRuntimeMarkers);
+        EdtDiagnosticsCollector collector = EdtDiagnosticsCollector.getInstance();
 
         String normalizedScope = normalizeScope(scope, path, projectName);
+        boolean collectWorkspaceDiagnostics = false;
+        if ("project".equals(normalizedScope) && (projectName == null || projectName.isBlank())) { //$NON-NLS-1$
+            projectName = collector.resolveDefaultProjectName();
+            if (projectName == null || projectName.isBlank()) {
+                collectWorkspaceDiagnostics = true;
+            }
+        }
         LOG.debug("get_diagnostics: scope=%s, project=%s, path=%s, severity=%s, max=%d, wait=%d, runtime=%s", //$NON-NLS-1$
                 normalizedScope, projectName, path, minSeverity, maxItems, waitMs, includeRuntimeMarkers);
-
-        EdtDiagnosticsCollector collector = EdtDiagnosticsCollector.getInstance();
 
         CompletableFuture<DiagnosticsResult> resultFuture;
 
         resultFuture = switch (normalizedScope) {
-            case "project" -> collector.collectFromProject(projectName, query); //$NON-NLS-1$
+            case "project" -> collectWorkspaceDiagnostics
+                    ? collector.collectFromWorkspace(query)
+                    : collector.collectFromProject(projectName, query); //$NON-NLS-1$
             case "file" -> collector.collectFromFile(path, query); //$NON-NLS-1$
             default -> collector.collectFromActiveEditor(query);
         };
@@ -178,21 +186,15 @@ public class GetDiagnosticsTool implements ITool {
         if (scope != null && !scope.isBlank()) {
             String normalized = scope.trim().toLowerCase();
             if ("project".equals(normalized) || "file".equals(normalized) || "active_editor".equals(normalized)) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                if ("project".equals(normalized) && (projectName == null || projectName.isBlank())) { //$NON-NLS-1$
-                    return "active_editor"; //$NON-NLS-1$
-                }
                 if ("file".equals(normalized) && (path == null || path.isBlank())) { //$NON-NLS-1$
-                    return "active_editor"; //$NON-NLS-1$
+                    return "project"; //$NON-NLS-1$
                 }
                 return normalized;
             }
         }
-        if (projectName != null && !projectName.isBlank()) {
-            return "project"; //$NON-NLS-1$
-        }
         if (path != null && !path.isBlank()) {
             return "file"; //$NON-NLS-1$
         }
-        return "active_editor"; //$NON-NLS-1$
+        return "project"; //$NON-NLS-1$
     }
 }

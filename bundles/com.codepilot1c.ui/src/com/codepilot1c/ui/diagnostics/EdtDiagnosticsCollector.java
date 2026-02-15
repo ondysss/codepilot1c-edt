@@ -8,6 +8,7 @@
 package com.codepilot1c.ui.diagnostics;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -48,6 +49,7 @@ import com._1c.g5.v8.dt.validation.marker.IMarkerManager;
 import com._1c.g5.v8.dt.validation.marker.Marker;
 import com._1c.g5.v8.dt.validation.marker.MarkerFilter;
 import com._1c.g5.v8.dt.validation.marker.MarkerSeverity;
+import com.e1c.g5.dt.applications.IApplicationManager;
 import com.e1c.g5.v8.dt.check.settings.CheckUid;
 import com.e1c.g5.v8.dt.check.settings.ICheckDescription;
 import com.e1c.g5.v8.dt.check.settings.ICheckRepository;
@@ -351,6 +353,131 @@ public class EdtDiagnosticsCollector {
         });
     }
 
+    /**
+     * Collects diagnostics across workspace projects when a single target project
+     * cannot be resolved.
+     *
+     * @param query collection parameters
+     * @return future with diagnostics result
+     */
+    public CompletableFuture<DiagnosticsResult> collectFromWorkspace(DiagnosticsQuery query) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (query.waitMs() > 0) {
+                    try {
+                        Thread.sleep(query.waitMs());
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+
+                List<IProject> projects = resolveDiagnosticsProjects();
+                if (projects.isEmpty()) {
+                    return new DiagnosticsResult("/workspace", false, List.of(), 0, 0, 0); //$NON-NLS-1$
+                }
+
+                List<EdtDiagnostic> diagnostics = new ArrayList<>();
+                Set<String> seen = new HashSet<>();
+
+                for (IProject project : projects) {
+                    collectWorkspaceProjectMarkers(project, query, diagnostics, seen);
+                    if (query.includeRuntimeMarkers()) {
+                        collectRuntimeProjectMarkers(project, query, diagnostics, seen);
+                    }
+                }
+
+                diagnostics.sort(Comparator
+                        .comparing((EdtDiagnostic d) -> d.severity().getLevel()).reversed()
+                        .thenComparing(EdtDiagnostic::filePath, Comparator.nullsLast(String::compareTo))
+                        .thenComparing(EdtDiagnostic::lineNumber));
+
+                int maxItems = Math.max(1, query.maxItems());
+                if (diagnostics.size() > maxItems) {
+                    diagnostics = new ArrayList<>(diagnostics.subList(0, maxItems));
+                }
+
+                int errors = (int) diagnostics.stream().filter(d -> d.severity() == Severity.ERROR).count();
+                int warnings = (int) diagnostics.stream().filter(d -> d.severity() == Severity.WARNING).count();
+                int infos = diagnostics.size() - errors - warnings;
+
+                return new DiagnosticsResult("/workspace", false, diagnostics, errors, warnings, infos); //$NON-NLS-1$
+            } catch (Exception e) {
+                LOG.error("Error collecting diagnostics for workspace: %s", e.getMessage()); //$NON-NLS-1$
+                return new DiagnosticsResult("/workspace", false, List.of(), 0, 0, 0); //$NON-NLS-1$
+            }
+        });
+    }
+
+    /**
+     * Resolves a default project suitable for diagnostics. Returns {@code null}
+     * when project cannot be determined unambiguously.
+     *
+     * @return project name or {@code null}
+     */
+    public String resolveDefaultProjectName() {
+        IApplicationManager applicationManager = getApplicationManager();
+        if (applicationManager != null) {
+            try {
+                var defaultProject = applicationManager.getDefaultProject();
+                if (defaultProject.isPresent() && isAccessibleProject(defaultProject.get())) {
+                    return defaultProject.get().getName();
+                }
+            } catch (Exception e) {
+                LOG.warn("Unable to resolve default EDT project from application manager: %s", e.getMessage()); //$NON-NLS-1$
+            }
+        }
+
+        List<IProject> projects = resolveDiagnosticsProjects();
+        return projects.size() == 1 ? projects.get(0).getName() : null;
+    }
+
+    private List<IProject> resolveDiagnosticsProjects() {
+        IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
+        List<IProject> openProjects = Arrays.stream(root.getProjects())
+                .filter(this::isAccessibleProject)
+                .sorted(Comparator.comparing(IProject::getName, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+        if (openProjects.isEmpty()) {
+            return List.of();
+        }
+
+        IApplicationManager applicationManager = getApplicationManager();
+        if (applicationManager != null) {
+            List<IProject> applicationProjects = new ArrayList<>();
+            for (IProject project : openProjects) {
+                try {
+                    if (!applicationManager.getApplications(project).isEmpty()) {
+                        applicationProjects.add(project);
+                    }
+                } catch (Exception e) {
+                    LOG.debug("Application probing failed for project %s: %s", //$NON-NLS-1$
+                            project.getName(), e.getMessage());
+                }
+            }
+            if (!applicationProjects.isEmpty()) {
+                return applicationProjects;
+            }
+        }
+
+        List<IProject> edtLayoutProjects = openProjects.stream()
+                .filter(this::looksLikeEdtProject)
+                .toList();
+        if (!edtLayoutProjects.isEmpty()) {
+            return edtLayoutProjects;
+        }
+
+        return openProjects;
+    }
+
+    private boolean isAccessibleProject(IProject project) {
+        return project != null && project.exists() && project.isAccessible();
+    }
+
+    private boolean looksLikeEdtProject(IProject project) {
+        return project.getFile("src/Configuration/Configuration.mdo").exists() //$NON-NLS-1$
+                || project.getFile("Configuration/Configuration.mdo").exists(); //$NON-NLS-1$
+    }
+
     private void collectFromMarkers(
             IFile file,
             String filePath,
@@ -646,6 +773,11 @@ public class EdtDiagnosticsCollector {
     private ICheckRepository getCheckRepository() {
         VibeCorePlugin plugin = VibeCorePlugin.getDefault();
         return plugin != null ? plugin.getCheckRepository() : null;
+    }
+
+    private IApplicationManager getApplicationManager() {
+        VibeCorePlugin plugin = VibeCorePlugin.getDefault();
+        return plugin != null ? plugin.getApplicationManager() : null;
     }
 
     private String safeString(String value) {
