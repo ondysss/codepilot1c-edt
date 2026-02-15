@@ -9,15 +9,19 @@ package com.codepilot1c.ui.diagnostics;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Stream;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IMarker;
+import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.resources.ResourcesPlugin;
@@ -40,7 +44,15 @@ import org.eclipse.ui.texteditor.IDocumentProvider;
 import org.eclipse.ui.texteditor.ITextEditor;
 import org.eclipse.ui.texteditor.MarkerAnnotation;
 
+import com._1c.g5.v8.dt.validation.marker.IMarkerManager;
+import com._1c.g5.v8.dt.validation.marker.Marker;
+import com._1c.g5.v8.dt.validation.marker.MarkerFilter;
+import com._1c.g5.v8.dt.validation.marker.MarkerSeverity;
+import com.e1c.g5.v8.dt.check.settings.CheckUid;
+import com.e1c.g5.v8.dt.check.settings.ICheckDescription;
+import com.e1c.g5.v8.dt.check.settings.ICheckRepository;
 import com.codepilot1c.core.logging.VibeLogger;
+import com.codepilot1c.core.internal.VibeCorePlugin;
 import com.codepilot1c.ui.diagnostics.EdtDiagnostic.Severity;
 
 /**
@@ -82,14 +94,15 @@ public class EdtDiagnosticsCollector {
             Severity minSeverity,
             int maxItems,
             boolean includeSnippets,
-            long waitMs) {
+            long waitMs,
+            boolean includeRuntimeMarkers) {
 
         public static DiagnosticsQuery defaults() {
-            return new DiagnosticsQuery(Severity.ERROR, DEFAULT_MAX_ITEMS, true, 0);
+            return new DiagnosticsQuery(Severity.ERROR, DEFAULT_MAX_ITEMS, true, 0, true);
         }
 
         public static DiagnosticsQuery withSeverity(Severity minSeverity) {
-            return new DiagnosticsQuery(minSeverity, DEFAULT_MAX_ITEMS, true, 0);
+            return new DiagnosticsQuery(minSeverity, DEFAULT_MAX_ITEMS, true, 0, true);
         }
     }
 
@@ -279,6 +292,65 @@ public class EdtDiagnosticsCollector {
         });
     }
 
+    /**
+     * Collects diagnostics for the whole project.
+     *
+     * @param projectName workspace project name
+     * @param query collection parameters
+     * @return future with diagnostics result
+     */
+    public CompletableFuture<DiagnosticsResult> collectFromProject(String projectName, DiagnosticsQuery query) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (query.waitMs() > 0) {
+                    try {
+                        Thread.sleep(query.waitMs());
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+
+                if (projectName == null || projectName.isBlank()) {
+                    return new DiagnosticsResult("проект не указан", false, List.of(), 0, 0, 0); //$NON-NLS-1$
+                }
+
+                IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
+                IProject project = root.getProject(projectName);
+                if (project == null || !project.exists()) {
+                    return new DiagnosticsResult("/" + projectName, false, List.of(), 0, 0, 0); //$NON-NLS-1$
+                }
+
+                List<EdtDiagnostic> diagnostics = new ArrayList<>();
+                Set<String> seen = new HashSet<>();
+
+                collectWorkspaceProjectMarkers(project, query, diagnostics, seen);
+                if (query.includeRuntimeMarkers()) {
+                    collectRuntimeProjectMarkers(project, query, diagnostics, seen);
+                }
+
+                diagnostics.sort(Comparator
+                        .comparing((EdtDiagnostic d) -> d.severity().getLevel()).reversed()
+                        .thenComparing(EdtDiagnostic::filePath, Comparator.nullsLast(String::compareTo))
+                        .thenComparing(EdtDiagnostic::lineNumber));
+
+                int maxItems = Math.max(1, query.maxItems());
+                if (diagnostics.size() > maxItems) {
+                    diagnostics = new ArrayList<>(diagnostics.subList(0, maxItems));
+                }
+
+                int errors = (int) diagnostics.stream().filter(d -> d.severity() == Severity.ERROR).count();
+                int warnings = (int) diagnostics.stream().filter(d -> d.severity() == Severity.WARNING).count();
+                int infos = diagnostics.size() - errors - warnings;
+
+                return new DiagnosticsResult("/" + projectName, false, diagnostics, errors, warnings, infos); //$NON-NLS-1$
+
+            } catch (Exception e) {
+                LOG.error("Error collecting diagnostics for project %s: %s", projectName, e.getMessage()); //$NON-NLS-1$
+                return new DiagnosticsResult("/" + projectName, false, List.of(), 0, 0, 0); //$NON-NLS-1$
+            }
+        });
+    }
+
     private void collectFromMarkers(
             IFile file,
             String filePath,
@@ -326,6 +398,115 @@ public class EdtDiagnosticsCollector {
             }
         } catch (CoreException e) {
             LOG.error("Error finding markers: %s", e.getMessage()); //$NON-NLS-1$
+        }
+    }
+
+    private void collectWorkspaceProjectMarkers(
+            IProject project,
+            DiagnosticsQuery query,
+            List<EdtDiagnostic> diagnostics,
+            Set<String> seen) {
+
+        try {
+            IMarker[] markers = project.findMarkers(null, true, IResource.DEPTH_INFINITE);
+            LOG.debug("Found %d workspace markers for project %s", markers.length, project.getName()); //$NON-NLS-1$
+
+            int preLimit = Math.max(1, query.maxItems()) * 5;
+            int count = 0;
+            for (IMarker marker : markers) {
+                if (count >= preLimit) {
+                    break;
+                }
+
+                int severity = marker.getAttribute(IMarker.SEVERITY, -1);
+                Severity sev = Severity.fromMarkerSeverity(severity);
+                if (sev.getLevel() < query.minSeverity().getLevel()) {
+                    continue;
+                }
+
+                String message = String.valueOf(marker.getAttribute(IMarker.MESSAGE, "")); //$NON-NLS-1$
+                if (message.isBlank()) {
+                    continue;
+                }
+
+                int line = marker.getAttribute(IMarker.LINE_NUMBER, -1);
+                int charStart = marker.getAttribute(IMarker.CHAR_START, -1);
+                int charEnd = marker.getAttribute(IMarker.CHAR_END, -1);
+                String markerType = safeGetMarkerType(marker);
+                String markerPath = marker.getResource() != null
+                        ? marker.getResource().getFullPath().toString()
+                        : project.getFullPath().toString();
+
+                String key = markerPath + ":" + line + ":" + charStart + ":" + message; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                if (!seen.add(key)) {
+                    continue;
+                }
+
+                diagnostics.add(EdtDiagnostic.fromMarker(
+                        markerPath, line, charStart, charEnd, message, severity, markerType, null));
+                count++;
+            }
+        } catch (CoreException e) {
+            LOG.error("Error collecting project markers for %s: %s", project.getName(), e.getMessage()); //$NON-NLS-1$
+        }
+    }
+
+    private void collectRuntimeProjectMarkers(
+            IProject project,
+            DiagnosticsQuery query,
+            List<EdtDiagnostic> diagnostics,
+            Set<String> seen) {
+
+        IMarkerManager markerManager = getMarkerManager();
+        if (markerManager == null) {
+            return;
+        }
+
+        Map<String, CheckMetadata> checkMetadata = loadCheckMetadata();
+        MarkerFilter projectFilter = MarkerFilter.createProjectFilter(project);
+
+        try (Stream<Marker> stream = markerManager.markers(projectFilter)) {
+            int preLimit = Math.max(1, query.maxItems()) * 5;
+            stream.limit(preLimit).forEach(marker -> {
+                Severity sev = fromRuntimeSeverity(marker.getSeverity());
+                if (sev.getLevel() < query.minSeverity().getLevel()) {
+                    return;
+                }
+
+                String message = safeString(marker.getMessage());
+                if (message.isBlank()) {
+                    return;
+                }
+
+                String checkId = safeString(marker.getCheckId());
+                CheckMetadata meta = checkMetadata.get(checkId);
+                String markerPath = marker.getProject() != null
+                        ? marker.getProject().getFullPath().toString()
+                        : project.getFullPath().toString();
+                String location = safeString(marker.getLocation());
+                String objectPresentation = safeString(marker.getObjectPresentation());
+
+                String key = markerPath + ":" + checkId + ":" + message + ":" + location + ":" + objectPresentation; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                if (!seen.add(key)) {
+                    return;
+                }
+
+                diagnostics.add(EdtDiagnostic.fromRuntimeMarker(
+                        markerPath,
+                        message,
+                        sev,
+                        safeString(marker.getSourceType()),
+                        checkId,
+                        meta != null ? meta.title() : null,
+                        meta != null ? meta.description() : null,
+                        meta != null ? meta.issueType() : null,
+                        meta != null ? meta.issueSeverity() : null,
+                        objectPresentation,
+                        location));
+            });
+        } catch (Exception e) {
+            LOG.warn("Runtime marker manager diagnostics unavailable for %s: %s", //$NON-NLS-1$
+                    project.getName(), e.getMessage());
         }
     }
 
@@ -414,6 +595,63 @@ public class EdtDiagnosticsCollector {
         return Severity.INFO;
     }
 
+    private Severity fromRuntimeSeverity(MarkerSeverity severity) {
+        if (severity == null) {
+            return Severity.INFO;
+        }
+        return switch (severity) {
+            case BLOCKER, CRITICAL, ERRORS, MAJOR -> Severity.ERROR;
+            case MINOR -> Severity.WARNING;
+            case TRIVIAL, NONE -> Severity.INFO;
+        };
+    }
+
+    private Map<String, CheckMetadata> loadCheckMetadata() {
+        ICheckRepository repository = getCheckRepository();
+        if (repository == null) {
+            return Map.of();
+        }
+
+        try {
+            Map<String, CheckMetadata> byCheckId = new HashMap<>();
+            Map<CheckUid, ICheckDescription> descriptions = repository.getChecksWithDescriptions();
+            for (Map.Entry<CheckUid, ICheckDescription> entry : descriptions.entrySet()) {
+                CheckUid uid = entry.getKey();
+                ICheckDescription description = entry.getValue();
+                if (uid == null || description == null) {
+                    continue;
+                }
+                String checkId = safeString(uid.getCheckId());
+                if (checkId.isBlank() || byCheckId.containsKey(checkId)) {
+                    continue;
+                }
+                byCheckId.put(checkId, new CheckMetadata(
+                        safeString(description.getTitle()),
+                        safeString(description.getDescription()),
+                        description.getType() != null ? description.getType().name() : null,
+                        description.getSeverity() != null ? description.getSeverity().name() : null));
+            }
+            return byCheckId;
+        } catch (Exception e) {
+            LOG.warn("Check repository metadata unavailable: %s", e.getMessage()); //$NON-NLS-1$
+            return Map.of();
+        }
+    }
+
+    private IMarkerManager getMarkerManager() {
+        VibeCorePlugin plugin = VibeCorePlugin.getDefault();
+        return plugin != null ? plugin.getMarkerManager() : null;
+    }
+
+    private ICheckRepository getCheckRepository() {
+        VibeCorePlugin plugin = VibeCorePlugin.getDefault();
+        return plugin != null ? plugin.getCheckRepository() : null;
+    }
+
+    private String safeString(String value) {
+        return value != null ? value : ""; //$NON-NLS-1$
+    }
+
     private ITextEditor getActiveTextEditor() {
         IWorkbenchWindow window = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
         if (window == null) return null;
@@ -470,5 +708,12 @@ public class EdtDiagnosticsCollector {
         } catch (BadLocationException e) {
             return null;
         }
+    }
+
+    private record CheckMetadata(
+            String title,
+            String description,
+            String issueType,
+            String issueSeverity) {
     }
 }

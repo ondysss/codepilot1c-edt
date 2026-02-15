@@ -19,7 +19,14 @@ public record EdtDiagnostic(
         Severity severity,
         String markerType,
         String source,
-        String codeSnippet) {
+        String codeSnippet,
+        String checkId,
+        String checkTitle,
+        String checkDescription,
+        String issueType,
+        String issueSeverity,
+        String objectPresentation,
+        String locationText) {
 
     /**
      * Diagnostic severity level.
@@ -72,7 +79,14 @@ public record EdtDiagnostic(
                 Severity.fromMarkerSeverity(markerSeverity),
                 markerType,
                 "marker", //$NON-NLS-1$
-                codeSnippet);
+                codeSnippet,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
     }
 
     /**
@@ -96,7 +110,48 @@ public record EdtDiagnostic(
                 severity,
                 annotationType,
                 "annotation", //$NON-NLS-1$
-                codeSnippet);
+                codeSnippet,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    /**
+     * Creates a diagnostic from EDT runtime marker manager data.
+     */
+    public static EdtDiagnostic fromRuntimeMarker(
+            String filePath,
+            String message,
+            Severity severity,
+            String markerType,
+            String checkId,
+            String checkTitle,
+            String checkDescription,
+            String issueType,
+            String issueSeverity,
+            String objectPresentation,
+            String locationText) {
+        return new EdtDiagnostic(
+                filePath,
+                -1,
+                -1,
+                -1,
+                message,
+                severity,
+                markerType,
+                "marker_manager", //$NON-NLS-1$
+                null,
+                checkId,
+                checkTitle,
+                checkDescription,
+                issueType,
+                issueSeverity,
+                objectPresentation,
+                locationText);
     }
 
     /**
@@ -105,10 +160,35 @@ public record EdtDiagnostic(
     public String formatForLlm() {
         StringBuilder sb = new StringBuilder();
         sb.append("- **").append(severity.name()).append("** строка ").append(lineNumber); //$NON-NLS-1$ //$NON-NLS-2$
-        if (charStart >= 0 && charEnd >= 0) {
+        if (lineNumber < 0) {
+            sb.setLength(0);
+            sb.append("- **").append(severity.name()).append("**"); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if (charStart >= 0 && charEnd >= 0 && lineNumber >= 0) {
             sb.append(" (позиция ").append(charStart).append("-").append(charEnd).append(")"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         }
         sb.append(": ").append(message); //$NON-NLS-1$
+        if (checkId != null && !checkId.isBlank()) {
+            sb.append("\n  check_id: ").append(checkId); //$NON-NLS-1$
+        }
+        if (checkTitle != null && !checkTitle.isBlank()) {
+            sb.append("\n  check: ").append(checkTitle); //$NON-NLS-1$
+        }
+        if (issueType != null && !issueType.isBlank()) {
+            sb.append("\n  issue_type: ").append(issueType); //$NON-NLS-1$
+        }
+        if (issueSeverity != null && !issueSeverity.isBlank()) {
+            sb.append("\n  issue_severity: ").append(issueSeverity); //$NON-NLS-1$
+        }
+        if (locationText != null && !locationText.isBlank()) {
+            sb.append("\n  location: ").append(locationText); //$NON-NLS-1$
+        }
+        if (objectPresentation != null && !objectPresentation.isBlank()) {
+            sb.append("\n  object: ").append(objectPresentation); //$NON-NLS-1$
+        }
+        if (checkDescription != null && !checkDescription.isBlank()) {
+            sb.append("\n  details: ").append(checkDescription); //$NON-NLS-1$
+        }
         if (codeSnippet != null && !codeSnippet.isBlank()) {
             sb.append("\n  ```\n  ").append(codeSnippet.trim()).append("\n  ```"); //$NON-NLS-1$ //$NON-NLS-2$
         }

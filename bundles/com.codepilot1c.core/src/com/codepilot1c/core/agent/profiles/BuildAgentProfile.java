@@ -47,11 +47,13 @@ public class BuildAgentProfile implements AgentProfile {
             "grep",
             "list_files",
             "search_codebase",
+            "get_diagnostics",
             "edt_content_assist",
             "edt_find_references",
             "edt_metadata_details",
+            "scan_metadata_index",
             "edt_field_type_candidates",
-            "get_platform_documentation",
+            "inspect_platform_reference",
             "bsl_symbol_at_position",
             "bsl_type_at_position",
             "bsl_scope_members",
@@ -98,11 +100,13 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("grep").forAllResources(),
                 PermissionRule.allow("list_files").forAllResources(),
                 PermissionRule.allow("search_codebase").forAllResources(),
+                PermissionRule.allow("get_diagnostics").forAllResources(),
                 PermissionRule.allow("edt_content_assist").forAllResources(),
                 PermissionRule.allow("edt_find_references").forAllResources(),
                 PermissionRule.allow("edt_metadata_details").forAllResources(),
+                PermissionRule.allow("scan_metadata_index").forAllResources(),
                 PermissionRule.allow("edt_field_type_candidates").forAllResources(),
-                PermissionRule.allow("get_platform_documentation").forAllResources(),
+                PermissionRule.allow("inspect_platform_reference").forAllResources(),
                 PermissionRule.allow("bsl_symbol_at_position").forAllResources(),
                 PermissionRule.allow("bsl_type_at_position").forAllResources(),
                 PermissionRule.allow("bsl_scope_members").forAllResources(),
@@ -160,15 +164,15 @@ public class BuildAgentProfile implements AgentProfile {
 
                 ## Доступные инструменты:
                 - Файлы: read_file, edit_file, write_file, glob, grep
-                - EDT AST API: edt_content_assist, edt_find_references, edt_metadata_details
+                - EDT AST API: edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, get_diagnostics
                 - EDT type provider: edt_field_type_candidates (допустимые типы для поля метаданных)
-                - EDT-метаданные: get_platform_documentation, edt_validate_request, create_metadata, create_form, add_metadata_child, ensure_module_artifact, update_metadata, delete_metadata, edt_trace_export
+                - EDT-метаданные: inspect_platform_reference, edt_validate_request, create_metadata, create_form, add_metadata_child, ensure_module_artifact, update_metadata, delete_metadata, edt_trace_export
                 - EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members
                 - Диагностика метаданных: edt_metadata_smoke (регрессионный smoke-прогон)
                 - Документация платформы: перед использованием незнакомых методов/свойств 1С
-                  сначала вызывай get_platform_documentation и опирайся на его ответ.
+                  сначала вызывай inspect_platform_reference и опирайся на его ответ.
                   Не придумывай API платформы без подтверждения из EDT runtime.
-                  Важно: в get_platform_documentation передавай type_name=тип платформы
+                  Важно: в inspect_platform_reference передавай type_name=тип платформы
                   (например DocumentObject), а искомый метод/свойство передавай в contains.
 
                 ## Политика изменения метаданных (обязательно):
@@ -209,6 +213,8 @@ public class BuildAgentProfile implements AgentProfile {
                 11. Если пользователь просит "проверь и исправь типы реквизитов", сначала прочитай текущие
                     метаданные через edt_metadata_details/get_diagnostics, затем отправь update_metadata c children_ops
                     только для реквизитов без типа или с неверным типом, и в конце повторно проверь диагностику.
+                12. После любых изменений BSL/метаданных, перед финальным ответом всегда вызывай get_diagnostics
+                    (для файла: scope=file, для полной проверки: scope=project) и явно сообщай результат.
 
                 """;
         return PromptProviderRegistry.getInstance().getSystemPromptAddition(getId(), defaultPrompt);
