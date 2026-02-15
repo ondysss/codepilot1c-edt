@@ -50,6 +50,7 @@ public class BuildAgentProfile implements AgentProfile {
             "edt_content_assist",
             "edt_find_references",
             "edt_metadata_details",
+            "edt_field_type_candidates",
             "get_platform_documentation",
             "bsl_symbol_at_position",
             "bsl_type_at_position",
@@ -100,6 +101,7 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("edt_content_assist").forAllResources(),
                 PermissionRule.allow("edt_find_references").forAllResources(),
                 PermissionRule.allow("edt_metadata_details").forAllResources(),
+                PermissionRule.allow("edt_field_type_candidates").forAllResources(),
                 PermissionRule.allow("get_platform_documentation").forAllResources(),
                 PermissionRule.allow("bsl_symbol_at_position").forAllResources(),
                 PermissionRule.allow("bsl_type_at_position").forAllResources(),
@@ -159,6 +161,7 @@ public class BuildAgentProfile implements AgentProfile {
                 ## Доступные инструменты:
                 - Файлы: read_file, edit_file, write_file, glob, grep
                 - EDT AST API: edt_content_assist, edt_find_references, edt_metadata_details
+                - EDT type provider: edt_field_type_candidates (допустимые типы для поля метаданных)
                 - EDT-метаданные: get_platform_documentation, edt_validate_request, create_metadata, create_form, add_metadata_child, ensure_module_artifact, update_metadata, delete_metadata, edt_trace_export
                 - EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members
                 - Диагностика метаданных: edt_metadata_smoke (регрессионный smoke-прогон)
@@ -181,17 +184,31 @@ public class BuildAgentProfile implements AgentProfile {
                 6. Для update_metadata: используй для изменения свойств существующих объектов
                    (name, synonym, comment, type). Для установки типа реквизита передавай строку типа
                    (например CatalogRef.Номенклатура, Number, String, Date).
+                   Важно: не передавай set.attributes/set.tabularSections для изменения существующих реквизитов.
+                   Для изменения типов существующих реквизитов используй changes.children_ops с op=update,
+                   child_fqn=<...Attribute.<ИмяРеквизита>> и set.type.
+                   Допустимый формат set.type: {"type":"String","stringQualifiers":{"length":100}}
+                   или {"types":["String"],"stringQualifiers":{"length":100}}.
+                   Для примитивных типов (String/Number/Date/Boolean) сначала вызывай
+                   edt_field_type_candidates для конкретного реквизита и используй code/codeRu
+                   из кандидата как source of truth. Если примитив не применился, не подменяй
+                   его ссылочным типом (CatalogRef/DocumentRef/...): верни ошибку и причину.
                 7. Для delete_metadata: при удалении вложенных объектов учитывай recursive=true,
                    если у объекта есть дочерние элементы; сначала оцени риск удаления в ответе.
                 8. Для форм предпочтительно используй create_form:
                    указывай usage (OBJECT/LIST/CHOICE/AUXILIARY) и set_as_default при необходимости.
                    add_metadata_child(child_kind=Form) оставлен для обратной совместимости.
+                   Для Catalog при usage=OBJECT используй имя формы "ФормаЭлемента",
+                   а не "ФормаОбъекта"; для Document при usage=OBJECT — "ФормаДокумента".
                 9. Перед редактированием модулей BSL объекта метаданных
                    всегда сначала вызывай ensure_module_artifact с create_if_missing=true.
                    Используй путь из ответа ensure_module_artifact для edit_file/write_file.
                    Не пытайся создавать Module.bsl/ObjectModule.bsl/ManagerModule.bsl напрямую через write_file.
                 10. Для форм в текущем EDT-формате отдельный Form.form/Module.bsl не используется:
                     данные формы хранятся в owner .mdo. Не вызывай ensure_module_artifact для Form FQN.
+                11. Если пользователь просит "проверь и исправь типы реквизитов", сначала прочитай текущие
+                    метаданные через edt_metadata_details/get_diagnostics, затем отправь update_metadata c children_ops
+                    только для реквизитов без типа или с неверным типом, и в конце повторно проверь диагностику.
 
                 """;
         return PromptProviderRegistry.getInstance().getSystemPromptAddition(getId(), defaultPrompt);

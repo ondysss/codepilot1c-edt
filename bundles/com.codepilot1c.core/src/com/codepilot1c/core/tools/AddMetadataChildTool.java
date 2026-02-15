@@ -1,6 +1,7 @@
 package com.codepilot1c.core.tools;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -49,6 +50,23 @@ public class AddMetadataChildTool implements ITool {
                 "comment": {
                   "type": "string",
                   "description": "Комментарий"
+                },
+                "form_usage": {
+                  "type": "string",
+                  "enum": ["OBJECT", "LIST", "CHOICE", "AUXILIARY", "object", "list", "choice", "auxiliary"],
+                  "description": "Роль формы (используется при child_kind=Form)"
+                },
+                "managed": {
+                  "type": "boolean",
+                  "description": "Тип формы (MVP: только true)"
+                },
+                "set_as_default": {
+                  "type": "boolean",
+                  "description": "Назначить форму default для owner по form_usage"
+                },
+                "wait_ms": {
+                  "type": "integer",
+                  "description": "Таймаут ожидания материализации формы в файлы"
                 },
                 "properties": {
                   "type": "object",
@@ -116,10 +134,11 @@ public class AddMetadataChildTool implements ITool {
                 String synonym = getOptionalString(parameters, "synonym"); //$NON-NLS-1$
                 String comment = getOptionalString(parameters, "comment"); //$NON-NLS-1$
                 Map<String, Object> properties = parameterMap(parameters.get("properties")); //$NON-NLS-1$
+                Map<String, Object> normalizedProperties = mergeFormOptions(properties, parameters, childKindValue);
                 String validationToken = getString(parameters, "validation_token"); //$NON-NLS-1$
 
                 Map<String, Object> normalizedPayload = validationService.normalizeAddChildPayload(
-                        projectName, parentFqn, childKindValue, name, synonym, comment, properties);
+                        projectName, parentFqn, childKindValue, name, synonym, comment, normalizedProperties);
                 LOG.debug("[%s] Normalized payload: %s", opId, // $NON-NLS-1$
                         LogSanitizer.truncate(LogSanitizer.redactSecrets(String.valueOf(normalizedPayload)), 4000));
                 Map<String, Object> validatedPayload = validationService.consumeToken(
@@ -192,5 +211,34 @@ public class AddMetadataChildTool implements ITool {
             return (Map<String, Object>) map;
         }
         return Collections.emptyMap();
+    }
+
+    private Map<String, Object> mergeFormOptions(
+            Map<String, Object> baseProperties,
+            Map<String, Object> parameters,
+            String childKindValue
+    ) {
+        if (!"form".equalsIgnoreCase(String.valueOf(childKindValue))) { //$NON-NLS-1$
+            return baseProperties;
+        }
+        Map<String, Object> merged = new LinkedHashMap<>();
+        if (baseProperties != null && !baseProperties.isEmpty()) {
+            merged.putAll(baseProperties);
+        }
+        putIfPresent(merged, "form_usage", parameters.get("form_usage")); //$NON-NLS-1$ //$NON-NLS-2$
+        putIfPresent(merged, "managed", parameters.get("managed")); //$NON-NLS-1$ //$NON-NLS-2$
+        putIfPresent(merged, "set_as_default", parameters.get("set_as_default")); //$NON-NLS-1$ //$NON-NLS-2$
+        putIfPresent(merged, "wait_ms", parameters.get("wait_ms")); //$NON-NLS-1$ //$NON-NLS-2$
+        return merged;
+    }
+
+    private void putIfPresent(Map<String, Object> target, String key, Object value) {
+        if (value == null) {
+            return;
+        }
+        if (value instanceof String text && text.isBlank()) {
+            return;
+        }
+        target.put(key, value);
     }
 }

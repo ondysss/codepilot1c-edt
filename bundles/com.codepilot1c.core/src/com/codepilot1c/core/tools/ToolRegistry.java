@@ -79,13 +79,16 @@ public class ToolRegistry {
         register(new EdtContentAssistTool());
         register(new EdtFindReferencesTool());
         register(new EdtMetadataDetailsTool());
+        register(new EdtFieldTypeCandidatesTool());
         register(new GetPlatformDocumentationTool());
         register(new BslSymbolAtPositionTool());
         register(new BslTypeAtPositionTool());
         register(new BslScopeMembersTool());
         register(new EdtValidateRequestTool());
         register(new CreateMetadataTool());
+        register(new CreateFormTool());
         register(new AddMetadataChildTool());
+        register(new EnsureModuleArtifactTool());
         register(new UpdateMetadataTool());
         register(new DeleteMetadataTool());
         register(new EdtMetadataSmokeTool());

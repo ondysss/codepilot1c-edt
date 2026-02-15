@@ -5,6 +5,7 @@ import org.eclipse.core.resources.IWorkspace;
 import org.eclipse.core.resources.ResourcesPlugin;
 
 import com._1c.g5.v8.bm.integration.IBmPlatformGlobalEditingContext;
+import com._1c.g5.v8.dt.core.naming.ITopObjectFqnGenerator;
 import com._1c.g5.v8.dt.core.platform.IBmModelManager;
 import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.core.platform.IDerivedDataManagerProvider;
@@ -56,6 +57,15 @@ public class EdtMetadataGateway {
         IDerivedDataManagerProvider service = plugin.getDerivedDataManagerProvider();
         if (service == null) {
             throw serviceUnavailable("IDerivedDataManagerProvider"); //$NON-NLS-1$
+        }
+        return service;
+    }
+
+    public ITopObjectFqnGenerator getTopObjectFqnGenerator() {
+        VibeCorePlugin plugin = requirePlugin();
+        ITopObjectFqnGenerator service = plugin.getTopObjectFqnGenerator();
+        if (service == null) {
+            throw serviceUnavailable("ITopObjectFqnGenerator"); //$NON-NLS-1$
         }
         return service;
     }
