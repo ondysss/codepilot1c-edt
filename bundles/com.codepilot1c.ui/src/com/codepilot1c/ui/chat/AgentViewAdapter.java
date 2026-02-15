@@ -383,6 +383,7 @@ public class AgentViewAdapter implements IAgentEventListener {
             case "edt_content_assist" -> "EDT автодополнение";
             case "edt_find_references" -> "EDT поиск ссылок";
             case "edt_metadata_details" -> "EDT детали метаданных";
+            case "inspect_form_layout" -> "Структура формы";
             case "get_platform_documentation" -> "Справка платформы";
             case "bsl_symbol_at_position" -> "BSL символ по позиции";
             case "bsl_type_at_position" -> "BSL тип по позиции";

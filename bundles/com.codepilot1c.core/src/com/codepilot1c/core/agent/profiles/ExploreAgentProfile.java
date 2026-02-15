@@ -57,6 +57,7 @@ public class ExploreAgentProfile implements AgentProfile {
             "edt_find_references",
             "edt_metadata_details",
             "scan_metadata_index",
+            "inspect_form_layout",
             "bsl_symbol_at_position",
             "bsl_type_at_position",
             "bsl_scope_members",
@@ -97,6 +98,7 @@ public class ExploreAgentProfile implements AgentProfile {
                 PermissionRule.allow("edt_find_references").forAllResources(),
                 PermissionRule.allow("edt_metadata_details").forAllResources(),
                 PermissionRule.allow("scan_metadata_index").forAllResources(),
+                PermissionRule.allow("inspect_form_layout").forAllResources(),
                 PermissionRule.allow("bsl_symbol_at_position").forAllResources(),
                 PermissionRule.allow("bsl_type_at_position").forAllResources(),
                 PermissionRule.allow("bsl_scope_members").forAllResources(),
@@ -128,7 +130,7 @@ public class ExploreAgentProfile implements AgentProfile {
                 ```
 
                 Доступные инструменты: read_file, glob, grep, list_files, search_codebase,
-                get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index,
+                get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, inspect_form_layout,
                 bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, inspect_platform_reference.
                 """;
         return PromptProviderRegistry.getInstance().getSystemPromptAddition(getId(), defaultPrompt);

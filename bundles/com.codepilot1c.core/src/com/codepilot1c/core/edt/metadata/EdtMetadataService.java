@@ -88,6 +88,8 @@ import com.codepilot1c.core.edt.forms.CreateFormRequest;
 import com.codepilot1c.core.edt.forms.CreateFormResult;
 import com.codepilot1c.core.edt.forms.FormOwnerStrategy;
 import com.codepilot1c.core.edt.forms.FormUsage;
+import com.codepilot1c.core.edt.forms.InspectFormLayoutRequest;
+import com.codepilot1c.core.edt.forms.InspectFormLayoutResult;
 import com.codepilot1c.core.edt.forms.UpdateFormModelRequest;
 import com.codepilot1c.core.edt.forms.UpdateFormModelResult;
 import com.codepilot1c.core.logging.LogSanitizer;
@@ -383,6 +385,66 @@ public class EdtMetadataService {
                 request.formFqn(),
                 operationSummaries.size(),
                 operationSummaries);
+    }
+
+    public InspectFormLayoutResult inspectFormLayout(InspectFormLayoutRequest request) {
+        String opId = LogSanitizer.newId("edt-form-inspect"); //$NON-NLS-1$
+        long startedAt = System.currentTimeMillis();
+        request.validate();
+        LOG.info("[%s] inspectFormLayout START project=%s form=%s", //$NON-NLS-1$
+                opId,
+                request.projectName(),
+                request.formFqn());
+        IProject project = requireProject(request.projectName());
+        readinessChecker.ensureReady(project);
+
+        IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
+        Configuration configuration = configurationProvider.getConfiguration(project);
+        if (configuration == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "Cannot resolve project configuration", false); //$NON-NLS-1$
+        }
+
+        InspectFormLayoutResult result = executeRead(project, tx -> {
+            Configuration txConfiguration = tx.toTransactionObject(configuration);
+            Configuration contextConfiguration = txConfiguration != null ? txConfiguration : configuration;
+            MdObject resolved = resolveByFqn(contextConfiguration, request.formFqn());
+            if (!(resolved instanceof BasicForm basicForm)) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_NOT_FOUND,
+                        "Form metadata not found: " + request.formFqn(), false); //$NON-NLS-1$
+            }
+            Form formModel = resolveManagedFormModel(basicForm, request.formFqn());
+            Map<String, Object> formProperties = collectFormRootProperties(
+                    formModel,
+                    request.includeProperties(),
+                    request.includeTitles());
+            FormInspectState state = new FormInspectState(request.effectiveMaxItems());
+            List<InspectFormLayoutResult.FormItemNode> nodes = collectFormItemNodes(
+                    formModel,
+                    null,
+                    "/" + safeForPath(basicForm.getName()), //$NON-NLS-1$
+                    0,
+                    request,
+                    state);
+            return new InspectFormLayoutResult(
+                    request.projectName(),
+                    request.formFqn(),
+                    basicForm.getName(),
+                    formProperties,
+                    state.visited(),
+                    state.truncated(),
+                    nodes);
+        });
+
+        LOG.info("[%s] inspectFormLayout SUCCESS in %s form=%s items=%d truncated=%s", //$NON-NLS-1$
+                opId,
+                LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),
+                request.formFqn(),
+                Integer.valueOf(result.totalItems()),
+                Boolean.valueOf(result.truncated()));
+        return result;
     }
 
     public MetadataOperationResult addMetadataChild(AddMetadataChildRequest request) {
@@ -773,6 +835,274 @@ public class EdtMetadataService {
         field.setDataPath(dataPath);
     }
 
+    private Map<String, Object> collectFormRootProperties(
+            Form formModel,
+            boolean includeProperties,
+            boolean includeTitles) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("kind", formModel.eClass().getName()); //$NON-NLS-1$
+        result.put("itemsCount", Integer.valueOf(formModel.getItems().size())); //$NON-NLS-1$
+        if (includeTitles && formModel instanceof Titled titled) {
+            Map<String, String> title = copyTitleMap(titled);
+            if (!title.isEmpty()) {
+                result.put("title", title); //$NON-NLS-1$
+            }
+        }
+        if (includeProperties) {
+            result.put("properties", collectScalarProperties(formModel, includeTitles)); //$NON-NLS-1$
+        }
+        return result;
+    }
+
+    private List<InspectFormLayoutResult.FormItemNode> collectFormItemNodes(
+            FormItemContainer container,
+            Integer parentId,
+            String parentPath,
+            int depth,
+            InspectFormLayoutRequest request,
+            FormInspectState state) {
+        List<InspectFormLayoutResult.FormItemNode> result = new ArrayList<>();
+        if (container == null || container.getItems().isEmpty()) {
+            return result;
+        }
+
+        int index = 0;
+        for (FormItem item : container.getItems()) {
+            if (item == null) {
+                index++;
+                continue;
+            }
+            if (state.limitReached()) {
+                state.markTruncated();
+                break;
+            }
+            state.incrementVisited();
+
+            Boolean visible = asOptionalBoolean(readFeatureValue(item, "visible")); //$NON-NLS-1$
+            if (!request.includeInvisible() && Boolean.FALSE.equals(visible)) {
+                index++;
+                continue;
+            }
+
+            String name = item instanceof NamedElement namedElement ? namedElement.getName() : null;
+            String safeName = safeForPath(name != null && !name.isBlank() ? name : item.eClass().getName());
+            String path = parentPath + "/" + item.getId() + ":" + safeName; //$NON-NLS-1$ //$NON-NLS-2$
+            Map<String, String> title = request.includeTitles() && item instanceof Titled titled
+                    ? copyTitleMap(titled)
+                    : Map.of();
+            Boolean enabled = asOptionalBoolean(readFeatureValue(item, "enabled")); //$NON-NLS-1$
+            Boolean readOnly = item instanceof FormField
+                    ? asOptionalBoolean(readFeatureValue(item, "readOnly")) //$NON-NLS-1$
+                    : null;
+            String dataPath = item instanceof FormField
+                    ? dataPathToString(readFeatureValue(item, "dataPath")) //$NON-NLS-1$
+                    : null;
+            String fieldType = item instanceof FormField
+                    ? stringifyFeatureValue(readFeatureValue(item, "type")) //$NON-NLS-1$
+                    : null;
+            Map<String, Object> properties = request.includeProperties()
+                    ? collectScalarProperties(item, request.includeTitles())
+                    : Map.of();
+
+            List<InspectFormLayoutResult.FormItemNode> children = List.of();
+            if (item instanceof FormItemContainer nestedContainer) {
+                if (depth + 1 <= request.effectiveMaxDepth()) {
+                    children = collectFormItemNodes(
+                            nestedContainer,
+                            Integer.valueOf(item.getId()),
+                            path,
+                            depth + 1,
+                            request,
+                            state);
+                } else if (!nestedContainer.getItems().isEmpty()) {
+                    state.markTruncated();
+                }
+            }
+
+            result.add(new InspectFormLayoutResult.FormItemNode(
+                    item.getId(),
+                    parentId,
+                    index,
+                    path,
+                    name,
+                    item.eClass().getName(),
+                    title,
+                    visible,
+                    enabled,
+                    readOnly,
+                    dataPath,
+                    fieldType,
+                    properties,
+                    children));
+            index++;
+        }
+        return result;
+    }
+
+    private Map<String, Object> collectScalarProperties(EObject object, boolean includeTitles) {
+        if (object == null || object.eClass() == null) {
+            return Map.of();
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (EStructuralFeature feature : object.eClass().getEAllStructuralFeatures()) {
+            if (feature == null || feature.isDerived() || feature.isTransient() || feature.isVolatile()) {
+                continue;
+            }
+            if (!includeTitles && "title".equalsIgnoreCase(feature.getName())) { //$NON-NLS-1$
+                continue;
+            }
+            if (feature instanceof EReference reference && reference.isContainment()) {
+                continue;
+            }
+            Object value = object.eGet(feature);
+            if (value == null) {
+                continue;
+            }
+            Object simplified = simplifyFeatureValue(value);
+            if (simplified != null) {
+                result.put(feature.getName(), simplified);
+            }
+        }
+        return result;
+    }
+
+    private Object simplifyFeatureValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Enum<?> enumValue) {
+            return enumValue.name();
+        }
+        if (value instanceof DataPath dataPath) {
+            return dataPathToString(dataPath);
+        }
+        if (value instanceof EMap<?, ?> eMap) {
+            Map<String, String> mapped = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : eMap.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null) {
+                    mapped.put(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
+                }
+            }
+            return mapped;
+        }
+        if (value instanceof Map<?, ?> map) {
+            Map<String, String> mapped = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null) {
+                    mapped.put(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
+                }
+            }
+            return mapped;
+        }
+        if (value instanceof Collection<?> collection) {
+            List<String> mapped = new ArrayList<>();
+            for (Object item : collection) {
+                if (item == null) {
+                    continue;
+                }
+                mapped.add(stringifyFeatureValue(item));
+            }
+            return mapped;
+        }
+        if (value instanceof EObject eObject) {
+            EStructuralFeature nameFeature = resolveStructuralFeatureIgnoreCase(eObject, "name"); //$NON-NLS-1$
+            if (nameFeature != null) {
+                Object name = eObject.eGet(nameFeature);
+                if (name != null && !String.valueOf(name).isBlank()) {
+                    return String.valueOf(name);
+                }
+            }
+            return eObject.eClass().getName();
+        }
+        return value;
+    }
+
+    private String stringifyFeatureValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        Object simplified = simplifyFeatureValue(value);
+        if (simplified == null) {
+            return null;
+        }
+        if (simplified instanceof Collection<?> || simplified instanceof Map<?, ?>) {
+            return String.valueOf(simplified);
+        }
+        return String.valueOf(simplified);
+    }
+
+    private Object readFeatureValue(EObject object, String featureName) {
+        EStructuralFeature feature = resolveStructuralFeatureIgnoreCase(object, featureName);
+        if (feature == null) {
+            return null;
+        }
+        return object.eGet(feature);
+    }
+
+    private Map<String, String> copyTitleMap(Titled titled) {
+        if (titled == null || titled.getTitle() == null || titled.getTitle().isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> result = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : titled.getTitle().entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null && !entry.getValue().isBlank()) {
+                result.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return result;
+    }
+
+    private String dataPathToString(Object dataPathValue) {
+        if (dataPathValue == null) {
+            return null;
+        }
+        if (dataPathValue instanceof DataPath dataPath) {
+            if (dataPath.getSegments().isEmpty()) {
+                return null;
+            }
+            return String.join(".", dataPath.getSegments()); //$NON-NLS-1$
+        }
+        if (dataPathValue instanceof EObject eObject) {
+            Object segments = readFeatureValue(eObject, "segments"); //$NON-NLS-1$
+            if (segments instanceof Collection<?> collection && !collection.isEmpty()) {
+                List<String> values = new ArrayList<>();
+                for (Object segment : collection) {
+                    if (segment != null) {
+                        values.add(String.valueOf(segment));
+                    }
+                }
+                if (!values.isEmpty()) {
+                    return String.join(".", values); //$NON-NLS-1$
+                }
+            }
+        }
+        return String.valueOf(dataPathValue);
+    }
+
+    private String safeForPath(String value) {
+        if (value == null || value.isBlank()) {
+            return "item"; //$NON-NLS-1$
+        }
+        return value.replace('/', '_').replace('\\', '_').replace(':', '_');
+    }
+
+    private Boolean asOptionalBoolean(Object value) {
+        if (value instanceof Boolean bool) {
+            return Boolean.valueOf(bool.booleanValue());
+        }
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty()) {
+            return null;
+        }
+        if ("true".equalsIgnoreCase(text) || "false".equalsIgnoreCase(text)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return Boolean.valueOf(Boolean.parseBoolean(text));
+        }
+        return null;
+    }
+
     private void applySimpleFeatureValue(EObject target, String fieldName, Object value) {
         EStructuralFeature feature = resolveStructuralFeatureIgnoreCase(target, fieldName);
         if (feature == null) {
@@ -804,6 +1134,36 @@ public class EdtMetadataService {
         throw new MetadataOperationException(
                 MetadataOperationCode.INVALID_PROPERTY_VALUE,
                 "Expected integer for " + fieldName + ": " + value, false); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static final class FormInspectState {
+        private final int maxItems;
+        private int visited;
+        private boolean truncated;
+
+        private FormInspectState(int maxItems) {
+            this.maxItems = maxItems;
+        }
+
+        private boolean limitReached() {
+            return visited >= maxItems;
+        }
+
+        private void incrementVisited() {
+            visited++;
+        }
+
+        private void markTruncated() {
+            truncated = true;
+        }
+
+        private int visited() {
+            return visited;
+        }
+
+        private boolean truncated() {
+            return truncated;
+        }
     }
 
     public MetadataOperationResult updateMetadata(UpdateMetadataRequest request) {

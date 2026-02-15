@@ -79,6 +79,7 @@ public class ToolRegistry {
         register(new EdtContentAssistTool());
         register(new EdtFindReferencesTool());
         register(new EdtMetadataDetailsTool());
+        register(new ScanMetadataIndexTool());
         register(new EdtFieldTypeCandidatesTool());
         register(new GetPlatformDocumentationTool());
         register(new BslSymbolAtPositionTool());
@@ -87,6 +88,7 @@ public class ToolRegistry {
         register(new EdtValidateRequestTool());
         register(new CreateMetadataTool());
         register(new CreateFormTool());
+        register(new InspectFormLayoutTool());
         register(new AddMetadataChildTool());
         register(new EnsureModuleArtifactTool());
         register(new UpdateMetadataTool());

@@ -60,6 +60,7 @@ public class BuildAgentProfile implements AgentProfile {
             "edt_validate_request",
             "create_metadata",
             "create_form",
+            "inspect_form_layout",
             "add_metadata_child",
             "ensure_module_artifact",
             "update_metadata",
@@ -114,6 +115,7 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("edt_validate_request").forAllResources(),
                 PermissionRule.allow("edt_trace_export").forAllResources(),
                 PermissionRule.allow("edt_metadata_smoke").forAllResources(),
+                PermissionRule.allow("inspect_form_layout").forAllResources(),
 
                 // Write tools - ask
                 PermissionRule.ask("edit_file")
@@ -170,7 +172,7 @@ public class BuildAgentProfile implements AgentProfile {
                 - Файлы: read_file, edit_file, write_file, glob, grep
                 - EDT AST API: edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, get_diagnostics
                 - EDT type provider: edt_field_type_candidates (допустимые типы для поля метаданных)
-                - EDT-метаданные: inspect_platform_reference, edt_validate_request, create_metadata, create_form, add_metadata_child, ensure_module_artifact, update_metadata, mutate_form_model, delete_metadata, edt_trace_export
+                - EDT-метаданные: inspect_platform_reference, edt_validate_request, create_metadata, create_form, inspect_form_layout, add_metadata_child, ensure_module_artifact, update_metadata, mutate_form_model, delete_metadata, edt_trace_export
                 - EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members
                 - Диагностика метаданных: edt_metadata_smoke (регрессионный smoke-прогон)
                 - Документация платформы: перед использованием незнакомых методов/свойств 1С
@@ -212,14 +214,16 @@ public class BuildAgentProfile implements AgentProfile {
                    всегда сначала вызывай ensure_module_artifact с create_if_missing=true.
                    Используй путь из ответа ensure_module_artifact для edit_file/write_file.
                    Не пытайся создавать Module.bsl/ObjectModule.bsl/ManagerModule.bsl напрямую через write_file.
-                10. Для изменения структуры элементов формы (группы/поля/видимость/позиции) используй mutate_form_model
+                10. Перед изменением структуры формы всегда сначала вызывай inspect_form_layout,
+                    чтобы получить актуальные item_id/item_name/dataPath и только затем вызывай mutate_form_model.
+                11. Для изменения структуры элементов формы (группы/поля/видимость/позиции) используй mutate_form_model
                     по FQN формы (например Document.Имя.Form.ФормаДокумента) в headless-режиме без active editor.
-                11. Для форм в текущем EDT-формате отдельный Form.form/Module.bsl не используется:
+                12. Для форм в текущем EDT-формате отдельный Form.form/Module.bsl не используется:
                     данные формы хранятся в owner .mdo. Не вызывай ensure_module_artifact для Form FQN.
-                12. Если пользователь просит "проверь и исправь типы реквизитов", сначала прочитай текущие
+                13. Если пользователь просит "проверь и исправь типы реквизитов", сначала прочитай текущие
                     метаданные через edt_metadata_details/get_diagnostics, затем отправь update_metadata c children_ops
                     только для реквизитов без типа или с неверным типом, и в конце повторно проверь диагностику.
-                13. После любых изменений BSL/метаданных, перед финальным ответом всегда вызывай get_diagnostics
+                14. После любых изменений BSL/метаданных, перед финальным ответом всегда вызывай get_diagnostics
                     (для файла: scope=file, для полной проверки: scope=project) и явно сообщай результат.
 
                 """;

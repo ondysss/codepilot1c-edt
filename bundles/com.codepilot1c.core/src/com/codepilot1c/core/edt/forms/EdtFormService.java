@@ -24,4 +24,8 @@ public class EdtFormService {
     public UpdateFormModelResult updateFormModel(UpdateFormModelRequest request) {
         return metadataService.updateFormModel(request);
     }
+
+    public InspectFormLayoutResult inspectFormLayout(InspectFormLayoutRequest request) {
+        return metadataService.inspectFormLayout(request);
+    }
 }
