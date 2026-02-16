@@ -46,7 +46,6 @@ mvn -B -V --no-transfer-progress clean verify
 
 
 
-
 ## Структура
 
 - `bundles/` — OSGi плагины

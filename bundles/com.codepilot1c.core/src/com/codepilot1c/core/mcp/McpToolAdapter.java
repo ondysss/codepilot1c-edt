@@ -7,6 +7,8 @@
  */
 package com.codepilot1c.core.mcp;
 
+import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -64,12 +66,31 @@ public class McpToolAdapter implements ITool {
 
     @Override
     public CompletableFuture<ToolResult> execute(Map<String, Object> params) {
-        return client.callTool(mcpTool.getName(), params)
+        Map<String, Object> normalizedParams = normalizeParams(params);
+        return client.callTool(mcpTool.getName(), normalizedParams)
             .thenCompose(this::convertResultAsync)
             .exceptionally(e -> {
                 String errorMsg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
                 return ToolResult.failure("MCP tool error: " + errorMsg);
             });
+    }
+
+    private Map<String, Object> normalizeParams(Map<String, Object> params) {
+        if (params == null || params.isEmpty()) {
+            return params;
+        }
+        Map<String, Object> normalized = new HashMap<>(params);
+        Object locationValue = normalized.get("location"); //$NON-NLS-1$
+        if (locationValue == null) {
+            return normalized;
+        }
+        String location = String.valueOf(locationValue).trim().toLowerCase(Locale.ROOT);
+        if (!"cn".equals(location) && !"us".equals(location)) { //$NON-NLS-1$ //$NON-NLS-2$
+            normalized.put("location", "us"); //$NON-NLS-1$ //$NON-NLS-2$
+        } else {
+            normalized.put("location", location); //$NON-NLS-1$
+        }
+        return normalized;
     }
 
     private CompletableFuture<ToolResult> convertResultAsync(McpToolResult mcpResult) {
