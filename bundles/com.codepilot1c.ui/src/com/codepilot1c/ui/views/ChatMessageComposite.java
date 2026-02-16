@@ -246,17 +246,15 @@ public class ChatMessageComposite extends Composite {
         label.setText(result.success() ? "\u2713 " + result.toolName() : "\u2717 " + result.toolName()); //$NON-NLS-1$ //$NON-NLS-2$
 
         if (result.content() != null && !result.content().isEmpty()) {
-            StyledText text = new StyledText(resultComposite, SWT.MULTI | SWT.READ_ONLY | SWT.WRAP);
+            StyledText text = new StyledText(resultComposite, SWT.MULTI | SWT.READ_ONLY | SWT.WRAP | SWT.V_SCROLL);
             text.setBackground(resultComposite.getBackground());
             text.setForeground(theme.getText());
             text.setFont(theme.getFontMono());
-            String displayContent = result.content();
-            if (displayContent.length() > 500) {
-                displayContent = displayContent.substring(0, 500) + "..."; //$NON-NLS-1$
-            }
-            text.setText(displayContent);
+            text.setText(result.content());
             text.setEditable(false);
-            text.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+            GridData gd = new GridData(SWT.FILL, SWT.FILL, true, true);
+            gd.heightHint = 180;
+            text.setLayoutData(gd);
         }
     }
 

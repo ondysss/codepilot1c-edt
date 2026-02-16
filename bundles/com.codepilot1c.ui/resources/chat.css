@@ -389,29 +389,37 @@ em {
 
 .tool-call-status {
     margin-left: auto;
-    padding: 2px 8px;
+    padding: 3px 8px;
     border-radius: 4px;
     font-size: 12px;
+    font-weight: 600;
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-secondary);
 }
 
 .tool-call-status.pending {
-    background: var(--warning);
-    color: white;
+    background: rgba(245, 158, 11, 0.12);
+    color: #92400e;
+    border-color: rgba(245, 158, 11, 0.35);
 }
 
 .tool-call-status.running {
-    background: var(--accent);
-    color: white;
+    background: rgba(59, 130, 246, 0.12);
+    color: #1d4ed8;
+    border-color: rgba(59, 130, 246, 0.35);
 }
 
 .tool-call-status.success {
-    background: var(--success);
-    color: white;
+    background: rgba(34, 197, 94, 0.12);
+    color: #166534;
+    border-color: rgba(34, 197, 94, 0.35);
 }
 
 .tool-call-status.error {
-    background: var(--danger);
-    color: white;
+    background: rgba(239, 68, 68, 0.12);
+    color: #991b1b;
+    border-color: rgba(239, 68, 68, 0.35);
 }
 
 .tool-call-body {
@@ -466,10 +474,14 @@ em {
 }
 
 .tool-call-result-preview {
-    max-height: 200px;
+    max-height: 320px;
     overflow-y: auto;
     white-space: pre-wrap;
     word-break: break-word;
+    border: 1px solid var(--code-border);
+    border-radius: 4px;
+    padding: 10px;
+    background: var(--code-bg);
 }
 
 /* Expand indicator */
@@ -503,11 +515,31 @@ em {
     width: 10px;
     height: 10px;
     margin-right: 4px;
-    border: 2px solid rgba(255,255,255,0.3);
-    border-top-color: white;
+    border: 2px solid rgba(59, 130, 246, 0.25);
+    border-top-color: #2563eb;
     border-radius: 50%;
     animation: spin 1s linear infinite;
     vertical-align: middle;
+}
+
+.tool-call-status.error {
+    box-shadow: inset 2px 0 0 rgba(239, 68, 68, 0.65);
+}
+
+body.dark .tool-call-status.pending {
+    color: #fbbf24;
+}
+
+body.dark .tool-call-status.running {
+    color: #93c5fd;
+}
+
+body.dark .tool-call-status.success {
+    color: #86efac;
+}
+
+body.dark .tool-call-status.error {
+    color: #fca5a5;
 }
 
 /* Tool call body improvements */

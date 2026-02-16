@@ -139,7 +139,7 @@ public class ToolCallWidget extends Composite {
         contentArea.setVisible(expanded);
 
         // Result text (will be populated when result is set)
-        resultText = new StyledText(contentArea, SWT.MULTI | SWT.READ_ONLY | SWT.WRAP);
+        resultText = new StyledText(contentArea, SWT.MULTI | SWT.READ_ONLY | SWT.WRAP | SWT.V_SCROLL);
         resultText.setBackground(contentArea.getBackground());
         resultText.setForeground(theme.getText());
         resultText.setEditable(false);
@@ -148,8 +148,9 @@ public class ToolCallWidget extends Composite {
         // Monospace font for results
         resultText.setFont(theme.getFontMono());
 
-        GridData textData = new GridData(SWT.FILL, SWT.CENTER, true, false);
+        GridData textData = new GridData(SWT.FILL, SWT.FILL, true, true);
         textData.widthHint = 400;
+        textData.heightHint = 220;
         resultText.setLayoutData(textData);
         resultText.setMargins(theme.getMarginSmall(), theme.getMarginSmall(), theme.getMarginSmall(), theme.getMarginSmall());
     }
@@ -283,12 +284,7 @@ public class ToolCallWidget extends Composite {
         if (!resultText.isDisposed()) {
             getDisplay().asyncExec(() -> {
                 if (!resultText.isDisposed()) {
-                    // Truncate long results
-                    String displayContent = resultContent;
-                    if (displayContent != null && displayContent.length() > 2000) {
-                        displayContent = displayContent.substring(0, 2000) + "\n... (обрезано)"; //$NON-NLS-1$
-                    }
-                    resultText.setText(displayContent != null ? displayContent : ""); //$NON-NLS-1$
+                    resultText.setText(resultContent != null ? resultContent : ""); //$NON-NLS-1$
                     updateStatusLabel();
 
                     // Auto-expand on completion if there's content
@@ -314,11 +310,7 @@ public class ToolCallWidget extends Composite {
         if (!resultText.isDisposed()) {
             getDisplay().asyncExec(() -> {
                 if (!resultText.isDisposed()) {
-                    String displayContent = content;
-                    if (displayContent != null && displayContent.length() > 2000) {
-                        displayContent = displayContent.substring(0, 2000) + "\n... (обрезано)"; //$NON-NLS-1$
-                    }
-                    resultText.setText(displayContent != null ? displayContent : ""); //$NON-NLS-1$
+                    resultText.setText(content != null ? content : ""); //$NON-NLS-1$
                     updateStatusLabel();
                 }
             });
