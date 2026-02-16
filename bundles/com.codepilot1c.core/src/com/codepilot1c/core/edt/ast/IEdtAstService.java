@@ -10,4 +10,6 @@ public interface IEdtAstService {
     ReferenceSearchResult findReferences(FindReferencesRequest req);
 
     MetadataDetailsResult getMetadataDetails(MetadataDetailsRequest req);
+
+    MetadataIndexResult scanMetadataIndex(MetadataIndexRequest req);
 }

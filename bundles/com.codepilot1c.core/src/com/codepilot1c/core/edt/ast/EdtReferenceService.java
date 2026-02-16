@@ -5,7 +5,6 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.lang.reflect.Method;
 
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.ResourcesPlugin;
@@ -127,21 +126,12 @@ public class EdtReferenceService {
             return null;
         }
 
-        @SuppressWarnings("unchecked")
         private void collectBackReferences(com._1c.g5.v8.bm.core.IBmTransaction transaction) {
             Collection<IBmCrossReference> refs = null;
-            // Preferred path from BM docs: transaction.getReferences(IBmObject, IBmNamespace).
             try {
-                Method getNamespace = transaction.getClass().getMethod("getNamespace"); //$NON-NLS-1$
-                Object namespace = getNamespace.invoke(transaction);
-                Method getReferences = transaction.getClass().getMethod("getReferences", //$NON-NLS-1$
-                        IBmObject.class, namespace.getClass());
-                Object result = getReferences.invoke(transaction, (IBmObject) target, namespace);
-                if (result instanceof Collection<?>) {
-                    refs = (Collection<IBmCrossReference>) result;
-                }
+                refs = transaction.getReferences(EcoreUtil.getURI(target));
             } catch (Exception e) {
-                // Fallback for EDT runtimes that expose only engine-level back references.
+                // Fallback for EDT runtimes where transaction lookup is unavailable.
                 IBmEngine engine = ((IBmObject) target).bmGetEngine();
                 if (engine != null) {
                     refs = engine.getBackReferences((IBmObject) target);

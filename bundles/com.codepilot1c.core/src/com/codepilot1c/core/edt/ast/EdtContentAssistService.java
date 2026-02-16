@@ -6,6 +6,7 @@ import java.util.Locale;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IProject;
+import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.contentassist.ContentAssistant;
@@ -121,10 +122,17 @@ public class EdtContentAssistService {
                 }
 
                 String detail = null;
-                if (req.isExtendedDocumentation() && proposal instanceof ICompletionProposalExtension5 ext5) {
-                    Object info = ext5.getAdditionalProposalInfo(null);
-                    if (info != null) {
-                        detail = String.valueOf(info);
+                if (req.isExtendedDocumentation()) {
+                    if (proposal instanceof ICompletionProposalExtension5 ext5) {
+                        Object info = ext5.getAdditionalProposalInfo(new NullProgressMonitor());
+                        if (info != null) {
+                            detail = normalizeDocumentation(String.valueOf(info));
+                        }
+                    } else {
+                        String info = proposal.getAdditionalProposalInfo();
+                        if (info != null) {
+                            detail = normalizeDocumentation(info);
+                        }
                     }
                 }
                 filtered.add(new ContentAssistResult.Item(label, "proposal", detail)); //$NON-NLS-1$
@@ -179,10 +187,21 @@ public class EdtContentAssistService {
         }
         String lowered = label.toLowerCase(Locale.ROOT);
         for (String part : contains) {
-            if (!lowered.contains(part)) {
-                return false;
+            if (lowered.contains(part)) {
+                return true;
             }
         }
-        return true;
+        return false;
+    }
+
+    private String normalizeDocumentation(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String text = raw;
+        text = text.replaceAll("(?s)<style[^>]*>.*?</style>", ""); //$NON-NLS-1$ //$NON-NLS-2$
+        text = text.replaceAll("(?s)<[^>]+>", " "); //$NON-NLS-1$ //$NON-NLS-2$
+        text = text.replaceAll("\\s+", " ").trim(); //$NON-NLS-1$ //$NON-NLS-2$
+        return text.isEmpty() ? null : text;
     }
 }
