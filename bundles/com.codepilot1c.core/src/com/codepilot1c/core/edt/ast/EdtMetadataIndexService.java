@@ -58,6 +58,18 @@ public class EdtMetadataIndexService {
             Map.entry("sequences", "sequences"), //$NON-NLS-1$ //$NON-NLS-2$
             Map.entry("exchangeplan", "exchangeplans"), //$NON-NLS-1$ //$NON-NLS-2$
             Map.entry("exchangeplans", "exchangeplans"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("subsystem", "subsystems"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("subsystems", "subsystems"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("role", "roles"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("roles", "roles"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("interface", "interfaces"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("interfaces", "interfaces"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("session", "sessions"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("sessions", "sessions"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("scheduledjob", "scheduledjobs"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("scheduledjobs", "scheduledjobs"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("commoncommand", "commoncommands"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("commoncommands", "commoncommands"), //$NON-NLS-1$ //$NON-NLS-2$
             Map.entry("справочник", "catalogs"), //$NON-NLS-1$ //$NON-NLS-2$
             Map.entry("справочники", "catalogs"), //$NON-NLS-1$ //$NON-NLS-2$
             Map.entry("документ", "documents"), //$NON-NLS-1$ //$NON-NLS-2$
@@ -86,7 +98,19 @@ public class EdtMetadataIndexService {
             Map.entry("последовательность", "sequences"), //$NON-NLS-1$ //$NON-NLS-2$
             Map.entry("последовательности", "sequences"), //$NON-NLS-1$ //$NON-NLS-2$
             Map.entry("планобмена", "exchangeplans"), //$NON-NLS-1$ //$NON-NLS-2$
-            Map.entry("планыобмена", "exchangeplans") //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("планыобмена", "exchangeplans"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("подсистема", "subsystems"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("подсистемы", "subsystems"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("роль", "roles"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("роли", "roles"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("интерфейс", "interfaces"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("интерфейсы", "interfaces"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("сеанс", "sessions"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("сеансы", "sessions"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("регламентноезадание", "scheduledjobs"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("регламентныезадания", "scheduledjobs"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("общаякоманда", "commoncommands"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("общиекоманды", "commoncommands") //$NON-NLS-1$ //$NON-NLS-2$
     );
 
     private static final List<String> OBJECT_MODULE_FEATURES = List.of(
@@ -94,6 +118,58 @@ public class EdtMetadataIndexService {
             "module", //$NON-NLS-1$
             "recordSetModule", //$NON-NLS-1$
             "valueManagerModule" //$NON-NLS-1$
+    );
+    private static final Map<String, String> TYPE_LABELS_RU = Map.ofEntries(
+            Map.entry("catalogs", "Справочники"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("documents", "Документы"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("commonmodules", "ОбщиеМодули"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("enums", "Перечисления"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("reports", "Отчеты"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("dataprocessors", "Обработки"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("informationregisters", "РегистрыСведений"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("accumulationregisters", "РегистрыНакопления"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("accountingregisters", "РегистрыБухгалтерии"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("calculationregisters", "РегистрыРасчета"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("chartofaccounts", "ПланыСчетов"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("chartofcharacteristictypes", "ПланыВидовХарактеристик"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("chartofcalculationtypes", "ПланыВидовРасчета"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("businessprocesses", "БизнесПроцессы"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("tasks", "Задачи"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("constants", "Константы"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("sequences", "Последовательности"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("exchangeplans", "ПланыОбмена"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("subsystems", "Подсистемы"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("roles", "Роли"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("interfaces", "Интерфейсы"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("sessions", "Сеансы"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("scheduledjobs", "РегламентныеЗадания"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("commoncommands", "ОбщиеКоманды") //$NON-NLS-1$ //$NON-NLS-2$
+    );
+    private static final Map<String, String> TYPE_LABELS_EN = Map.ofEntries(
+            Map.entry("catalogs", "Catalogs"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("documents", "Documents"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("commonmodules", "CommonModules"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("enums", "Enums"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("reports", "Reports"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("dataprocessors", "DataProcessors"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("informationregisters", "InformationRegisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("accumulationregisters", "AccumulationRegisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("accountingregisters", "AccountingRegisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("calculationregisters", "CalculationRegisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("chartofaccounts", "ChartOfAccounts"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("chartofcharacteristictypes", "ChartOfCharacteristicTypes"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("chartofcalculationtypes", "ChartOfCalculationTypes"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("businessprocesses", "BusinessProcesses"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("tasks", "Tasks"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("constants", "Constants"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("sequences", "Sequences"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("exchangeplans", "ExchangePlans"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("subsystems", "Subsystems"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("roles", "Roles"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("interfaces", "Interfaces"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("sessions", "Sessions"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("scheduledjobs", "ScheduledJobs"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("commoncommands", "CommonCommands") //$NON-NLS-1$ //$NON-NLS-2$
     );
 
     private final EdtServiceGateway gateway;
@@ -178,14 +254,18 @@ public class EdtMetadataIndexService {
                 if (!nameFilter.isEmpty() && !normalize(name).contains(nameFilter)) {
                     continue;
                 }
+                String canonicalKind = canonicalScope(kind);
+                String canonicalCollection = canonicalScope(reference.getName());
+                String localizedKind = localizeTypeLabel(canonicalKind, language, kind);
+                String localizedCollection = localizeTypeLabel(canonicalCollection, language, reference.getName());
 
                 items.add(new MetadataIndexResult.Item(
                         safeFqn(eObject, kind, name),
                         name,
                         resolveSynonym(readSynonymFeature(eObject), language),
                         readStringFeature(eObject, "comment"), //$NON-NLS-1$
-                        kind,
-                        reference.getName(),
+                        localizedKind,
+                        localizedCollection,
                         hasAnyFeature(eObject, OBJECT_MODULE_FEATURES),
                         hasAnyFeature(eObject, List.of("managerModule")))); //$NON-NLS-1$
             }
@@ -325,5 +405,20 @@ public class EdtMetadataIndexService {
 
     private String safe(String value) {
         return value != null ? value : ""; //$NON-NLS-1$
+    }
+
+    private String localizeTypeLabel(String canonicalType, String language, String fallback) {
+        String lang = normalize(language);
+        if (lang.startsWith("ru")) { //$NON-NLS-1$
+            String label = TYPE_LABELS_RU.get(canonicalType);
+            if (label != null) {
+                return label;
+            }
+        }
+        String en = TYPE_LABELS_EN.get(canonicalType);
+        if (en != null) {
+            return en;
+        }
+        return safe(fallback);
     }
 }
