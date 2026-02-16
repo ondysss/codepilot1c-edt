@@ -90,6 +90,7 @@ function updateToolCallCard(id, status, statusIcon, summary, preview) {
         console.warn('Tool call card not found:', id);
         return;
     }
+    var shouldStickToBottom = isNearBottom();
 
     // Update status badge
     var statusEl = card.querySelector('.tool-call-status');
@@ -113,8 +114,10 @@ function updateToolCallCard(id, status, statusIcon, summary, preview) {
         card.classList.add('expanded');
     }
 
-    // Scroll to bottom to show updated card
-    scrollToBottom();
+    // Keep user position if they are reading older messages
+    if (shouldStickToBottom) {
+        scrollToBottom();
+    }
 }
 
 /**
@@ -137,6 +140,18 @@ function scrollToBottom() {
     if (container) {
         container.scrollTop = container.scrollHeight;
     }
+}
+
+/**
+ * Returns true when user is close to the bottom of message list.
+ */
+function isNearBottom() {
+    var container = document.querySelector('.message-container');
+    if (!container) {
+        return true;
+    }
+    var delta = container.scrollHeight - container.clientHeight - container.scrollTop;
+    return delta <= 80;
 }
 
 /**

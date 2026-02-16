@@ -73,6 +73,7 @@ public class ChatView extends ViewPart {
 
     /** Whether to use Browser-based rendering for chat messages */
     private static final boolean USE_BROWSER_RENDERING = true;
+    private static final int MAX_TOOL_RESULT_PREVIEW_CHARS = 20_000;
     private static final String CORE_PLUGIN_ID = "com.codepilot1c.core"; //$NON-NLS-1$
 
     private ScrolledComposite scrolledComposite;
@@ -1141,11 +1142,12 @@ public class ChatView extends ViewPart {
                 resultSummary = "Выполнено"; //$NON-NLS-1$
             }
 
-            // Build result preview (first 200 chars)
+            // Build result preview (full content with safety cap for UI responsiveness)
             String resultPreview = ""; //$NON-NLS-1$
             if (content != null && !content.isEmpty()) {
-                if (content.length() > 200) {
-                    resultPreview = content.substring(0, 200) + "..."; //$NON-NLS-1$
+                if (content.length() > MAX_TOOL_RESULT_PREVIEW_CHARS) {
+                    resultPreview = content.substring(0, MAX_TOOL_RESULT_PREVIEW_CHARS)
+                            + "\n... (обрезано в UI)"; //$NON-NLS-1$
                 } else {
                     resultPreview = content;
                 }
