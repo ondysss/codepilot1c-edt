@@ -265,7 +265,9 @@ public class EdtMetadataIndexService {
                         resolveSynonym(readSynonymFeature(eObject), language),
                         readStringFeature(eObject, "comment"), //$NON-NLS-1$
                         localizedKind,
+                        canonicalKind,
                         localizedCollection,
+                        canonicalCollection,
                         hasAnyFeature(eObject, OBJECT_MODULE_FEATURES),
                         hasAnyFeature(eObject, List.of("managerModule")))); //$NON-NLS-1$
             }

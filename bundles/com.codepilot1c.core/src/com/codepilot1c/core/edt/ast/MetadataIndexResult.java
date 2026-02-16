@@ -75,7 +75,9 @@ public class MetadataIndexResult {
         private final String synonym;
         private final String comment;
         private final String kind;
+        private final String kindCode;
         private final String sourceCollection;
+        private final String scopeCode;
         private final boolean hasObjectModule;
         private final boolean hasManagerModule;
 
@@ -85,7 +87,9 @@ public class MetadataIndexResult {
                 String synonym,
                 String comment,
                 String kind,
+                String kindCode,
                 String sourceCollection,
+                String scopeCode,
                 boolean hasObjectModule,
                 boolean hasManagerModule) {
             this.fqn = fqn;
@@ -93,7 +97,9 @@ public class MetadataIndexResult {
             this.synonym = synonym;
             this.comment = comment;
             this.kind = kind;
+            this.kindCode = kindCode;
             this.sourceCollection = sourceCollection;
+            this.scopeCode = scopeCode;
             this.hasObjectModule = hasObjectModule;
             this.hasManagerModule = hasManagerModule;
         }
@@ -118,8 +124,16 @@ public class MetadataIndexResult {
             return kind;
         }
 
+        public String getKindCode() {
+            return kindCode;
+        }
+
         public String getSourceCollection() {
             return sourceCollection;
+        }
+
+        public String getScopeCode() {
+            return scopeCode;
         }
 
         public boolean isHasObjectModule() {
