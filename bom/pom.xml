@@ -13,7 +13,7 @@
 
     <groupId>com.codepilot1c</groupId>
     <artifactId>vibe-bom</artifactId>
-    <version>1.3.0-SNAPSHOT</version>
+    <version>0.1.7-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>1C Copilot - Bill of Materials</name>

@@ -2,6 +2,12 @@
 
 Плагин для 1C:EDT на базе Eclipse RCP/OSGi (open source).
 
+## Актуальные артефакты
+
+- Последний релиз: `v0.1.7` — <https://github.com/ondysss/codepilot1c-edt/releases/tag/v0.1.7>
+- Update site (GitHub Pages): <https://ondysss.github.io/codepilot1c-edt/>
+- GitHub Packages (Maven, ZIP): <https://github.com/ondysss/codepilot1c-edt/packages/2846572>
+
 ## Установка
 
 ### Вариант A (рекомендуется): Update Site (GitHub Pages)
@@ -39,6 +45,24 @@ mvn -B -V --no-transfer-progress clean verify
 Автоматическая публикация p2 из GitHub Actions отключена. Публикация выполняется локально:
 
 
+
+## Публикация ZIP в GitHub Packages
+
+После сборки update-site ZIP публикуется в GitHub Packages (Maven registry):
+
+```bash
+mvn -B -V --no-transfer-progress deploy:deploy-file \
+  -Durl="https://maven.pkg.github.com/ondysss/codepilot1c-edt" \
+  -DrepositoryId=github \
+  -DgroupId="com.codepilot1c" \
+  -DartifactId="codepilot1c-edt-update-site" \
+  -Dversion="0.1.7" \
+  -Dpackaging=zip \
+  -Dfile="repositories/com.codepilot1c.update/target/com.codepilot1c.update-1.3.0-SNAPSHOT.zip" \
+  -DgeneratePom=true
+```
+
+Требуется токен GitHub с правом `write:packages`.
 
 ## Структура
 

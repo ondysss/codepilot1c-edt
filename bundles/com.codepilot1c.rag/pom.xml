@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.codepilot1c</groupId>
         <artifactId>bundles-parent</artifactId>
-        <version>1.3.0-SNAPSHOT</version>
+        <version>0.1.7-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 

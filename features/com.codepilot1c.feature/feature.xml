@@ -2,7 +2,7 @@
 <feature
       id="com.codepilot1c.feature"
       label="%featureName"
-      version="1.3.0.qualifier"
+      version="0.1.7.qualifier"
       provider-name="%providerName">
 
    <description>%description</description>
