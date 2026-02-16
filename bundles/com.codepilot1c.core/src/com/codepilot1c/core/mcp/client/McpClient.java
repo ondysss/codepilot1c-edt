@@ -9,7 +9,9 @@ package com.codepilot1c.core.mcp.client;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -246,10 +248,59 @@ public class McpClient implements AutoCloseable {
      * @return a future containing the result
      */
     public CompletableFuture<McpToolResult> callTool(String toolName, Map<String, Object> arguments) {
+        Map<String, Object> normalizedArguments = normalizeToolArguments(arguments);
         return sendWithRetry("tools/call", Map.of( //$NON-NLS-1$
             "name", toolName, //$NON-NLS-1$
-            "arguments", arguments != null ? arguments : Map.of() //$NON-NLS-1$
+            "arguments", normalizedArguments //$NON-NLS-1$
         ), false).thenApply(response -> parseToolResult(response.getResult()));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> normalizeToolArguments(Map<String, Object> arguments) {
+        if (arguments == null || arguments.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> normalized = new HashMap<>();
+        for (Map.Entry<String, Object> entry : arguments.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            if (key != null && "location".equalsIgnoreCase(key)) { //$NON-NLS-1$
+                normalized.put(key, normalizeLocationValue(value));
+            } else {
+                normalized.put(key, normalizeNestedLocations(value));
+            }
+        }
+        return normalized;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Object normalizeNestedLocations(Object value) {
+        if (value instanceof Map<?, ?> mapValue) {
+            Map<String, Object> nested = new HashMap<>();
+            for (Map.Entry<?, ?> entry : mapValue.entrySet()) {
+                String key = String.valueOf(entry.getKey());
+                Object nestedValue = entry.getValue();
+                if ("location".equalsIgnoreCase(key)) { //$NON-NLS-1$
+                    nested.put(key, normalizeLocationValue(nestedValue));
+                } else {
+                    nested.put(key, normalizeNestedLocations(nestedValue));
+                }
+            }
+            return nested;
+        }
+        if (value instanceof List<?> listValue) {
+            List<Object> normalizedList = new ArrayList<>(listValue.size());
+            for (Object item : listValue) {
+                normalizedList.add(normalizeNestedLocations(item));
+            }
+            return normalizedList;
+        }
+        return value;
+    }
+
+    private String normalizeLocationValue(Object locationValue) {
+        String normalized = String.valueOf(locationValue).trim().toLowerCase(Locale.ROOT);
+        return "cn".equals(normalized) || "us".equals(normalized) ? normalized : "us"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
     }
 
     /**
