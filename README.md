@@ -46,23 +46,6 @@ mvn -B -V --no-transfer-progress clean verify
 
 
 
-## Публикация ZIP в GitHub Packages
-
-После сборки update-site ZIP публикуется в GitHub Packages (Maven registry):
-
-```bash
-mvn -B -V --no-transfer-progress deploy:deploy-file \
-  -Durl="https://maven.pkg.github.com/ondysss/codepilot1c-edt" \
-  -DrepositoryId=github \
-  -DgroupId="com.codepilot1c" \
-  -DartifactId="codepilot1c-edt-update-site" \
-  -Dversion="0.1.7" \
-  -Dpackaging=zip \
-  -Dfile="repositories/com.codepilot1c.update/target/com.codepilot1c.update-1.3.0-SNAPSHOT.zip" \
-  -DgeneratePom=true
-```
-
-Требуется токен GitHub с правом `write:packages`.
 
 ## Структура
 
