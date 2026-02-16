@@ -3,24 +3,91 @@ package com.codepilot1c.core.edt.ast;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import org.eclipse.core.resources.IProject;
 import org.eclipse.emf.common.util.EMap;
+import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.EReference;
 import org.eclipse.emf.ecore.EStructuralFeature;
 
 import com._1c.g5.v8.bm.core.IBmObject;
 import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
-import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
 
 /**
  * Scans top-level metadata objects from EDT configuration.
  */
 public class EdtMetadataIndexService {
+
+    private static final Map<String, String> SCOPE_ALIASES = Map.ofEntries(
+            Map.entry("catalog", "catalogs"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("catalogs", "catalogs"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("document", "documents"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("documents", "documents"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("commonmodule", "commonmodules"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("commonmodules", "commonmodules"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("enum", "enums"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("enums", "enums"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("report", "reports"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("reports", "reports"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("dataprocessor", "dataprocessors"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("dataprocessors", "dataprocessors"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("informationregister", "informationregisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("informationregisters", "informationregisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("accumulationregister", "accumulationregisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("accumulationregisters", "accumulationregisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("accountingregister", "accountingregisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("accountingregisters", "accountingregisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("calculationregister", "calculationregisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("calculationregisters", "calculationregisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("chartofaccounts", "chartofaccounts"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("chartofcharacteristictypes", "chartofcharacteristictypes"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("chartofcalculationtypes", "chartofcalculationtypes"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("businessprocess", "businessprocesses"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("businessprocesses", "businessprocesses"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("task", "tasks"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("tasks", "tasks"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("constant", "constants"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("constants", "constants"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("sequence", "sequences"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("sequences", "sequences"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("exchangeplan", "exchangeplans"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("exchangeplans", "exchangeplans"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("справочник", "catalogs"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("справочники", "catalogs"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("документ", "documents"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("документы", "documents"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("общиймодуль", "commonmodules"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("общиемодули", "commonmodules"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("перечисление", "enums"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("перечисления", "enums"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("отчет", "reports"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("отчеты", "reports"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("обработка", "dataprocessors"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("обработки", "dataprocessors"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("регистрсведений", "informationregisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("регистрысведений", "informationregisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("регистрнакопления", "accumulationregisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("регистрынакопления", "accumulationregisters"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("плансчетов", "chartofaccounts"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("планвидовхарактеристик", "chartofcharacteristictypes"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("планвидоврасчета", "chartofcalculationtypes"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("бизнеспроцесс", "businessprocesses"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("бизнеспроцессы", "businessprocesses"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("задача", "tasks"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("задачи", "tasks"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("константа", "constants"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("константы", "constants"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("последовательность", "sequences"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("последовательности", "sequences"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("планобмена", "exchangeplans"), //$NON-NLS-1$ //$NON-NLS-2$
+            Map.entry("планыобмена", "exchangeplans") //$NON-NLS-1$ //$NON-NLS-2$
+    );
 
     private static final List<String> OBJECT_MODULE_FEATURES = List.of(
             "objectModule", //$NON-NLS-1$
@@ -100,42 +167,50 @@ public class EdtMetadataIndexService {
             String singularToken = singularize(collectionToken);
 
             for (Object element : collection) {
-                if (!(element instanceof MdObject mdObject)) {
+                if (!(element instanceof EObject eObject)) {
                     continue;
                 }
-                String kind = mdObject.eClass().getName();
-                String normalizedKind = normalize(kind);
-                if (!matchesScope(scope, collectionToken, singularToken, normalizedKind)) {
+                String kind = safe(eObject.eClass().getName());
+                if (!matchesScope(scope, collectionToken, singularToken, kind)) {
                     continue;
                 }
-                String name = safe(mdObject.getName());
+                String name = readStringFeature(eObject, "name"); //$NON-NLS-1$
                 if (!nameFilter.isEmpty() && !normalize(name).contains(nameFilter)) {
                     continue;
                 }
 
                 items.add(new MetadataIndexResult.Item(
-                        safeFqn(mdObject, kind, name),
+                        safeFqn(eObject, kind, name),
                         name,
-                        resolveSynonym(mdObject.getSynonym(), language),
-                        safe(mdObject.getComment()),
+                        resolveSynonym(readSynonymFeature(eObject), language),
+                        readStringFeature(eObject, "comment"), //$NON-NLS-1$
                         kind,
                         reference.getName(),
-                        hasAnyFeature(mdObject, OBJECT_MODULE_FEATURES),
-                        hasAnyFeature(mdObject, List.of("managerModule")))); //$NON-NLS-1$
+                        hasAnyFeature(eObject, OBJECT_MODULE_FEATURES),
+                        hasAnyFeature(eObject, List.of("managerModule")))); //$NON-NLS-1$
             }
         }
 
         return items;
     }
 
-    private boolean matchesScope(String scope, String collectionToken, String singularToken, String normalizedKind) {
+    private boolean matchesScope(String scope, String collectionToken, String singularToken, String kind) {
         if (scope == null || scope.isBlank() || "all".equals(scope)) { //$NON-NLS-1$
             return true;
         }
-        return scope.equals(collectionToken) || scope.equals(singularToken) || scope.equals(normalizedKind);
+
+        String canonicalScope = canonicalScope(scope);
+        Set<String> candidates = new LinkedHashSet<>();
+        candidates.add(canonicalScope(collectionToken));
+        candidates.add(canonicalScope(singularToken));
+        candidates.add(canonicalScope(kind));
+        candidates.add(canonicalScope(singularize(collectionToken)));
+        candidates.add(canonicalScope(singularize(kind)));
+
+        return candidates.contains(canonicalScope);
     }
 
-    private boolean hasAnyFeature(MdObject object, List<String> featureNames) {
+    private boolean hasAnyFeature(EObject object, List<String> featureNames) {
         for (String featureName : featureNames) {
             EStructuralFeature feature = object.eClass().getEStructuralFeature(featureName);
             if (feature == null) {
@@ -147,6 +222,29 @@ public class EdtMetadataIndexService {
             }
         }
         return false;
+    }
+
+    private EMap<String, String> readSynonymFeature(EObject object) {
+        EStructuralFeature feature = object.eClass().getEStructuralFeature("synonym"); //$NON-NLS-1$
+        if (feature == null) {
+            return null;
+        }
+        Object value = object.eGet(feature);
+        if (value instanceof EMap<?, ?> rawMap) {
+            @SuppressWarnings("unchecked")
+            EMap<String, String> cast = (EMap<String, String>) rawMap;
+            return cast;
+        }
+        return null;
+    }
+
+    private String readStringFeature(EObject object, String featureName) {
+        EStructuralFeature feature = object.eClass().getEStructuralFeature(featureName);
+        if (feature == null) {
+            return ""; //$NON-NLS-1$
+        }
+        Object value = object.eGet(feature);
+        return value != null ? String.valueOf(value) : ""; //$NON-NLS-1$
     }
 
     private String resolveLanguage(Configuration configuration, String requestedLanguage) {
@@ -177,20 +275,32 @@ public class EdtMetadataIndexService {
         return ""; //$NON-NLS-1$
     }
 
-    private String safeFqn(MdObject object, String kind, String name) {
+    private String safeFqn(EObject object, String kind, String name) {
         if (object instanceof IBmObject bmObject) {
-            IBmObject top = bmObject;
-            if (!top.bmIsTop()) {
-                top = top.bmGetTopObject();
-            }
-            if (top != null && top.bmIsTop()) {
-                String fqn = top.bmGetFqn();
-                if (fqn != null && !fqn.isBlank()) {
-                    return fqn;
+            try {
+                if (!bmObject.bmIsTransient()) {
+                    IBmObject top = bmObject;
+                    if (!top.bmIsTop()) {
+                        top = top.bmGetTopObject();
+                    }
+                    if (top != null && !top.bmIsTransient() && top.bmIsTop()) {
+                        String fqn = top.bmGetFqn();
+                        if (fqn != null && !fqn.isBlank()) {
+                            return fqn;
+                        }
+                    }
                 }
+            } catch (RuntimeException e) {
+                // Detached BM object may throw on bmGetFqn()/bmGetTopObject(); fallback below.
             }
         }
         return kind + "." + name; //$NON-NLS-1$
+    }
+
+    private String canonicalScope(String value) {
+        String normalized = normalize(value).replaceAll("[\\s_.-]+", ""); //$NON-NLS-1$ //$NON-NLS-2$
+        String alias = SCOPE_ALIASES.get(normalized);
+        return alias != null ? alias : normalized;
     }
 
     private String normalize(String value) {

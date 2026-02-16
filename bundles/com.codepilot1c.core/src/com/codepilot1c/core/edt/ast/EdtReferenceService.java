@@ -162,11 +162,23 @@ public class EdtReferenceService {
             if (object == null) {
                 return ""; //$NON-NLS-1$
             }
-            IBmObject top = object;
-            if (!top.bmIsTop()) {
-                top = top.bmGetTopObject();
+            try {
+                if (object.bmIsTransient()) {
+                    return ""; //$NON-NLS-1$
+                }
+                IBmObject top = object;
+                if (!top.bmIsTop()) {
+                    top = top.bmGetTopObject();
+                }
+                if (top == null || top.bmIsTransient() || !top.bmIsTop()) {
+                    return ""; //$NON-NLS-1$
+                }
+                String fqn = top.bmGetFqn();
+                return fqn != null ? fqn : ""; //$NON-NLS-1$
+            } catch (RuntimeException e) {
+                // Detached BM object may throw on bmGetFqn()/bmGetTopObject(); use empty fallback.
+                return ""; //$NON-NLS-1$
             }
-            return top != null ? top.bmGetFqn() : ""; //$NON-NLS-1$
         }
 
         private void collectBslReferences() {
