@@ -596,13 +596,19 @@ public class EdtPlatformDocumentationService {
 
     private String safeFqn(Type type) {
         if (type instanceof IBmObject bmObject) {
-            IBmObject top = bmObject;
-            if (!top.bmIsTop()) {
-                top = top.bmGetTopObject();
-            }
-            if (top != null) {
-                String fqn = top.bmGetFqn();
-                return fqn != null ? fqn : ""; //$NON-NLS-1$
+            try {
+                if (!bmObject.bmIsTransient()) {
+                    IBmObject top = bmObject;
+                    if (!top.bmIsTop()) {
+                        top = top.bmGetTopObject();
+                    }
+                    if (top != null && !top.bmIsTransient() && top.bmIsTop()) {
+                        String fqn = top.bmGetFqn();
+                        return fqn != null ? fqn : ""; //$NON-NLS-1$
+                    }
+                }
+            } catch (RuntimeException e) {
+                // Detached BM object may throw on bmGetFqn()/bmGetTopObject(); return empty FQN.
             }
         }
         return ""; //$NON-NLS-1$
