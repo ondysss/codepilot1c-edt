@@ -30,6 +30,7 @@ import com.e1c.g5.v8.dt.check.settings.ICheckRepository;
 import com.codepilot1c.core.http.DefaultHttpClientFactory;
 import com.codepilot1c.core.http.HttpClientFactory;
 import com.codepilot1c.core.logging.VibeLogger;
+import com.codepilot1c.core.mcp.host.McpHostManager;
 import com.codepilot1c.core.mcp.McpServerManager;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
 import com.codepilot1c.core.state.VibeStateService;
@@ -100,6 +101,15 @@ public class VibeCorePlugin extends Plugin {
             }
         });
 
+        // Start inbound MCP host (for external clients) if enabled.
+        CompletableFuture.runAsync(() -> {
+            try {
+                McpHostManager.getInstance().startIfEnabled();
+            } catch (Exception e) {
+                vibeLogger.error("Core", "Failed to start MCP host", e); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+        });
+
         // EDT runtime services for AST/BM integrations.
         configurationProviderTracker = new ServiceTracker<>(context, IConfigurationProvider.class, null);
         configurationProviderTracker.open();
@@ -132,6 +142,11 @@ public class VibeCorePlugin extends Plugin {
             McpServerManager.getInstance().stopAllServers();
         } catch (Exception e) {
             logWarn("Error stopping MCP servers", e); //$NON-NLS-1$
+        }
+        try {
+            McpHostManager.getInstance().stopAll();
+        } catch (Exception e) {
+            logWarn("Error stopping MCP host", e); //$NON-NLS-1$
         }
 
         // Dispose HTTP client factory

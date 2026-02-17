@@ -53,6 +53,59 @@ mvn -B -V --no-transfer-progress clean verify
 - `repositories/` — p2 update site
 - `targets/` — target platform
 
+## Inbound MCP Host (Claude Code / Cursor / Codex)
+
+Начиная с этой версии плагин поддерживает входящий MCP Host:
+
+- Настройки: `Preferences -> 1C Copilot -> MCP Host`
+- HTTP endpoint: по умолчанию `http://127.0.0.1:8765/mcp`
+- Авторизация: `OAuth 2.1` (MCP Auth / RFC 9728)
+- Резервный режим: статический `Bearer` token (опционально, для клиентов без OAuth)
+
+Базовый сценарий: подключайте клиентов напрямую по HTTP.
+
+Claude Code (глобально, профиль пользователя):
+```bash
+claude mcp add --transport http -s user codepilot1c http://127.0.0.1:8765/mcp
+```
+
+Пример для `Cursor` / `Codex`:
+```json
+{
+  "mcpServers": {
+    "codepilot1c": {
+      "url": "http://127.0.0.1:8765/mcp"
+    }
+  }
+}
+```
+
+Пример для `Claude Code`:
+```json
+{
+  "mcpServers": {
+    "codepilot1c": {
+      "type": "http",
+      "url": "http://127.0.0.1:8765/mcp"
+    }
+  }
+}
+```
+
+Если клиент не поддерживает OAuth и нужен статический токен:
+```json
+{
+  "mcpServers": {
+    "codepilot1c": {
+      "url": "http://127.0.0.1:8765/mcp",
+      "headers": {
+        "Authorization": "Bearer <TOKEN>"
+      }
+    }
+  }
+}
+```
+
 
 ## Публикация на Infostart
 

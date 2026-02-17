@@ -194,6 +194,31 @@ public class Messages extends NLS {
     public static String McpServerEditDialog_CommandRequired;
     public static String McpServerEditDialog_RemoteUrlRequired;
 
+    // MCP host preference page
+    public static String McpHostPreferencePage_Description;
+    public static String McpHostPreferencePage_Enabled;
+    public static String McpHostPreferencePage_HttpEnabled;
+    public static String McpHostPreferencePage_Status;
+    public static String McpHostPreferencePage_CheckNow;
+    public static String McpHostPreferencePage_StatusRunning;
+    public static String McpHostPreferencePage_StatusRunningNoHttp;
+    public static String McpHostPreferencePage_StatusStopped;
+    public static String McpHostPreferencePage_StatusHttpOk;
+    public static String McpHostPreferencePage_StatusHttpFail;
+    public static String McpHostPreferencePage_BindAddress;
+    public static String McpHostPreferencePage_Port;
+    public static String McpHostPreferencePage_BearerToken;
+    public static String McpHostPreferencePage_RotateToken;
+    public static String McpHostPreferencePage_MutationPolicy;
+    public static String McpHostPreferencePage_MutationAsk;
+    public static String McpHostPreferencePage_MutationDeny;
+    public static String McpHostPreferencePage_MutationAllow;
+    public static String McpHostPreferencePage_ExposedTools;
+    public static String McpHostPreferencePage_LocalOnlyInfo;
+    public static String McpHostPreferencePage_NonLocalWarning;
+    public static String McpHostPreferencePage_InstallHints;
+    public static String McpHostPreferencePage_InstallHintsTemplate;
+
     static {
         NLS.initializeMessages(BUNDLE_NAME, Messages.class);
     }

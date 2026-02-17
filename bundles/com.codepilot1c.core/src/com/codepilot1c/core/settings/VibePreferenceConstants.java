@@ -90,4 +90,13 @@ public final class VibePreferenceConstants {
     public static final String PREF_LLM_ACTIVE_PROVIDER_ID = "llm.activeProviderId"; //$NON-NLS-1$
     /** Config version for migration support. */
     public static final String PREF_LLM_CONFIG_VERSION = "llm.configVersion"; //$NON-NLS-1$
+
+    // MCP host preferences
+    public static final String PREF_MCP_HOST_ENABLED = "mcp.host.enabled"; //$NON-NLS-1$
+    public static final String PREF_MCP_HOST_HTTP_ENABLED = "mcp.host.http.enabled"; //$NON-NLS-1$
+    public static final String PREF_MCP_HOST_HTTP_BIND_ADDRESS = "mcp.host.http.bindAddress"; //$NON-NLS-1$
+    public static final String PREF_MCP_HOST_HTTP_PORT = "mcp.host.http.port"; //$NON-NLS-1$
+    public static final String PREF_MCP_HOST_POLICY_DEFAULT_MUTATION_DECISION =
+        "mcp.host.policy.defaultMutationDecision"; //$NON-NLS-1$
+    public static final String PREF_MCP_HOST_POLICY_EXPOSED_TOOLS = "mcp.host.policy.exposedTools"; //$NON-NLS-1$
 }
