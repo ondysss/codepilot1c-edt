@@ -26,6 +26,12 @@
             category="com.codepilot1c.ui.preferences.VibePreferencePage"
             class="com.codepilot1c.ui.preferences.McpServersPreferencePage">
         </page>
+        <page
+            id="com.codepilot1c.ui.preferences.McpHostPreferencePage"
+            name="%preferences.mcpHost.name"
+            category="com.codepilot1c.ui.preferences.VibePreferencePage"
+            class="com.codepilot1c.ui.preferences.McpHostPreferencePage">
+        </page>
     </extension>
 
     <!-- Views -->
