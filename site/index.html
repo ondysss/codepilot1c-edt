@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CodePilot1C — AI-плагин для 1C:EDT</title>
+  <meta name="description" content="Open-source AI-плагин для 1C:EDT. Чат, агентный режим, MCP, работа с файлами проекта.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>></text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=PT+Sans:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg-alt: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-dim: #8b949e;
+      --text-faint: #6e7681;
+      --link: #58a6ff;
+      --green: #3fb950;
+      --purple: #bc8cff;
+      --orange: #f0883e;
+      --mono: 'JetBrains Mono', 'Consolas', monospace;
+      --sans: 'PT Sans', sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scrollbar-width: thin; scrollbar-color: var(--border) var(--bg); }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      font-size: 15px;
+    }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap { max-width: 820px; margin: 0 auto; padding: 0 24px; }
+
+    header { padding: 80px 0 0; }
+    header h1 {
+      font-family: var(--mono);
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 12px;
+    }
+    header p {
+      color: var(--text-dim);
+      font-size: 16px;
+      margin-bottom: 20px;
+      max-width: 580px;
+    }
+    .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 32px; }
+    .badge {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      background: var(--bg-alt);
+    }
+
+    .section { padding: 40px 0; border-top: 1px solid var(--border); }
+    .section h2 {
+      font-family: var(--mono);
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+    .section h3 {
+      font-family: var(--mono);
+      font-size: 14px;
+      font-weight: 500;
+      margin: 20px 0 8px;
+    }
+
+    .install-box {
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px 20px;
+      margin: 16px 0;
+    }
+    .install-box .label {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-faint);
+      margin-bottom: 8px;
+    }
+    .install-box code {
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--text-dim);
+      display: block;
+      word-break: break-all;
+    }
+    .install-steps { margin: 16px 0; padding-left: 20px; color: var(--text-dim); }
+    .install-steps li { margin-bottom: 6px; }
+    .install-steps code {
+      font-family: var(--mono);
+      font-size: 13px;
+      background: var(--bg-alt);
+      padding: 1px 6px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+    }
+
+    .code-window {
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      margin: 24px 0;
+    }
+    .code-titlebar {
+      padding: 8px 14px;
+      background: #1c2128;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-faint);
+    }
+    .code-body { display: grid; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 700px) { .code-body { grid-template-columns: 1fr; } }
+    .code-left { padding: 16px; border-right: 1px solid var(--border); overflow-x: auto; }
+    @media (max-width: 700px) { .code-left { border-right: none; border-bottom: 1px solid var(--border); } }
+    .code-right { padding: 16px; }
+    .code-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-faint);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+    pre {
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-dim);
+      white-space: pre;
+    }
+    pre .kw { color: var(--purple); }
+    pre .fn { color: var(--link); }
+    pre .op { color: var(--text-dim); }
+
+    .chat-line { margin-bottom: 12px; }
+    .chat-who {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-faint);
+      margin-bottom: 2px;
+    }
+    .chat-who.user { color: var(--link); }
+    .chat-who.ai { color: var(--green); }
+    .chat-text { font-size: 13px; color: var(--text-dim); line-height: 1.6; }
+    .chat-text code {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: var(--bg);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    .feature-list { margin: 0; padding: 0; list-style: none; }
+    .feature-list li {
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 12px;
+    }
+    .feature-list li:last-child { border-bottom: none; }
+    .feature-name { font-family: var(--mono); font-size: 13px; font-weight: 500; }
+    .feature-desc { font-size: 14px; color: var(--text-dim); }
+    @media (max-width: 500px) { .feature-list li { grid-template-columns: 1fr; gap: 4px; } }
+
+    .tools-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0; }
+    .tools-table th {
+      text-align: left;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-faint);
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .tools-table td {
+      padding: 6px 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-dim);
+    }
+    .tools-table td:first-child { font-family: var(--mono); font-size: 12px; color: var(--text); }
+
+    .compat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .compat-item {
+      font-size: 14px;
+      color: var(--text-dim);
+      padding: 10px 14px;
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .compat-item strong { color: var(--text); font-weight: 500; display: block; font-size: 13px; margin-bottom: 2px; }
+    .compat-item span { font-size: 12px; color: var(--text-faint); }
+
+    .links-list { list-style: none; padding: 0; }
+    .links-list li { padding: 6px 0; }
+    .links-list .desc { color: var(--text-faint); font-size: 13px; margin-left: 4px; }
+
+    footer { padding: 32px 0; border-top: 1px solid var(--border); margin-top: 20px; }
+    footer p { font-size: 13px; color: var(--text-faint); }
+    footer a { color: var(--text-dim); }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>CodePilot1C</h1>
+    <p>AI-плагин для 1C:EDT. Чат, агентный режим, инструменты работы с файлами и MCP-серверы. Подключите свою модель.</p>
+    <div class="badges">
+      <span class="badge">AGPL-3.0</span>
+      <span class="badge">1C:EDT</span>
+      <span class="badge">Java 17+</span>
+      <span class="badge">v0.1.0</span>
+    </div>
+  </header>
+
+  <div class="section" id="install">
+    <h2>Установка</h2>
+    <div class="install-box">
+      <div class="label">Update Site</div>
+      <code>https://ondysss.github.io/codepilot1c-edt/</code>
+    </div>
+    <ol class="install-steps">
+      <li>Откройте <code>Справка → Установить новое ПО...</code> (<code>Help → Install New Software...</code>)</li>
+      <li>Нажмите <code>Добавить...</code> (<code>Add...</code>) и добавьте URL update site</li>
+      <li>В <code>Work with</code> выберите <code>codepilot - https://ondysss.github.io/codepilot1c-edt/</code></li>
+      <li>Выберите «1C Copilot», нажмите <code>Next</code>, примите лицензию и <code>Finish</code></li>
+      <li>Подтвердите окна <code>Trust Authorities</code> и <code>Trust Artifacts</code> через <code>Trust Selected</code></li>
+      <li>Перезапустите EDT</li>
+    </ol>
+    <h3>Настройка модели</h3>
+    <p style="color: var(--text-dim);">
+      Откройте настройки 1C Copilot и добавьте провайдер.<br>
+      Для локальной работы: <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> с endpoint <code>http://localhost:11434/v1</code> и моделью <code>qwen2.5-coder:7b</code>.<br>
+      Для API: OpenAI, Anthropic или любой OpenAI-совместимый сервис.
+    </p>
+  </div>
+
+  <div class="section">
+    <h2>Пример</h2>
+    <div class="code-window">
+      <div class="code-titlebar">СписаниеТоваров.bsl</div>
+      <div class="code-body">
+        <div class="code-left">
+          <div class="code-label">Код модуля</div>
+<pre><span class="kw">Процедура</span> <span class="fn">ОбработкаПроведения</span>(Отказ, РежимПроведения)
+
+    Движения.ТоварыНаСкладах.Записывать <span class="op">=</span> <span class="kw">Истина</span>;
+
+    <span class="kw">Для Каждого</span> СтрокаТовары <span class="kw">Из</span> Товары <span class="kw">Цикл</span>
+        Движение <span class="op">=</span> Движения.ТоварыНаСкладах.<span class="fn">Добавить</span>();
+        Движение.ВидДвижения <span class="op">=</span>
+            ВидДвиженияНакопления.Расход;
+        Движение.Период       <span class="op">=</span> Дата;
+        Движение.Номенклатура <span class="op">=</span> СтрокаТовары.Номенклатура;
+        Движение.Склад        <span class="op">=</span> Склад;
+        Движение.Количество   <span class="op">=</span> СтрокаТовары.Количество;
+    <span class="kw">КонецЦикла</span>;
+
+<span class="kw">КонецПроцедуры</span></pre>
+        </div>
+        <div class="code-right">
+          <div class="code-label">CodePilot1C</div>
+          <div class="chat-line">
+            <div class="chat-who user">> вы</div>
+            <div class="chat-text">Объясни этот модуль. Есть ли проблемы?</div>
+          </div>
+          <div class="chat-line">
+            <div class="chat-who ai">> codepilot</div>
+            <div class="chat-text">
+              Обработка проведения документа «Списание товаров».
+              Формирует движения по регистру <code>ТоварыНаСкладах</code> с видом «Расход».<br><br>
+              Проблемы:<br>
+              — Нет контроля остатков (возможны отрицательные)<br>
+              — Нет блокировки данных при проведении<br>
+              — Поле <code>Сумма</code> не заполняется
+            </div>
+          </div>
+          <div class="chat-line">
+            <div class="chat-who user">> вы</div>
+            <div class="chat-text">Добавь контроль остатков и блокировку</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="features">
+    <h2>Возможности</h2>
+    <ul class="feature-list">
+      <li><span class="feature-name">Чат</span><span class="feature-desc">Вопросы о коде, объяснение, рефакторинг. Streaming-ответы.</span></li>
+      <li><span class="feature-name">Агентный режим</span><span class="feature-desc">Автономное выполнение задач: агент читает файлы, вызывает инструменты, редактирует код до результата.</span></li>
+      <li><span class="feature-name">Работа с файлами</span><span class="feature-desc">read, write, edit, grep, glob — агент работает с файлами проекта напрямую.</span></li>
+      <li><span class="feature-name">MCP</span><span class="feature-desc">Подключение внешних инструментов через Model Context Protocol. Транспорт: STDIO.</span></li>
+      <li><span class="feature-name">Команды</span><span class="feature-desc">Explain, Fix, Generate, Optimize, Find Similar — из контекстного меню редактора.</span></li>
+      <li><span class="feature-name">Провайдеры</span><span class="feature-desc">Ollama, OpenAI, Anthropic, любой OpenAI-compatible API. Данные остаются у вас.</span></li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>Инструменты агента</h2>
+    <table class="tools-table">
+      <thead><tr><th>Инструмент</th><th>Описание</th></tr></thead>
+      <tbody>
+        <tr><td>read_file</td><td>Чтение файла проекта</td></tr>
+        <tr><td>write_file</td><td>Создание/перезапись файла</td></tr>
+        <tr><td>edit_file</td><td>Редактирование фрагмента файла</td></tr>
+        <tr><td>list_files</td><td>Список файлов в каталоге</td></tr>
+        <tr><td>grep</td><td>Поиск текста по файлам проекта</td></tr>
+        <tr><td>glob</td><td>Поиск файлов по шаблону</td></tr>
+        <tr><td>search_codebase</td><td>Семантический поиск по коду (RAG)</td></tr>
+        <tr><td>mcp_&lt;server&gt;_&lt;tool&gt;</td><td>Динамические инструменты от подключённых MCP-серверов</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Совместимость</h2>
+      <div class="compat-grid">
+      <div class="compat-item"><strong>1C:EDT</strong><span>2024.1+</span></div>
+      <div class="compat-item"><strong>Ollama</strong><span>Локальные модели</span></div>
+      <div class="compat-item"><strong>OpenAI API</strong><span>Любые модели с OpenAI-совместимым интерфейсом</span></div>
+      <div class="compat-item"><strong>Anthropic</strong><span>Claude Sonnet, Opus</span></div>
+      <div class="compat-item"><strong>OpenAI-compatible</strong><span>LM Studio, vLLM, Together</span></div>
+      <div class="compat-item"><strong>ОС</strong><span>Windows, Linux</span></div>
+    </div>
+  </div>
+
+  <div class="section" id="links">
+    <h2>Ссылки</h2>
+    <ul class="links-list">
+      <li><a href="https://github.com/ondysss/codepilot1c-edt" target="_blank" rel="noopener">GitHub</a> <span class="desc">— исходный код, issues, releases</span></li>
+      <li><a href="https://t.me/ai_1c_dev" target="_blank" rel="noopener">Telegram</a> <span class="desc">— обсуждение, вопросы, фидбек</span></li>
+      <li><a href="https://github.com/ondysss/codepilot1c-edt/blob/main/LICENSE" target="_blank" rel="noopener">Лицензия</a> <span class="desc">— GNU AGPL v3.0</span></li>
+    </ul>
+  </div>
+
+  <footer>
+    <p>CodePilot1C · <a href="https://github.com/ondysss/codepilot1c-edt/blob/main/LICENSE">AGPL-3.0</a> · 2025–2026</p>
+  </footer>
+
+</div>
+</body>
+</html>
