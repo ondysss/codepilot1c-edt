@@ -70,6 +70,10 @@ public class EditFileTool implements ITool {
                     "create": {
                         "type": "boolean",
                         "description": "Deprecated. Creating new files is not allowed."
+                    },
+                    "allow_metadata_descriptor_edit": {
+                        "type": "boolean",
+                        "description": "Аварийный override: разрешить редактирование .mdo (не рекомендуется, используйте только когда BM API не покрывает кейс)."
                     }
                 },
                 "required": ["path"]
@@ -124,6 +128,7 @@ public class EditFileTool implements ITool {
             String newText = (String) parameters.get("new_text"); //$NON-NLS-1$
             String edits = (String) parameters.get("edits"); //$NON-NLS-1$
             boolean create = Boolean.TRUE.equals(parameters.get("create")); //$NON-NLS-1$
+            boolean allowMetadataDescriptorEdit = Boolean.TRUE.equals(parameters.get("allow_metadata_descriptor_edit")); //$NON-NLS-1$
 
             LOG.debug("edit_file: path=%s, hasContent=%b, hasOldText=%b, hasEdits=%b, create=%b", //$NON-NLS-1$
                     LogSanitizer.truncatePath(pathStr), content != null, oldText != null, edits != null, create);
@@ -132,10 +137,14 @@ public class EditFileTool implements ITool {
                 // Normalize path for cross-platform compatibility
                 String normalizedPath = normalizePath(pathStr);
                 if (isMetadataDescriptorPath(normalizedPath)) {
-                    LOG.warn("edit_file: заблокирована попытка редактирования metadata descriptor: %s", normalizedPath); //$NON-NLS-1$
-                    return ToolResult.failure(
-                            "❌ Редактирование .mdo файлов через edit_file запрещено.\n" + //$NON-NLS-1$
-                            "Используйте create_metadata (top-level), create_form (формы) и add_metadata_child (вложенные объекты)."); //$NON-NLS-1$
+                    if (!allowMetadataDescriptorEdit) {
+                        LOG.warn("edit_file: заблокирована попытка редактирования metadata descriptor без override: %s", normalizedPath); //$NON-NLS-1$
+                        return ToolResult.failure(
+                                "❌ Редактирование .mdo файлов по умолчанию заблокировано.\n" + //$NON-NLS-1$
+                                "Сначала используйте create_metadata/create_form/add_metadata_child/update_metadata.\n" + //$NON-NLS-1$
+                                "Для аварийного обхода передайте allow_metadata_descriptor_edit=true."); //$NON-NLS-1$
+                    }
+                    LOG.warn("edit_file: аварийный override .mdo включен для %s", normalizedPath); //$NON-NLS-1$
                 }
 
                 // Find or create file in workspace

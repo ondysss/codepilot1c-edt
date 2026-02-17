@@ -88,13 +88,13 @@ public class EdtServiceGateway {
         VibeCorePlugin plugin = VibeCorePlugin.getDefault();
         if (plugin == null) {
             throw new EdtAstException(EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE,
-                    "VibeCorePlugin is not initialized", false); //$NON-NLS-1$
+                    "VibeCorePlugin is not initialized. Wait until EDT finishes startup and retry.", true); //$NON-NLS-1$
         }
         return plugin;
     }
 
     private EdtAstException serviceUnavailable(String serviceName) {
         return new EdtAstException(EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE,
-                serviceName + " is unavailable in EDT runtime", false); //$NON-NLS-1$
+                serviceName + " is unavailable in EDT runtime. Wait until EDT project services are initialized and retry.", true); //$NON-NLS-1$
     }
 }

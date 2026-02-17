@@ -2,13 +2,18 @@ package com.codepilot1c.core.edt.ast;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.eclipse.core.resources.IProject;
+import org.eclipse.emf.ecore.EAttribute;
+import org.eclipse.emf.ecore.EDataType;
 import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.EReference;
 import org.eclipse.emf.ecore.EStructuralFeature;
 
+import com._1c.g5.v8.bm.core.IBmObject;
 import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
 import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
@@ -75,6 +80,13 @@ public class EdtMetadataInspectorService {
             }
 
             if (feature instanceof EReference ref && ref.isContainment()) {
+                if (isStringMapContainment(ref) && value instanceof Collection<?> collection) {
+                    Map<String, String> localized = extractStringMapEntries(collection);
+                    if (!localized.isEmpty()) {
+                        node.putProperty(feature.getName(), localized);
+                    }
+                    continue;
+                }
                 if (!full || depth >= 2) {
                     continue;
                 }
@@ -91,9 +103,9 @@ public class EdtMetadataInspectorService {
             }
 
             if (value instanceof Collection<?> collection) {
-                node.putProperty(feature.getName(), "Collection(size=" + collection.size() + ")"); //$NON-NLS-1$ //$NON-NLS-2$
+                node.putProperty(feature.getName(), formatCollectionValue(collection));
             } else {
-                node.putProperty(feature.getName(), String.valueOf(value));
+                node.putProperty(feature.getName(), formatScalarValue(value));
             }
         }
 
@@ -143,5 +155,122 @@ public class EdtMetadataInspectorService {
             }
         }
         return null;
+    }
+
+    private Object formatCollectionValue(Collection<?> collection) {
+        if (collection == null || collection.isEmpty()) {
+            return List.of();
+        }
+        List<Object> formatted = new ArrayList<>();
+        for (Object entry : collection) {
+            formatted.add(formatScalarValue(entry));
+        }
+        return formatted;
+    }
+
+    private Object formatScalarValue(Object value) {
+        if (value == null) {
+            return ""; //$NON-NLS-1$
+        }
+        if (value instanceof EObject eObject) {
+            return formatEObjectReference(eObject);
+        }
+        return String.valueOf(value);
+    }
+
+    private String formatEObjectReference(EObject object) {
+        if (object == null) {
+            return ""; //$NON-NLS-1$
+        }
+        String fqn = resolveFqn(object);
+        if (fqn != null && !fqn.isBlank()) {
+            return fqn;
+        }
+        EStructuralFeature nameFeature = object.eClass().getEStructuralFeature("name"); //$NON-NLS-1$
+        if (nameFeature != null) {
+            Object rawName = object.eGet(nameFeature);
+            if (rawName != null) {
+                String name = String.valueOf(rawName).trim();
+                if (!name.isBlank()) {
+                    return object.eClass().getName() + "." + name; //$NON-NLS-1$
+                }
+            }
+        }
+        return object.eClass().getName();
+    }
+
+    private String resolveFqn(EObject object) {
+        if (!(object instanceof IBmObject bmObject)) {
+            return null;
+        }
+        try {
+            if (bmObject.bmIsTransient()) {
+                return null;
+            }
+            IBmObject top = bmObject;
+            if (!top.bmIsTop()) {
+                top = top.bmGetTopObject();
+            }
+            if (top == null || top.bmIsTransient() || !top.bmIsTop()) {
+                return null;
+            }
+            String fqn = top.bmGetFqn();
+            return (fqn == null || fqn.isBlank()) ? null : fqn;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private boolean isStringMapContainment(EReference reference) {
+        if (reference == null || !reference.isContainment() || !reference.isMany()) {
+            return false;
+        }
+        var entryType = reference.getEReferenceType();
+        if (entryType == null) {
+            return false;
+        }
+        EStructuralFeature keyFeature = entryType.getEStructuralFeature("key"); //$NON-NLS-1$
+        EStructuralFeature valueFeature = entryType.getEStructuralFeature("value"); //$NON-NLS-1$
+        if (!(keyFeature instanceof EAttribute keyAttr) || !(valueFeature instanceof EAttribute valueAttr)) {
+            return false;
+        }
+        return isStringDataType(keyAttr.getEAttributeType()) && isStringDataType(valueAttr.getEAttributeType());
+    }
+
+    private boolean isStringDataType(EDataType dataType) {
+        if (dataType == null) {
+            return false;
+        }
+        Class<?> instanceClass = dataType.getInstanceClass();
+        if (instanceClass == String.class) {
+            return true;
+        }
+        String className = dataType.getInstanceClassName();
+        return "java.lang.String".equals(className); //$NON-NLS-1$
+    }
+
+    private Map<String, String> extractStringMapEntries(Collection<?> collection) {
+        Map<String, String> map = new LinkedHashMap<>();
+        for (Object item : collection) {
+            if (!(item instanceof EObject entry)) {
+                continue;
+            }
+            EStructuralFeature keyFeature = entry.eClass().getEStructuralFeature("key"); //$NON-NLS-1$
+            EStructuralFeature valueFeature = entry.eClass().getEStructuralFeature("value"); //$NON-NLS-1$
+            if (keyFeature == null || valueFeature == null) {
+                continue;
+            }
+            Object rawKey = entry.eGet(keyFeature);
+            Object rawValue = entry.eGet(valueFeature);
+            if (rawKey == null || rawValue == null) {
+                continue;
+            }
+            String key = String.valueOf(rawKey).trim();
+            String value = String.valueOf(rawValue);
+            if (!key.isBlank() && !value.isBlank()) {
+                map.put(key, value);
+            }
+        }
+        return map;
     }
 }

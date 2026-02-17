@@ -1,13 +1,20 @@
 package com.codepilot1c.core.edt.ast;
 
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
+import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.ResourcesPlugin;
+import org.eclipse.core.resources.IWorkspaceRoot;
+import org.eclipse.core.runtime.Path;
 import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.emf.common.util.URI;
 import org.eclipse.emf.ecore.EObject;
@@ -110,6 +117,7 @@ public class EdtReferenceService {
         private final int limit;
         private final List<ReferenceSearchResult.ReferenceItem> references = new ArrayList<>();
         private final Set<String> dedup = new HashSet<>();
+        private final Map<String, List<String>> fileLinesCache = new HashMap<>();
 
         CollectorTask(IProject project, MdObject target, int limit) {
             super("Find references: " + target.getName()); //$NON-NLS-1$
@@ -208,15 +216,29 @@ public class EdtReferenceService {
             if (sourceUri == null) {
                 return;
             }
-            String path = sourceUri.path() != null ? sourceUri.path() : sourceUri.toString();
-            int line = extractLineNumberFromSourceUri(sourceUri);
-            add("BSL", normalizePath(path), line, "ast-reference"); //$NON-NLS-1$ //$NON-NLS-2$
+            IFile sourceFile = resolveWorkspaceFile(sourceUri.trimFragment());
+            if (sourceFile == null || !sourceFile.exists()) {
+                return;
+            }
+            int line = extractLineNumberFromSourceUri(sourceUri, sourceFile.getProject());
+            if (line <= 0) {
+                line = 1;
+            }
+            String snippet = extractSnippet(sourceFile, line);
+            if (snippet == null || snippet.isBlank()) {
+                snippet = "reference"; //$NON-NLS-1$
+            }
+            String path = normalizePath(sourceFile.getProjectRelativePath().toString());
+            add("BSL", path, line, snippet); //$NON-NLS-1$
         }
 
-        private int extractLineNumberFromSourceUri(URI sourceUri) {
+        private int extractLineNumberFromSourceUri(URI sourceUri, IProject sourceProject) {
             try {
                 org.eclipse.emf.ecore.resource.ResourceSet set =
-                        gateway.getResourceSetProvider().get(projectForUri(sourceUri));
+                        gateway.getResourceSetProvider().get(sourceProject);
+                if (set == null) {
+                    return 0;
+                }
                 org.eclipse.emf.ecore.resource.Resource resource = set.getResource(sourceUri.trimFragment(), true);
                 if (resource == null) {
                     return 0;
@@ -233,27 +255,107 @@ public class EdtReferenceService {
             }
         }
 
-        private IProject projectForUri(URI sourceUri) {
-            String path = sourceUri.path();
-            if (path == null) {
-                return project;
+        private IFile resolveWorkspaceFile(URI resourceUri) {
+            if (resourceUri == null) {
+                return null;
             }
-            String[] segments = path.split("/"); //$NON-NLS-1$
-            for (String segment : segments) {
-                IProject p = ResourcesPlugin.getWorkspace().getRoot().getProject(segment);
-                if (p != null && p.exists()) {
-                    return p;
+            IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
+            if (resourceUri.isPlatformResource()) {
+                String platformPath = resourceUri.toPlatformString(true);
+                if (platformPath != null && !platformPath.isBlank()) {
+                    IFile file = root.getFile(new Path(platformPath));
+                    if (file != null && file.exists()) {
+                        return file;
+                    }
                 }
             }
-            return project;
+
+            String rawPath = resourceUri.path();
+            if (rawPath == null || rawPath.isBlank()) {
+                return null;
+            }
+            String normalized = rawPath.replace('\\', '/');
+            String[] segments = normalized.split("/"); //$NON-NLS-1$
+            for (int i = 0; i < segments.length - 1; i++) {
+                String segment = segments[i];
+                if (segment == null || segment.isBlank()) {
+                    continue;
+                }
+                IProject candidateProject = root.getProject(segment);
+                if (candidateProject == null || !candidateProject.exists()) {
+                    continue;
+                }
+                int next = i + 1;
+                if (next >= segments.length) {
+                    continue;
+                }
+                StringBuilder relative = new StringBuilder();
+                for (int j = next; j < segments.length; j++) {
+                    if (segments[j] == null || segments[j].isBlank()) {
+                        continue;
+                    }
+                    if (!relative.isEmpty()) {
+                        relative.append('/'); //$NON-NLS-1$
+                    }
+                    relative.append(segments[j]);
+                }
+                if (relative.isEmpty()) {
+                    continue;
+                }
+                IFile file = candidateProject.getFile(relative.toString());
+                if (file != null && file.exists()) {
+                    return file;
+                }
+            }
+            return null;
         }
 
         private String normalizePath(String path) {
+            if (path == null || path.isBlank()) {
+                return ""; //$NON-NLS-1$
+            }
+            String normalized = path.replace('\\', '/');
+            if (normalized.startsWith("src/")) { //$NON-NLS-1$
+                return normalized.substring(4);
+            }
             int src = path.indexOf("/src/"); //$NON-NLS-1$
             if (src >= 0) {
                 return path.substring(src + 5);
             }
-            return path;
+            return normalized;
+        }
+
+        private String extractSnippet(IFile sourceFile, int line) {
+            if (sourceFile == null || !sourceFile.exists() || line < 1) {
+                return ""; //$NON-NLS-1$
+            }
+            String cacheKey = sourceFile.getFullPath().toString();
+            List<String> lines = fileLinesCache.get(cacheKey);
+            if (lines == null) {
+                lines = readFileLines(sourceFile);
+                fileLinesCache.put(cacheKey, lines);
+            }
+            if (line > lines.size()) {
+                return ""; //$NON-NLS-1$
+            }
+            String raw = lines.get(line - 1);
+            if (raw == null) {
+                return ""; //$NON-NLS-1$
+            }
+            String trimmed = raw.trim();
+            if (trimmed.isBlank()) {
+                return ""; //$NON-NLS-1$
+            }
+            return trimmed.length() > 240 ? trimmed.substring(0, 240) : trimmed;
+        }
+
+        private List<String> readFileLines(IFile sourceFile) {
+            try (InputStream in = sourceFile.getContents()) {
+                String content = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                return List.of(content.split("\\R", -1)); //$NON-NLS-1$
+            } catch (Exception e) {
+                return List.of();
+            }
         }
 
         private void add(String category, String path, int line, String snippet) {

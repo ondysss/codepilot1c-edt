@@ -67,7 +67,8 @@ public class SearchCodebaseTool implements ITool {
 
             RagService ragService = RagService.getInstance();
             if (!ragService.isReady()) {
-                return ToolResult.failure("RAG service is not ready. Please index the codebase first."); //$NON-NLS-1$
+                return ToolResult.failure(
+                        "RAG service is not ready. Сначала выполните индексацию кода: EDT → Инструменты → Индексировать код, затем повторите search_codebase."); //$NON-NLS-1$
             }
 
             RagContext context = ragService.buildContext(query, maxResults);

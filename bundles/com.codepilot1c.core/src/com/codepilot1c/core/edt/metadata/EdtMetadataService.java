@@ -31,6 +31,7 @@ import org.eclipse.core.runtime.Platform;
 import org.eclipse.emf.common.util.EMap;
 import org.eclipse.emf.common.util.TreeIterator;
 import org.eclipse.emf.common.util.URI;
+import org.eclipse.emf.ecore.EClass;
 import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.EAttribute;
 import org.eclipse.emf.ecore.EDataType;
@@ -53,7 +54,10 @@ import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.core.platform.IDtProject;
 import com._1c.g5.v8.dt.core.platform.IDtProjectManager;
 import com._1c.g5.v8.dt.form.model.DataPath;
+import com._1c.g5.v8.dt.form.model.AbstractDataPath;
+import com._1c.g5.v8.dt.form.model.DynamicListExtInfo;
 import com._1c.g5.v8.dt.form.model.Form;
+import com._1c.g5.v8.dt.form.model.FormAttribute;
 import com._1c.g5.v8.dt.form.model.FormFactory;
 import com._1c.g5.v8.dt.form.model.FormField;
 import com._1c.g5.v8.dt.form.model.FormGroup;
@@ -77,6 +81,7 @@ import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
 import com._1c.g5.v8.dt.metadata.mdclass.DataProcessor;
 import com._1c.g5.v8.dt.metadata.mdclass.Document;
 import com._1c.g5.v8.dt.metadata.mdclass.FormType;
+import com._1c.g5.v8.dt.metadata.mdclass.AdjustableBoolean;
 import com._1c.g5.v8.dt.platform.core.typeinfo.TypeDescriptionInfoWithTypeInfo;
 import com._1c.g5.v8.dt.platform.core.typeinfo.TypeInfo;
 import com._1c.g5.v8.dt.platform.core.typeinfo.TypeProviderService;
@@ -124,6 +129,17 @@ public class EdtMetadataService {
     private static final Map<String, String> ATTRIBUTE_NAME_ALIASES = createAttributeNameAliases();
     private static final Map<String, String> TOP_LEVEL_PROPERTY_ALIASES = createTopLevelPropertyAliases();
     private static final Map<String, Set<String>> RESERVED_ATTRIBUTE_FALLBACK = createReservedAttributeFallback();
+    private static final Set<String> FORM_MUTATION_META_KEYS = Set.of(
+            "op", //$NON-NLS-1$
+            "name", //$NON-NLS-1$
+            "itemname", //$NON-NLS-1$
+            "itemid", //$NON-NLS-1$
+            "parentitemname", //$NON-NLS-1$
+            "parentitemid", //$NON-NLS-1$
+            "index", //$NON-NLS-1$
+            "set", //$NON-NLS-1$
+            "properties" //$NON-NLS-1$
+    );
 
     private final EdtMetadataGateway gateway;
     private final MetadataProjectReadinessChecker readinessChecker;
@@ -537,11 +553,11 @@ public class EdtMetadataService {
             String op = normalizeToken(rawOp);
             switch (op) {
                 case "setformprops", "setformproperties", "setform" -> {
-                    Map<String, Object> set = asMap(operation.get("set")); //$NON-NLS-1$
+                    Map<String, Object> set = extractOperationSet(operation);
                     if (set.isEmpty()) {
                         throw new MetadataOperationException(
                                 MetadataOperationCode.INVALID_METADATA_CHANGE,
-                                "set_form_props operation requires non-empty 'set' map", false); //$NON-NLS-1$
+                                "set_form_props operation requires non-empty 'set' or 'properties' map", false); //$NON-NLS-1$
                     }
                     applyFormPropertySet(formModel, set);
                     summaries.add("set_form_props[" + operationIndex + "]"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -579,15 +595,7 @@ public class EdtMetadataService {
                     FormField field = FormFactory.eINSTANCE.createFormField();
                     field.setId(nextFormItemId(formModel));
                     field.setName(name);
-                    applyTitleValue(field, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
-                    applyDataPath(field, getMapValueIgnoreCase(operation, "data_path")); //$NON-NLS-1$
-                    if (hasMapKeyIgnoreCase(operation, "field_type")) { //$NON-NLS-1$
-                        applySimpleFeatureValue(field, "type", getMapValueIgnoreCase(operation, "field_type")); //$NON-NLS-1$ //$NON-NLS-2$
-                    }
-                    if (hasMapKeyIgnoreCase(operation, "read_only")) { //$NON-NLS-1$
-                        field.setReadOnly(asBoolean(getMapValueIgnoreCase(operation, "read_only"))); //$NON-NLS-1$
-                    }
-                    Map<String, Object> set = asMap(operation.get("set")); //$NON-NLS-1$
+                    Map<String, Object> set = extractAddFieldSet(operation);
                     if (!set.isEmpty()) {
                         applyFormPropertySet(field, set);
                     }
@@ -596,11 +604,11 @@ public class EdtMetadataService {
                 }
                 case "setitemprops", "setitem", "updateitem", "set" -> {
                     FormItem item = resolveRequiredItem(formModel, operation);
-                    Map<String, Object> set = asMap(operation.get("set")); //$NON-NLS-1$
+                    Map<String, Object> set = extractOperationSet(operation);
                     if (set.isEmpty()) {
                         throw new MetadataOperationException(
                                 MetadataOperationCode.INVALID_METADATA_CHANGE,
-                                "set_item operation requires non-empty 'set' map", false); //$NON-NLS-1$
+                                "set_item operation requires non-empty 'set' or 'properties' map", false); //$NON-NLS-1$
                     }
                     applyFormPropertySet(item, set);
                     summaries.add("set_item[" + operationIndex + "]: id=" + item.getId()); //$NON-NLS-1$ //$NON-NLS-2$
@@ -636,6 +644,45 @@ public class EdtMetadataService {
             operationIndex++;
         }
         return summaries;
+    }
+
+    private Map<String, Object> extractOperationSet(Map<String, Object> operation) {
+        if (operation == null || operation.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> merged = new LinkedHashMap<>();
+        Map<String, Object> properties = asMap(operation.get("properties")); //$NON-NLS-1$
+        if (!properties.isEmpty()) {
+            merged.putAll(properties);
+        }
+        Map<String, Object> set = asMap(operation.get("set")); //$NON-NLS-1$
+        if (!set.isEmpty()) {
+            merged.putAll(set);
+        }
+        return merged;
+    }
+
+    private Map<String, Object> extractAddFieldSet(Map<String, Object> operation) {
+        if (operation == null || operation.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> set = new LinkedHashMap<>(extractOperationSet(operation));
+        for (Map.Entry<String, Object> entry : operation.entrySet()) {
+            String key = entry.getKey();
+            if (key == null || key.isBlank()) {
+                continue;
+            }
+            String normalizedKey = normalizeToken(key);
+            if (FORM_MUTATION_META_KEYS.contains(normalizedKey)) {
+                continue;
+            }
+            set.putIfAbsent(key, entry.getValue());
+        }
+        Object fieldType = removeMapValueIgnoreCase(set, "field_type", "fieldType"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (fieldType != null && !hasMapKeyIgnoreCase(set, "type")) { //$NON-NLS-1$
+            set.put("type", fieldType); //$NON-NLS-1$
+        }
+        return set;
     }
 
     private FormItemContainer resolveTargetContainer(Form formModel, Map<String, Object> operation) {
@@ -763,6 +810,14 @@ public class EdtMetadataService {
                 namedElement.setName(name);
                 continue;
             }
+            if ("attributes".equals(normalized) && target instanceof Form formModel) { //$NON-NLS-1$
+                applyFormAttributesPatch(formModel, value);
+                continue;
+            }
+            if ("uservisible".equals(normalized) && target instanceof Visible visible) { //$NON-NLS-1$
+                applyUserVisibleValue(visible, value, key);
+                continue;
+            }
             if ("visible".equals(normalized) && target instanceof Visible visible) { //$NON-NLS-1$
                 visible.setVisible(asBoolean(value));
                 continue;
@@ -812,7 +867,244 @@ public class EdtMetadataService {
         if (field == null || value == null) {
             return;
         }
+        field.setDataPath(toDataPath(value, "data_path")); //$NON-NLS-1$
+    }
+
+    private void applyUserVisibleValue(Visible visible, Object value, String fieldName) {
+        if (visible == null) {
+            return;
+        }
+        if (value == null) {
+            visible.setUserVisible(null);
+            return;
+        }
+        Boolean common = parseBoolean(value);
+        if (common == null && value instanceof Map<?, ?> map) {
+            common = firstParsedBoolean(
+                    getMapValueIgnoreCase(map, "common"), //$NON-NLS-1$
+                    getMapValueIgnoreCase(map, "value"), //$NON-NLS-1$
+                    getMapValueIgnoreCase(map, "visible"), //$NON-NLS-1$
+                    getMapValueIgnoreCase(map, "enabled")); //$NON-NLS-1$
+        }
+        if (common == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "Expected boolean/common map for " + fieldName + ": " + value, false); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        AdjustableBoolean adjusted = MdClassFactory.eINSTANCE.createAdjustableBoolean();
+        adjusted.setCommon(common.booleanValue());
+        adjusted.getFor().clear();
+        visible.setUserVisible(adjusted);
+    }
+
+    private void applyFormAttributesPatch(Form formModel, Object value) {
+        List<Map<String, Object>> patches = normalizeAttributePatches(value);
+        if (patches.isEmpty()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "attributes patch must contain at least one attribute descriptor", false); //$NON-NLS-1$
+        }
+        for (Map<String, Object> patch : patches) {
+            FormAttribute attribute = resolveRequiredFormAttribute(formModel, patch);
+            applyFormAttributePatch(attribute, patch);
+        }
+    }
+
+    private List<Map<String, Object>> normalizeAttributePatches(Object value) {
+        if (value == null) {
+            return List.of();
+        }
+        List<Map<String, Object>> patches = new ArrayList<>();
+        if (value instanceof List<?> list) {
+            for (Object entry : list) {
+                Map<String, Object> mapEntry = asMap(entry);
+                if (!mapEntry.isEmpty()) {
+                    patches.add(new LinkedHashMap<>(mapEntry));
+                }
+            }
+            return patches;
+        }
+        Map<String, Object> asMapValue = asMap(value);
+        if (asMapValue.isEmpty()) {
+            return patches;
+        }
+        if (hasMapKeyIgnoreCase(asMapValue, "name") //$NON-NLS-1$
+                || hasMapKeyIgnoreCase(asMapValue, "id") //$NON-NLS-1$
+                || hasMapKeyIgnoreCase(asMapValue, "set") //$NON-NLS-1$
+                || hasMapKeyIgnoreCase(asMapValue, "properties")) { //$NON-NLS-1$
+            patches.add(new LinkedHashMap<>(asMapValue));
+            return patches;
+        }
+        for (Map.Entry<String, Object> entry : asMapValue.entrySet()) {
+            if (entry.getKey() == null || entry.getKey().isBlank()) {
+                continue;
+            }
+            Map<String, Object> patch = new LinkedHashMap<>(asMap(entry.getValue()));
+            patch.putIfAbsent("name", entry.getKey()); //$NON-NLS-1$
+            patches.add(patch);
+        }
+        return patches;
+    }
+
+    private FormAttribute resolveRequiredFormAttribute(Form formModel, Map<String, Object> patch) {
+        Object idValue = getMapValueIgnoreCase(patch, "id"); //$NON-NLS-1$
+        if (idValue == null) {
+            idValue = getMapValueIgnoreCase(patch, "attribute_id"); //$NON-NLS-1$
+        }
+        if (idValue == null) {
+            idValue = getMapValueIgnoreCase(patch, "attributeId"); //$NON-NLS-1$
+        }
+        Integer id = asOptionalInteger(idValue, "attribute.id"); //$NON-NLS-1$
+        String name = asString(getMapValueIgnoreCase(patch, "name")); //$NON-NLS-1$
+        if (name == null) {
+            name = asString(getMapValueIgnoreCase(patch, "attribute_name")); //$NON-NLS-1$
+        }
+        if (name == null) {
+            name = asString(getMapValueIgnoreCase(patch, "attribute")); //$NON-NLS-1$
+        }
+        if (id == null && name == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Attribute patch requires id or name", false); //$NON-NLS-1$
+        }
+        for (FormAttribute attribute : formModel.getAttributes()) {
+            if (attribute == null) {
+                continue;
+            }
+            if (id != null && attribute.getId() == id.intValue()) {
+                return attribute;
+            }
+            if (name != null && attribute.getName() != null && name.equalsIgnoreCase(attribute.getName())) {
+                return attribute;
+            }
+        }
+        throw new MetadataOperationException(
+                MetadataOperationCode.METADATA_NOT_FOUND,
+                "Form attribute not found: id=" + id + ", name=" + name, false); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private void applyFormAttributePatch(FormAttribute attribute, Map<String, Object> patch) {
+        Map<String, Object> set = extractOperationSet(patch);
+        if (set.isEmpty()) {
+            set = new LinkedHashMap<>(patch);
+            set.remove("name"); //$NON-NLS-1$
+            set.remove("id"); //$NON-NLS-1$
+            removeMapValueIgnoreCase(set, "attribute", "attribute_name", "attribute_id", "attributeId"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        } else {
+            set = new LinkedHashMap<>(set);
+        }
+
+        Object useAlways = removeMapValueIgnoreCase(
+                set,
+                "useAlways", //$NON-NLS-1$
+                "use_always", //$NON-NLS-1$
+                "notDefaultUseAlwaysAttributes"); //$NON-NLS-1$
+        if (useAlways != null || hasMapKeyIgnoreCase(patch, "useAlways") || hasMapKeyIgnoreCase(patch, "use_always")) { //$NON-NLS-1$ //$NON-NLS-2$
+            applyUseAlwaysAttributes(attribute, useAlways);
+        }
+
+        Object dynamicDataRead = removeMapValueIgnoreCase(set, "dynamicDataRead", "dynamic_data_read"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (dynamicDataRead != null || hasMapKeyIgnoreCase(patch, "dynamicDataRead") || hasMapKeyIgnoreCase(patch, "dynamic_data_read")) { //$NON-NLS-1$ //$NON-NLS-2$
+            if (!(attribute.getExtInfo() instanceof DynamicListExtInfo extInfo)) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "dynamicDataRead is supported only for attributes with DynamicListExtInfo", false); //$NON-NLS-1$
+            }
+            Boolean parsed = parseBoolean(dynamicDataRead);
+            if (parsed == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                        "dynamicDataRead expects boolean value", false); //$NON-NLS-1$
+            }
+            extInfo.setDynamicDataRead(parsed.booleanValue());
+        }
+
+        Object extInfoPatch = removeMapValueIgnoreCase(set, "extInfo", "ext_info"); //$NON-NLS-1$ //$NON-NLS-2$
+        Map<String, Object> extInfoSet = asMap(extInfoPatch);
+        if (!extInfoSet.isEmpty()) {
+            if (attribute.getExtInfo() == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Attribute extInfo is not initialized for patch", false); //$NON-NLS-1$
+            }
+            applyFormPropertySet(attribute.getExtInfo(), extInfoSet);
+        }
+
+        if (!set.isEmpty()) {
+            applyFormPropertySet(attribute, set);
+        }
+    }
+
+    private void applyUseAlwaysAttributes(FormAttribute attribute, Object value) {
+        if (attribute == null) {
+            return;
+        }
+        List<Object> pathValues = new ArrayList<>();
+        if (value instanceof List<?> list) {
+            pathValues.addAll(list);
+        } else if (value instanceof Map<?, ?> map) {
+            Object paths = pickFirst(asMap(map), "paths", "attributes", "useAlways", "use_always"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            if (paths instanceof List<?> listPaths) {
+                pathValues.addAll(listPaths);
+            } else if (paths != null) {
+                pathValues.add(paths);
+            }
+            Object columns = getMapValueIgnoreCase(map, "columns"); //$NON-NLS-1$
+            if (columns instanceof List<?> columnList) {
+                for (Object column : columnList) {
+                    Map<String, Object> columnPatch = asMap(column);
+                    if (columnPatch.isEmpty()) {
+                        if (column != null) {
+                            pathValues.add(column);
+                        }
+                        continue;
+                    }
+                    Boolean useAlways = firstParsedBoolean(
+                            getMapValueIgnoreCase(columnPatch, "useAlways"), //$NON-NLS-1$
+                            getMapValueIgnoreCase(columnPatch, "use_always"), //$NON-NLS-1$
+                            getMapValueIgnoreCase(columnPatch, "value")); //$NON-NLS-1$
+                    if (Boolean.FALSE.equals(useAlways)) {
+                        continue;
+                    }
+                    Object pathCarrier = pickFirst(
+                            columnPatch,
+                            "path", "data_path", "name", "column", "attribute"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+                    if (pathCarrier != null) {
+                        pathValues.add(pathCarrier);
+                    }
+                }
+            }
+        } else if (value != null) {
+            pathValues.add(value);
+        }
+
+        attribute.getNotDefaultUseAlwaysAttributes().clear();
+        for (Object pathValue : pathValues) {
+            if (pathValue == null) {
+                continue;
+            }
+            attribute.getNotDefaultUseAlwaysAttributes().add(toDataPath(pathValue, "useAlways")); //$NON-NLS-1$
+        }
+    }
+
+    private DataPath toDataPath(Object value, String fieldName) {
+        List<String> segments = toDataPathSegments(value, fieldName);
+        if (segments.isEmpty()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    fieldName + " must contain at least one segment", false); //$NON-NLS-1$
+        }
+        DataPath dataPath = FormFactory.eINSTANCE.createDataPath();
+        dataPath.getSegments().addAll(segments);
+        return dataPath;
+    }
+
+    private List<String> toDataPathSegments(Object value, String fieldName) {
         List<String> segments = new ArrayList<>();
+        if (value instanceof AbstractDataPath dataPath) {
+            segments.addAll(dataPath.getSegments());
+            return segments;
+        }
         if (value instanceof List<?> list) {
             for (Object entry : list) {
                 if (entry == null) {
@@ -823,25 +1115,52 @@ public class EdtMetadataService {
                     segments.add(segment);
                 }
             }
-        } else {
-            String raw = String.valueOf(value).trim();
-            if (!raw.isBlank()) {
-                for (String token : raw.split("\\.")) { //$NON-NLS-1$
-                    String segment = token.trim();
-                    if (!segment.isBlank()) {
-                        segments.add(segment);
-                    }
+            return segments;
+        }
+        if (value instanceof Map<?, ?> map) {
+            Object nestedSegments = pickFirst(asMap(map), "segments", "path", "data_path", "value"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            if (nestedSegments != null && nestedSegments != value) {
+                return toDataPathSegments(nestedSegments, fieldName);
+            }
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "Unsupported map format for " + fieldName + ": " + value, false); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        String raw = String.valueOf(value).trim();
+        if (!raw.isBlank()) {
+            for (String token : raw.split("\\.")) { //$NON-NLS-1$
+                String segment = token.trim();
+                if (!segment.isBlank()) {
+                    segments.add(segment);
                 }
             }
         }
-        if (segments.isEmpty()) {
-            throw new MetadataOperationException(
-                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
-                    "data_path must contain at least one segment", false); //$NON-NLS-1$
+        return segments;
+    }
+
+    private Object removeMapValueIgnoreCase(Map<String, Object> map, String... keys) {
+        if (map == null || map.isEmpty() || keys == null || keys.length == 0) {
+            return null;
         }
-        DataPath dataPath = FormFactory.eINSTANCE.createDataPath();
-        dataPath.getSegments().addAll(segments);
-        field.setDataPath(dataPath);
+        for (String key : keys) {
+            if (key == null || key.isBlank()) {
+                continue;
+            }
+            if (map.containsKey(key)) {
+                return map.remove(key);
+            }
+            String matched = null;
+            for (String existingKey : map.keySet()) {
+                if (existingKey != null && existingKey.equalsIgnoreCase(key)) {
+                    matched = existingKey;
+                    break;
+                }
+            }
+            if (matched != null) {
+                return map.remove(matched);
+            }
+        }
+        return null;
     }
 
     private Map<String, Object> collectFormRootProperties(
@@ -1120,6 +1439,13 @@ public class EdtMetadataService {
                     "Unknown form property: " + fieldName, false); //$NON-NLS-1$
         }
         if (feature instanceof EReference reference) {
+            if (applyStringMapReferenceValue(target, reference, value)) {
+                return;
+            }
+            if ("uservisible".equals(normalizeToken(reference.getName())) && target instanceof Visible visible) { //$NON-NLS-1$
+                applyUserVisibleValue(visible, value, fieldName);
+                return;
+            }
             throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_CHANGE,
                     "Reference property updates are not supported directly: " + reference.getName(), false); //$NON-NLS-1$
@@ -1356,6 +1682,7 @@ public class EdtMetadataService {
         String topLevelFqn = extractTopLevelFqn(targetFqn);
         forceExportTopLevelObject(project, topLevelFqn, opId);
         verifyObjectRemoved(project, targetFqn, opId);
+        cleanupRemovedFilesystemArtifacts(project, targetFqn, opId);
         refreshProjectSafely(project);
         LOG.info("[%s] deleteMetadata SUCCESS in %s target=%s", opId, // $NON-NLS-1$
                 LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),
@@ -1411,13 +1738,6 @@ public class EdtMetadataService {
             throw new MetadataOperationException(
                     MetadataOperationCode.METADATA_NOT_FOUND,
                     "Metadata object not found: " + request.objectFqn(), false); //$NON-NLS-1$
-        }
-        if (target.formName() != null) {
-            throw new MetadataOperationException(
-                    MetadataOperationCode.INVALID_METADATA_KIND,
-                    "Form module artifact is unavailable: forms are stored in owner .mdo in current EDT format: "
-                            + request.objectFqn(),
-                    false); //$NON-NLS-1$
         }
 
         List<String> candidates = buildModuleCandidates(target, request.moduleKind());
@@ -1491,15 +1811,27 @@ public class EdtMetadataService {
     private List<String> buildModuleCandidates(ModuleTarget target, ModuleArtifactKind requestedKind) {
         LinkedHashSet<String> candidates = new LinkedHashSet<>();
         if (target.formName() != null && target.topKind() != null && target.topName() != null) {
-            String formsPath = "src/" + mapTopFolder(target.topKind()) + "/" + target.topName() + "/Forms/" + target.formName() + "/Module.bsl"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            String formsPath = "src/" + mapTopFolder(target.topKind()) + "/" + target.topName() + "/Forms/" //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    + target.formName() + "/Module.bsl"; //$NON-NLS-1$
             candidates.add(formsPath);
+        }
+        if (target.topKind() != null && target.topName() != null) {
+            ModuleArtifactKind effectiveKind = target.formName() != null ? ModuleArtifactKind.MODULE : requestedKind;
+            String topPath = "src/" + mapTopFolder(target.topKind()) + "/" + target.topName() + "/" //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    + moduleFileName(effectiveKind, target.className());
+            if (target.formName() == null) {
+                candidates.add(topPath);
+            }
         }
 
         String resourcePath = target.resourcePath();
-        if (resourcePath != null && !resourcePath.isBlank()) {
+        if (isUsableMetadataResourcePath(resourcePath)) {
             String normalized = resourcePath.replace('\\', '/');
             int slash = normalized.lastIndexOf('/');
             String dir = slash >= 0 ? normalized.substring(0, slash) : ""; //$NON-NLS-1$
+            if (dir.isBlank()) {
+                return List.copyOf(candidates);
+            }
             String lower = normalized.toLowerCase(Locale.ROOT);
             if (lower.endsWith(".form")) { //$NON-NLS-1$
                 candidates.add(dir + "/Module.bsl"); //$NON-NLS-1$
@@ -1514,13 +1846,22 @@ public class EdtMetadataService {
                 candidates.add(dir + "/" + moduleFileName(requestedKind, target.className())); //$NON-NLS-1$
             }
         }
-
-        if (target.topKind() != null && target.topName() != null) {
-            String topPath = "src/" + mapTopFolder(target.topKind()) + "/" + target.topName() + "/" //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                    + moduleFileName(requestedKind, target.className());
-            candidates.add(topPath);
-        }
         return List.copyOf(candidates);
+    }
+
+    private boolean isUsableMetadataResourcePath(String resourcePath) {
+        if (resourcePath == null || resourcePath.isBlank()) {
+            return false;
+        }
+        String normalized = resourcePath.replace('\\', '/');
+        if (normalized.startsWith("/")) { //$NON-NLS-1$
+            normalized = normalized.substring(1);
+        }
+        if (!normalized.startsWith("src/")) { //$NON-NLS-1$
+            return false;
+        }
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".mdo") || lower.endsWith(".form"); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private String moduleFileName(ModuleArtifactKind kind, String className) {
@@ -2721,6 +3062,20 @@ public class EdtMetadataService {
                 ? requestedSpec
                 : TypeSpec.of(typeToApply);
         setAttributeType(feature, typeItem, effectiveSpec, transaction);
+        applyBasicFeatureCreateProperties(feature, properties);
+    }
+
+    private void applyBasicFeatureCreateProperties(BasicFeature feature, Map<String, Object> properties) {
+        if (feature == null || properties == null || properties.isEmpty()) {
+            return;
+        }
+        Boolean multiLine = firstParsedBoolean(
+                getMapValueIgnoreCase(properties, "multiLine"), //$NON-NLS-1$
+                getMapValueIgnoreCase(properties, "multiline"), //$NON-NLS-1$
+                getMapValueIgnoreCase(properties, "multi_line")); //$NON-NLS-1$
+        if (multiLine != null) {
+            feature.setMultiLine(multiLine.booleanValue());
+        }
     }
 
     private boolean isKindWithRequiredType(MetadataChildKind kind) {
@@ -2781,19 +3136,17 @@ public class EdtMetadataService {
                         "Changing name is not supported in update_metadata", false); //$NON-NLS-1$
             }
             if ("synonym".equalsIgnoreCase(key)) { //$NON-NLS-1$
-                String synonym = entry.getValue() == null ? null : String.valueOf(entry.getValue());
-                if (synonym == null || synonym.isBlank()) {
-                    continue;
-                }
                 EMap<String, String> synonymMap = target.getSynonym();
                 if (synonymMap != null) {
-                    synonymMap.put(RU_LANGUAGE, synonym);
+                    @SuppressWarnings("unchecked")
+                    Map<Object, Object> typedMap = (Map<Object, Object>) (Map<?, ?>) synonymMap;
+                    applyStringMapPatch(typedMap, entry.getValue(), "synonym"); //$NON-NLS-1$
                 }
                 continue;
             }
             // Auto-redirect: if key is not an EMF feature but value is a Map,
             // treat it as a child attribute property update (e.g. set type on Attribute)
-            EStructuralFeature probe = target.eClass().getEStructuralFeature(key);
+            EStructuralFeature probe = resolveFeatureIgnoreCase(target, normalizeMetadataFieldAlias(key));
             if (probe instanceof EReference ref && ref.isContainment() && entry.getValue() instanceof List<?> rawChildren) {
                 List<Map<String, Object>> redirected = buildChildOpsFromContainmentSet(
                         configuration, targetFqn, key, rawChildren);
@@ -3293,7 +3646,8 @@ public class EdtMetadataService {
             setAttributeType(feature, typeItem, typeSpec, transaction);
             return;
         }
-        EStructuralFeature eFeature = resolveFeatureIgnoreCase(target, fieldName);
+        String resolvedFieldName = normalizeMetadataFieldAlias(fieldName);
+        EStructuralFeature eFeature = resolveFeatureIgnoreCase(target, resolvedFieldName);
         if (eFeature == null) {
             throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_CHANGE,
@@ -3383,7 +3737,7 @@ public class EdtMetadataService {
             Integer length = typeSpec == null ? null : typeSpec.stringLength();
             Boolean fixed = typeSpec == null ? null : typeSpec.stringFixed();
             StringQualifiers existing = existingType == null ? null : existingType.getStringQualifiers();
-            sq.setLength(firstPositive(length, existing == null ? null : existing.getLength(), 150));
+            sq.setLength(resolveStringLength(length, existing, 150));
             sq.setFixed(fixed != null
                     ? fixed.booleanValue()
                     : (existing != null && existing.isFixed()));
@@ -3862,10 +4216,50 @@ public class EdtMetadataService {
             String nameRu = firstNonBlank(type.getNameRu(), ""); //$NON-NLS-1$
             String code = typeInfo.getCode() != null ? String.valueOf(typeInfo.getCode()) : ""; //$NON-NLS-1$
             String codeRu = typeInfo.getCodeRu() != null ? String.valueOf(typeInfo.getCodeRu()) : ""; //$NON-NLS-1$
-            String typeClass = typeInfo.getTypeClass() != null ? String.valueOf(typeInfo.getTypeClass()) : ""; //$NON-NLS-1$
+            String typeClass = describeTypeClass(typeInfo.getTypeClass());
             boolean simpleType = isSimpleTypeCandidate(name, nameRu, code, codeRu);
             String key = (name + "|" + nameRu + "|" + code + "|" + codeRu).toLowerCase(Locale.ROOT); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             sink.putIfAbsent(key, new FieldTypeCandidate(name, nameRu, code, codeRu, typeClass, simpleType));
+        }
+    }
+
+    private String describeTypeClass(Object typeClass) {
+        if (typeClass == null) {
+            return ""; //$NON-NLS-1$
+        }
+        if (typeClass instanceof Enum<?> enumValue) {
+            return enumValue.name();
+        }
+        String reflected = firstNonBlank(
+                invokeStringNoArgs(typeClass, "getName"), //$NON-NLS-1$
+                invokeStringNoArgs(typeClass, "name"), //$NON-NLS-1$
+                invokeStringNoArgs(typeClass, "getLiteral"), //$NON-NLS-1$
+                invokeStringNoArgs(typeClass, "getCode")); //$NON-NLS-1$
+        if (reflected != null && !reflected.isBlank() && !reflected.contains("@")) { //$NON-NLS-1$
+            return reflected;
+        }
+        String text = String.valueOf(typeClass);
+        if (text.contains("@")) { //$NON-NLS-1$
+            return typeClass.getClass().getSimpleName();
+        }
+        return text;
+    }
+
+    private String invokeStringNoArgs(Object target, String methodName) {
+        if (target == null || methodName == null || methodName.isBlank()) {
+            return null;
+        }
+        try {
+            Method method = target.getClass().getMethod(methodName);
+            method.setAccessible(true);
+            Object value = method.invoke(target);
+            if (value == null) {
+                return null;
+            }
+            String text = String.valueOf(value).trim();
+            return text.isBlank() ? null : text;
+        } catch (ReflectiveOperationException | SecurityException e) {
+            return null;
         }
     }
 
@@ -4584,6 +4978,16 @@ public class EdtMetadataService {
         return Integer.valueOf(fallback);
     }
 
+    private int resolveStringLength(Integer requested, StringQualifiers existing, int fallback) {
+        if (requested != null && requested.intValue() >= 0) {
+            return requested.intValue();
+        }
+        if (existing != null && existing.getLength() >= 0) {
+            return existing.getLength();
+        }
+        return fallback;
+    }
+
     private Integer firstNonNegative(Integer first, Integer second, int fallback) {
         if (first != null && first.intValue() >= 0) {
             return first;
@@ -4727,7 +5131,8 @@ public class EdtMetadataService {
                     MetadataOperationCode.INVALID_METADATA_CHANGE,
                     "Cannot unset required field: uuid", false); //$NON-NLS-1$
         }
-        EStructuralFeature feature = resolveFeatureIgnoreCase(target, fieldName);
+        String resolvedFieldName = normalizeMetadataFieldAlias(fieldName);
+        EStructuralFeature feature = resolveFeatureIgnoreCase(target, resolvedFieldName);
         if (feature == null) {
             throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_CHANGE,
@@ -4756,6 +5161,9 @@ public class EdtMetadataService {
             Object value
     ) {
         if (reference.isContainment()) {
+            if (applyStringMapReferenceValue(target, reference, value)) {
+                return;
+            }
             throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_CHANGE,
                     "Containment reference updates are not supported in set. Use children_ops/add_metadata_child: "
@@ -4778,6 +5186,99 @@ public class EdtMetadataService {
 
         Object resolved = resolveSingleReferenceValue(configuration, reference, value);
         target.eSet(reference, resolved);
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean applyStringMapReferenceValue(EObject target, EReference reference, Object value) {
+        if (target == null || reference == null || !isStringMapReference(reference)) {
+            return false;
+        }
+        Object raw = target.eGet(reference);
+        if (raw instanceof EMap<?, ?> eMap) {
+            applyStringMapPatch((Map<Object, Object>) eMap, value, reference.getName());
+            return true;
+        }
+        if (raw instanceof Map<?, ?> map) {
+            applyStringMapPatch((Map<Object, Object>) map, value, reference.getName());
+            return true;
+        }
+        if (raw == null) {
+            // EMF map references are initialized lazily in generated models.
+            Object refreshed = target.eGet(reference);
+            if (refreshed instanceof EMap<?, ?> refreshedMap) {
+                applyStringMapPatch((Map<Object, Object>) refreshedMap, value, reference.getName());
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isStringMapReference(EReference reference) {
+        if (reference == null || !reference.isMany()) {
+            return false;
+        }
+        EClass entryType = reference.getEReferenceType();
+        if (entryType == null) {
+            return false;
+        }
+        EStructuralFeature keyFeature = entryType.getEStructuralFeature("key"); //$NON-NLS-1$
+        EStructuralFeature valueFeature = entryType.getEStructuralFeature("value"); //$NON-NLS-1$
+        if (!(keyFeature instanceof EAttribute keyAttr) || !(valueFeature instanceof EAttribute valueAttr)) {
+            return false;
+        }
+        return isStringDataType(keyAttr.getEAttributeType()) && isStringDataType(valueAttr.getEAttributeType());
+    }
+
+    private boolean isStringDataType(EDataType dataType) {
+        if (dataType == null) {
+            return false;
+        }
+        Class<?> instanceClass = dataType.getInstanceClass();
+        if (instanceClass == String.class) {
+            return true;
+        }
+        String instanceClassName = dataType.getInstanceClassName();
+        return "java.lang.String".equals(instanceClassName); //$NON-NLS-1$
+    }
+
+    private void applyStringMapPatch(Map<Object, Object> targetMap, Object value, String fieldName) {
+        if (targetMap == null) {
+            return;
+        }
+        if (value == null) {
+            targetMap.remove(RU_LANGUAGE);
+            return;
+        }
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() == null) {
+                    continue;
+                }
+                String language = String.valueOf(entry.getKey()).trim();
+                if (language.isBlank()) {
+                    continue;
+                }
+                Object rawText = entry.getValue();
+                if (rawText == null) {
+                    targetMap.remove(language);
+                    continue;
+                }
+                String text = String.valueOf(rawText);
+                if (text.isBlank()) {
+                    targetMap.remove(language);
+                } else {
+                    targetMap.put(language, text);
+                }
+            }
+            return;
+        }
+        String text = asString(value);
+        if (text == null || text.isBlank()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "Expected string or {lang:text} map for " + fieldName + ": " + value, false); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        targetMap.put(RU_LANGUAGE, text);
     }
 
     private Collection<Object> resolveReferenceValues(
@@ -4880,18 +5381,27 @@ public class EdtMetadataService {
                 return raw;
             }
             if (instanceClass == Integer.class || instanceClass == int.class) {
-                return Integer.valueOf(raw);
+                return convertToInteger(value, attribute.getName());
             }
             if (instanceClass == Long.class || instanceClass == long.class) {
-                return Long.valueOf(raw);
+                return convertToLong(value, attribute.getName());
             }
             if (instanceClass == Double.class || instanceClass == double.class) {
+                if (value instanceof Number number) {
+                    return Double.valueOf(number.doubleValue());
+                }
                 return Double.valueOf(raw);
             }
             if (instanceClass == Float.class || instanceClass == float.class) {
+                if (value instanceof Number number) {
+                    return Float.valueOf(number.floatValue());
+                }
                 return Float.valueOf(raw);
             }
             if (instanceClass == Boolean.class || instanceClass == boolean.class) {
+                if (value instanceof Number number) {
+                    return Boolean.valueOf(number.intValue() != 0);
+                }
                 return Boolean.valueOf(raw);
             }
             if (instanceClass.isEnum()) {
@@ -4930,6 +5440,76 @@ public class EdtMetadataService {
         throw new MetadataOperationException(
                 MetadataOperationCode.INVALID_METADATA_CHANGE,
                 "Unsupported value type for field " + attribute.getName() + ": " + value, false); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private Integer convertToInteger(Object value, String fieldName) {
+        if (value instanceof Number number) {
+            if (!isWholeNumber(number)) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Invalid value for field " + fieldName + ": " + value, false); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            long longValue = number.longValue();
+            if (longValue < Integer.MIN_VALUE || longValue > Integer.MAX_VALUE) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Invalid value for field " + fieldName + ": " + value, false); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            return Integer.valueOf((int) longValue);
+        }
+        String raw = String.valueOf(value).trim();
+        try {
+            return Integer.valueOf(raw);
+        } catch (NumberFormatException e) {
+            try {
+                double parsed = Double.parseDouble(raw);
+                if (Double.isFinite(parsed) && Math.rint(parsed) == parsed
+                        && parsed >= Integer.MIN_VALUE && parsed <= Integer.MAX_VALUE) {
+                    return Integer.valueOf((int) parsed);
+                }
+            } catch (NumberFormatException ignored) {
+                // Fall through to metadata error below.
+            }
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Invalid value for field " + fieldName + ": " + value, false, e); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+    }
+
+    private Long convertToLong(Object value, String fieldName) {
+        if (value instanceof Number number) {
+            if (!isWholeNumber(number)) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Invalid value for field " + fieldName + ": " + value, false); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            return Long.valueOf(number.longValue());
+        }
+        String raw = String.valueOf(value).trim();
+        try {
+            return Long.valueOf(raw);
+        } catch (NumberFormatException e) {
+            try {
+                double parsed = Double.parseDouble(raw);
+                if (Double.isFinite(parsed) && Math.rint(parsed) == parsed
+                        && parsed >= Long.MIN_VALUE && parsed <= Long.MAX_VALUE) {
+                    return Long.valueOf((long) parsed);
+                }
+            } catch (NumberFormatException ignored) {
+                // Fall through to metadata error below.
+            }
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Invalid value for field " + fieldName + ": " + value, false, e); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+    }
+
+    private boolean isWholeNumber(Number number) {
+        if (number == null) {
+            return false;
+        }
+        double doubleValue = number.doubleValue();
+        return Double.isFinite(doubleValue) && Math.rint(doubleValue) == doubleValue;
     }
 
     private boolean hasNestedMetadataChildren(MdObject target) {
@@ -5095,6 +5675,17 @@ public class EdtMetadataService {
                 .replace("-", "") //$NON-NLS-1$ //$NON-NLS-2$
                 .replace(" ", "") //$NON-NLS-1$ //$NON-NLS-2$
                 .toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeMetadataFieldAlias(String fieldName) {
+        String token = normalizeToken(fieldName);
+        return switch (token) {
+            case "objectpresentation", "presentationobject", "objectview", "представлениеобъекта" -> "objectPresentation"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "extendedobjectpresentation", "fullobjectpresentation", "расширенноепредставлениеобъекта" -> "extendedObjectPresentation"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "listpresentation", "presentationlist", "listview", "представлениесписка" -> "listPresentation"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "extendedlistpresentation", "fulllistpresentation", "расширенноепредставлениесписка" -> "extendedListPresentation"; //$NON-NLS-1$ //$NON-NLS-2$
+            default -> fieldName;
+        };
     }
 
     private String singularize(String value) {
@@ -5974,6 +6565,100 @@ public class EdtMetadataService {
                     "Metadata object still exists after delete: " + fqn, true); //$NON-NLS-1$
         }
         LOG.debug("[%s] Post-verify remove passed for FQN=%s", opId, fqn); //$NON-NLS-1$
+    }
+
+    private void cleanupRemovedFilesystemArtifacts(IProject project, String fqn, String opId) {
+        if (project == null || !project.exists()) {
+            return;
+        }
+        if (!isTopLevelFqn(fqn)) {
+            cleanupRemovedFormFilesystemArtifacts(project, fqn, opId);
+            return;
+        }
+        String topKind = topKindFromFqn(fqn);
+        String topName = topNameFromFqn(fqn);
+        if (topKind == null || topName == null || topName.isBlank()) {
+            return;
+        }
+
+        String folderPath;
+        try {
+            folderPath = "src/" + mapTopFolder(topKind) + "/" + topName; //$NON-NLS-1$ //$NON-NLS-2$
+        } catch (MetadataOperationException e) {
+            LOG.warn("[%s] Skip filesystem cleanup for unsupported top kind=%s fqn=%s", opId, topKind, fqn); //$NON-NLS-1$
+            return;
+        }
+
+        IFolder folder = project.getFolder(folderPath);
+        IFile mdoFile = project.getFile(folderPath + "/" + topName + ".mdo"); //$NON-NLS-1$ //$NON-NLS-2$
+        try {
+            if (folder.exists()) {
+                folder.delete(true, null);
+                LOG.info("[%s] Removed stale metadata folder: %s", opId, folder.getFullPath()); //$NON-NLS-1$
+            } else if (mdoFile.exists()) {
+                mdoFile.delete(true, null);
+                LOG.info("[%s] Removed stale metadata descriptor: %s", opId, mdoFile.getFullPath()); //$NON-NLS-1$
+            }
+        } catch (CoreException e) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Failed to cleanup metadata artifacts after delete: " + folderPath, true, e); //$NON-NLS-1$
+        }
+
+        refreshProjectSafely(project);
+        if (folder.exists() || mdoFile.exists()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Metadata descriptor artifacts still exist after delete: " + folderPath, true); //$NON-NLS-1$
+        }
+    }
+
+    private void cleanupRemovedFormFilesystemArtifacts(IProject project, String fqn, String opId) {
+        String formName = formNameFromFqn(fqn);
+        if (formName == null || formName.isBlank()) {
+            return;
+        }
+        String topKind = topKindFromFqn(fqn);
+        String topName = topNameFromFqn(fqn);
+        if (topKind == null || topName == null || topName.isBlank()) {
+            return;
+        }
+        String topFolder;
+        try {
+            topFolder = mapTopFolder(topKind);
+        } catch (MetadataOperationException e) {
+            LOG.warn("[%s] Skip form filesystem cleanup for unsupported top kind=%s fqn=%s", opId, topKind, fqn); //$NON-NLS-1$
+            return;
+        }
+        String formFolderPath = "src/" + topFolder + "/" + topName + "/Forms/" + formName; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        IFolder formFolder = project.getFolder(formFolderPath);
+        IFile formFile = project.getFile(formFolderPath + "/" + formName + ".form"); //$NON-NLS-1$ //$NON-NLS-2$
+        IFile moduleFile = project.getFile(formFolderPath + "/Module.bsl"); //$NON-NLS-1$
+        try {
+            if (formFolder.exists()) {
+                formFolder.delete(true, null);
+                LOG.info("[%s] Removed stale form folder: %s", opId, formFolder.getFullPath()); //$NON-NLS-1$
+            } else {
+                if (moduleFile.exists()) {
+                    moduleFile.delete(true, null);
+                    LOG.info("[%s] Removed stale form module: %s", opId, moduleFile.getFullPath()); //$NON-NLS-1$
+                }
+                if (formFile.exists()) {
+                    formFile.delete(true, null);
+                    LOG.info("[%s] Removed stale form descriptor: %s", opId, formFile.getFullPath()); //$NON-NLS-1$
+                }
+            }
+        } catch (CoreException e) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Failed to cleanup form artifacts after delete: " + formFolderPath, true, e); //$NON-NLS-1$
+        }
+        refreshProjectSafely(project);
+        if (formFolder.exists() || formFile.exists() || moduleFile.exists()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Form artifacts still exist after delete: " + formFolderPath, true); //$NON-NLS-1$
+        }
     }
 
     private IProject requireProject(String projectName) {

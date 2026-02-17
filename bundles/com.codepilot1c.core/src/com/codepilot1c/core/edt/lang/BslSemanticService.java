@@ -20,12 +20,14 @@ import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.EStructuralFeature;
 import org.eclipse.emf.ecore.resource.Resource;
 import org.eclipse.emf.ecore.resource.ResourceSet;
+import org.eclipse.emf.ecore.resource.impl.ResourceSetImpl;
 import org.eclipse.emf.ecore.util.EcoreUtil;
 import org.eclipse.xtext.nodemodel.INode;
 import org.eclipse.xtext.nodemodel.util.NodeModelUtils;
 import org.eclipse.xtext.resource.EObjectAtOffsetHelper;
 import org.eclipse.xtext.resource.IResourceServiceProvider;
 import org.eclipse.xtext.resource.XtextResource;
+import org.eclipse.xtext.resource.XtextResourceSet;
 
 import com._1c.g5.v8.dt.bsl.resource.TypesComputer;
 import com._1c.g5.v8.dt.mcore.TypeItem;
@@ -47,6 +49,9 @@ import com.codepilot1c.core.edt.platformdoc.PlatformMemberFilter;
  * Semantic BSL model service for symbol/type/scope extraction at source position.
  */
 public class BslSemanticService {
+
+    private static final int RESOURCE_SET_RETRY_ATTEMPTS = 10;
+    private static final long RESOURCE_SET_RETRY_DELAY_MS = 300L;
 
     private final EdtServiceGateway gateway;
     private final ProjectReadinessChecker readinessChecker;
@@ -105,23 +110,43 @@ public class BslSemanticService {
 
     public BslTypeResult getTypeAtPosition(BslPositionRequest request) {
         request.validate();
-        PositionContext context = resolveContext(request);
-        List<BslTypeResult.TypeInfo> types = computeTypes(context);
-
-        return new BslTypeResult(
-                request.getProjectName(),
-                request.getFilePath(),
-                request.getLine(),
-                request.getColumn(),
-                context.offset(),
-                context.element().eClass().getName(),
-                types);
+        try {
+            PositionContext context = resolveContext(request);
+            List<BslTypeResult.TypeInfo> types = computeTypes(context);
+            return new BslTypeResult(
+                    request.getProjectName(),
+                    request.getFilePath(),
+                    request.getLine(),
+                    request.getColumn(),
+                    context.offset(),
+                    context.element().eClass().getName(),
+                    types);
+        } catch (EdtAstException e) {
+            if (!canFallbackToContentAssist(e)) {
+                throw e;
+            }
+            return new BslTypeResult(
+                    request.getProjectName(),
+                    request.getFilePath(),
+                    request.getLine(),
+                    request.getColumn(),
+                    -1,
+                    "Unavailable", //$NON-NLS-1$
+                    List.of());
+        }
     }
 
     public BslScopeMembersResult getScopeMembers(BslScopeMembersRequest request) {
         request.validate();
-        PositionContext context = resolveContext(request.toPositionRequest());
-        List<BslTypeResult.TypeInfo> types = computeTypes(context);
+        List<BslTypeResult.TypeInfo> types = List.of();
+        try {
+            PositionContext context = resolveContext(request.toPositionRequest());
+            types = computeTypes(context);
+        } catch (EdtAstException e) {
+            if (!canFallbackToContentAssist(e)) {
+                throw e;
+            }
+        }
 
         List<String> resolvedTypes = new ArrayList<>();
         for (BslTypeResult.TypeInfo type : types) {
@@ -186,25 +211,81 @@ public class BslSemanticService {
     }
 
     private XtextResource loadResource(IProject project, IFile file) {
-        ResourceSet resourceSet = gateway.getResourceSetProvider().get(project);
-        if (resourceSet == null) {
-            throw new EdtAstException(EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE,
-                    "BM-aware resource set is unavailable", false); //$NON-NLS-1$
-        }
-
+        ResourceSet resourceSet = resolveResourceSet(project);
         URI uri = URI.createPlatformResourceURI(file.getFullPath().toString(), true);
-        Resource resource;
-        try {
-            resource = resourceSet.getResource(uri, true);
-        } catch (RuntimeException e) {
-            throw new EdtAstException(EdtAstErrorCode.INTERNAL_ERROR,
-                    "Failed to load BSL resource: " + e.getMessage(), true, e); //$NON-NLS-1$
+        Resource resource = tryLoadResource(resourceSet, uri);
+        if (resource == null) {
+            resource = tryLoadResource(createStandaloneResourceSet(), uri);
+        }
+        if (resource == null) {
+            throw new EdtAstException(EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE,
+                    "Failed to load BSL resource from EDT resource sets", true); //$NON-NLS-1$
         }
         if (!(resource instanceof XtextResource xtextResource)) {
             throw new EdtAstException(EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE,
                     "Resource is not XtextResource: " + uri, false); //$NON-NLS-1$
         }
         return xtextResource;
+    }
+
+    private ResourceSet resolveResourceSet(IProject project) {
+        EdtAstException providerUnavailable = null;
+        try {
+            for (int attempt = 1; attempt <= RESOURCE_SET_RETRY_ATTEMPTS; attempt++) {
+                ResourceSet resourceSet = gateway.getResourceSetProvider().get(project);
+                if (resourceSet != null) {
+                    return resourceSet;
+                }
+                if (attempt == RESOURCE_SET_RETRY_ATTEMPTS) {
+                    break;
+                }
+                try {
+                    Thread.sleep(RESOURCE_SET_RETRY_DELAY_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new EdtAstException(EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE,
+                            "Interrupted while waiting for EDT resource set initialization", true, e); //$NON-NLS-1$
+                }
+            }
+        } catch (EdtAstException e) {
+            if (e.getCode() != EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE) {
+                throw e;
+            }
+            providerUnavailable = e;
+        }
+        ResourceSet fallback = createStandaloneResourceSet();
+        if (fallback != null) {
+            return fallback;
+        }
+        if (providerUnavailable != null) {
+            throw providerUnavailable;
+        }
+        return new ResourceSetImpl();
+    }
+
+    private Resource tryLoadResource(ResourceSet resourceSet, URI uri) {
+        if (resourceSet == null || uri == null) {
+            return null;
+        }
+        try {
+            return resourceSet.getResource(uri, true);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private ResourceSet createStandaloneResourceSet() {
+        try {
+            return new XtextResourceSet();
+        } catch (RuntimeException e) {
+            return new ResourceSetImpl();
+        }
+    }
+
+    private boolean canFallbackToContentAssist(EdtAstException e) {
+        return e != null
+                && e.getCode() == EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE
+                && e.isRecoverable();
     }
 
     private IResourceServiceProvider resourceServiceProvider(IFile file) {

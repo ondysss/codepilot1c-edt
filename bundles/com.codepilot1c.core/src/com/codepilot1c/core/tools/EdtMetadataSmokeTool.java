@@ -3,6 +3,7 @@ package com.codepilot1c.core.tools;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -12,6 +13,7 @@ import org.eclipse.core.resources.IProject;
 import com._1c.g5.v8.dt.core.platform.IBmModelManager;
 import com.codepilot1c.core.edt.metadata.AddMetadataChildRequest;
 import com.codepilot1c.core.edt.metadata.CreateMetadataRequest;
+import com.codepilot1c.core.edt.metadata.DeleteMetadataRequest;
 import com.codepilot1c.core.edt.metadata.EdtMetadataGateway;
 import com.codepilot1c.core.edt.metadata.EdtMetadataService;
 import com.codepilot1c.core.edt.metadata.MetadataChildKind;
@@ -137,18 +139,31 @@ public class EdtMetadataSmokeTool implements ITool {
                 String reportName = trimName(namePrefix + "Report", 40); //$NON-NLS-1$
                 String tableName = trimName("Items" + runSuffix.substring(Math.max(0, runSuffix.length() - 6)), 40); //$NON-NLS-1$
                 String attrName = trimName("Qty" + runSuffix.substring(Math.max(0, runSuffix.length() - 6)), 40); //$NON-NLS-1$
+                List<String> createdTopLevelFqns = new ArrayList<>();
+                try {
+                    String catalogFqn = createTopLevel(projectName, MetadataKind.CATALOG, catalogName, steps, "create_catalog"); //$NON-NLS-1$
+                    if (catalogFqn != null) {
+                        createdTopLevelFqns.add(catalogFqn);
+                    }
+                    checkDuplicateTopLevel(projectName, MetadataKind.CATALOG, catalogName, steps, "duplicate_catalog_expected"); //$NON-NLS-1$
+                    String documentFqn = createTopLevel(projectName, MetadataKind.DOCUMENT, docName, steps, "create_document"); //$NON-NLS-1$
+                    if (documentFqn != null) {
+                        createdTopLevelFqns.add(documentFqn);
+                    }
+                    String reportFqn = createTopLevel(projectName, MetadataKind.REPORT, reportName, steps, "create_report"); //$NON-NLS-1$
+                    if (reportFqn != null) {
+                        createdTopLevelFqns.add(reportFqn);
+                    }
 
-                createTopLevel(projectName, MetadataKind.CATALOG, catalogName, steps, "create_catalog"); //$NON-NLS-1$
-                checkDuplicateTopLevel(projectName, MetadataKind.CATALOG, catalogName, steps, "duplicate_catalog_expected"); //$NON-NLS-1$
-                createTopLevel(projectName, MetadataKind.DOCUMENT, docName, steps, "create_document"); //$NON-NLS-1$
-                createTopLevel(projectName, MetadataKind.REPORT, reportName, steps, "create_report"); //$NON-NLS-1$
-
-                String docFqn = MetadataKind.DOCUMENT.getFqnPrefix() + "." + docName; //$NON-NLS-1$
-                String tableFqn = addChild(projectName, docFqn, MetadataChildKind.TABULAR_SECTION, tableName,
-                        steps, "add_document_tabular_section"); //$NON-NLS-1$
-                if (tableFqn != null) {
-                    addChild(projectName, tableFqn, MetadataChildKind.ATTRIBUTE, attrName,
-                            steps, "add_tabular_section_attribute"); //$NON-NLS-1$
+                    String docFqn = MetadataKind.DOCUMENT.getFqnPrefix() + "." + docName; //$NON-NLS-1$
+                    String tableFqn = addChild(projectName, docFqn, MetadataChildKind.TABULAR_SECTION, tableName,
+                            steps, "add_document_tabular_section"); //$NON-NLS-1$
+                    if (tableFqn != null) {
+                        addChild(projectName, tableFqn, MetadataChildKind.ATTRIBUTE, attrName,
+                                steps, "add_tabular_section_attribute"); //$NON-NLS-1$
+                    }
+                } finally {
+                    cleanupCreatedTopLevel(projectName, createdTopLevelFqns, steps);
                 }
 
                 boolean failed = steps.stream().anyMatch(step -> !step.success);
@@ -178,18 +193,21 @@ public class EdtMetadataSmokeTool implements ITool {
         }
     }
 
-    private void createTopLevel(
+    private String createTopLevel(
             String projectName,
             MetadataKind kind,
             String name,
             List<StepResult> steps,
             String stepName
     ) {
+        String fqn = kind.getFqnPrefix() + "." + name; //$NON-NLS-1$
         try {
             metadataService.createMetadata(new CreateMetadataRequest(projectName, kind, name, null, null, Map.of()));
-            steps.add(StepResult.ok(stepName, kind.getFqnPrefix() + "." + name)); //$NON-NLS-1$
+            steps.add(StepResult.ok(stepName, fqn));
+            return fqn;
         } catch (MetadataOperationException e) {
             steps.add(StepResult.failed(stepName, e.getCode().name(), e.getMessage()));
+            return null;
         }
     }
 
@@ -228,6 +246,27 @@ public class EdtMetadataSmokeTool implements ITool {
         } catch (MetadataOperationException e) {
             steps.add(StepResult.failed(stepName, e.getCode().name(), e.getMessage()));
             return null;
+        }
+    }
+
+    private void cleanupCreatedTopLevel(String projectName, List<String> createdTopLevelFqns, List<StepResult> steps) {
+        if (createdTopLevelFqns == null || createdTopLevelFqns.isEmpty()) {
+            return;
+        }
+        List<String> cleanupOrder = new ArrayList<>(createdTopLevelFqns);
+        Collections.reverse(cleanupOrder);
+        for (String fqn : cleanupOrder) {
+            if (fqn == null || fqn.isBlank()) {
+                continue;
+            }
+            String suffix = fqn.replace('.', '_'); //$NON-NLS-1$
+            String stepName = "cleanup_" + suffix; //$NON-NLS-1$
+            try {
+                metadataService.deleteMetadata(new DeleteMetadataRequest(projectName, fqn, true));
+                steps.add(StepResult.ok(stepName, "deleted " + fqn)); //$NON-NLS-1$
+            } catch (MetadataOperationException e) {
+                steps.add(StepResult.failed(stepName, e.getCode().name(), e.getMessage()));
+            }
         }
     }
 

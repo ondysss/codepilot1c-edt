@@ -58,6 +58,10 @@ public class MarkdownRenderer {
                     if (child.getPath() != null) {
                         sb.append(" (`").append(escape(child.getPath())).append("`)"); //$NON-NLS-1$ //$NON-NLS-2$
                     }
+                    String summary = summarizeProperties(child.getProperties());
+                    if (summary != null && !summary.isBlank()) {
+                        sb.append(" — ").append(escape(summary)); //$NON-NLS-1$
+                    }
                     sb.append("\n"); //$NON-NLS-1$
                 }
                 sb.append("\n"); //$NON-NLS-1$
@@ -72,5 +76,31 @@ public class MarkdownRenderer {
             return "-"; //$NON-NLS-1$
         }
         return text.replace("|", "\\|").replace("\n", " "); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+    }
+
+    private String summarizeProperties(Map<String, Object> properties) {
+        if (properties == null || properties.isEmpty()) {
+            return ""; //$NON-NLS-1$
+        }
+        StringBuilder summary = new StringBuilder();
+        int count = 0;
+        for (Map.Entry<String, Object> entry : properties.entrySet()) {
+            if (entry.getKey() == null || entry.getKey().isBlank()) {
+                continue;
+            }
+            Object value = entry.getValue();
+            if (value == null) {
+                continue;
+            }
+            if (count > 0) {
+                summary.append(", "); //$NON-NLS-1$
+            }
+            summary.append(entry.getKey()).append('=').append(String.valueOf(value));
+            count++;
+            if (count >= 2) {
+                break;
+            }
+        }
+        return summary.toString();
     }
 }

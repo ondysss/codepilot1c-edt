@@ -18,6 +18,7 @@ import org.eclipse.emf.ecore.EStructuralFeature;
 import com._1c.g5.v8.bm.core.IBmObject;
 import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
+import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
 
 /**
  * Scans top-level metadata objects from EDT configuration.
@@ -197,7 +198,26 @@ public class EdtMetadataIndexService {
         String nameFilter = request.normalizedNameContains();
         String language = resolveLanguage(configuration, request.normalizedLanguage());
 
-        List<MetadataIndexResult.Item> collected = collect(configuration, scope, nameFilter, language);
+        List<MetadataIndexResult.Item> collected;
+        try {
+            collected = gateway.getBmModelManager().executeReadOnlyTask(project, tx -> {
+                Configuration txConfiguration = tx.toTransactionObject(configuration);
+                Configuration source = txConfiguration != null ? txConfiguration : configuration;
+                List<MetadataIndexResult.Item> scanned = collect(source, scope, nameFilter, language);
+                if (!scanned.isEmpty()) {
+                    return scanned;
+                }
+                return collectFromKnownCollections(source, scope, nameFilter, language);
+            });
+        } catch (EdtAstException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new EdtAstException(
+                    EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE,
+                    "Failed to scan metadata index in BM read transaction: " + e.getMessage(), //$NON-NLS-1$
+                    true,
+                    e);
+        }
         collected.sort(Comparator
                 .comparing(MetadataIndexResult.Item::getKind, String.CASE_INSENSITIVE_ORDER)
                 .thenComparing(MetadataIndexResult.Item::getName, String.CASE_INSENSITIVE_ORDER));
@@ -226,6 +246,7 @@ public class EdtMetadataIndexService {
             String nameFilter,
             String language) {
         List<MetadataIndexResult.Item> items = new ArrayList<>();
+        Set<String> seenFqns = new LinkedHashSet<>();
 
         for (EReference reference : configuration.eClass().getEAllReferences()) {
             if (!reference.isContainment() || !reference.isMany()) {
@@ -234,33 +255,53 @@ public class EdtMetadataIndexService {
             if (reference.isDerived() || reference.isTransient() || reference.isVolatile()) {
                 continue;
             }
+            String collectionToken = normalize(reference.getName());
+            String canonicalCollection = canonicalScope(reference.getName());
+            if (!isSupportedTopLevelCollection(canonicalCollection)) {
+                continue;
+            }
             Object raw = configuration.eGet(reference);
             if (!(raw instanceof Collection<?> collection) || collection.isEmpty()) {
                 continue;
             }
 
-            String collectionToken = normalize(reference.getName());
             String singularToken = singularize(collectionToken);
 
             for (Object element : collection) {
                 if (!(element instanceof EObject eObject)) {
                     continue;
                 }
+                if (eObject == configuration) {
+                    continue;
+                }
+                String name = readStringFeature(eObject, "name"); //$NON-NLS-1$
+                if (name.isBlank()) {
+                    continue;
+                }
                 String kind = safe(eObject.eClass().getName());
                 if (!matchesScope(scope, collectionToken, singularToken, kind)) {
                     continue;
                 }
-                String name = readStringFeature(eObject, "name"); //$NON-NLS-1$
                 if (!nameFilter.isEmpty() && !normalize(name).contains(nameFilter)) {
                     continue;
                 }
                 String canonicalKind = canonicalScope(kind);
-                String canonicalCollection = canonicalScope(reference.getName());
+                if (canonicalKind.isBlank() || "configuration".equals(canonicalKind)) { //$NON-NLS-1$
+                    canonicalKind = canonicalCollection;
+                }
+                String fqn = safeFqn(eObject, kind, name);
+                if (fqn == null || fqn.isBlank()) {
+                    fqn = canonicalKind + "." + name; //$NON-NLS-1$
+                }
+                String fqnKey = normalize(fqn);
+                if (!seenFqns.add(fqnKey)) {
+                    continue;
+                }
                 String localizedKind = localizeTypeLabel(canonicalKind, language, kind);
-                String localizedCollection = localizeTypeLabel(canonicalCollection, language, reference.getName());
+                String localizedCollection = localizeTypeLabel(canonicalCollection, language, canonicalCollection);
 
                 items.add(new MetadataIndexResult.Item(
-                        safeFqn(eObject, kind, name),
+                        fqn,
                         name,
                         resolveSynonym(readSynonymFeature(eObject), language),
                         readStringFeature(eObject, "comment"), //$NON-NLS-1$
@@ -274,6 +315,101 @@ public class EdtMetadataIndexService {
         }
 
         return items;
+    }
+
+    private List<MetadataIndexResult.Item> collectFromKnownCollections(
+            Configuration configuration,
+            String scope,
+            String nameFilter,
+            String language) {
+        List<MetadataIndexResult.Item> items = new ArrayList<>();
+        Set<String> seenFqns = new LinkedHashSet<>();
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "catalogs", configuration.getCatalogs()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "documents", configuration.getDocuments()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "commonmodules", configuration.getCommonModules()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "enums", configuration.getEnums()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "reports", configuration.getReports()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "dataprocessors", configuration.getDataProcessors()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "informationregisters", configuration.getInformationRegisters()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "accumulationregisters", configuration.getAccumulationRegisters()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "accountingregisters", configuration.getAccountingRegisters()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "calculationregisters", configuration.getCalculationRegisters()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "chartofaccounts", configuration.getChartsOfAccounts()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "chartofcharacteristictypes", configuration.getChartsOfCharacteristicTypes()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "chartofcalculationtypes", configuration.getChartsOfCalculationTypes()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "businessprocesses", configuration.getBusinessProcesses()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "tasks", configuration.getTasks()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "constants", configuration.getConstants()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "sequences", configuration.getSequences()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "exchangeplans", configuration.getExchangePlans()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "subsystems", configuration.getSubsystems()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "roles", configuration.getRoles()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "interfaces", configuration.getInterfaces()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "sessions", configuration.getSessionParameters()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "scheduledjobs", configuration.getScheduledJobs()); //$NON-NLS-1$
+        appendKnownCollection(items, seenFqns, scope, nameFilter, language, "commoncommands", configuration.getCommonCommands()); //$NON-NLS-1$
+        return items;
+    }
+
+    private void appendKnownCollection(
+            List<MetadataIndexResult.Item> items,
+            Set<String> seenFqns,
+            String scope,
+            String nameFilter,
+            String language,
+            String canonicalCollection,
+            List<? extends MdObject> objects) {
+        if (objects == null || objects.isEmpty()) {
+            return;
+        }
+        String singularToken = singularize(canonicalCollection);
+        for (MdObject object : objects) {
+            if (object == null) {
+                continue;
+            }
+            String name = safe(object.getName());
+            if (name.isBlank()) {
+                continue;
+            }
+            String kind = safe(object.eClass().getName());
+            if (!matchesScope(scope, canonicalCollection, singularToken, kind)) {
+                continue;
+            }
+            if (!nameFilter.isEmpty() && !normalize(name).contains(nameFilter)) {
+                continue;
+            }
+            String canonicalKind = canonicalScope(kind);
+            if (canonicalKind.isBlank() || "configuration".equals(canonicalKind)) { //$NON-NLS-1$
+                canonicalKind = canonicalCollection;
+            }
+            String fqn = safeFqn(object, canonicalKind, name);
+            if (fqn == null || fqn.isBlank()) {
+                fqn = canonicalKind + "." + name; //$NON-NLS-1$
+            }
+            if (!seenFqns.add(normalize(fqn))) {
+                continue;
+            }
+            String localizedKind = localizeTypeLabel(canonicalKind, language, kind);
+            String localizedCollection = localizeTypeLabel(canonicalCollection, language, canonicalCollection);
+            items.add(new MetadataIndexResult.Item(
+                    fqn,
+                    name,
+                    resolveSynonym(readSynonymFeature(object), language),
+                    readStringFeature(object, "comment"), //$NON-NLS-1$
+                    localizedKind,
+                    canonicalKind,
+                    localizedCollection,
+                    canonicalCollection,
+                    hasAnyFeature(object, OBJECT_MODULE_FEATURES),
+                    hasAnyFeature(object, List.of("managerModule")))); //$NON-NLS-1$
+        }
+    }
+
+    private boolean isSupportedTopLevelCollection(String canonicalCollection) {
+        if (canonicalCollection == null || canonicalCollection.isBlank()) {
+            return false;
+        }
+        return TYPE_LABELS_EN.containsKey(canonicalCollection) || TYPE_LABELS_RU.containsKey(canonicalCollection);
     }
 
     private boolean matchesScope(String scope, String collectionToken, String singularToken, String kind) {

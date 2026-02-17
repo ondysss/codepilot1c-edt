@@ -44,7 +44,8 @@ public class VibeCorePlugin extends Plugin {
 
     private static VibeCorePlugin plugin;
     private static ILog logger;
-    private static final long EDT_SERVICE_WAIT_MS = 5000L;
+    private static final long EDT_SERVICE_WAIT_STEP_MS = 1000L;
+    private static final long EDT_SERVICE_WAIT_TOTAL_MS = 30000L;
     private HttpClientFactory httpClientFactory;
     private ServiceTracker<IConfigurationProvider, IConfigurationProvider> configurationProviderTracker;
     private ServiceTracker<IBmModelManager, IBmModelManager> bmModelManagerTracker;
@@ -266,17 +267,27 @@ public class VibeCorePlugin extends Plugin {
         if (service != null) {
             return service;
         }
-        try {
-            service = tracker.waitForService(EDT_SERVICE_WAIT_MS);
-            if (service == null) {
-                logWarn("EDT service not available after wait: " + serviceName); //$NON-NLS-1$
+        long waitedMs = 0L;
+        while (waitedMs < EDT_SERVICE_WAIT_TOTAL_MS) {
+            long waitSliceMs = Math.min(EDT_SERVICE_WAIT_STEP_MS, EDT_SERVICE_WAIT_TOTAL_MS - waitedMs);
+            try {
+                service = tracker.waitForService(waitSliceMs);
+                if (service != null) {
+                    return service;
+                }
+                service = tracker.getService();
+                if (service != null) {
+                    return service;
+                }
+                waitedMs += waitSliceMs;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logWarn("Interrupted while waiting for EDT service: " + serviceName, e); //$NON-NLS-1$
+                return null;
             }
-            return service;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logWarn("Interrupted while waiting for EDT service: " + serviceName, e); //$NON-NLS-1$
-            return null;
         }
+        logWarn("EDT service not available after wait (" + EDT_SERVICE_WAIT_TOTAL_MS + " ms): " + serviceName); //$NON-NLS-1$ //$NON-NLS-2$
+        return tracker.getService();
     }
 
     /**

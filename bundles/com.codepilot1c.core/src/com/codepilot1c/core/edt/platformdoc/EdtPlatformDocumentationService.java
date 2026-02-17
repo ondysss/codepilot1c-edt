@@ -43,7 +43,6 @@ import com.codepilot1c.core.edt.metadata.EdtMetadataGateway;
 public class EdtPlatformDocumentationService {
 
     private static final String RU_LANGUAGE = "ru"; //$NON-NLS-1$
-    private static final int CANDIDATES_LIMIT = 30;
     private static final Map<String, String> TYPE_QUERY_ALIASES = createTypeQueryAliases();
 
     private final EdtMetadataGateway gateway;
@@ -101,7 +100,10 @@ public class EdtPlatformDocumentationService {
         TypeLookup lookup = resolveTypeLookup(allTypes, query, contains, useRussian);
         Type resolvedType = lookup.resolvedType();
         String effectiveContains = lookup.contains();
-        List<PlatformDocumentationResult.TypeCandidate> candidates = buildCandidates(allTypes, query);
+        boolean includeCandidates = request.memberFilter() == PlatformMemberFilter.ALL;
+        List<PlatformDocumentationResult.TypeCandidate> candidates = includeCandidates
+                ? buildCandidates(allTypes, query, request.limit())
+                : List.of();
 
         if (request.typeName() == null || request.typeName().isBlank()) {
             return new PlatformDocumentationResult(
@@ -400,14 +402,19 @@ public class EdtPlatformDocumentationService {
                 || contains(normalize(nameRu), query);
     }
 
-    private List<PlatformDocumentationResult.TypeCandidate> buildCandidates(List<Type> allTypes, String normalizedQuery) {
+    private List<PlatformDocumentationResult.TypeCandidate> buildCandidates(
+            List<Type> allTypes,
+            String normalizedQuery,
+            int limit
+    ) {
+        int safeLimit = Math.max(1, limit);
         return allTypes.stream()
                 .filter(t -> normalizedQuery == null
                         || normalizedQuery.isBlank()
                         || normalize(t.getName()).contains(normalizedQuery)
                         || normalize(t.getNameRu()).contains(normalizedQuery)
                         || normalize(safeFqn(t)).contains(normalizedQuery))
-                .limit(CANDIDATES_LIMIT)
+                .limit(safeLimit)
                 .map(t -> new PlatformDocumentationResult.TypeCandidate(t.getName(), t.getNameRu(), safeFqn(t)))
                 .toList();
     }

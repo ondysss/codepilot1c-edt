@@ -35,7 +35,7 @@ public class MutateFormModelTool implements ITool {
                 },
                 "operations": {
                   "type": "array",
-                  "description": "Список операций mutate_form_model: set_form_props/add_group/add_field/set_item/remove_item/move_item"
+                  "description": "Список операций mutate_form_model: set_form_props/add_group/add_field/set_item/remove_item/move_item (в set_item/set_form_props допустимы set или properties)"
                 },
                 "validation_token": {
                   "type": "string",
