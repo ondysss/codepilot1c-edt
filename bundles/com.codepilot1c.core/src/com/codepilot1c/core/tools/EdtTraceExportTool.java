@@ -253,10 +253,8 @@ public class EdtTraceExportTool implements ITool {
     }
 
     private void flushDerivedData(IDerivedDataManager ddManager, long waitMs, StringBuilder out) throws InterruptedException {
-        ddManager.applyForcedUpdates();
-        out.append("[derived] applyForcedUpdates completed\n"); //$NON-NLS-1$
-        boolean allDone = ddManager.waitAllComputations(waitMs);
-        out.append("[derived] waitAllComputations=").append(allDone).append('\n'); //$NON-NLS-1$
+        boolean importantDone = ddManager.waitImportantDataComputations(waitMs);
+        out.append("[derived] waitImportantDataComputations=").append(importantDone).append('\n'); //$NON-NLS-1$
     }
 
     private boolean existsInBm(IBmModelManager modelManager, IProject project, String fqn) {

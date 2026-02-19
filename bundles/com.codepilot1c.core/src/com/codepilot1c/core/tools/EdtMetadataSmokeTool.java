@@ -262,7 +262,7 @@ public class EdtMetadataSmokeTool implements ITool {
             String suffix = fqn.replace('.', '_'); //$NON-NLS-1$
             String stepName = "cleanup_" + suffix; //$NON-NLS-1$
             try {
-                metadataService.deleteMetadata(new DeleteMetadataRequest(projectName, fqn, true));
+                metadataService.deleteMetadata(new DeleteMetadataRequest(projectName, fqn, true, true));
                 steps.add(StepResult.ok(stepName, "deleted " + fqn)); //$NON-NLS-1$
             } catch (MetadataOperationException e) {
                 steps.add(StepResult.failed(stepName, e.getCode().name(), e.getMessage()));

@@ -39,9 +39,10 @@ import org.eclipse.emf.ecore.EEnum;
 import org.eclipse.emf.ecore.EEnumLiteral;
 import org.eclipse.emf.ecore.EReference;
 import org.eclipse.emf.ecore.EStructuralFeature;
+import org.eclipse.emf.ecore.util.EcoreUtil;
 
-import com._1c.g5.v8.bm.core.BmDeadlockDetectedException;
-import com._1c.g5.v8.bm.core.BmLockWaitTimeoutException;
+import com._1c.g5.v8.bm.core.IBmCrossReference;
+import com._1c.g5.v8.bm.core.IBmEngine;
 import com._1c.g5.v8.bm.core.BmNameAlreadyInUseException;
 import com._1c.g5.v8.bm.core.IBmNamespace;
 import com._1c.g5.v8.bm.core.IBmObject;
@@ -1657,6 +1658,7 @@ public class EdtMetadataService {
         }
 
         String targetFqn = request.targetFqn();
+        ensureNoIncomingReferences(project, configuration, targetFqn, request.force());
         executeWrite(project, transaction -> {
             Configuration txConfiguration = transaction.toTransactionObject(configuration);
             if (txConfiguration == null) {
@@ -5531,6 +5533,133 @@ public class EdtMetadataService {
         return false;
     }
 
+    private void ensureNoIncomingReferences(
+            IProject project,
+            Configuration configuration,
+            String targetFqn,
+            boolean force
+    ) {
+        if (force) {
+            return;
+        }
+        IncomingReferences references = collectIncomingReferences(project, configuration, targetFqn, 20);
+        boolean topLevelDelete = isTopLevelFqn(targetFqn);
+        if (!topLevelDelete && references.total() == 0) {
+            return;
+        }
+
+        StringBuilder message = new StringBuilder();
+        if (topLevelDelete) {
+            message.append("Удаление top-level объекта без рефакторинга отключено: ") //$NON-NLS-1$
+                    .append(targetFqn).append(". "); //$NON-NLS-1$
+        } else {
+            message.append("Обнаружены ссылки на удаляемый объект ").append(targetFqn) //$NON-NLS-1$
+                    .append(" (").append(references.total()).append("). "); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if (!references.samples().isEmpty()) {
+            message.append("Найдены ссылки. Примеры: ") //$NON-NLS-1$
+                    .append(String.join(", ", references.samples())).append(". "); //$NON-NLS-1$ //$NON-NLS-2$
+            if (references.total() > references.samples().size()) {
+                message.append("Показаны первые ").append(references.samples().size()).append(". "); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+        }
+        message.append("Сначала очистите ссылки/выполните рефакторинг, затем повторите удаление. ") //$NON-NLS-1$
+                .append("Для принудительного технического удаления используйте force=true."); //$NON-NLS-1$
+        throw new MetadataOperationException(
+                MetadataOperationCode.METADATA_DELETE_CONFLICT,
+                message.toString(),
+                false);
+    }
+
+    private IncomingReferences collectIncomingReferences(
+            IProject project,
+            Configuration configuration,
+            String targetFqn,
+            int sampleLimit
+    ) {
+        return executeRead(project, tx -> {
+            Configuration txConfiguration = tx.toTransactionObject(configuration);
+            if (txConfiguration == null) {
+                return IncomingReferences.empty();
+            }
+            MdObject target = resolveByFqn(txConfiguration, targetFqn);
+            if (!(target instanceof IBmObject targetObject)) {
+                return IncomingReferences.empty();
+            }
+            Collection<IBmCrossReference> references = resolveIncomingReferences(tx, targetObject);
+            if (references == null || references.isEmpty()) {
+                return IncomingReferences.empty();
+            }
+
+            int total = 0;
+            LinkedHashSet<String> samples = new LinkedHashSet<>();
+            for (IBmCrossReference reference : references) {
+                if (reference == null) {
+                    continue;
+                }
+                EStructuralFeature feature = reference.getFeature();
+                if (feature instanceof EReference eReference && eReference.isContainment()) {
+                    continue;
+                }
+                IBmObject source = reference.getObject();
+                if (source == null || source == targetObject) {
+                    continue;
+                }
+                total++;
+                if (samples.size() >= sampleLimit) {
+                    continue;
+                }
+                String sourceFqn = resolveTopObjectFqn(source);
+                if (sourceFqn.isBlank()) {
+                    sourceFqn = source.eClass().getName();
+                }
+                String featureName = feature != null ? feature.getName() : "reference"; //$NON-NLS-1$
+                samples.add(sourceFqn + "#" + featureName); //$NON-NLS-1$
+            }
+            return new IncomingReferences(total, List.copyOf(samples));
+        });
+    }
+
+    private Collection<IBmCrossReference> resolveIncomingReferences(IBmTransaction transaction, IBmObject target) {
+        try {
+            return transaction.getReferences(EcoreUtil.getURI(target));
+        } catch (RuntimeException e) {
+            IBmEngine engine = target.bmGetEngine();
+            if (engine == null) {
+                return List.of();
+            }
+            return engine.getBackReferences(target);
+        }
+    }
+
+    private String resolveTopObjectFqn(IBmObject object) {
+        if (object == null) {
+            return ""; //$NON-NLS-1$
+        }
+        try {
+            if (object.bmIsTransient()) {
+                return ""; //$NON-NLS-1$
+            }
+            IBmObject topObject = object;
+            if (!topObject.bmIsTop()) {
+                topObject = topObject.bmGetTopObject();
+            }
+            if (topObject == null || topObject.bmIsTransient() || !topObject.bmIsTop()) {
+                return ""; //$NON-NLS-1$
+            }
+            String fqn = topObject.bmGetFqn();
+            return fqn != null ? fqn : ""; //$NON-NLS-1$
+        } catch (RuntimeException e) {
+            return ""; //$NON-NLS-1$
+        }
+    }
+
+    private record IncomingReferences(int total, List<String> samples) {
+        private static IncomingReferences empty() {
+            return new IncomingReferences(0, List.of());
+        }
+    }
+
     private void removeMetadataObject(Configuration configuration, String fqn, MdObject target) {
         if (isTopLevelFqn(fqn)) {
             MetadataKind kind = metadataKindByFqn(fqn);
@@ -6392,13 +6521,10 @@ public class EdtMetadataService {
         }
 
         try {
-            ddManager.applyForcedUpdates();
-            LOG.debug("[%s] applyForcedUpdates completed for %s", opId, fqn); //$NON-NLS-1$
-
-            boolean allDone = ddManager.waitAllComputations(EXPORT_DERIVED_WAIT_MS);
-            LOG.debug("[%s] waitAllComputations for %s: %s", opId, fqn, allDone); //$NON-NLS-1$
-            if (!allDone) {
-                LOG.warn("[%s] waitAllComputations timed out for %s in %dms", opId, fqn, EXPORT_DERIVED_WAIT_MS); //$NON-NLS-1$
+            boolean importantDone = ddManager.waitImportantDataComputations(EXPORT_DERIVED_WAIT_MS);
+            LOG.debug("[%s] waitImportantDataComputations for %s: %s", opId, fqn, importantDone); //$NON-NLS-1$
+            if (!importantDone) {
+                LOG.warn("[%s] waitImportantDataComputations timed out for %s in %dms", opId, fqn, EXPORT_DERIVED_WAIT_MS); //$NON-NLS-1$
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -6673,48 +6799,32 @@ public class EdtMetadataService {
 
     private <T> T executeWrite(IProject project, PlatformTransactionTask<T> task) {
         IBmPlatformGlobalEditingContext editingContext = gateway.getGlobalEditingContext();
-        int maxAttempts = 3;
-        Throwable lastError = null;
-        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            long startedAt = System.currentTimeMillis();
-            LOG.debug("executeWrite(project=%s) attempt=%d/%d START", project.getName(), attempt, maxAttempts); //$NON-NLS-1$
-            try {
-                T result = editingContext.execute(
-                        "CodePilot1C.MetadataWrite", //$NON-NLS-1$
-                        project,
-                        this,
-                        task::execute);
-                LOG.debug("executeWrite(project=%s) attempt=%d SUCCESS in %s", // $NON-NLS-1$
-                        project.getName(), attempt, LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt));
-                return result;
-            } catch (BmDeadlockDetectedException | BmLockWaitTimeoutException e) {
-                lastError = e;
-                LOG.warn("executeWrite(project=%s) attempt=%d retryable error: %s", // $NON-NLS-1$
-                        project.getName(), attempt, e.getMessage());
-                if (attempt >= maxAttempts) {
-                    break;
-                }
-            } catch (BmNameAlreadyInUseException e) {
-                LOG.warn("executeWrite(project=%s) name already in use: %s", project.getName(), e.getMessage()); //$NON-NLS-1$
-                throw new MetadataOperationException(
-                        MetadataOperationCode.METADATA_ALREADY_EXISTS,
-                        e.getMessage(), false, e);
-            } catch (MetadataOperationException e) {
-                LOG.warn("executeWrite(project=%s) business error: %s (%s)", // $NON-NLS-1$
-                        project.getName(), e.getMessage(), e.getCode());
-                throw e;
-            } catch (RuntimeException e) {
-                LOG.error("executeWrite(project=%s) runtime failure: %s", project.getName(), e.getMessage()); //$NON-NLS-1$
-                throw new MetadataOperationException(
-                        MetadataOperationCode.EDT_TRANSACTION_FAILED,
-                        "Metadata transaction failed: " + e.getMessage(), false, e); //$NON-NLS-1$
-            }
+        long startedAt = System.currentTimeMillis();
+        LOG.debug("executeWrite(project=%s) START", project.getName()); //$NON-NLS-1$
+        try {
+            T result = editingContext.execute(
+                    "CodePilot1C.MetadataWrite", //$NON-NLS-1$
+                    project,
+                    this,
+                    task::execute);
+            LOG.debug("executeWrite(project=%s) SUCCESS in %s", // $NON-NLS-1$
+                    project.getName(), LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt));
+            return result;
+        } catch (BmNameAlreadyInUseException e) {
+            LOG.warn("executeWrite(project=%s) name already in use: %s", project.getName(), e.getMessage()); //$NON-NLS-1$
+            throw new MetadataOperationException(
+                    MetadataOperationCode.METADATA_ALREADY_EXISTS,
+                    e.getMessage(), false, e);
+        } catch (MetadataOperationException e) {
+            LOG.warn("executeWrite(project=%s) business error: %s (%s)", // $NON-NLS-1$
+                    project.getName(), e.getMessage(), e.getCode());
+            throw e;
+        } catch (RuntimeException e) {
+            LOG.error("executeWrite(project=%s) runtime failure: %s", project.getName(), e.getMessage()); //$NON-NLS-1$
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Metadata transaction failed: " + e.getMessage(), false, e); //$NON-NLS-1$
         }
-        throw new MetadataOperationException(
-                MetadataOperationCode.EDT_TRANSACTION_FAILED,
-                "Metadata transaction failed after retries: " + (lastError != null ? lastError.getMessage() : ""), //$NON-NLS-1$ //$NON-NLS-2$
-                true,
-                lastError);
     }
 
     private <T> T executeRead(IProject project, ReadTransactionTask<T> task) {

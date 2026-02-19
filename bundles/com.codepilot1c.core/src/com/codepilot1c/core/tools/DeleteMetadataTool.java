@@ -35,6 +35,10 @@ public class DeleteMetadataTool implements ITool {
                   "type": "boolean",
                   "description": "Разрешить удаление с вложенными объектами"
                 },
+                "force": {
+                  "type": "boolean",
+                  "description": "Технический override: игнорировать проверки ссылок/рефакторинга и удалить принудительно"
+                },
                 "validation_token": {
                   "type": "string",
                   "description": "Одноразовый токен из edt_validate_request"
@@ -93,10 +97,11 @@ public class DeleteMetadataTool implements ITool {
                 String projectName = getString(parameters, "project"); //$NON-NLS-1$
                 String targetFqn = getString(parameters, "target_fqn"); //$NON-NLS-1$
                 boolean recursive = asBoolean(parameters.get("recursive")); //$NON-NLS-1$
+                boolean force = asBoolean(parameters.get("force")); //$NON-NLS-1$
                 String validationToken = getString(parameters, "validation_token"); //$NON-NLS-1$
 
                 Map<String, Object> normalizedPayload = validationService.normalizeDeletePayload(
-                        projectName, targetFqn, recursive);
+                        projectName, targetFqn, recursive, force);
                 Map<String, Object> validatedPayload = validationService.consumeToken(
                         validationToken,
                         ValidationOperation.DELETE_METADATA,
@@ -107,9 +112,10 @@ public class DeleteMetadataTool implements ITool {
                 }
                 String validatedTargetFqn = asRequiredString(validatedPayload, "target_fqn"); //$NON-NLS-1$
                 boolean validatedRecursive = asBoolean(validatedPayload.get("recursive")); //$NON-NLS-1$
+                boolean validatedForce = asBoolean(validatedPayload.get("force")); //$NON-NLS-1$
 
                 DeleteMetadataRequest request = new DeleteMetadataRequest(
-                        projectName, validatedTargetFqn, validatedRecursive);
+                        projectName, validatedTargetFqn, validatedRecursive, validatedForce);
                 MetadataOperationResult result = metadataService.deleteMetadata(request);
                 LOG.info("[%s] SUCCESS in %s, fqn=%s", opId, // $NON-NLS-1$
                         LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),

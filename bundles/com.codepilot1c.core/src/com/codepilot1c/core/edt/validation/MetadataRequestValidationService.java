@@ -226,13 +226,23 @@ public class MetadataRequestValidationService {
             String targetFqn,
             boolean recursive
     ) {
-        DeleteMetadataRequest request = new DeleteMetadataRequest(projectName, targetFqn, recursive);
+        return normalizeDeletePayload(projectName, targetFqn, recursive, false);
+    }
+
+    public Map<String, Object> normalizeDeletePayload(
+            String projectName,
+            String targetFqn,
+            boolean recursive,
+            boolean force
+    ) {
+        DeleteMetadataRequest request = new DeleteMetadataRequest(projectName, targetFqn, recursive, force);
         request.validate();
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("project", projectName); //$NON-NLS-1$
         payload.put("target_fqn", targetFqn); //$NON-NLS-1$
         payload.put("recursive", Boolean.valueOf(recursive)); //$NON-NLS-1$
+        payload.put("force", Boolean.valueOf(force)); //$NON-NLS-1$
         return payload;
     }
 
@@ -301,10 +311,13 @@ public class MetadataRequestValidationService {
             case DELETE_METADATA -> {
                 Object recursiveObj = request.payload().get("recursive"); //$NON-NLS-1$
                 boolean recursive = recursiveObj instanceof Boolean b ? b.booleanValue() : Boolean.parseBoolean(String.valueOf(recursiveObj));
+                Object forceObj = request.payload().get("force"); //$NON-NLS-1$
+                boolean force = forceObj instanceof Boolean b ? b.booleanValue() : Boolean.parseBoolean(String.valueOf(forceObj));
                 Map<String, Object> payload = normalizeDeletePayload(
                         coalesceProject(request.projectName(), request.payload()),
                         asString(request.payload().get("target_fqn")), //$NON-NLS-1$
-                        recursive);
+                        recursive,
+                        force);
                 checks.add("Операция delete_metadata валидирована по обязательным полям."); //$NON-NLS-1$
                 yield payload;
             }

@@ -6,8 +6,13 @@ package com.codepilot1c.core.edt.metadata;
 public record DeleteMetadataRequest(
         String projectName,
         String targetFqn,
-        boolean recursive
+        boolean recursive,
+        boolean force
 ) {
+    public DeleteMetadataRequest(String projectName, String targetFqn, boolean recursive) {
+        this(projectName, targetFqn, recursive, false);
+    }
+
     public void validate() {
         if (projectName == null || projectName.isBlank()) {
             throw new MetadataOperationException(
