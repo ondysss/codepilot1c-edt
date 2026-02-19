@@ -224,6 +224,30 @@
                     commandId="com.codepilot1c.ui.commands.GenerateCode"
                     style="push">
                 </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.FixCode"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.CriticiseCode"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.AddCode"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.GenerateDocComments"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.FindSimilarCode"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.OptimizeQuery"
+                    style="push">
+                </command>
                 <separator name="separator2" visible="true"/>
                 <command
                     commandId="com.codepilot1c.ui.commands.IndexCodebase"
@@ -258,7 +282,16 @@
                 id="com.codepilot1c.ui.contextMenu"
                 label="%menu.copilot.label">
                 <command
+                    commandId="com.codepilot1c.ui.commands.OpenChat"
+                    style="push">
+                </command>
+                <separator name="separator0" visible="true"/>
+                <command
                     commandId="com.codepilot1c.ui.commands.ExplainCode"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.GenerateCode"
                     style="push">
                 </command>
                 <command
@@ -276,6 +309,69 @@
                 </command>
                 <command
                     commandId="com.codepilot1c.ui.commands.GenerateDocComments"
+                    style="push">
+                </command>
+                <separator name="separator2" visible="true"/>
+                <command
+                    commandId="com.codepilot1c.ui.commands.FindSimilarCode"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.OptimizeQuery"
+                    style="push">
+                </command>
+            </menu>
+        </menuContribution>
+
+        <!-- Fallback context menu for editors that don't expose #TextEditorContext (EDT/Bsl variants) -->
+        <menuContribution locationURI="popup:org.eclipse.ui.popup.any?after=additions">
+            <menu
+                id="com.codepilot1c.ui.contextMenuFallback"
+                label="%menu.copilot.label">
+                <visibleWhen checkEnabled="false">
+                    <with variable="activeEditorInput">
+                        <adapt type="org.eclipse.core.resources.IFile">
+                            <test property="org.eclipse.core.resources.extension" value="bsl"/>
+                        </adapt>
+                    </with>
+                </visibleWhen>
+                <command
+                    commandId="com.codepilot1c.ui.commands.OpenChat"
+                    style="push">
+                </command>
+                <separator name="separator0" visible="true"/>
+                <command
+                    commandId="com.codepilot1c.ui.commands.ExplainCode"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.GenerateCode"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.FixCode"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.CriticiseCode"
+                    style="push">
+                </command>
+                <separator name="separator1" visible="true"/>
+                <command
+                    commandId="com.codepilot1c.ui.commands.AddCode"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.GenerateDocComments"
+                    style="push">
+                </command>
+                <separator name="separator2" visible="true"/>
+                <command
+                    commandId="com.codepilot1c.ui.commands.FindSimilarCode"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.OptimizeQuery"
                     style="push">
                 </command>
             </menu>

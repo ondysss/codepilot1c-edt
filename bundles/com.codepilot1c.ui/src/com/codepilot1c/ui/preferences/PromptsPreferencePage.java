@@ -57,43 +57,43 @@ public class PromptsPreferencePage extends PreferencePage implements IWorkbenchP
     private static final List<PromptFieldSpec> FIELD_SPECS = List.of(
             PromptFieldSpec.system(
                     VibePreferenceConstants.PREF_PROMPT_SYSTEM_PREFIX,
-                    "Префикс system prompt", //$NON-NLS-1$
+                    "Префикс системного промпта", //$NON-NLS-1$
                     "Пример: Ты архитектор 1С (BSL, SDBL, управляемые формы). Сначала формализуй границы, затем предлагай минимально инвазивные изменения."), //$NON-NLS-1$
             PromptFieldSpec.system(
                     VibePreferenceConstants.PREF_PROMPT_SYSTEM_SUFFIX,
-                    "Суффикс system prompt", //$NON-NLS-1$
-                    "Пример: Формат ответа: Архитектурное решение, Trade-offs, Риски и ограничения, План внедрения, План валидации."), //$NON-NLS-1$
+                    "Суффикс системного промпта", //$NON-NLS-1$
+                    "Пример: Формат ответа: Архитектурное решение, Компромиссы, Риски и ограничения, План внедрения, План проверки."), //$NON-NLS-1$
             PromptFieldSpec.template(
                     VibePreferenceConstants.PREF_PROMPT_TEMPLATE_EXPLAIN_CODE,
-                    "Explain Code", //$NON-NLS-1$
-                    "Пример: {{prompt}}\nВыдели слой (domain/app/infra/ui), поток данных, точки отказа и 2 варианта улучшения."), //$NON-NLS-1$
+                    "Объяснить код", //$NON-NLS-1$
+                    "Пример: {{prompt}}\nВыдели слой (предметная область/приложение/инфраструктура/интерфейс), поток данных, точки отказа и 2 варианта улучшения."), //$NON-NLS-1$
             PromptFieldSpec.template(
                     VibePreferenceConstants.PREF_PROMPT_TEMPLATE_GENERATE_CODE,
-                    "Generate Code", //$NON-NLS-1$
-                    "Пример: По задаче {{description}} сначала укажи допущения и границы ответственности, затем дай production-код и план проверки."), //$NON-NLS-1$
+                    "Сгенерировать код", //$NON-NLS-1$
+                    "Пример: По задаче {{description}} сначала укажи допущения и границы ответственности, затем дай боевой код и план проверки."), //$NON-NLS-1$
             PromptFieldSpec.template(
                     VibePreferenceConstants.PREF_PROMPT_TEMPLATE_FIX_CODE,
-                    "Fix Code", //$NON-NLS-1$
-                    "Пример: Для кода {{code}} дай severity проблем, минимальный patch и список отложенных архитектурных рефакторингов."), //$NON-NLS-1$
+                    "Исправить код", //$NON-NLS-1$
+                    "Пример: Для кода {{code}} дай уровень критичности проблем, минимальное исправление и список отложенных архитектурных рефакторингов."), //$NON-NLS-1$
             PromptFieldSpec.template(
                     VibePreferenceConstants.PREF_PROMPT_TEMPLATE_CRITICISE_CODE,
-                    "Criticise Code", //$NON-NLS-1$
+                    "Проверить код", //$NON-NLS-1$
                     "Пример: Для {{code}} оцени ответственность, транзакции, конкурентность, тестопригодность и предложи приоритетные улучшения."), //$NON-NLS-1$
             PromptFieldSpec.template(
                     VibePreferenceConstants.PREF_PROMPT_TEMPLATE_ADD_CODE,
-                    "Add Code", //$NON-NLS-1$
+                    "Добавить код", //$NON-NLS-1$
                     "Пример: Контекст {{context}}, запрос {{request}}. Верни только вставляемый фрагмент без нарушения текущих границ модуля."), //$NON-NLS-1$
             PromptFieldSpec.template(
                     VibePreferenceConstants.PREF_PROMPT_TEMPLATE_DOC_COMMENTS,
-                    "Generate Doc Comments", //$NON-NLS-1$
+                    "Сгенерировать комментарии", //$NON-NLS-1$
                     "Пример: Для {{code}} сгенерируй комментарий с акцентом на ответственность, контракт и ограничения."), //$NON-NLS-1$
             PromptFieldSpec.template(
                     VibePreferenceConstants.PREF_PROMPT_TEMPLATE_OPTIMIZE_QUERY,
-                    "Optimize Query", //$NON-NLS-1$
+                    "Оптимизировать запрос", //$NON-NLS-1$
                     "Пример: Для {{query}} укажи кардинальность/индексы, оптимизированный вариант, риски семантики и план профилирования."), //$NON-NLS-1$
             PromptFieldSpec.template(
                     VibePreferenceConstants.PREF_PROMPT_TEMPLATE_FIND_SIMILAR,
-                    "Find Similar Code", //$NON-NLS-1$
+                    "Найти похожий код", //$NON-NLS-1$
                     "Пример: Для {{code}} найди похожие реализации, сравни подходы и предложи путь архитектурной унификации.") //$NON-NLS-1$
     );
 
