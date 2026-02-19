@@ -54,14 +54,6 @@
             class="com.codepilot1c.ui.views.ChatView"
             allowMultiple="false">
         </view>
-        <view
-            id="com.codepilot1c.ui.views.AgentView"
-            name="%view.agent.name"
-            icon="icons/vibe16.png"
-            category="com.codepilot1c.ui.category"
-            class="com.codepilot1c.ui.views.AgentView"
-            allowMultiple="false">
-        </view>
     </extension>
 
     <!-- Perspective extensions -->
