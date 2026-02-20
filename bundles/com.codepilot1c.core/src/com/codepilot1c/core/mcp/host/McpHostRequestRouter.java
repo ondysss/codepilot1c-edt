@@ -75,6 +75,7 @@ public class McpHostRequestRouter {
                 case "tools/list" -> ok(request, Map.of("tools", listTools())); //$NON-NLS-1$ //$NON-NLS-2$
                 case "tools/call" -> handleToolCall(request, session); //$NON-NLS-1$
                 case "resources/list" -> ok(request, Map.of("resources", listResources(session))); //$NON-NLS-1$ //$NON-NLS-2$
+                case "resources/templates/list" -> ok(request, Map.of("resourceTemplates", List.of())); //$NON-NLS-1$ //$NON-NLS-2$
                 case "resources/read" -> handleResourceRead(request, session); //$NON-NLS-1$
                 case "prompts/list" -> ok(request, Map.of("prompts", promptProvider.listPrompts())); //$NON-NLS-1$ //$NON-NLS-2$
                 case "prompts/get" -> handlePromptGet(request); //$NON-NLS-1$
