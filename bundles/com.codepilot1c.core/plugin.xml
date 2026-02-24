@@ -6,11 +6,6 @@
                      name="%extensionPoint.llmProvider.name"
                      schema="schema/llmProvider.exsd"/>
 
-    <!-- Extension point for embedding providers -->
-    <extension-point id="embeddingProvider"
-                     name="%extensionPoint.embeddingProvider.name"
-                     schema="schema/embeddingProvider.exsd"/>
-
     <!-- Extension point for additional tool contributions (e.g. Pro overlay) -->
     <extension-point id="toolProvider"
                      name="%extensionPoint.toolProvider.name"
@@ -43,24 +38,6 @@
             class="com.codepilot1c.core.provider.ollama.OllamaProvider"
             icon="icons/ollama.png">
             <description>%provider.ollama.description</description>
-        </provider>
-    </extension>
-
-    <!-- Built-in embedding providers -->
-    <extension point="com.codepilot1c.core.embeddingProvider">
-        <provider
-            id="openai"
-            name="%provider.openai.embeddings.name"
-            class="com.codepilot1c.core.embedding.openai.OpenAiEmbeddingProvider"
-            icon="icons/openai.png">
-            <description>%provider.openai.embeddings.description</description>
-        </provider>
-        <provider
-            id="ollama"
-            name="%provider.ollama.embeddings.name"
-            class="com.codepilot1c.core.embedding.ollama.OllamaEmbeddingProvider"
-            icon="icons/ollama.png">
-            <description>%provider.ollama.embeddings.description</description>
         </provider>
     </extension>
 

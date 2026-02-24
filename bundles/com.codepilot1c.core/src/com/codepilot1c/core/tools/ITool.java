@@ -21,7 +21,7 @@ public interface ITool {
     /**
      * Returns the unique name of this tool.
      *
-     * @return the tool name (e.g., "search_codebase", "read_file")
+     * @return the tool name (e.g., "read_file", "grep")
      */
     String getName();
 

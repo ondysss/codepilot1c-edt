@@ -18,6 +18,5 @@
     <modules>
         <module>com.codepilot1c.core</module>
         <module>com.codepilot1c.ui</module>
-        <module>com.codepilot1c.rag</module>
     </modules>
 </project>

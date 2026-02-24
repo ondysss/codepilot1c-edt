@@ -65,26 +65,6 @@ public class VibePreferenceInitializer extends AbstractPreferenceInitializer {
         defaults.put(VibePreferenceConstants.PREF_PROMPT_TEMPLATE_ADD_CODE, ""); //$NON-NLS-1$
         defaults.put(VibePreferenceConstants.PREF_PROMPT_TEMPLATE_DOC_COMMENTS, ""); //$NON-NLS-1$
         defaults.put(VibePreferenceConstants.PREF_PROMPT_TEMPLATE_OPTIMIZE_QUERY, ""); //$NON-NLS-1$
-        defaults.put(VibePreferenceConstants.PREF_PROMPT_TEMPLATE_FIND_SIMILAR, ""); //$NON-NLS-1$
-
-        // Embedding defaults - use auto-detection for zero-config experience
-        defaults.put(VibePreferenceConstants.PREF_EMBEDDING_PROVIDER_ID,
-                VibePreferenceConstants.PREF_EMBEDDING_PROVIDER_AUTO); // Auto-detect
-        defaults.putBoolean(VibePreferenceConstants.PREF_EMBEDDING_AUTO_DETECT, true);
-        defaults.put(VibePreferenceConstants.PREF_EMBEDDING_API_URL, "https://api.openai.com/v1"); //$NON-NLS-1$
-        defaults.put(VibePreferenceConstants.PREF_EMBEDDING_API_KEY, ""); //$NON-NLS-1$
-        defaults.put(VibePreferenceConstants.PREF_OPENAI_EMBEDDING_MODEL, "text-embedding-3-small"); //$NON-NLS-1$
-        defaults.putInt(VibePreferenceConstants.PREF_EMBEDDING_BATCH_SIZE, 100);
-        defaults.putInt(VibePreferenceConstants.PREF_EMBEDDING_DIMENSIONS, 1536);
-
-        // Ollama embedding defaults
-        defaults.put(VibePreferenceConstants.PREF_OLLAMA_EMBEDDING_MODEL, "nomic-embed-text"); //$NON-NLS-1$
-        defaults.put(VibePreferenceConstants.PREF_OLLAMA_EMBEDDING_API_URL, "http://localhost:11434"); //$NON-NLS-1$
-
-        // Indexing defaults
-        defaults.putBoolean(VibePreferenceConstants.PREF_INDEXING_ENABLED, true);
-        defaults.putBoolean(VibePreferenceConstants.PREF_INDEXING_ON_STARTUP, false);
-        defaults.putInt(VibePreferenceConstants.PREF_INDEXING_MAX_FILE_SIZE, 100000); // 100KB
 
         // HTTP defaults (based on Workmate patterns)
         defaults.putBoolean(VibePreferenceConstants.PREF_HTTP_HTTP2_ENABLED, true);

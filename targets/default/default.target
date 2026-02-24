@@ -7,13 +7,6 @@
             <unit id="org.eclipse.sdk.feature.group" version="0.0.0"/>
             <unit id="com.google.gson" version="0.0.0"/>
         </location>
-        <!-- Apache Lucene from Eclipse Orbit for vector search -->
-        <location includeAllPlatforms="false" includeConfigurePhase="true" includeMode="planner" includeSource="true" type="InstallableUnit">
-            <repository location="https://download.eclipse.org/tools/orbit/simrel/orbit-aggregation/2023-12"/>
-            <unit id="org.apache.lucene.core" version="0.0.0"/>
-            <unit id="org.apache.lucene.analysis-common" version="0.0.0"/>
-            <unit id="org.apache.lucene.queryparser" version="0.0.0"/>
-        </location>
         <!-- Xtext SDK for org.eclipse.xtext.ui and related bundles -->
         <location includeAllPlatforms="false" includeConfigurePhase="true" includeMode="planner" includeSource="true" type="InstallableUnit">
             <repository location="https://download.eclipse.org/modeling/tmf/xtext/updates/releases/2.33.0/"/>

@@ -28,7 +28,6 @@ public final class ToolDisplayNames {
             case "glob" -> "Поиск файлов"; //$NON-NLS-1$ //$NON-NLS-2$
             case "grep" -> "Поиск текста"; //$NON-NLS-1$ //$NON-NLS-2$
             case "shell" -> "Команда оболочки"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "search_codebase" -> "Поиск по коду"; //$NON-NLS-1$ //$NON-NLS-2$
             case "edt_content_assist" -> "EDT автодополнение"; //$NON-NLS-1$ //$NON-NLS-2$
             case "edt_find_references" -> "EDT поиск ссылок"; //$NON-NLS-1$ //$NON-NLS-2$
             case "edt_metadata_details" -> "EDT детали метаданных"; //$NON-NLS-1$ //$NON-NLS-2$

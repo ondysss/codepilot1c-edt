@@ -42,7 +42,6 @@ import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
-import com.codepilot1c.core.rag.RagService;
 import com.codepilot1c.core.settings.PromptTemplateService;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.codepilot1c.core.tools.ITool;
@@ -1480,21 +1479,6 @@ public class ChatView extends ViewPart {
         // === TOOLS SECTION ===
         if (toolsEnabled) {
             appendToolsSection(prompt);
-        }
-
-        // === RAG CONTEXT ===
-        RagService ragService = RagService.getInstance();
-        if (ragService.isReady()) {
-            prompt.append("""
-            # Контекст из кодовой базы
-
-            В сообщениях пользователя может быть раздел "Релевантный код из кодовой базы" -
-            это результаты семантического поиска. Используйте этот код как:
-            - Примеры существующего стиля и паттернов
-            - Информацию о структуре и именовании в проекте
-            - Приоритетный контекст для формирования ответов
-
-            """); //$NON-NLS-1$
         }
 
         // === FINAL INSTRUCTIONS ===

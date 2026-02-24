@@ -18,7 +18,6 @@ public class MenuMessages extends NLS {
 
     public static String Menu_Settings;
     public static String Menu_SelectProvider;
-    public static String Menu_IndexCodebase;
     public static String Menu_ViewChat;
 
     static {

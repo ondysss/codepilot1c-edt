@@ -20,7 +20,7 @@ import java.util.Set;
  * AgentConfig config = AgentConfig.builder()
  *     .maxSteps(25)
  *     .timeoutMs(300_000)
- *     .enabledTools(Set.of("read_file", "search_codebase"))
+ *     .enabledTools(Set.of("read_file", "grep"))
  *     .build();
  * </pre>
  */

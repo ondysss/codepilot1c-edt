@@ -57,24 +57,6 @@ public class Messages extends NLS {
     public static String PreferencePage_TestSuccess;
     public static String PreferencePage_TestFailed;
 
-    // Embedding preference page
-    public static String EmbeddingPreferencePage_Description;
-    public static String EmbeddingPreferencePage_EmbeddingGroupTitle;
-    public static String EmbeddingPreferencePage_ProviderLabel;
-    public static String EmbeddingPreferencePage_ProviderAuto;
-    public static String EmbeddingPreferencePage_ApiUrlLabel;
-    public static String EmbeddingPreferencePage_ApiKeyLabel;
-    public static String EmbeddingPreferencePage_ModelLabel;
-    public static String EmbeddingPreferencePage_DimensionsLabel;
-    public static String EmbeddingPreferencePage_BatchSizeLabel;
-    public static String EmbeddingPreferencePage_IndexingGroupTitle;
-    public static String EmbeddingPreferencePage_EnableIndexingLabel;
-    public static String EmbeddingPreferencePage_IndexOnStartupLabel;
-    public static String EmbeddingPreferencePage_MaxFileSizeLabel;
-    public static String EmbeddingPreferencePage_TestConnectionButton;
-    public static String EmbeddingPreferencePage_TestSuccess;
-    public static String EmbeddingPreferencePage_TestFailed;
-    public static String EmbeddingPreferencePage_Testing;
 
     // Model configuration editor
     public static String ModelConfigurationEditor_ActiveModelLabel;
@@ -137,14 +119,6 @@ public class Messages extends NLS {
     public static String ModelSelectionDialog_FilterPlaceholder;
     public static String ModelSelectionDialog_ModelCount;
 
-    // Index codebase handler
-    public static String IndexCodebaseHandler_Title;
-    public static String IndexCodebaseHandler_AlreadyIndexing;
-    public static String IndexCodebaseHandler_NoProvider;
-    public static String IndexCodebaseHandler_CreateFailed;
-    public static String IndexCodebaseHandler_Complete;
-    public static String IndexCodebaseHandler_Failed;
-    public static String IndexCodebaseHandler_Indexing;
 
     // Code block widget
     public static String CodeBlockWidget_Copy;

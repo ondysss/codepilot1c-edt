@@ -151,7 +151,7 @@ public final class AgentPromptTemplates {
         sb.append("## Проверки\n[Какие диагностики и где проверить]\n\n"); //$NON-NLS-1$
         sb.append("## Риски\n[Основные риски и как их снизить]\n\n"); //$NON-NLS-1$
         sb.append("## Инструменты\n"); //$NON-NLS-1$
-        sb.append("read_file, glob, grep, list_files, search_codebase,\n"); //$NON-NLS-1$
+        sb.append("read_file, glob, grep, list_files,\n"); //$NON-NLS-1$
         sb.append("get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index,\n"); //$NON-NLS-1$
         sb.append("dcs_get_summary, dcs_list_nodes,\n"); //$NON-NLS-1$
         sb.append("extension_list_projects, extension_list_objects, external_list_projects, external_list_objects, external_get_details,\n"); //$NON-NLS-1$
@@ -171,7 +171,7 @@ public final class AgentPromptTemplates {
         sb.append("## Цель\n"); //$NON-NLS-1$
         sb.append("Быстро найти релевантные факты в коде и показать их с точными ссылками.\n\n"); //$NON-NLS-1$
         sb.append("## Операционный контракт\n"); //$NON-NLS-1$
-        sb.append("1. Приоритет скорости: сначала glob/grep/search_codebase, затем точечное чтение.\n"); //$NON-NLS-1$
+        sb.append("1. Приоритет скорости: сначала glob/grep и EDT API инструменты, затем точечное чтение.\n"); //$NON-NLS-1$
         if (formsRulesEnabled) {
             sb.append("2. Для форм сначала inspect_form_layout, затем выводы.\n"); //$NON-NLS-1$
         } else {
@@ -190,7 +190,7 @@ public final class AgentPromptTemplates {
         sb.append("- Минимальный релевантный фрагмент.\n\n"); //$NON-NLS-1$
 
         sb.append("## Инструменты\n"); //$NON-NLS-1$
-        sb.append("read_file, glob, grep, list_files, search_codebase,\n"); //$NON-NLS-1$
+        sb.append("read_file, glob, grep, list_files,\n"); //$NON-NLS-1$
         sb.append("get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index,\n"); //$NON-NLS-1$
         sb.append("dcs_get_summary, dcs_list_nodes,\n"); //$NON-NLS-1$
         sb.append("extension_list_projects, extension_list_objects, external_list_projects, external_list_objects, external_get_details,\n"); //$NON-NLS-1$

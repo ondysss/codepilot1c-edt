@@ -250,7 +250,7 @@ public class CodeContextAnalyzer {
      * Categories for grouping actions in the menu.
      */
     public enum ActionCategory {
-        /** Quick read-only actions (explain, find similar) */
+    /** Quick read-only actions (explain, optimize query) */
         QUICK_ACTION,
         /** Code modification actions (fix, optimize, refactor) */
         EDIT_ACTION,
@@ -268,7 +268,6 @@ public class CodeContextAnalyzer {
     private static final String CMD_ADD = "com.codepilot1c.ui.commands.AddCode"; //$NON-NLS-1$
     private static final String CMD_GENERATE = "com.codepilot1c.ui.commands.GenerateCode"; //$NON-NLS-1$
     private static final String CMD_CHAT = "com.codepilot1c.ui.commands.OpenChat"; //$NON-NLS-1$
-    private static final String CMD_FIND_SIMILAR = "com.codepilot1c.ui.commands.FindSimilarCode"; //$NON-NLS-1$
     private static final String CMD_OPTIMIZE_QUERY = "com.codepilot1c.ui.commands.OptimizeQuery"; //$NON-NLS-1$
 
     /**
@@ -448,14 +447,6 @@ public class CodeContextAnalyzer {
                     ActionCategory.QUICK_ACTION,
                     15));
         }
-
-        // Find similar (if RAG is available)
-        actions.add(new SuggestedAction(
-                "findSimilar", //$NON-NLS-1$
-                Messages.Action_FindSimilar,
-                CMD_FIND_SIMILAR,
-                ActionCategory.QUICK_ACTION,
-                20));
 
         // Edit Actions
         actions.add(new SuggestedAction(

@@ -113,18 +113,6 @@ public final class PromptCatalog {
                     2) Оптимизированный вариант.
                     3) Риски изменения семантики.
                     4) План проверки эквивалентности и профилирования.
-                    """), //$NON-NLS-1$
-            Map.entry(VibePreferenceConstants.PREF_PROMPT_TEMPLATE_FIND_SIMILAR, """
-                    Найди похожие реализации и предложи архитектурную унификацию.
-
-                    ```bsl
-                    {{code}}
-                    ```
-
-                    Формат:
-                    - Похожие места
-                    - Сравнение архитектурных подходов
-                    - Рекомендованный путь стандартизации
                     """) //$NON-NLS-1$
     );
 
@@ -135,8 +123,7 @@ public final class PromptCatalog {
             Map.entry(VibePreferenceConstants.PREF_PROMPT_TEMPLATE_CRITICISE_CODE, Set.of("code")), //$NON-NLS-1$
             Map.entry(VibePreferenceConstants.PREF_PROMPT_TEMPLATE_ADD_CODE, Set.of("context", "request")), //$NON-NLS-1$ //$NON-NLS-2$
             Map.entry(VibePreferenceConstants.PREF_PROMPT_TEMPLATE_DOC_COMMENTS, Set.of("code")), //$NON-NLS-1$
-            Map.entry(VibePreferenceConstants.PREF_PROMPT_TEMPLATE_OPTIMIZE_QUERY, Set.of("query")), //$NON-NLS-1$
-            Map.entry(VibePreferenceConstants.PREF_PROMPT_TEMPLATE_FIND_SIMILAR, Set.of("code")) //$NON-NLS-1$
+            Map.entry(VibePreferenceConstants.PREF_PROMPT_TEMPLATE_OPTIMIZE_QUERY, Set.of("query")) //$NON-NLS-1$
     );
 
     private PromptCatalog() {

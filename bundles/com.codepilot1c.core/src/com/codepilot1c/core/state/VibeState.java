@@ -36,7 +36,7 @@ public enum VibeState {
     STREAMING("streaming", "Streaming...", "icons/vibe_streaming.png"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 
     /**
-     * Codebase is being indexed for RAG.
+     * Background indexing operation is in progress.
      */
     INDEXING("indexing", "Indexing...", "icons/vibe_indexing.png"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 

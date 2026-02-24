@@ -54,31 +54,6 @@ public final class VibePreferenceConstants {
     public static final String PREF_OLLAMA_MODEL = "ollama.model"; //$NON-NLS-1$
     public static final String PREF_OLLAMA_CUSTOM_MODELS = "ollama.customModels"; //$NON-NLS-1$
 
-    // Embedding preferences
-    public static final String PREF_EMBEDDING_PROVIDER_ID = "embedding.providerId"; //$NON-NLS-1$
-    public static final String PREF_EMBEDDING_API_URL = "embedding.apiUrl"; //$NON-NLS-1$
-    public static final String PREF_EMBEDDING_API_KEY = "embedding.apiKey"; //$NON-NLS-1$
-    public static final String PREF_OPENAI_EMBEDDING_MODEL = "openai.embeddingModel"; //$NON-NLS-1$
-    public static final String PREF_EMBEDDING_BATCH_SIZE = "embedding.batchSize"; //$NON-NLS-1$
-    public static final String PREF_EMBEDDING_DIMENSIONS = "embedding.dimensions"; //$NON-NLS-1$
-
-    // Ollama embedding preferences
-    /** Ollama embedding model name (e.g. nomic-embed-text). */
-    public static final String PREF_OLLAMA_EMBEDDING_MODEL = "ollama.embeddingModel"; //$NON-NLS-1$
-    /** Ollama embedding API URL (defaults to http://localhost:11434). */
-    public static final String PREF_OLLAMA_EMBEDDING_API_URL = "ollama.embeddingApiUrl"; //$NON-NLS-1$
-
-    // Auto-embedding preferences
-    /** Enable auto-detection of embedding provider (local first, then cloud). */
-    public static final String PREF_EMBEDDING_AUTO_DETECT = "embedding.autoDetect"; //$NON-NLS-1$
-    /** Provider ID for auto mode: "auto", "ollama", "openai". */
-    public static final String PREF_EMBEDDING_PROVIDER_AUTO = "auto"; //$NON-NLS-1$
-
-    // Indexing preferences
-    public static final String PREF_INDEXING_ENABLED = "indexing.enabled"; //$NON-NLS-1$
-    public static final String PREF_INDEXING_ON_STARTUP = "indexing.onStartup"; //$NON-NLS-1$
-    public static final String PREF_INDEXING_MAX_FILE_SIZE = "indexing.maxFileSize"; //$NON-NLS-1$
-
     // Prompt customization
     /** Optional custom text prepended to every system prompt. */
     public static final String PREF_PROMPT_SYSTEM_PREFIX = "prompt.systemPrefix"; //$NON-NLS-1$
@@ -98,9 +73,6 @@ public final class VibePreferenceConstants {
     public static final String PREF_PROMPT_TEMPLATE_DOC_COMMENTS = "prompt.template.docComments"; //$NON-NLS-1$
     /** Custom template for query optimization command. */
     public static final String PREF_PROMPT_TEMPLATE_OPTIMIZE_QUERY = "prompt.template.optimizeQuery"; //$NON-NLS-1$
-    /** Custom template for find-similar command. */
-    public static final String PREF_PROMPT_TEMPLATE_FIND_SIMILAR = "prompt.template.findSimilar"; //$NON-NLS-1$
-
     // HTTP preferences
     /** Enable HTTP/2 protocol (with automatic fallback to HTTP/1.1). */
     public static final String PREF_HTTP_HTTP2_ENABLED = "http.http2Enabled"; //$NON-NLS-1$

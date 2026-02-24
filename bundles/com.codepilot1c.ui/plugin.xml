@@ -21,12 +21,6 @@
             class="com.codepilot1c.ui.preferences.ProvidersPreferencePage">
         </page>
         <page
-            id="com.codepilot1c.ui.preferences.EmbeddingPreferencePage"
-            name="%preferences.embedding.name"
-            category="com.codepilot1c.ui.preferences.VibePreferencePage"
-            class="com.codepilot1c.ui.preferences.EmbeddingPreferencePage">
-        </page>
-        <page
             id="com.codepilot1c.ui.preferences.McpServersPreferencePage"
             name="%preferences.mcpServers.name"
             category="com.codepilot1c.ui.preferences.VibePreferencePage"
@@ -112,12 +106,6 @@
             categoryId="com.codepilot1c.ui.commands.category">
         </command>
         <command
-            id="com.codepilot1c.ui.commands.IndexCodebase"
-            name="%command.indexCodebase.name"
-            description="%command.indexCodebase.description"
-            categoryId="com.codepilot1c.ui.commands.category">
-        </command>
-        <command
             id="com.codepilot1c.ui.commands.DumpEdtDiagnostics"
             name="%command.dumpEdtDiagnostics.name"
             description="%command.dumpEdtDiagnostics.description"
@@ -154,10 +142,6 @@
         <handler
             commandId="com.codepilot1c.ui.commands.GenerateDocComments"
             class="com.codepilot1c.ui.handlers.GenerateDocCommentsHandler">
-        </handler>
-        <handler
-            commandId="com.codepilot1c.ui.commands.IndexCodebase"
-            class="com.codepilot1c.ui.handlers.IndexCodebaseHandler">
         </handler>
         <handler
             commandId="com.codepilot1c.ui.commands.DumpEdtDiagnostics"
@@ -233,16 +217,7 @@
                     style="push">
                 </command>
                 <command
-                    commandId="com.codepilot1c.ui.commands.FindSimilarCode"
-                    style="push">
-                </command>
-                <command
                     commandId="com.codepilot1c.ui.commands.OptimizeQuery"
-                    style="push">
-                </command>
-                <separator name="separator2" visible="true"/>
-                <command
-                    commandId="com.codepilot1c.ui.commands.IndexCodebase"
                     style="push">
                 </command>
             </menu>
@@ -303,11 +278,6 @@
                     commandId="com.codepilot1c.ui.commands.GenerateDocComments"
                     style="push">
                 </command>
-                <separator name="separator2" visible="true"/>
-                <command
-                    commandId="com.codepilot1c.ui.commands.FindSimilarCode"
-                    style="push">
-                </command>
                 <command
                     commandId="com.codepilot1c.ui.commands.OptimizeQuery"
                     style="push">
@@ -355,11 +325,6 @@
                 </command>
                 <command
                     commandId="com.codepilot1c.ui.commands.GenerateDocComments"
-                    style="push">
-                </command>
-                <separator name="separator2" visible="true"/>
-                <command
-                    commandId="com.codepilot1c.ui.commands.FindSimilarCode"
                     style="push">
                 </command>
                 <command

@@ -24,7 +24,6 @@ import com.codepilot1c.core.permissions.PermissionRule;
  *   <li>Быстрый поиск файлов (glob)</li>
  *   <li>Поиск по содержимому (grep)</li>
  *   <li>Чтение файлов</li>
- *   <li>Семантический поиск (search_codebase)</li>
  * </ul>
  *
  * <p>Особенности:</p>
@@ -52,7 +51,6 @@ public class ExploreAgentProfile implements AgentProfile {
             "glob",
             "grep",
             "list_files",
-            "search_codebase",
             "get_diagnostics",
             "edt_content_assist",
             "edt_find_references",
@@ -100,7 +98,6 @@ public class ExploreAgentProfile implements AgentProfile {
                 PermissionRule.allow("glob").forAllResources(),
                 PermissionRule.allow("grep").forAllResources(),
                 PermissionRule.allow("list_files").forAllResources(),
-                PermissionRule.allow("search_codebase").forAllResources(),
                 PermissionRule.allow("get_diagnostics").forAllResources(),
                 PermissionRule.allow("edt_content_assist").forAllResources(),
                 PermissionRule.allow("edt_find_references").forAllResources(),

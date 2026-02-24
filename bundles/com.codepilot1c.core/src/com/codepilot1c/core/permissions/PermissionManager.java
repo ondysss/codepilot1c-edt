@@ -292,11 +292,6 @@ public class PermissionManager implements IPermissionManager {
                 .withDescription("Список файлов разрешен")
                 .forAllResources());
 
-        addRule(PermissionRule.allow("search_codebase")
-                .withPriority(10)
-                .withDescription("Поиск по кодовой базе разрешен")
-                .forAllResources());
-
         // Write tools - ask by default
         addRule(PermissionRule.ask("edit_file")
                 .withPriority(10)

@@ -21,7 +21,6 @@ public class Messages extends NLS {
     public static String Action_ExplainMethod;
     public static String Action_ExplainQuery;
     public static String Action_ExplainVariable;
-    public static String Action_FindSimilar;
     public static String Action_OptimizeQuery;
 
     // Edit Actions

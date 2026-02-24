@@ -69,7 +69,6 @@ public class ToolRegistry {
 
     private void registerDefaultTools() {
         // OSS default tools (commodity)
-        register(new SearchCodebaseTool());
         register(new ReadFileTool());
         register(new ListFilesTool());
         register(new EditFileTool());

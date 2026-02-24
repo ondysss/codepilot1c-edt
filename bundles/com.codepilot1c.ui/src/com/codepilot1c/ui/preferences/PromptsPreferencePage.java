@@ -90,11 +90,7 @@ public class PromptsPreferencePage extends PreferencePage implements IWorkbenchP
             PromptFieldSpec.template(
                     VibePreferenceConstants.PREF_PROMPT_TEMPLATE_OPTIMIZE_QUERY,
                     "Оптимизировать запрос", //$NON-NLS-1$
-                    "Пример: Для {{query}} укажи кардинальность/индексы, оптимизированный вариант, риски семантики и план профилирования."), //$NON-NLS-1$
-            PromptFieldSpec.template(
-                    VibePreferenceConstants.PREF_PROMPT_TEMPLATE_FIND_SIMILAR,
-                    "Найти похожий код", //$NON-NLS-1$
-                    "Пример: Для {{code}} найди похожие реализации, сравни подходы и предложи путь архитектурной унификации.") //$NON-NLS-1$
+                    "Пример: Для {{query}} укажи кардинальность/индексы, оптимизированный вариант, риски семантики и план профилирования.") //$NON-NLS-1$
     );
 
     private final Map<String, String> draftValues = new LinkedHashMap<>();
