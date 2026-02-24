@@ -115,4 +115,4 @@ claude mcp add --transport http -s user codepilot1c http://127.0.0.1:8765/mcp
 
 - Статья: [Выбор модели для разработки в 1С: сравниваем топов и open source](https://infostart.ru/1c/articles/2613515/)
 - Статья: [CodePilot1C для EDT: встроенный MCP Host для Claude Code, Cursor и Codex](https://infostart.ru/public/2618356/)
-- Статья: [CodePilot1C для 1C:EDT — новый релиз, обновления и сценарии использования](https://infostart.ru/1c/articles/2624226/)
+- Статья: [Qwen Code CLI для 1С-разработчика: BSL Language Server + CodePilot1C MCP — бесплатно и без VPN](https://infostart.ru/1c/articles/2624226/)
