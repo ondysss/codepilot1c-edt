@@ -49,7 +49,7 @@ public final class AgentPromptTemplates {
         sb.append("- EDT расширения (read-only): extension_list_projects, extension_list_objects\n"); //$NON-NLS-1$
         sb.append("- EDT внешние объекты: external_list_projects, external_list_objects, external_get_details, external_create_report, external_create_processing\n"); //$NON-NLS-1$
         sb.append("- EDT type provider: edt_field_type_candidates (допустимые типы для поля метаданных)\n"); //$NON-NLS-1$
-        sb.append("- EDT-метаданные: inspect_platform_reference, edt_validate_request, create_metadata, create_form, extension_create_project, extension_adopt_object, extension_set_property_state, inspect_form_layout, add_metadata_child, ensure_module_artifact, update_metadata, mutate_form_model, delete_metadata, edt_trace_export\n"); //$NON-NLS-1$
+        sb.append("- EDT-метаданные: inspect_platform_reference, edt_validate_request, create_metadata, create_form, apply_form_recipe, extension_create_project, extension_adopt_object, extension_set_property_state, inspect_form_layout, add_metadata_child, ensure_module_artifact, update_metadata, mutate_form_model, delete_metadata, edt_trace_export\n"); //$NON-NLS-1$
         sb.append("- EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members\n"); //$NON-NLS-1$
         sb.append("- Диагностика метаданных: edt_metadata_smoke (регрессионный smoke-прогон), edt_extension_smoke (e2e smoke для расширений), edt_external_smoke (e2e smoke для внешних объектов)\n\n"); //$NON-NLS-1$
 
@@ -65,7 +65,7 @@ public final class AgentPromptTemplates {
 
         if (metadataRulesEnabled) {
             sb.append("## Политика изменения метаданных (обязательно)\n"); //$NON-NLS-1$
-            sb.append("1. Перед create_metadata, create_form, external_create_report, external_create_processing, extension_create_project, extension_adopt_object, extension_set_property_state, dcs_create_main_schema, dcs_upsert_query_dataset, dcs_upsert_parameter, dcs_upsert_calculated_field, add_metadata_child, update_metadata, mutate_form_model и delete_metadata\n"); //$NON-NLS-1$
+            sb.append("1. Перед create_metadata, create_form, apply_form_recipe, external_create_report, external_create_processing, extension_create_project, extension_adopt_object, extension_set_property_state, dcs_create_main_schema, dcs_upsert_query_dataset, dcs_upsert_parameter, dcs_upsert_calculated_field, add_metadata_child, update_metadata, mutate_form_model и delete_metadata\n"); //$NON-NLS-1$
             sb.append("   сначала вызывай edt_validate_request.\n"); //$NON-NLS-1$
             sb.append("2. Бери validation_token из ответа edt_validate_request и передавай в мутационный инструмент без изменения payload.\n"); //$NON-NLS-1$
             sb.append("3. Не создавай реквизиты с зарезервированными именами стандартных реквизитов.\n"); //$NON-NLS-1$
@@ -97,7 +97,10 @@ public final class AgentPromptTemplates {
             sb.append("   - предметная логика/запись/проведение -> модуль объекта или менеджера.\n"); //$NON-NLS-1$
             sb.append("3. Учитывай параметр Ключ формы и клиент-серверный контекст вызовов.\n"); //$NON-NLS-1$
             sb.append("4. Перед изменением формы всегда сначала вызывай inspect_form_layout.\n"); //$NON-NLS-1$
-            sb.append("5. Для структурных правок элементов формы используй mutate_form_model.\n"); //$NON-NLS-1$
+            sb.append("5. Для структурных правок элементов формы используй mutate_form_model. Для декларативных сценариев (создание/изменение формы + реквизиты + макет) используй apply_form_recipe.\n"); //$NON-NLS-1$
+            sb.append("   - apply_form_recipe: mode=create|update|upsert, form_fqn или owner_fqn+name, attributes[], layout[].\n"); //$NON-NLS-1$
+            sb.append("   - attributes[]: name/id, action=create|update|upsert|remove, type=String(50)|Number(15,2)|CatalogRef.X, и свойства.\n"); //$NON-NLS-1$
+            sb.append("   - layout[]: операции как в mutate_form_model (add_group/add_field/set_item/remove_item/move_item/set_form_props).\n"); //$NON-NLS-1$
             sb.append("6. Для форм в текущем EDT-формате данные хранятся в owner .mdo, не используй ensure_module_artifact для Form FQN.\n"); //$NON-NLS-1$
             sb.append("7. Для диагностики формы проверяй не только error/warning в файле, но и runtime/check-маркеры по проекту.\n"); //$NON-NLS-1$
             sb.append("8. После изменений формы обязательно делай get_diagnostics(scope=file) и get_diagnostics(scope=project, include_runtime_markers=true).\n\n"); //$NON-NLS-1$

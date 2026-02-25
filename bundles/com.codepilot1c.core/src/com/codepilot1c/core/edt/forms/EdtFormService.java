@@ -25,6 +25,10 @@ public class EdtFormService {
         return metadataService.updateFormModel(request);
     }
 
+    public FormRecipeResult applyFormRecipe(FormRecipeRequest request) {
+        return metadataService.applyFormRecipe(request);
+    }
+
     public InspectFormLayoutResult inspectFormLayout(InspectFormLayoutRequest request) {
         return metadataService.inspectFormLayout(request);
     }

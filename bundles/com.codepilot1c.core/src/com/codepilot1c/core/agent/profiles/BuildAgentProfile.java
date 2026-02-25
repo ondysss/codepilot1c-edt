@@ -78,6 +78,7 @@ public class BuildAgentProfile implements AgentProfile {
             "edt_validate_request",
             "create_metadata",
             "create_form",
+            "apply_form_recipe",
             "inspect_form_layout",
             "add_metadata_child",
             "ensure_module_artifact",
@@ -155,6 +156,9 @@ public class BuildAgentProfile implements AgentProfile {
                         .forAllResources(),
                 PermissionRule.ask("create_form")
                         .withDescription("Создание управляемых форм EDT")
+                        .forAllResources(),
+                PermissionRule.ask("apply_form_recipe")
+                        .withDescription("Применение рецепта управляемой формы EDT")
                         .forAllResources(),
                 PermissionRule.ask("extension_create_project")
                         .withDescription("Создание проекта расширения EDT")

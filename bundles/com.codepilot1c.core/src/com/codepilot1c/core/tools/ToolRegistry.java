@@ -87,6 +87,7 @@ public class ToolRegistry {
         register(new EdtValidateRequestTool());
         register(new CreateMetadataTool());
         register(new CreateFormTool());
+        register(new ApplyFormRecipeTool());
         register(new InspectFormLayoutTool());
         register(new AddMetadataChildTool());
         register(new EnsureModuleArtifactTool());

@@ -55,8 +55,9 @@ import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.core.platform.IExternalObjectProject;
 import com._1c.g5.v8.dt.core.platform.IDtProject;
 import com._1c.g5.v8.dt.core.platform.IDtProjectManager;
-import com._1c.g5.v8.dt.form.model.DataPath;
 import com._1c.g5.v8.dt.form.model.AbstractDataPath;
+import com._1c.g5.v8.dt.form.model.AbstractFormAttribute;
+import com._1c.g5.v8.dt.form.model.DataPath;
 import com._1c.g5.v8.dt.form.model.DynamicListExtInfo;
 import com._1c.g5.v8.dt.form.model.Form;
 import com._1c.g5.v8.dt.form.model.FormAttribute;
@@ -94,6 +95,9 @@ import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
 import com.codepilot1c.core.edt.forms.CreateFormRequest;
 import com.codepilot1c.core.edt.forms.CreateFormResult;
 import com.codepilot1c.core.edt.forms.FormOwnerStrategy;
+import com.codepilot1c.core.edt.forms.FormRecipeMode;
+import com.codepilot1c.core.edt.forms.FormRecipeRequest;
+import com.codepilot1c.core.edt.forms.FormRecipeResult;
 import com.codepilot1c.core.edt.forms.FormUsage;
 import com.codepilot1c.core.edt.forms.InspectFormLayoutRequest;
 import com.codepilot1c.core.edt.forms.InspectFormLayoutResult;
@@ -131,6 +135,8 @@ public class EdtMetadataService {
     private static final Map<String, String> ATTRIBUTE_NAME_ALIASES = createAttributeNameAliases();
     private static final Map<String, String> TOP_LEVEL_PROPERTY_ALIASES = createTopLevelPropertyAliases();
     private static final Map<String, Set<String>> RESERVED_ATTRIBUTE_FALLBACK = createReservedAttributeFallback();
+    private static final Set<String> FORBIDDEN_FORM_ATTRIBUTE_TYPE_PREFIXES = Set.of(
+            "array", "map", "массив", "соответствие"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
     private static final Set<String> FORM_MUTATION_META_KEYS = Set.of(
             "op", //$NON-NLS-1$
             "name", //$NON-NLS-1$
@@ -369,12 +375,13 @@ public class EdtMetadataService {
                 Integer.valueOf(request.operations().size()));
         gateway.ensureMutationRuntimeAvailable();
         IProject project = requireProject(request.projectName());
+        boolean externalProject = isExternalProject(project);
         readinessChecker.ensureReady(project);
         repairConfigurationMissingUuids(project, opId);
 
         IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
         Configuration configuration = configurationProvider.getConfiguration(project);
-        if (configuration == null && tryResolveExternalProject(project) == null) {
+        if (configuration == null && !externalProject) {
             throw new MetadataOperationException(
                     MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
                     "Cannot resolve project configuration", false); //$NON-NLS-1$
@@ -411,6 +418,174 @@ public class EdtMetadataService {
                 operationSummaries);
     }
 
+    public FormRecipeResult applyFormRecipe(FormRecipeRequest request) {
+        String opId = LogSanitizer.newId("edt-form-recipe"); //$NON-NLS-1$
+        long startedAt = System.currentTimeMillis();
+        request.validate();
+        FormRecipeMode mode = FormRecipeMode.fromOptionalString(request.mode());
+        String ownerFqn = asString(request.ownerFqn());
+        String requestedFormFqn = asString(request.formFqn());
+        FormUsage usage = FormUsage.fromOptionalString(request.usage());
+        String requestedName = asString(request.name());
+
+        if ((ownerFqn == null || ownerFqn.isBlank()) && requestedFormFqn != null && !requestedFormFqn.isBlank()) {
+            ownerFqn = extractTopLevelFqn(requestedFormFqn);
+        }
+        if ((requestedName == null || requestedName.isBlank()) && requestedFormFqn != null && !requestedFormFqn.isBlank()) {
+            requestedName = formNameFromFqn(requestedFormFqn);
+        }
+
+        gateway.ensureMutationRuntimeAvailable();
+        IProject project = requireProject(request.projectName());
+        readinessChecker.ensureReady(project);
+        repairConfigurationMissingUuids(project, opId);
+
+        IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
+        Configuration configuration = configurationProvider.getConfiguration(project);
+        if (configuration == null && tryResolveExternalProject(project) == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "Cannot resolve project configuration", false); //$NON-NLS-1$
+        }
+
+        String formFqn = requestedFormFqn;
+        FormUsage effectiveUsage = usage;
+        String effectiveName = requestedName;
+        if (formFqn == null || formFqn.isBlank()) {
+            effectiveUsage = resolveEffectiveFormUsage(ownerFqn, requestedName, usage);
+            effectiveName = resolveEffectiveFormName(ownerFqn, requestedName, effectiveUsage);
+            formFqn = ownerFqn + ".Form." + effectiveName; //$NON-NLS-1$
+        }
+        final boolean externalProject = isExternalProject(project);
+        FormUsage usageForDefault = effectiveUsage != null
+                ? effectiveUsage
+                : resolveEffectiveFormUsage(ownerFqn, effectiveName, usage);
+
+        LOG.info("[%s] applyFormRecipe START project=%s form=%s mode=%s attributes=%d layoutOps=%d", //$NON-NLS-1$
+                opId,
+                request.projectName(),
+                formFqn,
+                mode.name(),
+                Integer.valueOf(request.attributes() == null ? 0 : request.attributes().size()),
+                Integer.valueOf(request.layoutOperations() == null ? 0 : request.layoutOperations().size()));
+
+        final String lookupFormFqn = formFqn;
+        boolean formExists = executeRead(project, tx -> {
+            IBmPlatformTransaction platformTx = asPlatformTransaction(tx);
+            Configuration txConfiguration = toTransactionConfigurationOrNull(tx, configuration);
+            MdObject resolved = resolveObjectForTransaction(project, platformTx, txConfiguration, lookupFormFqn);
+            return Boolean.valueOf(resolved instanceof BasicForm);
+        }).booleanValue();
+
+        if (!formExists) {
+            if (mode == FormRecipeMode.UPDATE) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_NOT_FOUND,
+                        "Form metadata not found: " + formFqn, false); //$NON-NLS-1$
+            }
+            if (ownerFqn == null || ownerFqn.isBlank()) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_PARENT_NOT_FOUND,
+                        "owner_fqn is required to create form", false); //$NON-NLS-1$
+            }
+            CreateFormRequest createRequest = new CreateFormRequest(
+                    request.projectName(),
+                    ownerFqn,
+                    effectiveName,
+                    effectiveUsage,
+                    request.managed(),
+                    request.setAsDefault(),
+                    request.synonym(),
+                    request.comment(),
+                    request.waitMs());
+            CreateFormResult created = createForm(createRequest);
+            formFqn = created.formFqn();
+        } else if (mode == FormRecipeMode.CREATE) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.FORM_ALREADY_EXISTS,
+                    "Form already exists: " + formFqn, false); //$NON-NLS-1$
+        }
+
+        boolean hasAttributes = request.attributes() != null && !request.attributes().isEmpty();
+        boolean hasLayoutOps = request.layoutOperations() != null && !request.layoutOperations().isEmpty();
+        if (!hasAttributes && !hasLayoutOps) {
+            return new FormRecipeResult(
+                    request.projectName(),
+                    formFqn,
+                    0,
+                    0,
+                    0,
+                    0,
+                    List.of());
+        }
+
+        Map<String, TypeItem> preResolvedTypes = preResolveFormAttributeTypes(project, request.attributes());
+
+        final String applyFormFqn = formFqn;
+        final String applyOwnerFqn = ownerFqn;
+        FormRecipeApplyResult applyResult = executeWrite(project, transaction -> {
+            Configuration txConfiguration = toTransactionConfigurationOrNull(transaction, configuration);
+            MdObject resolved = resolveObjectForTransaction(project, transaction, txConfiguration, applyFormFqn);
+            if (!(resolved instanceof BasicForm basicForm)) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_NOT_FOUND,
+                        "Form metadata not found: " + applyFormFqn, false); //$NON-NLS-1$
+            }
+            Form formModel = resolveManagedFormModel(basicForm, applyFormFqn);
+            applyFormRootPropertiesIfNeeded(basicForm, request);
+            FormAttributeRecipeStats stats = hasAttributes
+                    ? applyFormAttributeRecipe(formModel, request.attributes(), mode, transaction, preResolvedTypes, txConfiguration)
+                    : new FormAttributeRecipeStats();
+            List<String> summaries = hasLayoutOps
+                    ? applyFormModelOperations(formModel, request.layoutOperations())
+                    : List.of();
+            if (Boolean.TRUE.equals(request.setAsDefault())) {
+                boolean bindDefault = resolveDefaultBinding(Boolean.TRUE, usageForDefault, applyOwnerFqn, externalProject);
+                if (bindDefault) {
+                    MdObject owner = resolveOwnerForMutation(project, transaction, txConfiguration, applyOwnerFqn);
+                    if (owner == null) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.METADATA_PARENT_NOT_FOUND,
+                                "Owner not found for default form binding: " + applyOwnerFqn, false); //$NON-NLS-1$
+                    }
+                    bindDefaultForm(owner, basicForm, usageForDefault, opId);
+                    ensureUuidsRecursively(owner, opId, applyOwnerFqn);
+                }
+            }
+            ensureUuidsRecursively(basicForm, opId, applyFormFqn);
+            return new FormRecipeApplyResult(stats, summaries);
+        });
+
+        String topLevelFqn = extractTopLevelFqn(formFqn);
+        forceExportTopLevelObject(project, topLevelFqn, opId);
+        verifyObjectPersisted(project, formFqn, opId);
+        refreshProjectSafely(project);
+        LOG.info("[%s] applyFormRecipe SUCCESS in %s form=%s", opId, //$NON-NLS-1$
+                LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),
+                formFqn);
+
+        return new FormRecipeResult(
+                request.projectName(),
+                formFqn,
+                applyResult.stats().created(),
+                applyResult.stats().updated(),
+                applyResult.stats().removed(),
+                applyResult.layoutSummaries().size(),
+                applyResult.layoutSummaries());
+    }
+
+    private void applyFormRootPropertiesIfNeeded(BasicForm form, FormRecipeRequest request) {
+        if (form == null || request == null) {
+            return;
+        }
+        String synonym = asString(request.synonym());
+        String comment = asString(request.comment());
+        if ((synonym == null || synonym.isBlank()) && (comment == null || comment.isBlank())) {
+            return;
+        }
+        setCommonProperties(form, form.getName(), synonym, comment);
+    }
+
     public InspectFormLayoutResult inspectFormLayout(InspectFormLayoutRequest request) {
         String opId = LogSanitizer.newId("edt-form-inspect"); //$NON-NLS-1$
         long startedAt = System.currentTimeMillis();
@@ -432,7 +607,7 @@ public class EdtMetadataService {
 
         InspectFormLayoutResult result = executeRead(project, tx -> {
             IBmPlatformTransaction platformTx = asPlatformTransaction(tx);
-            Configuration txConfiguration = toTransactionConfigurationOrNull(platformTx, configuration);
+            Configuration txConfiguration = toTransactionConfigurationOrNull(tx, configuration);
             MdObject resolved = resolveObjectForTransaction(project, platformTx, txConfiguration, request.formFqn());
             if (!(resolved instanceof BasicForm basicForm)) {
                 throw new MetadataOperationException(
@@ -591,6 +766,7 @@ public class EdtMetadataService {
                     if (!set.isEmpty()) {
                         applyFormPropertySet(group, set);
                     }
+                    applyDefaultVisibility(group, set);
                     if (hasMapKeyIgnoreCase(operation, "group_type")) { //$NON-NLS-1$
                         applySimpleFeatureValue(group, "type", getMapValueIgnoreCase(operation, "group_type")); //$NON-NLS-1$ //$NON-NLS-2$
                     } else if (!hasMapKeyIgnoreCase(set, "type")) { //$NON-NLS-1$
@@ -615,6 +791,7 @@ public class EdtMetadataService {
                     if (!set.isEmpty()) {
                         applyFormPropertySet(field, set);
                     }
+                    applyDefaultVisibility(field, set);
                     insertItemIntoContainer(parentContainer, field, asOptionalInteger(operation.get("index"), "index")); //$NON-NLS-1$ //$NON-NLS-2$
                     summaries.add("add_field[" + operationIndex + "]: name=" + name + ", id=" + field.getId()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                 }
@@ -699,6 +876,35 @@ public class EdtMetadataService {
             set.put("type", fieldType); //$NON-NLS-1$
         }
         return set;
+    }
+
+    private void applyDefaultVisibility(EObject target, Map<String, Object> set) {
+        if (!(target instanceof Visible visible)) {
+            return;
+        }
+        boolean hasVisibleOverride = hasNormalizedKey(set, "visible"); //$NON-NLS-1$
+        boolean hasEnabledOverride = hasNormalizedKey(set, "enabled"); //$NON-NLS-1$
+        if (!hasVisibleOverride) {
+            visible.setVisible(true);
+        }
+        if (!hasEnabledOverride) {
+            visible.setEnabled(true);
+        }
+    }
+
+    private boolean hasNormalizedKey(Map<String, Object> map, String expected) {
+        if (map == null || map.isEmpty()) {
+            return false;
+        }
+        for (String key : map.keySet()) {
+            if (key == null || key.isBlank()) {
+                continue;
+            }
+            if (expected.equals(normalizeToken(key))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private FormItemContainer resolveTargetContainer(Form formModel, Map<String, Object> operation) {
@@ -1101,6 +1307,415 @@ public class EdtMetadataService {
             }
             attribute.getNotDefaultUseAlwaysAttributes().add(toDataPath(pathValue, "useAlways")); //$NON-NLS-1$
         }
+    }
+
+    private FormAttributeRecipeStats applyFormAttributeRecipe(
+            Form formModel,
+            List<Map<String, Object>> attributes,
+            FormRecipeMode mode,
+            IBmPlatformTransaction transaction,
+            Map<String, TypeItem> preResolvedTypes,
+            Configuration txConfiguration
+    ) {
+        FormAttributeRecipeStats stats = new FormAttributeRecipeStats();
+        if (formModel == null || attributes == null || attributes.isEmpty()) {
+            return stats;
+        }
+
+        Map<Integer, FormAttribute> byId = new HashMap<>();
+        Map<String, FormAttribute> byName = new HashMap<>();
+        for (FormAttribute attribute : formModel.getAttributes()) {
+            if (attribute == null) {
+                continue;
+            }
+            byId.put(attribute.getId(), attribute);
+            String name = attribute.getName();
+            if (name != null && !name.isBlank()) {
+                byName.put(normalizeToken(name), attribute);
+            }
+        }
+
+        for (Map<String, Object> descriptor : attributes) {
+            if (descriptor == null || descriptor.isEmpty()) {
+                continue;
+            }
+            String action = resolveFormAttributeAction(descriptor);
+            Integer id = asOptionalInteger(
+                    getMapValueIgnoreCase(descriptor, "id"), "attribute.id"); //$NON-NLS-1$ //$NON-NLS-2$
+            if (id == null) {
+                id = asOptionalInteger(
+                        getMapValueIgnoreCase(descriptor, "attribute_id"), "attribute.id"); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            String name = asString(getMapValueIgnoreCase(descriptor, "name")); //$NON-NLS-1$
+            if (name == null) {
+                name = asString(getMapValueIgnoreCase(descriptor, "attribute_name")); //$NON-NLS-1$
+            }
+            if (name == null) {
+                name = asString(getMapValueIgnoreCase(descriptor, "attribute")); //$NON-NLS-1$
+            }
+
+            FormAttribute existing = null;
+            if (id != null) {
+                existing = byId.get(id);
+            }
+            if (existing == null && name != null) {
+                existing = byName.get(normalizeToken(name));
+            }
+
+            if ("remove".equals(action)) { //$NON-NLS-1$
+                if (existing != null) {
+                    formModel.getAttributes().remove(existing);
+                    stats.removed++;
+                    byId.remove(existing.getId());
+                    if (existing.getName() != null) {
+                        byName.remove(normalizeToken(existing.getName()));
+                    }
+                }
+                continue;
+            }
+
+            boolean isCreate = "create".equals(action); //$NON-NLS-1$
+            boolean isUpdate = "update".equals(action); //$NON-NLS-1$
+
+            if (existing == null) {
+                if (mode == FormRecipeMode.UPDATE || isUpdate) {
+                    throw new MetadataOperationException(
+                            MetadataOperationCode.METADATA_NOT_FOUND,
+                            "Form attribute not found: " + (name != null ? name : id), false); //$NON-NLS-1$
+                }
+                if (!MetadataNameValidator.isValidName(name)) {
+                    throw new MetadataOperationException(
+                            MetadataOperationCode.INVALID_METADATA_NAME,
+                            "Invalid form attribute name: " + name, false); //$NON-NLS-1$
+                }
+                FormAttribute created = FormFactory.eINSTANCE.createFormAttribute();
+                created.setId(nextFormAttributeId(formModel));
+                created.setName(name);
+                FormAttributePatch patch = normalizeFormAttributePatch(descriptor);
+                if (patch.typeValue != null) {
+                    applyFormAttributeType(created, patch.typeValue, transaction, preResolvedTypes, txConfiguration);
+                }
+                applyFormAttributePatch(created, patch.patch);
+                formModel.getAttributes().add(created);
+                stats.created++;
+                byId.put(created.getId(), created);
+                if (created.getName() != null) {
+                    byName.put(normalizeToken(created.getName()), created);
+                }
+                continue;
+            }
+
+            if (isCreate) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_ALREADY_EXISTS,
+                        "Form attribute already exists: " + existing.getName(), false); //$NON-NLS-1$
+            }
+            FormAttributePatch patch = normalizeFormAttributePatch(descriptor);
+            if (patch.typeValue != null) {
+                applyFormAttributeType(existing, patch.typeValue, transaction, preResolvedTypes, txConfiguration);
+            }
+            applyFormAttributePatch(existing, patch.patch);
+            stats.updated++;
+        }
+
+        return stats;
+    }
+
+    private String resolveFormAttributeAction(Map<String, Object> descriptor) {
+        String action = asString(getMapValueIgnoreCase(descriptor, "action")); //$NON-NLS-1$
+        if (action == null) {
+            action = asString(getMapValueIgnoreCase(descriptor, "op")); //$NON-NLS-1$
+        }
+        if (action == null) {
+            action = asString(getMapValueIgnoreCase(descriptor, "mode")); //$NON-NLS-1$
+        }
+        Boolean remove = parseBoolean(getMapValueIgnoreCase(descriptor, "remove")); //$NON-NLS-1$
+        if (remove != null && remove.booleanValue()) {
+            return "remove"; //$NON-NLS-1$
+        }
+        if (action == null) {
+            return "upsert"; //$NON-NLS-1$
+        }
+        String normalized = normalizeToken(action);
+        return switch (normalized) {
+            case "add", "create", "new" -> "create"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "update", "set", "patch", "modify" -> "update"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "upsert", "ensure", "apply", "merge" -> "upsert"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "remove", "delete", "drop" -> "remove"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            default -> throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Unsupported form attribute action: " + action, false); //$NON-NLS-1$
+        };
+    }
+
+    private FormAttributePatch normalizeFormAttributePatch(Map<String, Object> descriptor) {
+        Map<String, Object> patch = descriptor == null ? new LinkedHashMap<>() : new LinkedHashMap<>(descriptor);
+        removeMapValueIgnoreCase(patch, "action", "op", "mode", "remove"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+
+        Map<String, Object> set = new LinkedHashMap<>(asMap(patch.get("set"))); //$NON-NLS-1$
+        Map<String, Object> props = new LinkedHashMap<>(asMap(patch.get("properties"))); //$NON-NLS-1$
+
+        Object typeValue = removeMapValueIgnoreCase(patch, "type", "field_type", "fieldType"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        Object setType = removeMapValueIgnoreCase(set, "type", "field_type", "fieldType"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        Object propsType = removeMapValueIgnoreCase(props, "type", "field_type", "fieldType"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        if (typeValue == null) {
+            typeValue = setType != null ? setType : propsType;
+        }
+
+        if (!set.isEmpty()) {
+            patch.put("set", set); //$NON-NLS-1$
+        } else {
+            patch.remove("set"); //$NON-NLS-1$
+        }
+        if (!props.isEmpty()) {
+            patch.put("properties", props); //$NON-NLS-1$
+        } else {
+            patch.remove("properties"); //$NON-NLS-1$
+        }
+        return new FormAttributePatch(patch, typeValue);
+    }
+
+    private void applyFormAttributeType(
+            FormAttribute attribute,
+            Object typeValue,
+            IBmPlatformTransaction transaction,
+            Map<String, TypeItem> preResolvedTypes,
+            Configuration txConfiguration
+    ) {
+        if (attribute == null || typeValue == null) {
+            return;
+        }
+        validateFormAttributeType(typeValue);
+        TypeSpec typeSpec = normalizeTypeSpec(typeValue);
+        String typeQuery = typeSpec.typeQuery();
+        TypeItem candidate = lookupPreResolvedTypeItem(preResolvedTypes, typeQuery);
+        TypeItem txTypeItem = null;
+        if (candidate != null) {
+            try {
+                txTypeItem = transaction.toTransactionObject(candidate);
+            } catch (RuntimeException e) {
+                LOG.debug("applyFormAttributeType: toTransactionObject failed for type=%s: %s", //$NON-NLS-1$
+                        typeQuery,
+                        e.getMessage());
+            }
+        }
+        if (txTypeItem == null) {
+            txTypeItem = resolveTypeItemInCurrentNamespace(transaction, attribute, typeSpec, candidate);
+        }
+        if (txTypeItem == null) {
+            txTypeItem = resolveTypeItemInCandidateNamespace(transaction, candidate, typeSpec);
+        }
+        if (txTypeItem == null) {
+            txTypeItem = resolveExternalTypeItemCandidate(transaction, candidate, typeSpec);
+        }
+        if (txTypeItem == null && txConfiguration != null && isSimpleTypeSpec(typeSpec, candidate)) {
+            TypeItem simple = resolveSimpleTypeItemFromConfiguration(txConfiguration, typeSpec.typeQuery());
+            if (simple != null) {
+                try {
+                    txTypeItem = transaction.toTransactionObject(simple);
+                } catch (RuntimeException e) {
+                    LOG.debug("applyFormAttributeType: simple toTransactionObject failed for type=%s: %s", //$NON-NLS-1$
+                            typeQuery,
+                            e.getMessage());
+                }
+                if (txTypeItem == null) {
+                    txTypeItem = simple;
+                }
+            }
+        }
+        if (txTypeItem == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "Type value cannot be resolved for form attribute: " + typeQuery, false); //$NON-NLS-1$
+        }
+
+        TypeDescription typeDesc = McoreFactory.eINSTANCE.createTypeDescription();
+        typeDesc.getTypes().add(txTypeItem);
+
+        TypeItem resolvedForName = candidate != null ? candidate : txTypeItem;
+        String typeName = resolveTypeNameForQualifiers(resolvedForName, typeSpec);
+        TypeDescription existingType = extractTypeDescriptionFromEObject(attribute);
+        if (isNumberType(typeName)) {
+            NumberQualifiers nq = McoreFactory.eINSTANCE.createNumberQualifiers();
+            Integer precision = typeSpec.numberPrecision();
+            Integer scale = typeSpec.numberScale();
+            Boolean nonNegative = typeSpec.numberNonNegative();
+            NumberQualifiers existing = existingType == null ? null : existingType.getNumberQualifiers();
+            nq.setPrecision(firstPositive(precision, existing == null ? null : existing.getPrecision(), 15));
+            nq.setScale(firstNonNegative(scale, existing == null ? null : existing.getScale(), 2));
+            nq.setNonNegative(nonNegative != null
+                    ? nonNegative.booleanValue()
+                    : (existing != null && existing.isNonNegative()));
+            typeDesc.setNumberQualifiers(nq);
+        } else if (isStringType(typeName)) {
+            StringQualifiers sq = McoreFactory.eINSTANCE.createStringQualifiers();
+            Integer length = typeSpec.stringLength();
+            Boolean fixed = typeSpec.stringFixed();
+            StringQualifiers existing = existingType == null ? null : existingType.getStringQualifiers();
+            sq.setLength(resolveStringLength(length, existing, 150));
+            sq.setFixed(fixed != null
+                    ? fixed.booleanValue()
+                    : (existing != null && existing.isFixed()));
+            typeDesc.setStringQualifiers(sq);
+        } else if (isDateType(typeName)) {
+            DateQualifiers dq = McoreFactory.eINSTANCE.createDateQualifiers();
+            DateFractions fractions = typeSpec.dateFractions();
+            DateQualifiers existing = existingType == null ? null : existingType.getDateQualifiers();
+            dq.setDateFractions(fractions != null
+                    ? fractions
+                    : (existing != null && existing.getDateFractions() != null
+                            ? existing.getDateFractions()
+                            : DateFractions.DATE_TIME));
+            typeDesc.setDateQualifiers(dq);
+        }
+
+        setTypeDescriptionOnEObject(attribute, typeDesc);
+    }
+
+    private void validateFormAttributeType(Object typeValue) {
+        if (typeValue instanceof List<?> list) {
+            for (Object item : list) {
+                validateFormAttributeType(item);
+            }
+            return;
+        }
+        String typeQuery = normalizeTypeLookupQuery(typeValue);
+        if (typeQuery == null || typeQuery.isBlank()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "Type query is empty or invalid: " + typeValue, false); //$NON-NLS-1$
+        }
+        String normalized = normalizeTypeRootToken(typeQuery);
+        for (String forbidden : FORBIDDEN_FORM_ATTRIBUTE_TYPE_PREFIXES) {
+            if (normalized.startsWith(forbidden)) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                        "Form attribute type is not supported: " + typeQuery
+                                + ". Use FixedArray/FixedMap or a supported scalar type.", false); //$NON-NLS-1$
+            }
+        }
+    }
+
+    private String normalizeTypeRootToken(String value) {
+        if (value == null) {
+            return ""; //$NON-NLS-1$
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        int cut = normalized.indexOf('(');
+        if (cut > 0) {
+            normalized = normalized.substring(0, cut);
+        }
+        cut = normalized.indexOf('.');
+        if (cut > 0) {
+            normalized = normalized.substring(0, cut);
+        }
+        return normalized;
+    }
+
+    private void setTypeDescriptionOnEObject(EObject target, TypeDescription typeDesc) {
+        if (target == null || typeDesc == null) {
+            return;
+        }
+        if (target instanceof AbstractFormAttribute formAttribute) {
+            formAttribute.setValueType(typeDesc);
+            return;
+        }
+        EStructuralFeature typeFeature = resolveStructuralFeatureIgnoreCase(target, "type"); //$NON-NLS-1$
+        if (typeFeature == null) {
+            typeFeature = resolveStructuralFeatureIgnoreCase(target, "typeDescription"); //$NON-NLS-1$
+        }
+        if (!(typeFeature instanceof EReference reference) || !reference.isContainment()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Form attribute does not support type updates: " + target.eClass().getName(), false); //$NON-NLS-1$
+        }
+        target.eSet(typeFeature, typeDesc);
+    }
+
+    private int nextFormAttributeId(Form formModel) {
+        int maxId = 0;
+        if (formModel != null) {
+            for (FormAttribute attribute : formModel.getAttributes()) {
+                if (attribute != null) {
+                    maxId = Math.max(maxId, attribute.getId());
+                }
+            }
+        }
+        return maxId + 1;
+    }
+
+    private Map<String, TypeItem> preResolveFormAttributeTypes(
+            IProject project,
+            List<Map<String, Object>> attributes
+    ) {
+        Set<String> typeStrings = collectFormAttributeTypeStrings(attributes);
+        if (typeStrings.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, TypeItem> preResolvedTypes = new HashMap<>();
+        executeRead(project, readTx -> {
+            for (String typeString : typeStrings) {
+                TypeItem item = resolveTypeItem(typeString, readTx);
+                if (item == null && !isSimpleTypeQuery(typeString)) {
+                    throw new MetadataOperationException(
+                            MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                            "Type not found in BM: " + typeString, false); //$NON-NLS-1$
+                }
+                if (item != null) {
+                    cacheResolvedTypeItem(preResolvedTypes, typeString, item);
+                }
+            }
+            return null;
+        });
+        return preResolvedTypes;
+    }
+
+    private Set<String> collectFormAttributeTypeStrings(List<Map<String, Object>> attributes) {
+        if (attributes == null || attributes.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> typeStrings = new LinkedHashSet<>();
+        for (Map<String, Object> descriptor : attributes) {
+            if (descriptor == null || descriptor.isEmpty()) {
+                continue;
+            }
+            Object typeValue = getMapValueIgnoreCase(descriptor, "type"); //$NON-NLS-1$
+            if (typeValue == null) {
+                typeValue = getMapValueIgnoreCase(descriptor, "field_type"); //$NON-NLS-1$
+            }
+            if (typeValue == null) {
+                typeValue = getMapValueIgnoreCase(descriptor, "fieldType"); //$NON-NLS-1$
+            }
+            if (typeValue == null) {
+                Map<String, Object> set = asMap(descriptor.get("set")); //$NON-NLS-1$
+                typeValue = getMapValueIgnoreCase(set, "type"); //$NON-NLS-1$
+                if (typeValue == null) {
+                    typeValue = getMapValueIgnoreCase(set, "field_type"); //$NON-NLS-1$
+                }
+                if (typeValue == null) {
+                    typeValue = getMapValueIgnoreCase(set, "fieldType"); //$NON-NLS-1$
+                }
+            }
+            if (typeValue == null) {
+                Map<String, Object> props = asMap(descriptor.get("properties")); //$NON-NLS-1$
+                typeValue = getMapValueIgnoreCase(props, "type"); //$NON-NLS-1$
+                if (typeValue == null) {
+                    typeValue = getMapValueIgnoreCase(props, "field_type"); //$NON-NLS-1$
+                }
+                if (typeValue == null) {
+                    typeValue = getMapValueIgnoreCase(props, "fieldType"); //$NON-NLS-1$
+                }
+            }
+            if (typeValue == null) {
+                continue;
+            }
+            TypeSpec spec = normalizeTypeSpec(typeValue);
+            String typeQuery = spec == null ? null : spec.typeQuery();
+            if (typeQuery != null && !typeQuery.isBlank()) {
+                typeStrings.add(typeQuery);
+            }
+        }
+        return typeStrings;
     }
 
     private DataPath toDataPath(Object value, String fieldName) {
@@ -2713,7 +3328,7 @@ public class EdtMetadataService {
                     formNameFromFqn(objectFqn));
         }
         return executeRead(project, tx -> {
-            Configuration txConfiguration = toTransactionConfigurationOrNull(asPlatformTransaction(tx), configuration);
+            Configuration txConfiguration = toTransactionConfigurationOrNull(tx, configuration);
             if (txConfiguration == null) {
                 return null;
             }
@@ -2773,6 +3388,18 @@ public class EdtMetadataService {
     }
 
     private Configuration toTransactionConfigurationOrNull(IBmPlatformTransaction transaction, Configuration configuration) {
+        if (transaction == null || configuration == null) {
+            return null;
+        }
+        try {
+            return transaction.toTransactionObject(configuration);
+        } catch (RuntimeException e) {
+            LOG.debug("toTransactionConfigurationOrNull failed: %s", e.getMessage()); //$NON-NLS-1$
+            return null;
+        }
+    }
+
+    private Configuration toTransactionConfigurationOrNull(IBmTransaction transaction, Configuration configuration) {
         if (transaction == null || configuration == null) {
             return null;
         }
@@ -3071,7 +3698,7 @@ public class EdtMetadataService {
             return null;
         }
         return executeRead(project, transaction -> {
-            Configuration txConfiguration = toTransactionConfigurationOrNull(asPlatformTransaction(transaction), configuration);
+            Configuration txConfiguration = toTransactionConfigurationOrNull(transaction, configuration);
             if (txConfiguration == null) {
                 return null;
             }
@@ -7306,6 +7933,30 @@ public class EdtMetadataService {
         @SuppressWarnings("unchecked")
         List<MdObject> mutable = (List<MdObject>) objects;
         mutable.removeIf(existing -> existing != null && name.equalsIgnoreCase(existing.getName()));
+    }
+
+    private static final class FormAttributeRecipeStats {
+        private int created;
+        private int updated;
+        private int removed;
+
+        int created() {
+            return created;
+        }
+
+        int updated() {
+            return updated;
+        }
+
+        int removed() {
+            return removed;
+        }
+    }
+
+    private record FormAttributePatch(Map<String, Object> patch, Object typeValue) {
+    }
+
+    private record FormRecipeApplyResult(FormAttributeRecipeStats stats, List<String> layoutSummaries) {
     }
 
     private record ModuleTarget(
