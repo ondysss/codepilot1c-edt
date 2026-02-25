@@ -63,7 +63,17 @@ import com._1c.g5.v8.dt.form.model.Form;
 import com._1c.g5.v8.dt.form.model.FormAttribute;
 import com._1c.g5.v8.dt.form.model.FormFactory;
 import com._1c.g5.v8.dt.form.model.FormField;
+import com._1c.g5.v8.dt.form.model.ButtonGroupExtInfo;
+import com._1c.g5.v8.dt.form.model.CommandBarExtInfo;
+import com._1c.g5.v8.dt.form.model.ColumnGroupExtInfo;
 import com._1c.g5.v8.dt.form.model.FormGroup;
+import com._1c.g5.v8.dt.form.model.GroupExtInfo;
+import com._1c.g5.v8.dt.form.model.ManagedFormGroupType;
+import com._1c.g5.v8.dt.form.model.PageGroupExtInfo;
+import com._1c.g5.v8.dt.form.model.PagesGroupExtInfo;
+import com._1c.g5.v8.dt.form.model.PopupGroupExtInfo;
+import com._1c.g5.v8.dt.form.model.UsualGroupExtInfo;
+import com._1c.g5.v8.dt.form.model.UsualGroupRepresentation;
 import com._1c.g5.v8.dt.form.model.FormItem;
 import com._1c.g5.v8.dt.form.model.FormItemContainer;
 import com._1c.g5.v8.dt.form.model.Titled;
@@ -773,6 +783,7 @@ public class EdtMetadataService {
                         // Safe default for managed form groups in external reports/processings.
                         applySimpleFeatureValue(group, "type", "USUAL_GROUP"); //$NON-NLS-1$ //$NON-NLS-2$
                     }
+                    ensureFormGroupExtInfo(group);
                     insertItemIntoContainer(parentContainer, group, asOptionalInteger(operation.get("index"), "index")); //$NON-NLS-1$ //$NON-NLS-2$
                     summaries.add("add_group[" + operationIndex + "]: name=" + name + ", id=" + group.getId()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                 }
@@ -905,6 +916,75 @@ public class EdtMetadataService {
             }
         }
         return false;
+    }
+
+    private void ensureFormGroupExtInfo(FormGroup group) {
+        if (group == null) {
+            return;
+        }
+        ManagedFormGroupType type = group.getType();
+        if (type == null) {
+            type = ManagedFormGroupType.USUAL_GROUP;
+            group.setType(type);
+        }
+        ManagedFormGroupType normalizedType = switch (type) {
+            case USUAL_GROUP, BUTTON_GROUP, COLUMN_GROUP, POPUP, PAGE, PAGES, COMMAND_BAR, AUTO_COMMAND_BAR -> type;
+            default -> ManagedFormGroupType.USUAL_GROUP;
+        };
+        if (normalizedType != type) {
+            group.setType(normalizedType);
+        }
+        GroupExtInfo extInfo = group.getExtInfo();
+        switch (normalizedType) {
+            case USUAL_GROUP -> {
+                UsualGroupExtInfo usual = extInfo instanceof UsualGroupExtInfo
+                        ? (UsualGroupExtInfo) extInfo
+                        : FormFactory.eINSTANCE.createUsualGroupExtInfo();
+                if (extInfo == null || !(extInfo instanceof UsualGroupExtInfo)) {
+                    group.setExtInfo(usual);
+                }
+                if (usual.getRepresentation() == null) {
+                    usual.setRepresentation(UsualGroupRepresentation.AUTO);
+                }
+            }
+            case BUTTON_GROUP -> {
+                if (!(extInfo instanceof ButtonGroupExtInfo)) {
+                    group.setExtInfo(FormFactory.eINSTANCE.createButtonGroupExtInfo());
+                }
+            }
+            case COLUMN_GROUP -> {
+                if (!(extInfo instanceof ColumnGroupExtInfo)) {
+                    group.setExtInfo(FormFactory.eINSTANCE.createColumnGroupExtInfo());
+                }
+            }
+            case POPUP -> {
+                if (!(extInfo instanceof PopupGroupExtInfo)) {
+                    group.setExtInfo(FormFactory.eINSTANCE.createPopupGroupExtInfo());
+                }
+            }
+            case PAGE -> {
+                if (!(extInfo instanceof PageGroupExtInfo)) {
+                    group.setExtInfo(FormFactory.eINSTANCE.createPageGroupExtInfo());
+                }
+            }
+            case PAGES -> {
+                if (!(extInfo instanceof PagesGroupExtInfo)) {
+                    group.setExtInfo(FormFactory.eINSTANCE.createPagesGroupExtInfo());
+                }
+            }
+            case COMMAND_BAR, AUTO_COMMAND_BAR -> {
+                if (!(extInfo instanceof CommandBarExtInfo)) {
+                    group.setExtInfo(FormFactory.eINSTANCE.createCommandBarExtInfo());
+                }
+            }
+            default -> {
+                if (extInfo == null) {
+                    UsualGroupExtInfo usual = FormFactory.eINSTANCE.createUsualGroupExtInfo();
+                    usual.setRepresentation(UsualGroupRepresentation.AUTO);
+                    group.setExtInfo(usual);
+                }
+            }
+        }
     }
 
     private FormItemContainer resolveTargetContainer(Form formModel, Map<String, Object> operation) {
