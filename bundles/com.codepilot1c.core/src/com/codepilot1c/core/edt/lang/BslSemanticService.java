@@ -11,6 +11,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IProject;
@@ -178,6 +179,127 @@ public class BslSemanticService {
                 page);
     }
 
+    public BslModuleMethodsResult listMethods(BslModuleMethodsRequest request) {
+        request.validate();
+        ModuleContext context = resolveModuleContext(request.getProjectName(), request.getFilePath());
+        LineIndex lineIndex = new LineIndex(context.text());
+        List<ResolvedMethod> methods = collectMethods(context.module(), context.text(), lineIndex);
+
+        String kindFilter = request.normalizedKind();
+        String nameFilter = request.normalizedNameContains();
+        List<ResolvedMethod> filtered = new ArrayList<>();
+        for (ResolvedMethod method : methods) {
+            if (!"any".equals(kindFilter) && !kindFilter.equals(method.kind())) { //$NON-NLS-1$
+                continue;
+            }
+            if (!nameFilter.isEmpty()) {
+                String normalizedName = normalize(method.name());
+                if (!normalizedName.contains(nameFilter)) {
+                    continue;
+                }
+            }
+            filtered.add(method);
+        }
+
+        int total = filtered.size();
+        int from = Math.min(request.getOffset(), total);
+        int to = Math.min(from + request.getLimit(), total);
+        List<BslMethodInfo> page = new ArrayList<>();
+        for (int i = from; i < to; i++) {
+            page.add(filtered.get(i).toInfo());
+        }
+
+        return new BslModuleMethodsResult(
+                request.getProjectName(),
+                request.getFilePath(),
+                total,
+                to < total,
+                page);
+    }
+
+    public BslMethodBodyResult getMethodBody(BslMethodBodyRequest request) {
+        request.validate();
+        ModuleContext context = resolveModuleContext(request.getProjectName(), request.getFilePath());
+        LineIndex lineIndex = new LineIndex(context.text());
+        List<ResolvedMethod> methods = collectMethods(context.module(), context.text(), lineIndex);
+
+        String kindFilter = request.normalizedKind();
+        String nameFilter = request.normalizedName();
+        List<ResolvedMethod> matches = new ArrayList<>();
+        for (ResolvedMethod method : methods) {
+            if (!"any".equals(kindFilter) && !kindFilter.equals(method.kind())) { //$NON-NLS-1$
+                continue;
+            }
+            if (!normalize(method.name()).equals(nameFilter)) {
+                continue;
+            }
+            matches.add(method);
+        }
+
+        Integer startLineFilter = request.getStartLine();
+        if (startLineFilter != null) {
+            List<ResolvedMethod> filtered = new ArrayList<>();
+            for (ResolvedMethod method : matches) {
+                if (method.startLine() == startLineFilter.intValue()) {
+                    filtered.add(method);
+                }
+            }
+            matches = filtered;
+        }
+
+        if (matches.isEmpty()) {
+            throw new EdtAstException(EdtAstErrorCode.METHOD_NOT_FOUND,
+                    "Method not found: " + request.getName(), false); //$NON-NLS-1$
+        }
+
+        if (matches.size() > 1) {
+            ResolvedMethod preferred = selectPreferredMethod(matches);
+            if (preferred != null) {
+                matches = List.of(preferred);
+            } else {
+                List<BslMethodCandidate> candidates = new ArrayList<>();
+                for (ResolvedMethod method : matches) {
+                    candidates.add(new BslMethodCandidate(
+                            method.name(),
+                            method.kind(),
+                            method.startLine(),
+                            method.endLine()));
+                }
+                throw new BslMethodLookupException(
+                        EdtAstErrorCode.AMBIGUOUS_METHOD,
+                        "Ambiguous method name: " + request.getName(), //$NON-NLS-1$
+                        true,
+                        candidates);
+            }
+        }
+
+        ResolvedMethod method = matches.get(0);
+        int startLine = method.startLine();
+        int endLine = method.endLine();
+        int startOffset = method.startOffset();
+        int endOffset = method.endOffset();
+
+        int contextLines = request.getContextLines();
+        if (contextLines > 0) {
+            int fromLine = Math.max(1, startLine - contextLines);
+            int toLine = Math.min(lineIndex.totalLines(), endLine + contextLines);
+            startOffset = lineIndex.startOffset(fromLine);
+            endOffset = lineIndex.startOffset(toLine + 1);
+            startLine = fromLine;
+            endLine = toLine;
+        }
+
+        String text = sliceText(context.text(), startOffset, endOffset);
+        return new BslMethodBodyResult(
+                request.getProjectName(),
+                request.getFilePath(),
+                method.name(),
+                method.kind(),
+                startLine,
+                endLine,
+                text);
+    }
+
     private PositionContext resolveContext(BslPositionRequest request) {
         IProject project = gateway.resolveProject(request.getProjectName());
         readinessChecker.ensureReady(project);
@@ -208,6 +330,34 @@ public class BslSemanticService {
         }
 
         return new PositionContext(project, file, resource, rsp, element, offset, text);
+    }
+
+    private ModuleContext resolveModuleContext(String projectName, String filePath) {
+        IProject project = gateway.resolveProject(projectName);
+        readinessChecker.ensureReady(project);
+
+        IFile file = gateway.resolveSourceFile(project, filePath);
+        if (file == null || !file.exists()) {
+            throw new EdtAstException(EdtAstErrorCode.FILE_NOT_FOUND,
+                    "File not found: " + filePath, false); //$NON-NLS-1$
+        }
+
+        XtextResource resource = loadResource(project, file);
+        String text = readResourceText(resource, file);
+        EObject root = resource.getParseResult() != null
+                ? resource.getParseResult().getRootASTElement()
+                : null;
+        if (root == null) {
+            throw new EdtAstException(EdtAstErrorCode.MODULE_PARSE_ERROR,
+                    "Failed to parse BSL module: " + filePath, true); //$NON-NLS-1$
+        }
+        if (root.eClass().getEStructuralFeature("methods") == null //$NON-NLS-1$
+                && root.eClass().getEStructuralFeature("allMethods") == null) { //$NON-NLS-1$
+            throw new EdtAstException(EdtAstErrorCode.MODULE_PARSE_ERROR,
+                    "Root AST element is not a BSL module for: " + filePath, true); //$NON-NLS-1$
+        }
+
+        return new ModuleContext(project, file, resource, root, text);
     }
 
     private XtextResource loadResource(IProject project, IFile file) {
@@ -490,15 +640,10 @@ public class BslSemanticService {
         if (text == null) {
             return new int[] {1, 1};
         }
+        LineIndex index = new LineIndex(text);
         int bounded = Math.max(0, Math.min(offset, text.length()));
-        int line = 1;
-        int lineStart = 0;
-        for (int i = 0; i < bounded; i++) {
-            if (text.charAt(i) == '\n') {
-                line++;
-                lineStart = i + 1;
-            }
-        }
+        int line = index.lineOfOffset(bounded);
+        int lineStart = index.startOffset(line);
         return new int[] {line, bounded - lineStart + 1};
     }
 
@@ -547,6 +692,158 @@ public class BslSemanticService {
         }
     }
 
+    private List<ResolvedMethod> collectMethods(EObject module, String text, LineIndex lineIndex) {
+        List<EObject> methods = getEObjectList(module, "methods"); //$NON-NLS-1$
+        if (methods.isEmpty()) {
+            methods = getEObjectList(module, "allMethods"); //$NON-NLS-1$
+        }
+
+        List<ResolvedMethod> result = new ArrayList<>();
+        for (EObject method : methods) {
+            if (method == null) {
+                continue;
+            }
+            String name = firstNonBlank(
+                    getStringFeature(method, "name"), //$NON-NLS-1$
+                    getStringFeature(method, "nameRu")); //$NON-NLS-1$
+            if (name == null) {
+                continue;
+            }
+
+            INode node = NodeModelUtils.getNode(method);
+            if (node == null) {
+                throw new EdtAstException(EdtAstErrorCode.MODULE_PARSE_ERROR,
+                        "Failed to resolve AST node for method: " + name, true); //$NON-NLS-1$
+            }
+
+            int startOffset = node.getOffset();
+            int endOffset = startOffset + node.getLength();
+            int startLine = lineIndex.lineOfOffset(startOffset);
+            int endLine = lineIndex.lineOfOffset(endOffset);
+
+            String kind = methodKind(method);
+            boolean isExport = getBooleanFeature(method, "export"); //$NON-NLS-1$
+            boolean isAsync = getBooleanFeature(method, "async"); //$NON-NLS-1$
+            boolean isEvent = getBooleanFeature(method, "event"); //$NON-NLS-1$
+            List<BslMethodParamInfo> params = collectParams(method);
+
+            result.add(new ResolvedMethod(
+                    name,
+                    kind,
+                    startLine,
+                    endLine,
+                    startOffset,
+                    endOffset,
+                    isExport,
+                    isAsync,
+                    isEvent,
+                    params));
+        }
+        return result;
+    }
+
+    private List<BslMethodParamInfo> collectParams(EObject method) {
+        List<EObject> params = getEObjectList(method, "formalParams"); //$NON-NLS-1$
+        if (params.isEmpty()) {
+            return List.of();
+        }
+        List<BslMethodParamInfo> result = new ArrayList<>();
+        for (EObject param : params) {
+            if (param == null) {
+                continue;
+            }
+            String name = firstNonBlank(
+                    getStringFeature(param, "name"), //$NON-NLS-1$
+                    getStringFeature(param, "nameRu")); //$NON-NLS-1$
+            boolean byValue = getBooleanFeature(param, "byValue"); //$NON-NLS-1$
+            EObject defaultValue = getEObjectFeature(param, "defaultValue"); //$NON-NLS-1$
+            String defaultText = defaultValue != null ? extractLiteralText(defaultValue) : null;
+            result.add(new BslMethodParamInfo(name, byValue, defaultText));
+        }
+        return result;
+    }
+
+    private String methodKind(EObject method) {
+        if (method == null) {
+            return "method"; //$NON-NLS-1$
+        }
+        String className = method.eClass().getName();
+        if (className == null) {
+            return "method"; //$NON-NLS-1$
+        }
+        String normalized = className.toLowerCase(Locale.ROOT);
+        if (normalized.contains("procedure")) { //$NON-NLS-1$
+            return "procedure"; //$NON-NLS-1$
+        }
+        if (normalized.contains("function")) { //$NON-NLS-1$
+            return "function"; //$NON-NLS-1$
+        }
+        return "method"; //$NON-NLS-1$
+    }
+
+    private List<EObject> getEObjectList(EObject object, String featureName) {
+        if (object == null || featureName == null) {
+            return List.of();
+        }
+        EStructuralFeature feature = object.eClass().getEStructuralFeature(featureName);
+        if (feature == null) {
+            return List.of();
+        }
+        Object value = object.eGet(feature);
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        List<EObject> result = new ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof EObject eObject) {
+                result.add(eObject);
+            }
+        }
+        return result;
+    }
+
+    private EObject getEObjectFeature(EObject object, String featureName) {
+        if (object == null || featureName == null) {
+            return null;
+        }
+        EStructuralFeature feature = object.eClass().getEStructuralFeature(featureName);
+        if (feature == null) {
+            return null;
+        }
+        Object value = object.eGet(feature);
+        return value instanceof EObject eObject ? eObject : null;
+    }
+
+    private boolean getBooleanFeature(EObject object, String featureName) {
+        if (object == null || featureName == null) {
+            return false;
+        }
+        EStructuralFeature feature = object.eClass().getEStructuralFeature(featureName);
+        if (feature == null) {
+            return false;
+        }
+        Object value = object.eGet(feature);
+        return value instanceof Boolean bool ? bool : false;
+    }
+
+    private String extractLiteralText(EObject literal) {
+        if (literal == null) {
+            return null;
+        }
+        INode node = NodeModelUtils.findActualNodeFor(literal);
+        String text = node != null ? safeTrim(NodeModelUtils.getTokenText(node)) : null;
+        return text;
+    }
+
+    private String sliceText(String text, int startOffset, int endOffset) {
+        if (text == null || text.isEmpty()) {
+            return ""; //$NON-NLS-1$
+        }
+        int safeStart = Math.max(0, Math.min(startOffset, text.length()));
+        int safeEnd = Math.max(safeStart, Math.min(endOffset, text.length()));
+        return text.substring(safeStart, safeEnd);
+    }
+
     private String getStringFeature(EObject object, String featureName) {
         if (object == null || featureName == null) {
             return null;
@@ -585,6 +882,131 @@ public class BslSemanticService {
             }
         }
         return null;
+    }
+
+    private ResolvedMethod selectPreferredMethod(List<ResolvedMethod> matches) {
+        ResolvedMethod exported = selectUnique(matches, ResolvedMethod::exportFlag);
+        if (exported != null) {
+            return exported;
+        }
+        return null;
+    }
+
+    private ResolvedMethod selectUnique(List<ResolvedMethod> matches, Predicate<ResolvedMethod> predicate) {
+        ResolvedMethod candidate = null;
+        for (ResolvedMethod method : matches) {
+            if (!predicate.test(method)) {
+                continue;
+            }
+            if (candidate != null) {
+                return null;
+            }
+            candidate = method;
+        }
+        return candidate;
+    }
+
+    private record ResolvedMethod(
+            String name,
+            String kind,
+            int startLine,
+            int endLine,
+            int startOffset,
+            int endOffset,
+            boolean exportFlag,
+            boolean asyncFlag,
+            boolean eventFlag,
+            List<BslMethodParamInfo> params) {
+        BslMethodInfo toInfo() {
+            return new BslMethodInfo(
+                    name,
+                    kind,
+                    startLine,
+                    endLine,
+                    exportFlag,
+                    asyncFlag,
+                    eventFlag,
+                    params);
+        }
+    }
+
+    private static final class LineIndex {
+        private final int[] lineStarts;
+        private final int textLength;
+
+        LineIndex(String text) {
+            if (text == null || text.isEmpty()) {
+                this.textLength = 0;
+                this.lineStarts = new int[] {0};
+                return;
+            }
+            this.textLength = text.length();
+            List<Integer> starts = new ArrayList<>();
+            starts.add(0);
+            int i = 0;
+            while (i < text.length()) {
+                char ch = text.charAt(i++);
+                if (ch == '\n') {
+                    starts.add(i);
+                } else if (ch == '\r') {
+                    if (i < text.length() && text.charAt(i) == '\n') {
+                        i++;
+                    }
+                    starts.add(i);
+                }
+            }
+            this.lineStarts = new int[starts.size()];
+            for (int idx = 0; idx < starts.size(); idx++) {
+                this.lineStarts[idx] = starts.get(idx);
+            }
+        }
+
+        int totalLines() {
+            return lineStarts.length;
+        }
+
+        int startOffset(int line) {
+            if (line <= 1) {
+                return 0;
+            }
+            if (line > lineStarts.length) {
+                return textLength;
+            }
+            return lineStarts[line - 1];
+        }
+
+        int lineOfOffset(int offset) {
+            int bounded = Math.max(0, Math.min(offset, textLength));
+            int low = 0;
+            int high = lineStarts.length - 1;
+            int result = 0;
+            while (low <= high) {
+                int mid = (low + high) >>> 1;
+                int start = lineStarts[mid];
+                if (start <= bounded) {
+                    result = mid;
+                    low = mid + 1;
+                } else {
+                    high = mid - 1;
+                }
+            }
+            return result + 1;
+        }
+    }
+
+    private record ModuleContext(
+            IProject project,
+            IFile file,
+            XtextResource resource,
+            EObject module,
+            String text) {
+        ModuleContext {
+            Objects.requireNonNull(project);
+            Objects.requireNonNull(file);
+            Objects.requireNonNull(resource);
+            Objects.requireNonNull(module);
+            Objects.requireNonNull(text);
+        }
     }
 
     private record PositionContext(

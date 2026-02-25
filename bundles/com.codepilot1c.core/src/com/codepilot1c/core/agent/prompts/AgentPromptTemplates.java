@@ -50,7 +50,7 @@ public final class AgentPromptTemplates {
         sb.append("- EDT внешние объекты: external_list_projects, external_list_objects, external_get_details, external_create_report, external_create_processing\n"); //$NON-NLS-1$
         sb.append("- EDT type provider: edt_field_type_candidates (допустимые типы для поля метаданных)\n"); //$NON-NLS-1$
         sb.append("- EDT-метаданные: inspect_platform_reference, edt_validate_request, create_metadata, create_form, apply_form_recipe, extension_create_project, extension_adopt_object, extension_set_property_state, inspect_form_layout, add_metadata_child, ensure_module_artifact, update_metadata, mutate_form_model, delete_metadata, edt_trace_export\n"); //$NON-NLS-1$
-        sb.append("- EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members\n"); //$NON-NLS-1$
+        sb.append("- EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body\n"); //$NON-NLS-1$
         sb.append("- Диагностика метаданных: edt_metadata_smoke (регрессионный smoke-прогон), edt_extension_smoke (e2e smoke для расширений), edt_external_smoke (e2e smoke для внешних объектов)\n\n"); //$NON-NLS-1$
 
         sb.append("## Маршрутизация справки (обязательно)\n"); //$NON-NLS-1$
@@ -106,6 +106,12 @@ public final class AgentPromptTemplates {
             sb.append("8. После изменений формы обязательно делай get_diagnostics(scope=file) и get_diagnostics(scope=project, include_runtime_markers=true).\n\n"); //$NON-NLS-1$
         }
 
+        sb.append("## Human-in-the-loop: неоднозначные методы BSL\n"); //$NON-NLS-1$
+        sb.append("1. Когда нужно найти конкретную процедуру/функцию, сначала вызови bsl_list_methods для модуля и отфильтруй по имени.\n"); //$NON-NLS-1$
+        sb.append("2. Если bsl_get_method_body вернул AMBIGUOUS_METHOD и candidates[], покажи список кандидатов (имя, kind, start_line) и попроси пользователя выбрать start_line.\n"); //$NON-NLS-1$
+        sb.append("3. После выбора повтори bsl_get_method_body с start_line.\n"); //$NON-NLS-1$
+        sb.append("4. Если METHOD_NOT_FOUND, уточни имя/модуль у пользователя.\n\n"); //$NON-NLS-1$
+
         sb.append("## Формат финального ответа\n"); //$NON-NLS-1$
         sb.append("1. Кратко: что сделано.\n"); //$NON-NLS-1$
         sb.append("2. Список изменений (файлы/инструменты/операции).\n"); //$NON-NLS-1$
@@ -158,7 +164,7 @@ public final class AgentPromptTemplates {
         sb.append("get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index,\n"); //$NON-NLS-1$
         sb.append("dcs_get_summary, dcs_list_nodes,\n"); //$NON-NLS-1$
         sb.append("extension_list_projects, extension_list_objects, external_list_projects, external_list_objects, external_get_details,\n"); //$NON-NLS-1$
-        sb.append("inspect_form_layout, bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, inspect_platform_reference.\n"); //$NON-NLS-1$
+        sb.append("inspect_form_layout, bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, inspect_platform_reference.\n"); //$NON-NLS-1$
 
         return PromptQualityAssurance.verify(
                 "plan", //$NON-NLS-1$
@@ -197,7 +203,7 @@ public final class AgentPromptTemplates {
         sb.append("get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index,\n"); //$NON-NLS-1$
         sb.append("dcs_get_summary, dcs_list_nodes,\n"); //$NON-NLS-1$
         sb.append("extension_list_projects, extension_list_objects, external_list_projects, external_list_objects, external_get_details,\n"); //$NON-NLS-1$
-        sb.append("inspect_form_layout, bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, inspect_platform_reference.\n"); //$NON-NLS-1$
+        sb.append("inspect_form_layout, bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, inspect_platform_reference.\n"); //$NON-NLS-1$
 
         return PromptQualityAssurance.verify(
                 "explore", //$NON-NLS-1$

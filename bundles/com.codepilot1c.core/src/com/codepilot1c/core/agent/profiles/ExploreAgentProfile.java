@@ -67,6 +67,8 @@ public class ExploreAgentProfile implements AgentProfile {
             "bsl_symbol_at_position",
             "bsl_type_at_position",
             "bsl_scope_members",
+            "bsl_list_methods",
+            "bsl_get_method_body",
             "inspect_platform_reference"
     ));
 
@@ -114,6 +116,8 @@ public class ExploreAgentProfile implements AgentProfile {
                 PermissionRule.allow("bsl_symbol_at_position").forAllResources(),
                 PermissionRule.allow("bsl_type_at_position").forAllResources(),
                 PermissionRule.allow("bsl_scope_members").forAllResources(),
+                PermissionRule.allow("bsl_list_methods").forAllResources(),
+                PermissionRule.allow("bsl_get_method_body").forAllResources(),
                 PermissionRule.allow("inspect_platform_reference").forAllResources()
         );
     }

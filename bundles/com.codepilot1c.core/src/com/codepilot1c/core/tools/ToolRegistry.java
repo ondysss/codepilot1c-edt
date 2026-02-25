@@ -84,6 +84,8 @@ public class ToolRegistry {
         register(new BslSymbolAtPositionTool());
         register(new BslTypeAtPositionTool());
         register(new BslScopeMembersTool());
+        register(new BslListMethodsTool());
+        register(new BslGetMethodBodyTool());
         register(new EdtValidateRequestTool());
         register(new CreateMetadataTool());
         register(new CreateFormTool());
