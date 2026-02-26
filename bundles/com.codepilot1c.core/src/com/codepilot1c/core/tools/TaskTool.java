@@ -19,7 +19,7 @@ import org.eclipse.core.runtime.Status;
 
 import com.codepilot1c.core.agent.AgentConfig;
 import com.codepilot1c.core.agent.AgentResult;
-import com.codepilot1c.core.agent.AgentRunner;
+import com.codepilot1c.core.agent.langgraph.LangGraphAgentRunner;
 import com.codepilot1c.core.agent.AgentState;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
@@ -181,7 +181,8 @@ public class TaskTool implements ITool {
         AgentConfig config = configBuilder.build();
 
         // Create and run subagent
-        AgentRunner subagent = new AgentRunner(provider, toolRegistry, profile.getSystemPromptAddition());
+        LangGraphAgentRunner subagent = new LangGraphAgentRunner(provider, toolRegistry,
+                profile.getSystemPromptAddition());
 
         try {
             CompletableFuture<AgentResult> future = subagent.run(prompt, config);

@@ -16,8 +16,8 @@ import org.eclipse.swt.widgets.Display;
 
 import com.codepilot1c.core.agent.AgentConfig;
 import com.codepilot1c.core.agent.AgentResult;
-import com.codepilot1c.core.agent.AgentRunner;
 import com.codepilot1c.core.agent.AgentState;
+import com.codepilot1c.core.agent.IAgentRunner;
 import com.codepilot1c.core.agent.events.AgentCompletedEvent;
 import com.codepilot1c.core.agent.events.AgentEvent;
 import com.codepilot1c.core.agent.events.AgentStartedEvent;
@@ -29,6 +29,8 @@ import com.codepilot1c.core.agent.events.ToolCallEvent;
 import com.codepilot1c.core.agent.events.ToolResultEvent;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.agent.langgraph.LangGraphAgentRunner;
+import com.codepilot1c.core.agent.langgraph.LangGraphStudioService;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
@@ -55,9 +57,10 @@ public class AgentViewAdapter implements IAgentEventListener {
     private static final String CORE_PLUGIN_ID = "com.codepilot1c.core"; //$NON-NLS-1$
 
     private final Display display;
-    private AgentRunner currentRunner;
+    private IAgentRunner currentRunner;
     private StringBuilder streamingContent;
     private String currentStreamingMessageId;
+    private boolean graphMessageSent;
 
     // Callbacks for UI updates
     private MessageAppender messageAppender;
@@ -125,13 +128,14 @@ public class AgentViewAdapter implements IAgentEventListener {
         AgentConfig config = AgentProfileRegistry.getInstance().createConfig(profile);
 
         // Create runner with system prompt
-        currentRunner = new AgentRunner(provider, ToolRegistry.getInstance(),
+        currentRunner = new LangGraphAgentRunner(provider, ToolRegistry.getInstance(),
                 profile.getSystemPromptAddition());
         currentRunner.addListener(this);
 
         // Initialize streaming state
         streamingContent = new StringBuilder();
         currentStreamingMessageId = null;
+        graphMessageSent = false;
 
         // Run the agent
         return currentRunner.run(prompt, config)
@@ -211,6 +215,7 @@ public class AgentViewAdapter implements IAgentEventListener {
                         event.getConfig().getMaxSteps());
                 messageAppender.appendSystemMessage(info);
             }
+            appendGraphMermaidMessage();
         });
     }
 
@@ -383,6 +388,23 @@ public class AgentViewAdapter implements IAgentEventListener {
                 }
             });
         }
+    }
+
+    private void appendGraphMermaidMessage() {
+        if (messageAppender == null || graphMessageSent) {
+            return;
+        }
+        graphMessageSent = true;
+        String mermaid = LangGraphStudioService.getInstance().getMermaidGraph();
+        if (mermaid == null || mermaid.isBlank()) {
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("**Граф агента (Mermaid)**\n\n"); //$NON-NLS-1$
+        sb.append("```mermaid\n"); //$NON-NLS-1$
+        sb.append(mermaid).append("\n"); //$NON-NLS-1$
+        sb.append("```\n"); //$NON-NLS-1$
+        messageAppender.appendSystemMessage(sb.toString());
     }
 
     /**

@@ -48,12 +48,21 @@
             class="com.codepilot1c.ui.views.ChatView"
             allowMultiple="false">
         </view>
+        <view
+            id="com.codepilot1c.ui.views.GraphStudioView"
+            name="%view.graph.name"
+            icon="icons/vibe16.png"
+            category="com.codepilot1c.ui.category"
+            class="com.codepilot1c.ui.views.GraphStudioView"
+            allowMultiple="false">
+        </view>
     </extension>
 
     <!-- Perspective extensions -->
     <extension point="org.eclipse.ui.perspectiveExtensions">
         <perspectiveExtension targetID="*">
             <viewShortcut id="com.codepilot1c.ui.views.ChatView"/>
+            <viewShortcut id="com.codepilot1c.ui.views.GraphStudioView"/>
         </perspectiveExtension>
     </extension>
 

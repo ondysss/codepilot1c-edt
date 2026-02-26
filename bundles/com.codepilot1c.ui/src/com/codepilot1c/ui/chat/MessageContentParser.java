@@ -248,4 +248,5 @@ public class MessageContentParser {
             this.code = code;
         }
     }
+
 }

@@ -8,6 +8,28 @@ Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-Activator: com.codepilot1c.core.internal.VibeCorePlugin
 Bundle-ActivationPolicy: lazy
 Bundle-Localization: OSGI-INF/l10n/bundle
+Bundle-ClassPath: .,
+ lib/async-generator-3.2.2.jar,
+ lib/jackson-annotations-2.17.2.jar,
+ lib/jackson-core-2.17.2.jar,
+ lib/jackson-databind-2.17.2.jar,
+ lib/jakarta.servlet-api-6.0.0.jar,
+ lib/jetty-ee10-servlet-12.0.12.jar,
+ lib/jetty-http-12.0.12.jar,
+ lib/jetty-io-12.0.12.jar,
+ lib/jetty-security-12.0.12.jar,
+ lib/jetty-server-12.0.12.jar,
+ lib/jetty-session-12.0.12.jar,
+ lib/jetty-util-12.0.12.jar,
+ lib/jspecify-1.0.0.jar,
+ lib/langchain4j-1.2.0.jar,
+ lib/langchain4j-core-1.2.0.jar,
+ lib/langgraph4j-core-1.6.0.jar,
+ lib/langgraph4j-studio-1.6.0.jar,
+ lib/langgraph4j-studio-jetty-1.6.0.jar,
+ lib/opennlp-tools-2.5.4.jar,
+ lib/slf4j-api-2.0.9.jar,
+ lib/slf4j-jdk14-2.0.9.jar
 Automatic-Module-Name: com.codepilot1c.core
 Require-Bundle: org.eclipse.core.runtime;bundle-version="[3.26.0,4.0.0)",
  org.eclipse.core.resources;bundle-version="[3.18.0,4.0.0)",
@@ -15,7 +37,8 @@ Require-Bundle: org.eclipse.core.runtime;bundle-version="[3.26.0,4.0.0)",
  org.eclipse.ui.ide;bundle-version="[3.0.0,4.0.0)",
  org.eclipse.jface;bundle-version="[3.0.0,4.0.0)",
  org.eclipse.jface.text;bundle-version="[3.0.0,4.0.0)",
- org.eclipse.xtext.ui;bundle-version="[2.0.0,3.0.0)"
+ org.eclipse.xtext.ui;bundle-version="[2.0.0,3.0.0)",
+ org.eclipse.osgi.services;bundle-version="[3.11.0,4.0.0)"
 Import-Package: com.google.gson;version="[2.10.0,3.0.0)",
  com.google.gson.annotations;version="[2.10.0,3.0.0)",
  com.google.gson.reflect;version="[2.10.0,3.0.0)",
@@ -82,4 +105,5 @@ Export-Package: com.codepilot1c.core.agent,
  com.codepilot1c.core.mcp.config,
  com.codepilot1c.core.context7,
  com.codepilot1c.core.agent.prompts,
+ com.codepilot1c.core.agent.langgraph,
  com.codepilot1c.core.internal;x-friends:="com.codepilot1c.ui"
