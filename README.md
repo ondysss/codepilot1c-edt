@@ -66,6 +66,23 @@ mvn -B -V --no-transfer-progress clean verify
 
 Базовый сценарий: подключайте клиентов напрямую по HTTP.
 
+### Автозапуск MCP Host через `1cedt.ini`
+
+Можно включить MCP Host при старте EDT через системные параметры JVM.  
+Добавьте параметры **после** строки `-vmargs` в `1cedt.ini`, затем перезапустите EDT.
+
+```ini
+-vmargs
+-Dcodepilot.mcp.enabled=true
+-Dcodepilot.mcp.host.http.enabled=true
+-Dcodepilot.mcp.host.http.bindAddress=127.0.0.1
+-Dcodepilot.mcp.host.http.port=8765
+-Dcodepilot.mcp.host.policy.defaultMutationDecision=ALLOW
+-Dcodepilot.mcp.host.policy.exposedTools=*
+# опционально:
+# -Dcodepilot.mcp.host.http.bearerToken=ваш_токен
+```
+
 Claude Code (глобально, профиль пользователя):
 ```bash
 claude mcp add --transport http -s user codepilot1c http://127.0.0.1:8765/mcp
