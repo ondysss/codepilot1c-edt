@@ -44,7 +44,56 @@ public class McpHostConfigStore {
             SecureStorageUtil.storeSecurely(TOKEN_SECURE_KEY, token);
         }
         cfg.setBearerToken(token);
+
+        applySystemOverrides(cfg);
         return cfg;
+    }
+
+    private void applySystemOverrides(McpHostConfig cfg) {
+        String enabled = coalesce(
+                System.getProperty("codepilot.mcp.host.enabled"), //$NON-NLS-1$
+                System.getProperty("codepilot.mcp.enabled")); //$NON-NLS-1$
+        if (enabled != null) {
+            cfg.setEnabled(Boolean.parseBoolean(enabled.trim()));
+        }
+
+        String httpEnabled = System.getProperty("codepilot.mcp.host.http.enabled"); //$NON-NLS-1$
+        if (httpEnabled != null) {
+            cfg.setHttpEnabled(Boolean.parseBoolean(httpEnabled.trim()));
+        }
+
+        String bind = System.getProperty("codepilot.mcp.host.http.bindAddress"); //$NON-NLS-1$
+        if (bind != null && !bind.isBlank()) {
+            cfg.setBindAddress(bind.trim());
+        }
+
+        String port = System.getProperty("codepilot.mcp.host.http.port"); //$NON-NLS-1$
+        if (port != null && !port.isBlank()) {
+            try {
+                cfg.setPort(Integer.parseInt(port.trim()));
+            } catch (NumberFormatException ignored) {
+                // keep preference value
+            }
+        }
+
+        String mutationPolicy = System.getProperty("codepilot.mcp.host.policy.defaultMutationDecision"); //$NON-NLS-1$
+        if (mutationPolicy != null && !mutationPolicy.isBlank()) {
+            cfg.setMutationPolicy(McpHostConfig.MutationPolicy.from(mutationPolicy));
+        }
+
+        String exposedTools = System.getProperty("codepilot.mcp.host.policy.exposedTools"); //$NON-NLS-1$
+        if (exposedTools != null && !exposedTools.isBlank()) {
+            cfg.setExposedToolsFilter(exposedTools.trim());
+        }
+
+        String bearer = System.getProperty("codepilot.mcp.host.http.bearerToken"); //$NON-NLS-1$
+        if (bearer != null && !bearer.isBlank()) {
+            cfg.setBearerToken(bearer.trim());
+        }
+    }
+
+    private String coalesce(String primary, String secondary) {
+        return primary != null ? primary : secondary;
     }
 
     public void save(McpHostConfig cfg) {
