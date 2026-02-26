@@ -68,8 +68,7 @@ mvn -B -V --no-transfer-progress clean verify
 
 ### Автозапуск MCP Host через `1cedt.ini`
 
-Можно включить MCP Host при старте EDT через системные параметры JVM.  
-Откройте `1cedt.ini`, добавьте параметры и перезапустите EDT.
+Откройте `1cedt.ini` и добавьте параметры ниже.
 
 ```ini
 -Dcodepilot.mcp.enabled=true
