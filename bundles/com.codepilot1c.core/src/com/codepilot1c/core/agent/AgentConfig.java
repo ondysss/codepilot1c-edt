@@ -43,6 +43,8 @@ public class AgentConfig {
     private final boolean streamingEnabled;
     private final String systemPromptAddition;
     private final String profileName;
+    private final boolean toolGraphEnabled;
+    private final com.codepilot1c.core.agent.graph.ToolGraphPolicy toolGraphPolicy;
 
     private AgentConfig(Builder builder) {
         this.maxSteps = builder.maxSteps;
@@ -53,6 +55,8 @@ public class AgentConfig {
         this.streamingEnabled = builder.streamingEnabled;
         this.systemPromptAddition = builder.systemPromptAddition;
         this.profileName = builder.profileName;
+        this.toolGraphEnabled = builder.toolGraphEnabled;
+        this.toolGraphPolicy = builder.toolGraphPolicy;
     }
 
     /**
@@ -149,6 +153,24 @@ public class AgentConfig {
     }
 
     /**
+     * Whether tool graph routing is enabled.
+     *
+     * @return true if enabled
+     */
+    public boolean isToolGraphEnabled() {
+        return toolGraphEnabled;
+    }
+
+    /**
+     * Tool graph routing policy.
+     *
+     * @return policy
+     */
+    public com.codepilot1c.core.agent.graph.ToolGraphPolicy getToolGraphPolicy() {
+        return toolGraphPolicy;
+    }
+
+    /**
      * Проверяет, разрешен ли инструмент с учетом enabled/disabled списков.
      *
      * @param toolName имя инструмента
@@ -171,6 +193,8 @@ public class AgentConfig {
                 ", timeoutMs=" + timeoutMs +
                 ", streaming=" + streamingEnabled +
                 ", profile=" + profileName +
+                ", toolGraph=" + toolGraphEnabled +
+                ", toolGraphPolicy=" + toolGraphPolicy +
                 '}';
     }
 
@@ -186,6 +210,9 @@ public class AgentConfig {
         private boolean streamingEnabled = true;
         private String systemPromptAddition;
         private String profileName;
+        private boolean toolGraphEnabled = true;
+        private com.codepilot1c.core.agent.graph.ToolGraphPolicy toolGraphPolicy =
+                com.codepilot1c.core.agent.graph.ToolGraphPolicy.ADVISORY;
 
         private Builder() {
         }
@@ -206,6 +233,8 @@ public class AgentConfig {
                 this.streamingEnabled = config.streamingEnabled;
                 this.systemPromptAddition = config.systemPromptAddition;
                 this.profileName = config.profileName;
+                this.toolGraphEnabled = config.toolGraphEnabled;
+                this.toolGraphPolicy = config.toolGraphPolicy;
             }
             return this;
         }
@@ -330,6 +359,18 @@ public class AgentConfig {
          */
         public Builder profileName(String profileName) {
             this.profileName = profileName;
+            return this;
+        }
+
+        public Builder toolGraphEnabled(boolean enabled) {
+            this.toolGraphEnabled = enabled;
+            return this;
+        }
+
+        public Builder toolGraphPolicy(com.codepilot1c.core.agent.graph.ToolGraphPolicy policy) {
+            if (policy != null) {
+                this.toolGraphPolicy = policy;
+            }
             return this;
         }
 

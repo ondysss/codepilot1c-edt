@@ -37,6 +37,8 @@ import com.codepilot1c.core.agent.events.IAgentEventListener;
 import com.codepilot1c.core.agent.events.StreamChunkEvent;
 import com.codepilot1c.core.agent.events.ToolCallEvent;
 import com.codepilot1c.core.agent.events.ToolResultEvent;
+import com.codepilot1c.core.agent.graph.ToolGraphRouter;
+import com.codepilot1c.core.agent.graph.ToolGraphToolFilter;
 import com.codepilot1c.core.model.LlmMessage;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
@@ -103,6 +105,8 @@ public class AgentRunner implements IAgentRunner {
     private final Object historyLock = new Object();
     private List<LlmMessage> conversationHistory = new ArrayList<>();
 
+    private ToolGraphRouter toolGraphRouter;
+
     /**
      * Создает AgentRunner.
      *
@@ -167,6 +171,8 @@ public class AgentRunner implements IAgentRunner {
             conversationHistory.add(LlmMessage.user(prompt));
         }
 
+        initializeToolGraph(prompt, config);
+
         // Emit started event
         emit(new AgentStartedEvent(prompt, config));
 
@@ -215,6 +221,7 @@ public class AgentRunner implements IAgentRunner {
         startTimeMs.set(System.currentTimeMillis());
         currentStreamingFuture.set(null);
         pendingConfirmation.set(null);
+        toolGraphRouter = null;
     }
 
     /**
@@ -506,6 +513,10 @@ public class AgentRunner implements IAgentRunner {
                         toolResult = result;
                     }
 
+                    if (toolGraphRouter != null) {
+                        toolGraphRouter.onToolResult(call.getName(), toolResult);
+                    }
+
                     addToolResult(call.getId(), toolResult);
                     emit(new ToolResultEvent(step, call.getName(), call.getId(),
                             toolResult, executionTime));
@@ -531,9 +542,15 @@ public class AgentRunner implements IAgentRunner {
      */
     private LlmRequest buildRequest(AgentConfig config) {
         List<ToolDefinition> tools = new ArrayList<>();
+        ToolGraphToolFilter graphFilter = toolGraphRouter != null
+                ? toolGraphRouter.buildToolFilter()
+                : ToolGraphToolFilter.allowAll();
 
         for (ITool tool : toolRegistry.getAllTools()) {
             if (config.isToolAllowed(tool.getName())) {
+                if (!graphFilter.allows(tool.getName())) {
+                    continue;
+                }
                 tools.add(ToolDefinition.builder()
                         .name(tool.getName())
                         .description(tool.getDescription())
@@ -550,7 +567,7 @@ public class AgentRunner implements IAgentRunner {
         return LlmRequest.builder()
                 .messages(messagesCopy)
                 .tools(tools)
-                .toolChoice(LlmRequest.ToolChoice.AUTO)
+                .toolChoice(graphFilter.getToolChoice())
                 .stream(config.isStreamingEnabled())
                 .build();
     }
@@ -588,6 +605,14 @@ public class AgentRunner implements IAgentRunner {
             logWarning("Не удалось распарсить аргументы инструмента: " + json, e);
             return new HashMap<>();
         }
+    }
+
+    private void initializeToolGraph(String prompt, AgentConfig config) {
+        if (config == null || !config.isToolGraphEnabled()) {
+            return;
+        }
+        toolGraphRouter = ToolGraphRouter.createDefault();
+        toolGraphRouter.initialize(prompt, config);
     }
 
     /**
