@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CodePilot1C — AI-плагин для 1C:EDT</title>
-  <meta name="description" content="Open-source AI-плагин для 1C:EDT. Чат, агентный режим, MCP, работа с файлами проекта.">
+  <meta name="description" content="Open-source AI-плагин для 1C:EDT: чат, агентный режим, BSL AST, метаданные и формы, MCP, диагностика.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>></text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -226,12 +226,12 @@
 
   <header>
     <h1>CodePilot1C</h1>
-    <p>AI-плагин для 1C:EDT. Чат, агентный режим, инструменты работы с файлами и MCP-серверы. Подключите свою модель.</p>
+    <p>AI-плагин для 1C:EDT. Чат и агентный режим, BSL AST, работа с метаданными и формами, диагностика и MCP. Подключите свою модель.</p>
     <div class="badges">
       <span class="badge">AGPL-3.0</span>
       <span class="badge">1C:EDT</span>
       <span class="badge">Java 17+</span>
-      <span class="badge">v0.1.0</span>
+      <span class="badge">v0.1.x</span>
     </div>
   </header>
 
@@ -309,10 +309,18 @@
   <div class="section" id="features">
     <h2>Возможности</h2>
     <ul class="feature-list">
-      <li><span class="feature-name">Чат</span><span class="feature-desc">Вопросы о коде, объяснение, рефакторинг. Streaming-ответы.</span></li>
-      <li><span class="feature-name">Агентный режим</span><span class="feature-desc">Автономное выполнение задач: агент читает файлы, вызывает инструменты, редактирует код до результата.</span></li>
-      <li><span class="feature-name">Работа с файлами</span><span class="feature-desc">read, write, edit, grep, glob — агент работает с файлами проекта напрямую.</span></li>
-      <li><span class="feature-name">MCP</span><span class="feature-desc">Подключение внешних инструментов через Model Context Protocol. Транспорт: STDIO.</span></li>
+      <li><span class="feature-name">Чат</span><span class="feature-desc">Объяснение, ревью, рефакторинг и ответы по коду. Streaming-ответы.</span></li>
+      <li><span class="feature-name">Агентный режим</span><span class="feature-desc">Автономное выполнение задач: агент читает проект, вызывает инструменты, вносит правки и проверяет результат.</span></li>
+      <li><span class="feature-name">Профили доступа</span><span class="feature-desc">build / plan / explore: контроль прав и наборов инструментов для разных сценариев.</span></li>
+      <li><span class="feature-name">Файлы проекта</span><span class="feature-desc">read / write / edit / grep / glob — прямой доступ к файлам и их содержимому.</span></li>
+      <li><span class="feature-name">BSL AST</span><span class="feature-desc">Поиск символов, типов, членов области видимости, списка методов и тела процедуры/функции.</span></li>
+      <li><span class="feature-name">Метаданные</span><span class="feature-desc">Просмотр, создание, изменение и удаление объектов конфигурации с валидацией.</span></li>
+      <li><span class="feature-name">Управляемые формы</span><span class="feature-desc">Инспекция layout, массовые рецепты, точечные мутации элементов и реквизитов.</span></li>
+      <li><span class="feature-name">СКД</span><span class="feature-desc">Создание схемы, наборы данных, параметры и вычисляемые поля.</span></li>
+      <li><span class="feature-name">Расширения</span><span class="feature-desc">Создание расширений, принятие объектов, управление состояниями свойств.</span></li>
+      <li><span class="feature-name">Внешние объекты</span><span class="feature-desc">Создание внешних отчётов/обработок и доступ к их деталям.</span></li>
+      <li><span class="feature-name">Диагностика</span><span class="feature-desc">get_diagnostics, smoke-прогоны, трассировка экспорта.</span></li>
+      <li><span class="feature-name">MCP</span><span class="feature-desc">Клиент и host: подключение внешних инструментов и публикация своих.</span></li>
       <li><span class="feature-name">Команды</span><span class="feature-desc">Explain, Fix, Generate, Optimize, Find Similar — из контекстного меню редактора.</span></li>
       <li><span class="feature-name">Провайдеры</span><span class="feature-desc">Ollama, OpenAI, Anthropic, любой OpenAI-compatible API. Данные остаются у вас.</span></li>
     </ul>
@@ -323,12 +331,22 @@
     <table class="tools-table">
       <thead><tr><th>Инструмент</th><th>Описание</th></tr></thead>
       <tbody>
-        <tr><td>read_file</td><td>Чтение файла проекта</td></tr>
-        <tr><td>write_file</td><td>Создание/перезапись файла</td></tr>
-        <tr><td>edit_file</td><td>Редактирование фрагмента файла</td></tr>
-        <tr><td>list_files</td><td>Список файлов в каталоге</td></tr>
-        <tr><td>grep</td><td>Поиск текста по файлам проекта</td></tr>
-        <tr><td>glob</td><td>Поиск файлов по шаблону</td></tr>
+        <tr><td>read_file / write_file / edit_file</td><td>Чтение, создание и редактирование файлов проекта</td></tr>
+        <tr><td>list_files / grep / glob</td><td>Поиск файлов и текста по проекту</td></tr>
+        <tr><td>edt_content_assist / edt_find_references</td><td>AST-инструменты: подсказки и ссылки</td></tr>
+        <tr><td>bsl_symbol_at_position / bsl_type_at_position</td><td>Символы и типы BSL по позиции</td></tr>
+        <tr><td>bsl_scope_members / bsl_list_methods / bsl_get_method_body</td><td>Область видимости и точечная работа с процедурами</td></tr>
+        <tr><td>scan_metadata_index / edt_metadata_details / edt_field_type_candidates</td><td>Инспекция метаданных и типов</td></tr>
+        <tr><td>create_metadata / update_metadata / add_metadata_child / delete_metadata</td><td>Создание и изменение объектов конфигурации</td></tr>
+        <tr><td>create_form / inspect_form_layout / apply_form_recipe / mutate_form_model</td><td>Работа с управляемыми формами</td></tr>
+        <tr><td>dcs_get_summary / dcs_list_nodes / dcs_create_main_schema</td><td>Инспекция и создание схемы СКД</td></tr>
+        <tr><td>dcs_upsert_query_dataset / dcs_upsert_parameter / dcs_upsert_calculated_field</td><td>Мутации СКД: наборы данных, параметры, вычисляемые поля</td></tr>
+        <tr><td>extension_list_projects / extension_create_project / extension_adopt_object</td><td>Расширения: поиск, создание, принятие объектов</td></tr>
+        <tr><td>extension_set_property_state</td><td>Управление состояниями свойств в расширениях</td></tr>
+        <tr><td>external_list_projects / external_list_objects / external_get_details</td><td>Внешние отчёты/обработки: поиск и детали</td></tr>
+        <tr><td>external_create_report / external_create_processing</td><td>Создание внешних объектов</td></tr>
+        <tr><td>get_diagnostics / edt_metadata_smoke / edt_extension_smoke / edt_external_smoke</td><td>Диагностика и smoke-прогоны</td></tr>
+        <tr><td>edt_trace_export</td><td>Трассировка экспорта метаданных</td></tr>
         <tr><td>mcp_&lt;server&gt;_&lt;tool&gt;</td><td>Динамические инструменты от подключённых MCP-серверов</td></tr>
       </tbody>
     </table>
@@ -342,7 +360,7 @@
       <div class="compat-item"><strong>OpenAI API</strong><span>Любые модели с OpenAI-совместимым интерфейсом</span></div>
       <div class="compat-item"><strong>Anthropic</strong><span>Claude Sonnet, Opus</span></div>
       <div class="compat-item"><strong>OpenAI-compatible</strong><span>LM Studio, vLLM, Together</span></div>
-      <div class="compat-item"><strong>ОС</strong><span>Windows, Linux</span></div>
+      <div class="compat-item"><strong>ОС</strong><span>Windows, Linux, macOS</span></div>
     </div>
   </div>
 
