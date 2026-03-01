@@ -12,9 +12,16 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+
+import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
+
+import com.codepilot1c.core.logging.VibeLogger;
+import com.codepilot1c.core.settings.SecureStorageUtil;
 
 /**
  * Minimal OAuth 2.1 authorization server for MCP Host HTTP transport.
@@ -30,10 +37,14 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class McpHostOAuthService {
 
+    private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(McpHostOAuthService.class);
+
     private static final String DEFAULT_SCOPE = "mcp"; //$NON-NLS-1$
+    private static final String RESOURCE_PARAM = "resource"; //$NON-NLS-1$
     private static final Duration AUTH_CODE_TTL = Duration.ofMinutes(5);
     private static final Duration ACCESS_TOKEN_TTL = Duration.ofMinutes(60);
     private static final Duration REFRESH_TOKEN_TTL = Duration.ofDays(30);
+    private static final String OAUTH_STATE_SECURE_KEY = "mcp.host.oauth.state"; //$NON-NLS-1$
 
     private static final String AUTH_METHOD_NONE = "none"; //$NON-NLS-1$
     private static final String AUTH_METHOD_SECRET_POST = "client_secret_post"; //$NON-NLS-1$
@@ -51,10 +62,14 @@ public class McpHostOAuthService {
     private final String staticBearerToken;
 
     private final SecureRandom secureRandom = new SecureRandom();
+    private final Gson gson = new Gson();
+    private final Object stateLock = new Object();
     private final Map<String, RegisteredClient> clients = new ConcurrentHashMap<>();
     private final Map<String, AuthorizationCodeGrant> authorizationCodes = new ConcurrentHashMap<>();
     private final Map<String, AccessTokenGrant> accessTokens = new ConcurrentHashMap<>();
     private final Map<String, RefreshTokenGrant> refreshTokens = new ConcurrentHashMap<>();
+    private final Map<String, UsedRefreshToken> usedRefreshTokens = new ConcurrentHashMap<>();
+    private final Map<String, Long> revokedRefreshFamilies = new ConcurrentHashMap<>();
 
     public McpHostOAuthService(String bindAddress, int port, String staticBearerToken) {
         String normalizedHost = normalizeHost(bindAddress);
@@ -65,6 +80,8 @@ public class McpHostOAuthService {
         this.tokenEndpoint = issuer + "/oauth/token"; //$NON-NLS-1$
         this.registrationEndpoint = issuer + "/oauth/register"; //$NON-NLS-1$
         this.staticBearerToken = staticBearerToken != null ? staticBearerToken.trim() : ""; //$NON-NLS-1$
+
+        loadState();
     }
 
     public boolean isAuthorized(Map<String, List<String>> headers) {
@@ -77,7 +94,17 @@ public class McpHostOAuthService {
         }
         cleanupExpired();
         AccessTokenGrant grant = accessTokens.get(bearerToken);
-        return grant != null && !grant.isExpired();
+        return grant != null
+            && !grant.isExpired()
+            && constantTimeEquals(resourceEndpoint, grant.resource);
+    }
+
+    public boolean isStaticBearerAuthorized(Map<String, List<String>> headers) {
+        String bearerToken = extractBearerToken(headers);
+        if (bearerToken == null || staticBearerToken.isBlank()) {
+            return false;
+        }
+        return constantTimeEquals(staticBearerToken, bearerToken);
     }
 
     public String buildWwwAuthenticateHeader() {
@@ -134,6 +161,7 @@ public class McpHostOAuthService {
             : null;
         RegisteredClient client = new RegisteredClient(clientId, clientSecret, tokenAuthMethod, Set.copyOf(redirectUris));
         clients.put(clientId, client);
+        persistState();
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("client_id", clientId); //$NON-NLS-1$
@@ -246,7 +274,13 @@ public class McpHostOAuthService {
             return OAuthResponse.json(400, oauthError("invalid_grant", "PKCE verification failed")); //$NON-NLS-1$ //$NON-NLS-2$
         }
 
-        return OAuthResponse.json(200, issueTokens(clientId, grant.scope));
+        String requestedResource = form.get(RESOURCE_PARAM);
+        String resolvedResource = resolveResource(requestedResource);
+        if (resolvedResource == null) {
+            return OAuthResponse.json(400, oauthError("invalid_target", "Resource is not supported")); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+
+        return OAuthResponse.json(200, issueTokens(clientId, grant.scope, null, resolvedResource));
     }
 
     private OAuthResponse exchangeRefreshToken(Map<String, String> form) {
@@ -264,12 +298,43 @@ public class McpHostOAuthService {
             return OAuthResponse.json(401, oauthError("invalid_client", "Client authentication failed")); //$NON-NLS-1$ //$NON-NLS-2$
         }
 
-        RefreshTokenGrant refreshGrant = refreshTokens.remove(refreshToken);
-        if (refreshGrant == null || refreshGrant.isExpired() || !constantTimeEquals(refreshGrant.clientId, clientId)) {
-            return OAuthResponse.json(400, oauthError("invalid_grant", "Refresh token is invalid or expired")); //$NON-NLS-1$ //$NON-NLS-2$
+        RefreshTokenGrant refreshGrant;
+        String effectiveResource;
+        synchronized (stateLock) {
+            refreshGrant = refreshTokens.get(refreshToken);
+            if (refreshGrant == null) {
+                UsedRefreshToken used = usedRefreshTokens.get(refreshToken);
+                if (used != null) {
+                    revokeRefreshFamily(used.familyId);
+                    persistState();
+                }
+                return OAuthResponse.json(400, oauthError("invalid_grant", "Refresh token is invalid or expired")); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            String requestedResource = form.get(RESOURCE_PARAM);
+            effectiveResource = resolveRefreshResource(requestedResource, refreshGrant.resource);
+            if (effectiveResource == null) {
+                return OAuthResponse.json(400, oauthError("invalid_target", "Resource is not supported")); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            if (refreshGrant.isExpired()
+                    || !constantTimeEquals(refreshGrant.clientId, clientId)
+                    || isRefreshFamilyRevoked(refreshGrant.familyId)) {
+                refreshTokens.remove(refreshToken);
+                persistState();
+                return OAuthResponse.json(400, oauthError("invalid_grant", "Refresh token is invalid or expired")); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            UsedRefreshToken used = usedRefreshTokens.get(refreshToken);
+            if (used != null) {
+                revokeRefreshFamily(used.familyId);
+                persistState();
+                return OAuthResponse.json(400, oauthError("invalid_grant", "Refresh token reuse detected")); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            refreshTokens.remove(refreshToken);
+            usedRefreshTokens.put(refreshToken, new UsedRefreshToken(refreshToken, refreshGrant.familyId,
+                refreshGrant.expiresAtEpochSecond));
         }
 
-        return OAuthResponse.json(200, issueTokens(clientId, refreshGrant.scope));
+        Map<String, Object> payload = issueTokens(clientId, refreshGrant.scope, refreshGrant.familyId, effectiveResource);
+        return OAuthResponse.json(200, payload);
     }
 
     private boolean isClientAuthenticated(RegisteredClient client, Map<String, String> form) {
@@ -285,29 +350,42 @@ public class McpHostOAuthService {
         return false;
     }
 
-    private Map<String, Object> issueTokens(String clientId, String scope) {
+    private Map<String, Object> issueTokens(String clientId, String scope, String familyId, String resource) {
         String accessToken = generateRandomToken(32);
         String refreshToken = generateRandomToken(32);
         long accessExpiry = Instant.now().plus(ACCESS_TOKEN_TTL).getEpochSecond();
         long refreshExpiry = Instant.now().plus(REFRESH_TOKEN_TTL).getEpochSecond();
+        String resolvedFamilyId = familyId != null && !familyId.isBlank()
+                ? familyId
+                : "rf_" + generateRandomToken(18); //$NON-NLS-1$
+        String resolvedResource = resource != null && !resource.isBlank() ? resource : resourceEndpoint;
 
-        accessTokens.put(accessToken, new AccessTokenGrant(accessToken, clientId, scope, accessExpiry));
-        refreshTokens.put(refreshToken, new RefreshTokenGrant(refreshToken, clientId, scope, refreshExpiry));
+        accessTokens.put(accessToken, new AccessTokenGrant(accessToken, clientId, scope, accessExpiry, resolvedResource));
+        refreshTokens.put(refreshToken,
+            new RefreshTokenGrant(refreshToken, clientId, scope, refreshExpiry, resolvedFamilyId, resolvedResource));
+        persistState();
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("access_token", accessToken); //$NON-NLS-1$
         response.put("token_type", "Bearer"); //$NON-NLS-1$ //$NON-NLS-2$
         response.put("expires_in", Long.valueOf(ACCESS_TOKEN_TTL.toSeconds())); //$NON-NLS-1$
         response.put("refresh_token", refreshToken); //$NON-NLS-1$
+        response.put("resource", resolvedResource); //$NON-NLS-1$
         response.put("scope", scope); //$NON-NLS-1$
         return response;
     }
 
     private void cleanupExpired() {
         long now = Instant.now().getEpochSecond();
-        authorizationCodes.entrySet().removeIf(entry -> entry.getValue().expiresAtEpochSecond <= now);
-        accessTokens.entrySet().removeIf(entry -> entry.getValue().expiresAtEpochSecond <= now);
-        refreshTokens.entrySet().removeIf(entry -> entry.getValue().expiresAtEpochSecond <= now);
+        boolean changed = false;
+        changed |= authorizationCodes.entrySet().removeIf(entry -> entry.getValue().expiresAtEpochSecond <= now);
+        changed |= accessTokens.entrySet().removeIf(entry -> entry.getValue().expiresAtEpochSecond <= now);
+        changed |= refreshTokens.entrySet().removeIf(entry -> entry.getValue().expiresAtEpochSecond <= now);
+        changed |= usedRefreshTokens.entrySet().removeIf(entry -> entry.getValue().expiresAtEpochSecond <= now);
+        changed |= revokedRefreshFamilies.entrySet().removeIf(entry -> entry.getValue().longValue() <= now);
+        if (changed) {
+            persistState();
+        }
     }
 
     private String extractBearerToken(Map<String, List<String>> headers) {
@@ -354,7 +432,34 @@ public class McpHostOAuthService {
             if (uri.getScheme() == null || uri.getScheme().isBlank()) {
                 return false;
             }
-            return !"javascript".equalsIgnoreCase(uri.getScheme()); //$NON-NLS-1$
+            if ("javascript".equalsIgnoreCase(uri.getScheme())) { //$NON-NLS-1$
+                return false;
+            }
+            String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
+            if (!"http".equals(scheme) && !"https".equals(scheme)) { //$NON-NLS-1$ //$NON-NLS-2$
+                return allowCustomRedirectScheme();
+            }
+            String host = uri.getHost();
+            if (host == null || host.isBlank()) {
+                return false;
+            }
+            if ("localhost".equalsIgnoreCase(host)) { //$NON-NLS-1$
+                return true;
+            }
+            return isLoopbackHost(host);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean allowCustomRedirectScheme() {
+        String allow = System.getProperty("codepilot.mcp.host.oauth.allowCustomScheme"); //$NON-NLS-1$
+        return allow != null && Boolean.parseBoolean(allow.trim());
+    }
+
+    private boolean isLoopbackHost(String host) {
+        try {
+            return java.net.InetAddress.getByName(host).isLoopbackAddress();
         } catch (Exception e) {
             return false;
         }
@@ -444,6 +549,120 @@ public class McpHostOAuthService {
         return value == null || value.trim().isEmpty();
     }
 
+    private String resolveResource(String requested) {
+        if (isBlank(requested)) {
+            return resourceEndpoint;
+        }
+        String trimmed = requested.trim();
+        return resourceEndpoint.equals(trimmed) ? resourceEndpoint : null;
+    }
+
+    private String resolveRefreshResource(String requested, String grantResource) {
+        String effectiveGrantResource = isBlank(grantResource) ? resourceEndpoint : grantResource;
+        if (isBlank(requested)) {
+            return effectiveGrantResource;
+        }
+        String trimmed = requested.trim();
+        return constantTimeEquals(trimmed, effectiveGrantResource) ? effectiveGrantResource : null;
+    }
+
+    private boolean isRefreshFamilyRevoked(String familyId) {
+        if (familyId == null || familyId.isBlank()) {
+            return false;
+        }
+        Long expiresAt = revokedRefreshFamilies.get(familyId);
+        return expiresAt != null && expiresAt.longValue() > Instant.now().getEpochSecond();
+    }
+
+    private void revokeRefreshFamily(String familyId) {
+        if (familyId == null || familyId.isBlank()) {
+            return;
+        }
+        long expiresAt = Instant.now().plus(REFRESH_TOKEN_TTL).getEpochSecond();
+        revokedRefreshFamilies.put(familyId, Long.valueOf(expiresAt));
+        refreshTokens.entrySet().removeIf(entry -> familyId.equals(entry.getValue().familyId));
+    }
+
+    private void loadState() {
+        if (!SecureStorageUtil.isAvailable()) {
+            return;
+        }
+        String json = SecureStorageUtil.retrieveSecurely(OAUTH_STATE_SECURE_KEY, ""); //$NON-NLS-1$
+        if (json == null || json.isBlank()) {
+            return;
+        }
+        try {
+            OAuthState state = gson.fromJson(json, OAuthState.class);
+            if (state == null) {
+                return;
+            }
+            if (state.clients != null) {
+                for (StoredClient stored : state.clients) {
+                    if (stored == null || isBlank(stored.clientId)) {
+                        continue;
+                    }
+                    Set<String> redirectUris = stored.redirectUris != null
+                        ? Set.copyOf(stored.redirectUris)
+                        : Set.of();
+                    clients.put(stored.clientId, new RegisteredClient(
+                        stored.clientId, stored.clientSecret, stored.tokenAuthMethod, redirectUris));
+                }
+            }
+            if (state.refreshTokens != null) {
+                for (StoredRefreshToken stored : state.refreshTokens) {
+                    if (stored == null || isBlank(stored.token)) {
+                        continue;
+                    }
+                    String resource = stored.resource != null && !stored.resource.isBlank()
+                        ? stored.resource
+                        : resourceEndpoint;
+                    RefreshTokenGrant grant = new RefreshTokenGrant(
+                        stored.token,
+                        stored.clientId,
+                        stored.scope,
+                        stored.expiresAtEpochSecond,
+                        stored.familyId,
+                        resource);
+                    if (!grant.isExpired()) {
+                        refreshTokens.put(grant.token, grant);
+                    }
+                }
+            }
+            if (state.usedRefreshTokens != null) {
+                usedRefreshTokens.putAll(state.usedRefreshTokens);
+            }
+            if (state.revokedRefreshFamilies != null) {
+                revokedRefreshFamilies.putAll(state.revokedRefreshFamilies);
+            }
+        } catch (JsonSyntaxException e) {
+            LOG.warn("Failed to parse MCP host OAuth state. Starting with empty state."); //$NON-NLS-1$
+        } catch (Exception e) {
+            LOG.warn("Failed to load MCP host OAuth state", e); //$NON-NLS-1$
+        }
+    }
+
+    private void persistState() {
+        if (!SecureStorageUtil.isAvailable()) {
+            return;
+        }
+        synchronized (stateLock) {
+            OAuthState state = new OAuthState();
+            state.clients = new ArrayList<>();
+            for (RegisteredClient client : clients.values()) {
+                state.clients.add(new StoredClient(client.clientId, client.clientSecret,
+                    client.tokenAuthMethod, new ArrayList<>(client.redirectUris)));
+            }
+            state.refreshTokens = new ArrayList<>();
+            for (RefreshTokenGrant grant : refreshTokens.values()) {
+                state.refreshTokens.add(new StoredRefreshToken(
+                    grant.token, grant.clientId, grant.scope, grant.expiresAtEpochSecond, grant.familyId, grant.resource));
+            }
+            state.usedRefreshTokens = new LinkedHashMap<>(usedRefreshTokens);
+            state.revokedRefreshFamilies = new LinkedHashMap<>(revokedRefreshFamilies);
+            SecureStorageUtil.storeSecurely(OAUTH_STATE_SECURE_KEY, gson.toJson(state));
+        }
+    }
+
     public static final class OAuthResponse {
         private final int statusCode;
         private final Map<String, Object> jsonBody;
@@ -527,12 +746,14 @@ public class McpHostOAuthService {
         private final String clientId;
         private final String scope;
         private final long expiresAtEpochSecond;
+        private final String resource;
 
-        private AccessTokenGrant(String token, String clientId, String scope, long expiresAtEpochSecond) {
+        private AccessTokenGrant(String token, String clientId, String scope, long expiresAtEpochSecond, String resource) {
             this.token = token;
             this.clientId = clientId;
             this.scope = scope;
             this.expiresAtEpochSecond = expiresAtEpochSecond;
+            this.resource = resource;
         }
 
         private boolean isExpired() {
@@ -545,16 +766,73 @@ public class McpHostOAuthService {
         private final String clientId;
         private final String scope;
         private final long expiresAtEpochSecond;
+        private final String familyId;
+        private final String resource;
 
-        private RefreshTokenGrant(String token, String clientId, String scope, long expiresAtEpochSecond) {
+        private RefreshTokenGrant(String token, String clientId, String scope, long expiresAtEpochSecond,
+                String familyId, String resource) {
             this.token = token;
             this.clientId = clientId;
             this.scope = scope;
             this.expiresAtEpochSecond = expiresAtEpochSecond;
+            this.familyId = familyId;
+            this.resource = resource;
         }
 
         private boolean isExpired() {
             return expiresAtEpochSecond <= Instant.now().getEpochSecond();
+        }
+    }
+
+    private static final class UsedRefreshToken {
+        private final String token;
+        private final String familyId;
+        private final long expiresAtEpochSecond;
+
+        private UsedRefreshToken(String token, String familyId, long expiresAtEpochSecond) {
+            this.token = token;
+            this.familyId = familyId;
+            this.expiresAtEpochSecond = expiresAtEpochSecond;
+        }
+    }
+
+    private static final class OAuthState {
+        private List<StoredClient> clients;
+        private List<StoredRefreshToken> refreshTokens;
+        private Map<String, UsedRefreshToken> usedRefreshTokens;
+        private Map<String, Long> revokedRefreshFamilies;
+    }
+
+    private static final class StoredClient {
+        private final String clientId;
+        private final String clientSecret;
+        private final String tokenAuthMethod;
+        private final List<String> redirectUris;
+
+        private StoredClient(String clientId, String clientSecret, String tokenAuthMethod, List<String> redirectUris) {
+            this.clientId = clientId;
+            this.clientSecret = clientSecret;
+            this.tokenAuthMethod = tokenAuthMethod;
+            this.redirectUris = redirectUris;
+        }
+    }
+
+    private static final class StoredRefreshToken {
+        private final String token;
+        private final String clientId;
+        private final String scope;
+        private final long expiresAtEpochSecond;
+        private final String familyId;
+        private final String resource;
+
+        private StoredRefreshToken(String token, String clientId, String scope, long expiresAtEpochSecond,
+                String familyId, String resource) {
+            this.token = token;
+            this.clientId = clientId;
+            this.scope = scope;
+            this.expiresAtEpochSecond = expiresAtEpochSecond;
+            this.familyId = familyId;
+            this.resource = resource;
         }
     }
 }

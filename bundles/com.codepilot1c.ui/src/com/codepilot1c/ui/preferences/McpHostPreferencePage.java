@@ -36,6 +36,7 @@ public class McpHostPreferencePage extends PreferencePage implements IWorkbenchP
     private Button httpEnabledCheckbox;
     private Text bindAddressText;
     private Spinner portSpinner;
+    private Combo authModeCombo;
     private Text bearerTokenText;
     private Combo mutationPolicyCombo;
     private Text exposedToolsText;
@@ -85,6 +86,17 @@ public class McpHostPreferencePage extends PreferencePage implements IWorkbenchP
         portSpinner.setMaximum(65535);
         portSpinner.setSelection(config.getPort());
 
+        createLabel(container, Messages.McpHostPreferencePage_AuthMode);
+        authModeCombo = new Combo(container, SWT.DROP_DOWN | SWT.READ_ONLY);
+        authModeCombo.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        authModeCombo.setItems(new String[] {
+            Messages.McpHostPreferencePage_AuthModeOauthBearer,
+            Messages.McpHostPreferencePage_AuthModeOauth,
+            Messages.McpHostPreferencePage_AuthModeBearer,
+            Messages.McpHostPreferencePage_AuthModeNone
+        });
+        authModeCombo.select(Math.max(0, config.getAuthMode().ordinal()));
+
         createLabel(container, Messages.McpHostPreferencePage_BearerToken);
         Composite tokenRow = new Composite(container, SWT.NONE);
         tokenRow.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
@@ -98,6 +110,10 @@ public class McpHostPreferencePage extends PreferencePage implements IWorkbenchP
         rotateButton.setText(Messages.McpHostPreferencePage_RotateToken);
         rotateButton.addListener(SWT.Selection, e -> bearerTokenText.setText(McpHostConfig.generateToken()));
         bearerTokenText.addModifyListener(e -> installHintsText.setText(buildInstallHints()));
+        authModeCombo.addListener(SWT.Selection, e -> {
+            installHintsText.setText(buildInstallHints());
+            refreshWarning();
+        });
 
         createLabel(container, Messages.McpHostPreferencePage_MutationPolicy);
         mutationPolicyCombo = new Combo(container, SWT.DROP_DOWN | SWT.READ_ONLY);
@@ -165,7 +181,8 @@ public class McpHostPreferencePage extends PreferencePage implements IWorkbenchP
 
     private void refreshWarning() {
         String bind = bindAddressText.getText().trim();
-        if ("127.0.0.1".equals(bind) || "localhost".equalsIgnoreCase(bind)) { //$NON-NLS-1$ //$NON-NLS-2$
+        boolean local = "127.0.0.1".equals(bind) || "localhost".equalsIgnoreCase(bind); //$NON-NLS-1$ //$NON-NLS-2$
+        if (local) {
             warningLabel.setText(Messages.McpHostPreferencePage_LocalOnlyInfo);
         } else {
             warningLabel.setText(Messages.McpHostPreferencePage_NonLocalWarning);
@@ -239,8 +256,66 @@ public class McpHostPreferencePage extends PreferencePage implements IWorkbenchP
         if (token.isBlank()) {
             token = "<РЕЗЕРВНЫЙ_BEARER_ТОКЕН>"; //$NON-NLS-1$
         }
+        McpHostConfig.AuthMode authMode = McpHostConfig.AuthMode.values()[authModeCombo.getSelectionIndex()];
+        if (authMode == McpHostConfig.AuthMode.NONE) {
+            return """
+MCP-сервер запущен без авторизации (только localhost).
+
+Endpoint:
+%s
+""".formatted(endpoint);
+        }
+        if (authMode == McpHostConfig.AuthMode.BEARER_ONLY) {
+            return """
+MCP-сервер работает только со статическим Bearer-токеном.
+
+Endpoint:
+%s
+
+Пример конфигурации:
+{
+  "mcpServers": {
+    "codepilot1c": {
+      "url": "%s",
+      "headers": {
+        "Authorization": "Bearer %s"
+      }
+    }
+  }
+}
+""".formatted(endpoint, endpoint, token);
+        }
+        if (authMode == McpHostConfig.AuthMode.OAUTH_ONLY) {
+            return """
+MCP-сервер работает по OAuth 2.1 (RFC 9728).
+
+Endpoint:
+%s
+
+Claude Code (глобально, профиль пользователя):
+claude mcp add --transport http -s user codepilot1c %s
+
+Cursor (.cursor/mcp.json):
+{
+  "mcpServers": {
+    "codepilot1c": {
+      "url": "%s"
+    }
+  }
+}
+
+Codex (MCP-конфиг):
+{
+  "mcpServers": {
+    "codepilot1c": {
+      "url": "%s"
+    }
+  }
+}
+""".formatted(endpoint, endpoint, endpoint, endpoint);
+        }
         return """
-Встроенный MCP-сервер уже запущен в EDT и работает по HTTP + OAuth 2.1 (RFC 9728).
+MCP-сервер работает по OAuth 2.1 (RFC 9728) с резервным Bearer-токеном.
 
 Endpoint:
 %s
@@ -287,6 +362,7 @@ Codex (MCP-конфиг):
         newConfig.setHttpEnabled(httpEnabledCheckbox.getSelection());
         newConfig.setBindAddress(bindAddressText.getText().trim());
         newConfig.setPort(portSpinner.getSelection());
+        newConfig.setAuthMode(McpHostConfig.AuthMode.values()[authModeCombo.getSelectionIndex()]);
         newConfig.setBearerToken(bearerTokenText.getText().trim());
         newConfig.setMutationPolicy(McpHostConfig.MutationPolicy.values()[mutationPolicyCombo.getSelectionIndex()]);
         newConfig.setExposedToolsFilter(exposedToolsText.getText().trim());
@@ -304,6 +380,7 @@ Codex (MCP-конфиг):
         httpEnabledCheckbox.setSelection(defaults.isHttpEnabled());
         bindAddressText.setText(defaults.getBindAddress());
         portSpinner.setSelection(defaults.getPort());
+        authModeCombo.select(defaults.getAuthMode().ordinal());
         bearerTokenText.setText(defaults.getBearerToken());
         mutationPolicyCombo.select(defaults.getMutationPolicy().ordinal());
         exposedToolsText.setText(defaults.getExposedToolsFilter());

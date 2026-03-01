@@ -73,10 +73,12 @@ public class VibePreferenceInitializer extends AbstractPreferenceInitializer {
         defaults.putInt(VibePreferenceConstants.PREF_HTTP_GZIP_MIN_BYTES, 1024); // Compress if > 1KB
 
         // MCP host defaults
-        defaults.putBoolean(VibePreferenceConstants.PREF_MCP_HOST_ENABLED, false);
+        defaults.putBoolean(VibePreferenceConstants.PREF_MCP_HOST_ENABLED, true);
         defaults.putBoolean(VibePreferenceConstants.PREF_MCP_HOST_HTTP_ENABLED, true);
         defaults.put(VibePreferenceConstants.PREF_MCP_HOST_HTTP_BIND_ADDRESS, "127.0.0.1"); //$NON-NLS-1$
         defaults.putInt(VibePreferenceConstants.PREF_MCP_HOST_HTTP_PORT, 8765);
+        defaults.put(VibePreferenceConstants.PREF_MCP_HOST_AUTH_MODE,
+            McpHostConfig.AuthMode.OAUTH_OR_BEARER.name());
         defaults.put(VibePreferenceConstants.PREF_MCP_HOST_POLICY_DEFAULT_MUTATION_DECISION,
             McpHostConfig.MutationPolicy.ALLOW.name());
         defaults.put(VibePreferenceConstants.PREF_MCP_HOST_POLICY_EXPOSED_TOOLS, "*"); //$NON-NLS-1$

@@ -34,6 +34,10 @@
         </page>
     </extension>
 
+    <extension point="org.eclipse.ui.startup">
+        <startup class="com.codepilot1c.ui.startup.McpHostStartup"/>
+    </extension>
+
     <!-- Views -->
     <extension point="org.eclipse.ui.views">
         <category
@@ -76,6 +80,12 @@
             id="com.codepilot1c.ui.commands.OpenChat"
             name="%command.openChat.name"
             description="%command.openChat.description"
+            categoryId="com.codepilot1c.ui.commands.category">
+        </command>
+        <command
+            id="com.codepilot1c.ui.commands.OpenTerminal"
+            name="%command.openTerminal.name"
+            description="%command.openTerminal.description"
             categoryId="com.codepilot1c.ui.commands.category">
         </command>
         <command
@@ -127,6 +137,10 @@
         <handler
             commandId="com.codepilot1c.ui.commands.OpenChat"
             class="com.codepilot1c.ui.handlers.OpenChatHandler">
+        </handler>
+        <handler
+            commandId="com.codepilot1c.ui.commands.OpenTerminal"
+            class="com.codepilot1c.ui.handlers.OpenTerminalHandler">
         </handler>
         <handler
             commandId="com.codepilot1c.ui.commands.ExplainCode"
@@ -198,6 +212,10 @@
                 mnemonic="V">
                 <command
                     commandId="com.codepilot1c.ui.commands.OpenChat"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.OpenTerminal"
                     style="push">
                 </command>
                 <separator name="separator1" visible="true"/>

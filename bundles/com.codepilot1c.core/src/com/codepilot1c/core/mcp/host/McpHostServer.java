@@ -50,23 +50,27 @@ public class McpHostServer implements IMcpHostServer {
         );
 
         if (config.isHttpEnabled()) {
+            String bearerToken = config.getAuthMode() == McpHostConfig.AuthMode.OAUTH_ONLY
+                    ? "" //$NON-NLS-1$
+                    : config.getBearerToken();
             McpHostOAuthService oauthService = new McpHostOAuthService(
                 config.getBindAddress(),
                 config.getPort(),
-                config.getBearerToken()
+                bearerToken
             );
             httpTransport = new McpHostHttpTransport(
                 config.getBindAddress(),
                 config.getPort(),
                 oauthService,
-                router
+                router,
+                config.getAuthMode()
             );
             httpTransport.start();
         }
 
         running = true;
-        LOG.info("MCP host server started (http=%s, oauth=%s)", //$NON-NLS-1$
-            Boolean.valueOf(config.isHttpEnabled()), Boolean.TRUE);
+        LOG.info("MCP host server started (http=%s, auth=%s)", //$NON-NLS-1$
+            Boolean.valueOf(config.isHttpEnabled()), config.getAuthMode());
     }
 
     @Override

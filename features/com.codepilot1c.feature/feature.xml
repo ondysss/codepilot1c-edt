@@ -11,6 +11,8 @@
 
    <license url="%licenseURL">%license</license>
 
+   <!-- TM Terminal is optional: feature handler checks for bundle at runtime. -->
+
    <plugin
          id="com.codepilot1c.core"
          download-size="0"

@@ -15,4 +15,16 @@
 
     <name>1C Copilot Update Site</name>
     <description>P2 repository for 1C Copilot plugin installation</description>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.eclipse.tycho</groupId>
+                <artifactId>tycho-p2-repository-plugin</artifactId>
+                <configuration>
+                    <includeRequiredFeatures>true</includeRequiredFeatures>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

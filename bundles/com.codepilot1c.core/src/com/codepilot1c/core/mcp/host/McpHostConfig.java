@@ -8,6 +8,24 @@ import java.util.Locale;
  */
 public class McpHostConfig {
 
+    public enum AuthMode {
+        OAUTH_OR_BEARER,
+        OAUTH_ONLY,
+        BEARER_ONLY,
+        NONE;
+
+        public static AuthMode from(String value) {
+            if (value == null || value.isBlank()) {
+                return OAUTH_OR_BEARER;
+            }
+            try {
+                return AuthMode.valueOf(value.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                return OAUTH_OR_BEARER;
+            }
+        }
+    }
+
     public enum MutationPolicy {
         ASK,
         DENY,
@@ -30,16 +48,18 @@ public class McpHostConfig {
     private String bindAddress;
     private int port;
     private String bearerToken;
+    private AuthMode authMode;
     private MutationPolicy mutationPolicy;
     private String exposedToolsFilter;
 
     public static McpHostConfig defaults() {
         McpHostConfig cfg = new McpHostConfig();
-        cfg.enabled = false;
+        cfg.enabled = true;
         cfg.httpEnabled = true;
         cfg.bindAddress = "127.0.0.1"; //$NON-NLS-1$
         cfg.port = 8765;
         cfg.bearerToken = generateToken();
+        cfg.authMode = AuthMode.OAUTH_OR_BEARER;
         cfg.mutationPolicy = MutationPolicy.ALLOW;
         cfg.exposedToolsFilter = "*"; //$NON-NLS-1$
         return cfg;
@@ -93,6 +113,14 @@ public class McpHostConfig {
 
     public void setBearerToken(String bearerToken) {
         this.bearerToken = bearerToken;
+    }
+
+    public AuthMode getAuthMode() {
+        return authMode;
+    }
+
+    public void setAuthMode(AuthMode authMode) {
+        this.authMode = authMode;
     }
 
     public MutationPolicy getMutationPolicy() {

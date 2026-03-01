@@ -146,8 +146,9 @@ public class McpHostRequestRouter {
 
         ToolResult toolResult;
         try {
+            int timeoutSeconds = "qa_run".equals(toolName) ? 3600 : 120; //$NON-NLS-1$
             toolResult = tool.execute(arguments)
-                .orTimeout(120, TimeUnit.SECONDS)
+                .orTimeout(timeoutSeconds, TimeUnit.SECONDS)
                 .join();
         } catch (Exception e) {
             return ok(request, toolError("Tool execution failed: " + e.getMessage())); //$NON-NLS-1$

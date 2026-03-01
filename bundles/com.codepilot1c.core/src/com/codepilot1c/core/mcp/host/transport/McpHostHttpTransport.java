@@ -36,17 +36,20 @@ public class McpHostHttpTransport implements IMcpHostTransport {
     private final int port;
     private final McpHostOAuthService oauthService;
     private final McpHostRequestRouter router;
+    private final com.codepilot1c.core.mcp.host.McpHostConfig.AuthMode authMode;
     private final Gson gson = new Gson();
     private final Map<String, McpHostSession> sessions = new ConcurrentHashMap<>();
 
     private HttpServer server;
     private volatile boolean running;
 
-    public McpHostHttpTransport(String bindAddress, int port, McpHostOAuthService oauthService, McpHostRequestRouter router) {
+    public McpHostHttpTransport(String bindAddress, int port, McpHostOAuthService oauthService,
+            McpHostRequestRouter router, com.codepilot1c.core.mcp.host.McpHostConfig.AuthMode authMode) {
         this.bindAddress = bindAddress;
         this.port = port;
         this.oauthService = oauthService;
         this.router = router;
+        this.authMode = authMode != null ? authMode : com.codepilot1c.core.mcp.host.McpHostConfig.AuthMode.OAUTH_OR_BEARER;
     }
 
     @Override
@@ -120,7 +123,7 @@ public class McpHostHttpTransport implements IMcpHostTransport {
                     writeJson(exchange, 405, Map.of("error", "method_not_allowed")); //$NON-NLS-1$ //$NON-NLS-2$
                     return;
                 }
-                if (!oauthService.isAuthorized(exchange.getRequestHeaders())) {
+                if (!isAuthorized(exchange)) {
                     exchange.getResponseHeaders().add("WWW-Authenticate", oauthService.buildWwwAuthenticateHeader()); //$NON-NLS-1$
                     writeJson(exchange, 401, Map.of( //$NON-NLS-1$
                         "error", "unauthorized", //$NON-NLS-1$ //$NON-NLS-2$
@@ -263,6 +266,36 @@ public class McpHostHttpTransport implements IMcpHostTransport {
     private boolean acceptsSse(HttpExchange exchange) {
         String accept = exchange.getRequestHeaders().getFirst("Accept"); //$NON-NLS-1$
         return accept != null && accept.contains("text/event-stream"); //$NON-NLS-1$
+    }
+
+    private boolean isAuthorized(HttpExchange exchange) {
+        switch (authMode) {
+            case NONE:
+                if (isLoopback(exchange)) {
+                    return true;
+                }
+                LOG.warn("Anonymous MCP request rejected for non-local address"); //$NON-NLS-1$
+                return false;
+            case BEARER_ONLY:
+                return oauthService.isStaticBearerAuthorized(exchange.getRequestHeaders());
+            case OAUTH_ONLY:
+                return oauthService.isAuthorized(exchange.getRequestHeaders());
+            case OAUTH_OR_BEARER:
+            default:
+                return oauthService.isAuthorized(exchange.getRequestHeaders());
+        }
+    }
+
+    private boolean isLoopback(HttpExchange exchange) {
+        try {
+            var address = exchange.getRemoteAddress();
+            if (address == null || address.getAddress() == null) {
+                return false;
+            }
+            return address.getAddress().isLoopbackAddress();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void writeSseReady(HttpExchange exchange) throws IOException {

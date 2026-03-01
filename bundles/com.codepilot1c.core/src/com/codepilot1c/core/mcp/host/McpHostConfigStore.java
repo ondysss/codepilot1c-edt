@@ -32,6 +32,8 @@ public class McpHostConfigStore {
         cfg.setHttpEnabled(prefs.getBoolean(VibePreferenceConstants.PREF_MCP_HOST_HTTP_ENABLED, cfg.isHttpEnabled()));
         cfg.setBindAddress(prefs.get(VibePreferenceConstants.PREF_MCP_HOST_HTTP_BIND_ADDRESS, cfg.getBindAddress()));
         cfg.setPort(prefs.getInt(VibePreferenceConstants.PREF_MCP_HOST_HTTP_PORT, cfg.getPort()));
+        cfg.setAuthMode(McpHostConfig.AuthMode.from(
+            prefs.get(VibePreferenceConstants.PREF_MCP_HOST_AUTH_MODE, cfg.getAuthMode().name())));
         cfg.setMutationPolicy(McpHostConfig.MutationPolicy.from(
             prefs.get(VibePreferenceConstants.PREF_MCP_HOST_POLICY_DEFAULT_MUTATION_DECISION, cfg.getMutationPolicy().name())));
         cfg.setExposedToolsFilter(prefs.get(
@@ -76,6 +78,11 @@ public class McpHostConfigStore {
             }
         }
 
+        String authMode = System.getProperty("codepilot.mcp.host.auth.mode"); //$NON-NLS-1$
+        if (authMode != null && !authMode.isBlank()) {
+            cfg.setAuthMode(McpHostConfig.AuthMode.from(authMode));
+        }
+
         String mutationPolicy = System.getProperty("codepilot.mcp.host.policy.defaultMutationDecision"); //$NON-NLS-1$
         if (mutationPolicy != null && !mutationPolicy.isBlank()) {
             cfg.setMutationPolicy(McpHostConfig.MutationPolicy.from(mutationPolicy));
@@ -102,6 +109,7 @@ public class McpHostConfigStore {
         prefs.putBoolean(VibePreferenceConstants.PREF_MCP_HOST_HTTP_ENABLED, cfg.isHttpEnabled());
         prefs.put(VibePreferenceConstants.PREF_MCP_HOST_HTTP_BIND_ADDRESS, cfg.getBindAddress());
         prefs.putInt(VibePreferenceConstants.PREF_MCP_HOST_HTTP_PORT, cfg.getPort());
+        prefs.put(VibePreferenceConstants.PREF_MCP_HOST_AUTH_MODE, cfg.getAuthMode().name());
         prefs.put(VibePreferenceConstants.PREF_MCP_HOST_POLICY_DEFAULT_MUTATION_DECISION, cfg.getMutationPolicy().name());
         prefs.put(VibePreferenceConstants.PREF_MCP_HOST_POLICY_EXPOSED_TOOLS, cfg.getExposedToolsFilter());
         SecureStorageUtil.storeSecurely(TOKEN_SECURE_KEY, cfg.getBearerToken());
