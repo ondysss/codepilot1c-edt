@@ -1,0 +1,59 @@
+# syntax=docker/dockerfile:1
+# CI Dockerfile: собирается FROM готового base образа (EDT без плагина).
+# Base образ публикуется вручную через Dockerfile.base.
+# Этот файл используется в GitHub Actions для автоматической сборки и публикации.
+#
+# Сборка вручную:
+#   mvn package -Dmaven.test.skip=true
+#   cp releng/com.codepilot1c.update/target/com.codepilot1c.update-*.zip docker/plugin.zip
+#   docker build -f docker/Dockerfile.plugin \
+#     --build-arg EDT_VERSION=2025.2.3-30 \
+#     --build-arg PLUGIN_VERSION=0.1.7 \
+#     -t ghcr.io/ondysss/codepilot1c-edt:latest docker/
+
+ARG EDT_VERSION=2025.2.3-30
+FROM ghcr.io/ondysss/codepilot1c-edt-base:${EDT_VERSION}
+
+ARG PLUGIN_VERSION=dev
+LABEL org.opencontainers.image.title="CodePilot1C MCP Host" \
+      org.opencontainers.image.description="1C:EDT + CodePilot1C MCP Host, headless CLI mode" \
+      org.opencontainers.image.source="https://github.com/ondysss/codepilot1c-edt" \
+      plugin.version="${PLUGIN_VERSION}"
+
+# --- Установка плагина через p2 director (нужен Xvfb + GTK из base образа) ---
+COPY plugin.zip /tmp/plugin.zip
+
+RUN Xvfb :99 -screen 0 1024x768x24 -nolisten tcp & sleep 3 && \
+    DISPLAY=:99 /opt/1cedt/1cedt \
+        -application org.eclipse.equinox.p2.director \
+        -noSplash \
+        -repository "jar:file:///tmp/plugin.zip!/" \
+        -installIU "com.codepilot1c.feature.feature.group" \
+        -destination /opt/1cedt && \
+    rm /tmp/plugin.zip && \
+    pkill Xvfb || true && \
+    rm -f /tmp/.X99-lock /tmp/.X99-unix/X99 2>/dev/null || true
+
+# --- CLI режим: com.codepilot1c.core должен стартовать автоматически ---
+# Патчим bundles.info: autoStart false -> true для core-бандла
+RUN BUNDLES_INFO=/opt/1cedt/configuration/org.eclipse.equinox.simpleconfigurator/bundles.info && \
+    sed -i 's/^\(com\.codepilot1c\.core,[^,]*,[^,]*,4\),false$/\1,true/' "$BUNDLES_INFO" && \
+    echo "Updated bundles.info:" && grep codepilot "$BUNDLES_INFO"
+
+# --- MCP Host конфигурация через JVM system properties ---
+RUN echo "-Dcodepilot.mcp.enabled=true" >> /opt/1cedt/1cedt.ini && \
+    echo "-Dcodepilot.mcp.host.http.enabled=true" >> /opt/1cedt/1cedt.ini && \
+    echo "-Dcodepilot.mcp.host.http.bindAddress=0.0.0.0" >> /opt/1cedt/1cedt.ini && \
+    echo "-Dcodepilot.mcp.host.http.port=8765" >> /opt/1cedt/1cedt.ini && \
+    echo "-Dcodepilot.mcp.host.auth.mode=BEARER_ONLY" >> /opt/1cedt/1cedt.ini && \
+    echo "-Dcodepilot.mcp.host.policy.defaultMutationDecision=ALLOW" >> /opt/1cedt/1cedt.ini && \
+    echo "-Dcodepilot.mcp.host.policy.exposedTools=*" >> /opt/1cedt/1cedt.ini && \
+    echo "-Declipse.ignoreApp=true" >> /opt/1cedt/1cedt.ini && \
+    echo "-Dosgi.noShutdown=true" >> /opt/1cedt/1cedt.ini
+
+# --- Entrypoint ---
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+EXPOSE 8765
+ENTRYPOINT ["docker-entrypoint.sh"]

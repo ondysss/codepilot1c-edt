@@ -1,0 +1,55 @@
+# syntax=docker/dockerfile:1
+# Базовый образ: содержит только 1C:EDT без плагина.
+# Собирается вручную один раз при выходе новой версии EDT.
+# Публикуется в ghcr.io как ghcr.io/<owner>/codepilot1c-edt-base:<edt-version>
+#
+# Сборка:
+#   docker build -f Dockerfile.base \
+#     --build-arg EDT_VERSION=2025.2.3+30 \
+#     -t ghcr.io/<owner>/codepilot1c-edt-base:2025.2.3-30 .
+#   docker push ghcr.io/<owner>/codepilot1c-edt-base:2025.2.3-30
+#
+# Требует: edt.tar рядом с Dockerfile.base
+
+FROM ubuntu:22.04
+
+ARG EDT_VERSION=unknown
+LABEL org.opencontainers.image.title="1C:EDT base (no plugin)" \
+      org.opencontainers.image.description="1C:EDT ${EDT_VERSION} for Linux x86_64, headless CLI mode" \
+      edt.version="${EDT_VERSION}"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# GTK и Xvfb — нужны только для build-time шагов (p2 director).
+# В runtime не используются (CLI headless режим).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    xvfb \
+    libgtk-3-0 \
+    libwebkit2gtk-4.1-0 \
+    libxss1 \
+    libnss3 \
+    libsecret-1-0 \
+    libglib2.0-0 \
+    libx11-6 \
+    libxrender1 \
+    libxtst6 \
+    libxi6 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY edt.tar /tmp/edt.tar
+
+RUN mkdir -p /tmp/edt-distr && \
+    tar -xf /tmp/edt.tar -C /tmp/edt-distr && \
+    rm /tmp/edt.tar && \
+    /tmp/edt-distr/1ce-installer-cli \
+        --javahome /tmp/edt-distr/axiom-jdk-full-17.0.16+12-linux-x86_64/data \
+        --verbose info \
+        install \
+        --source /tmp/edt-distr \
+        --products-home /opt/1c \
+        --ignore-signature-warnings \
+        --ignore-hardware-checks && \
+    rm -rf /tmp/edt-distr && \
+    EDT_DIR=$(find /opt/1c -name "1cedt" -executable -type f | head -1 | xargs -r dirname) && \
+    ln -sf "$EDT_DIR" /opt/1cedt
