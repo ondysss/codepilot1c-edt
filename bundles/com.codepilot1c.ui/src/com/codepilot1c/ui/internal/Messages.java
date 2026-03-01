@@ -54,6 +54,13 @@ public class Messages extends NLS {
     public static String PreferencePage_AutoCompactThresholdLabel;
     public static String PreferencePage_ShowTokenUsageLabel;
     public static String PreferencePage_VaEpfPathLabel;
+    public static String PreferencePage_TerminalCwdModeLabel;
+    public static String PreferencePage_TerminalCwdModeProject;
+    public static String PreferencePage_TerminalCwdModeSelection;
+    public static String PreferencePage_TerminalCwdModeWorkspace;
+    public static String PreferencePage_TerminalCwdModeHome;
+    public static String PreferencePage_TerminalNoColorLabel;
+    public static String PreferencePage_TerminalTitlePrefixLabel;
     public static String PreferencePage_TestConnectionButton;
     public static String PreferencePage_TestSuccess;
     public static String PreferencePage_TestFailed;

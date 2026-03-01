@@ -39,6 +39,14 @@ public final class VibePreferenceConstants {
     /** Path to Vanessa Automation .epf */
     public static final String PREF_QA_VA_EPF_PATH = "qa.vanessaEpfPath"; //$NON-NLS-1$
 
+    // Terminal preferences
+    /** Terminal start directory mode: project|selection|workspace|home */
+    public static final String PREF_TERMINAL_CWD_MODE = "terminal.cwd.mode"; //$NON-NLS-1$
+    /** Add NO_COLOR=1 to terminal environment */
+    public static final String PREF_TERMINAL_NO_COLOR = "terminal.noColor"; //$NON-NLS-1$
+    /** Optional terminal tab title prefix */
+    public static final String PREF_TERMINAL_TITLE_PREFIX = "terminal.titlePrefix"; //$NON-NLS-1$
+
     // Claude preferences
     public static final String PREF_CLAUDE_API_KEY = "claude.apiKey"; //$NON-NLS-1$
     public static final String PREF_CLAUDE_API_URL = "claude.apiUrl"; //$NON-NLS-1$
