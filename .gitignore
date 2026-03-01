@@ -16,6 +16,8 @@ docs/*
 # Local notes
 OSS_SUMMARY.md
 AGENTS.md
+CLAUDE.md
+CLAUDE.md
 
 # QA локальная конфигурация и результаты
 tests/qa/qa-config.json
