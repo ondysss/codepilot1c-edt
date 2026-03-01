@@ -46,6 +46,8 @@ public final class VibePreferenceConstants {
     public static final String PREF_TERMINAL_NO_COLOR = "terminal.noColor"; //$NON-NLS-1$
     /** Optional terminal tab title prefix */
     public static final String PREF_TERMINAL_TITLE_PREFIX = "terminal.titlePrefix"; //$NON-NLS-1$
+    /** Always use active project as working directory */
+    public static final String PREF_TERMINAL_ALWAYS_USE_ACTIVE_PROJECT = "terminal.alwaysUseActiveProject"; //$NON-NLS-1$
 
     // Claude preferences
     public static final String PREF_CLAUDE_API_KEY = "claude.apiKey"; //$NON-NLS-1$

@@ -58,6 +58,7 @@ public class VibePreferenceInitializer extends AbstractPreferenceInitializer {
         defaults.put(VibePreferenceConstants.PREF_TERMINAL_CWD_MODE, "project"); //$NON-NLS-1$
         defaults.putBoolean(VibePreferenceConstants.PREF_TERMINAL_NO_COLOR, false);
         defaults.put(VibePreferenceConstants.PREF_TERMINAL_TITLE_PREFIX, ""); //$NON-NLS-1$
+        defaults.putBoolean(VibePreferenceConstants.PREF_TERMINAL_ALWAYS_USE_ACTIVE_PROJECT, false);
 
         // Prompt customization (empty values mean "use built-in templates")
         defaults.put(VibePreferenceConstants.PREF_PROMPT_SYSTEM_PREFIX, ""); //$NON-NLS-1$

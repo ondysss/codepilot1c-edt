@@ -110,6 +110,11 @@ public class VibePreferencePage extends FieldEditorPreferencePage implements IWo
                 true));
 
         addField(new BooleanFieldEditor(
+                VibePreferenceConstants.PREF_TERMINAL_ALWAYS_USE_ACTIVE_PROJECT,
+                Messages.PreferencePage_TerminalAlwaysUseActiveProjectLabel,
+                getFieldEditorParent()));
+
+        addField(new BooleanFieldEditor(
                 VibePreferenceConstants.PREF_TERMINAL_NO_COLOR,
                 Messages.PreferencePage_TerminalNoColorLabel,
                 getFieldEditorParent()));

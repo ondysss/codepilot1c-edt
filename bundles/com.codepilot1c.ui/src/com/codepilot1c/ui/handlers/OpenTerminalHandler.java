@@ -76,10 +76,13 @@ public class OpenTerminalHandler extends AbstractHandler {
 
         IEclipsePreferences prefs = InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID);
         String cwdMode = prefs.get(VibePreferenceConstants.PREF_TERMINAL_CWD_MODE, "project"); //$NON-NLS-1$
+        boolean alwaysUseActiveProject = prefs.getBoolean(
+                VibePreferenceConstants.PREF_TERMINAL_ALWAYS_USE_ACTIVE_PROJECT,
+                false);
         boolean noColor = prefs.getBoolean(VibePreferenceConstants.PREF_TERMINAL_NO_COLOR, false);
         String titlePrefix = prefs.get(VibePreferenceConstants.PREF_TERMINAL_TITLE_PREFIX, ""); //$NON-NLS-1$
 
-        TerminalLaunchContext context = resolveLaunchContext(event, cwdMode);
+        TerminalLaunchContext context = resolveLaunchContext(event, cwdMode, alwaysUseActiveProject);
         ISelection selection = context.selection();
         IPath workingDir = context.workingDir();
         ILauncherDelegate delegate = findLocalLauncher(selection);
@@ -113,7 +116,7 @@ public class OpenTerminalHandler extends AbstractHandler {
         return null;
     }
 
-    private static TerminalLaunchContext resolveLaunchContext(ExecutionEvent event, String cwdMode) {
+    private static TerminalLaunchContext resolveLaunchContext(ExecutionEvent event, String cwdMode, boolean alwaysUseActiveProject) {
         ISelection selection = HandlerUtil.getCurrentSelection(event);
         IStructuredSelection structured = (selection instanceof IStructuredSelection s && !s.isEmpty()) ? s : null;
 
@@ -141,7 +144,13 @@ public class OpenTerminalHandler extends AbstractHandler {
             }
         }
 
-        IProject project = resolveProject(resource);
+        IProject activeProject = resolveActiveProject(resource, structured, editorInput);
+        if (alwaysUseActiveProject && activeProject != null) {
+            return new TerminalLaunchContext(new StructuredSelection(activeProject),
+                    normalizeDir(activeProject.getLocation()));
+        }
+
+        IProject project = activeProject != null ? activeProject : resolveProject(resource);
         IPath workingDir = resolveWorkingDir(cwdMode, resource, project);
         ISelection resolvedSelection = resolveSelectionForMode(cwdMode, structured, resource, project);
 
@@ -265,6 +274,39 @@ public class OpenTerminalHandler extends AbstractHandler {
             }
         }
         return null;
+    }
+
+    private static IProject resolveActiveProject(IResource resource,
+            IStructuredSelection structured,
+            IEditorInput editorInput) {
+        if (editorInput instanceof IFileEditorInput fileInput) {
+            IProject project = fileInput.getFile().getProject();
+            if (project != null) {
+                return project;
+            }
+        }
+        if (resource != null) {
+            IProject project = resource.getProject();
+            if (project != null) {
+                return project;
+            }
+        }
+        if (structured != null && !structured.isEmpty()) {
+            Object element = structured.getFirstElement();
+            if (element instanceof IProject project) {
+                return project;
+            }
+            if (element instanceof IResource res) {
+                return res.getProject();
+            }
+            if (element instanceof IAdaptable adaptable) {
+                IResource res = adaptable.getAdapter(IResource.class);
+                if (res != null) {
+                    return res.getProject();
+                }
+            }
+        }
+        return resolveSingleProject();
     }
 
     private static String buildTitle(IPath workingDir, String prefix) {
