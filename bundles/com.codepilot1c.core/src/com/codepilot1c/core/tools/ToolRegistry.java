@@ -116,6 +116,10 @@ public class ToolRegistry {
         register(new ExternalCreateReportTool());
         register(new ExternalCreateProcessingTool());
         register(new EdtExternalSmokeTool());
+        register(new QaStatusTool());
+        register(new QaRunTool());
+        register(new QaScaffoldTool());
+        register(new QaStepsSearchTool());
 
         // Extra tools may be contributed by an overlay (e.g. Pro) via extension point.
         loadToolsFromExtensionPoint();

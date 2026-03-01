@@ -90,7 +90,11 @@ public class BuildAgentProfile implements AgentProfile {
             "update_metadata_properties",
             "delete_metadata_object",
             "edt_trace_export",
-            "edt_metadata_smoke"
+            "edt_metadata_smoke",
+            "qa_status",
+            "qa_run",
+            "qa_scaffold",
+            "qa_steps_search"
     ));
 
     @Override
@@ -147,6 +151,9 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("edt_trace_export").forAllResources(),
                 PermissionRule.allow("edt_metadata_smoke").forAllResources(),
                 PermissionRule.allow("inspect_form_layout").forAllResources(),
+                PermissionRule.allow("qa_status").forAllResources(),
+                PermissionRule.allow("qa_run").forAllResources(),
+                PermissionRule.allow("qa_steps_search").forAllResources(),
 
                 // Write tools - ask
                 PermissionRule.ask("edit_file")
@@ -211,6 +218,9 @@ public class BuildAgentProfile implements AgentProfile {
                         .forAllResources(),
                 PermissionRule.ask("delete_metadata_object")
                         .withDescription("Удаление объектов метаданных EDT")
+                        .forAllResources(),
+                PermissionRule.ask("qa_scaffold")
+                        .withDescription("Создание feature файла для тестов")
                         .forAllResources()
 	        );
 	    }

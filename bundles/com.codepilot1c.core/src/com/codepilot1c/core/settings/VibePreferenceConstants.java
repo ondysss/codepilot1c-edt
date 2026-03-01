@@ -35,6 +35,10 @@ public final class VibePreferenceConstants {
     /** Show token usage stats in chat view. */
     public static final String PREF_CHAT_SHOW_TOKEN_USAGE = "chat.showTokenUsage"; //$NON-NLS-1$
 
+    // QA preferences
+    /** Path to Vanessa Automation .epf */
+    public static final String PREF_QA_VA_EPF_PATH = "qa.vanessaEpfPath"; //$NON-NLS-1$
+
     // Claude preferences
     public static final String PREF_CLAUDE_API_KEY = "claude.apiKey"; //$NON-NLS-1$
     public static final String PREF_CLAUDE_API_URL = "claude.apiUrl"; //$NON-NLS-1$
@@ -96,6 +100,7 @@ public final class VibePreferenceConstants {
     public static final String PREF_MCP_HOST_HTTP_ENABLED = "mcp.host.http.enabled"; //$NON-NLS-1$
     public static final String PREF_MCP_HOST_HTTP_BIND_ADDRESS = "mcp.host.http.bindAddress"; //$NON-NLS-1$
     public static final String PREF_MCP_HOST_HTTP_PORT = "mcp.host.http.port"; //$NON-NLS-1$
+    public static final String PREF_MCP_HOST_AUTH_MODE = "mcp.host.auth.mode"; //$NON-NLS-1$
     public static final String PREF_MCP_HOST_POLICY_DEFAULT_MUTATION_DECISION =
         "mcp.host.policy.defaultMutationDecision"; //$NON-NLS-1$
     public static final String PREF_MCP_HOST_POLICY_EXPOSED_TOOLS = "mcp.host.policy.exposedTools"; //$NON-NLS-1$

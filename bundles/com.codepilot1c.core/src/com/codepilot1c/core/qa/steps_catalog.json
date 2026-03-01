@@ -1,0 +1,6656 @@
+{
+  "source": "vanessa-automation/locales/Steps/Templates/lv/Ext/Template.xml",
+  "language": "ru",
+  "generated_at": "2026-02-27T05:33:49.430Z",
+  "steps_count": 1078,
+  "steps": [
+    {
+      "text": "Шаг оригинал",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Описание",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Перевод шага",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Перевод описания",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Как <Роль>",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Специальный текст",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Kā <Loma>",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Speciālais teksts",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Контекст:",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Konteksts:",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Сценарий: <описание сценария>",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Scenārijs: <scenārija apraksts>",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Функционал: <описание фичи>",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Funkcionalitāte: <funkcionāla apraksts>",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Чтобы <бизнес-эффект>",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Lai <biznesa efekts>",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Я хочу <описание функционала>",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Es vēlos <funkcionāla apraksts>",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Fixtures",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Категория шагов",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Soļu kategorija",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "UI",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Активность",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Aktivitāte",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ввод на основании",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ievade pamatojoties uz...",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Видимость",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Redzamība",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Всплывающие окна",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Uznirstošie logi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Встроенный язык",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Iebūvētā valoda",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Выбор строки",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Rindas izvēle",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Выделение строк",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Rindu iezīmēšana",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Выпадающий список",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Izkrītošais saraksts",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Гиперссылки",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Hipersaites",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Группы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Grupas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Добавить строку",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pievienot rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Доступность",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pieejamība",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Заголовок",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Virsraksts",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Заполненность",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Aizpildījums",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Значение поля",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Lauka nozīme",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Иерархический список",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Hierarhiskais saraksts",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Имя формы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Formas vārds",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Календарь",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Kalendārs",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Кнопки",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pogas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Количество строк",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Rindu skaits",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Командный интерфейс",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Komandu interfeiss",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Контекст",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Konteksts",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Контекст сохраняемый",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Konteksts saglabājamais",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Контекстное меню",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Konteksta izvēlne",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Новое подключение к той же базе, где запущен TestManager",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Jauna pieslēgšanās tai pašai bāzei, kur palaists TestManager",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Нумерация",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Numerācija",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Область чтения",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Lasīšanas apgabals",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ожидание значения",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Nozīmes gaidīšana",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ожидание значения таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Tabulas nozīmes gaidīšana",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ожидание значения элемента",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Elementa nozīmes gaidīšana",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ожидание появления элемента",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Elementa parādīšanās gaidīšana",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Окна",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Logi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Открыть форму объекта",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Atvērt objekta formu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Отчеты",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Atskaites",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Перебор строк",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Rindu izvēle",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Переключатели",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pārslēdzēji",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Переход к строке",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pāreja uz rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Подключение TestClient",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "TestClient pieslēgšana",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Подсказка",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Uzvedne",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Поля",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Lauki",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Проверка видимости",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Redzamības pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Проверка значения",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Nozīmes pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Проверка значения поля",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Lauka nozīmes pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Проверка значения таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Tabulas nozīmes pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Проверка колонки",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Kolonnas pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Проверка существования",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Esamības pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Просмотр",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pārlūkošana",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Прочее",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pārējais",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Прочитать значение",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Nolasīt nozīmi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Работа с подключенными TestClient",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Darbs ar pieslēgtiem TestClient",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Развернуть/Свернуть",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Izvērst/Sakļaut",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Редактирование строки",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Rindas rediģēšana",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Реквизиты",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Rekvizīti",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Содержит значения",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Satur nozīmes",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Содержит строки",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Satur rindas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Сообщения пользователю",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ziņojumi lietotājam",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Сохранить в файл",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Saglabāt failā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Сохранить значение",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Saglabāt nozīmi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Строки",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Rindas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Tabulas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Табличный документ",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Tabulas dokuments",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Удаление строк",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Rindu dzēšana",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Удалить строку",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dzēst rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Файлы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Faili",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Фильтр",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Filtrs",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Флаги",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Karodziņi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Формы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Formas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ячейки",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Šūnas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Табличный документ \"%1 РеквизитТабличныйДокумент\" стал равен макету \"%2 ИмяМакета\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Шаг позволяет проверить, что макет на форме соответствует эталону.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Tabulas dokuments \"%1 RekvizītsTabulasDokuments\" kļuva vienāds ar maketu \"%2 MaketaVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Solis ļauj pārbaudīt, ka makets uz formas atbilst etalonam.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Я открываю навигационную ссылку \"%1 e1cib/data/Справочник.Справочник1?ref=ad018df0619b11d5458a440b8c472f30\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Открывает навигационную ссылку. Аналог Shift+F11",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Es atveru navigācijas saiti \"%1 e1cib/data/Katalogs.Katalogs1?ref=ad018df0619b11d5458a440b8c472f30\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Atver navigācijas saiti. Analogs Shift+F11",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Я открываю основную форму отчета \"%1 Отчет1\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Открывает форму отчета по его имени в метаданных",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Es atveru atskaites \"%1 Atskaite1\" pamatformu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Atver atskaites formu pēc tās vārda metadatos",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Я открываю основную форму регистра накопления \"%1 РегистрНакопления1\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Открывает основную форму регистра накопления по его имени в метаданных",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Es atveru uzkrājuma reģistra \"%1 UzkrājumaReģistrs1\" pamatformu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Atver uzkrājumu reģistra pamatformu pēc tā vārda metadatos",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Я открываю основную форму регистра сведений \"%1 РегистрСведений1\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Dots Es atveru ziņu reģistra \"%1 ZiņuReģistrs1\" pamatformu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Затем я жду что в сообщениях пользователю будет подстрока \"%1 Нужное мне значение\" в течении \"%2 30\" секунд",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Ждет появления в сообщениях пользователю подстроки в течении нужного времени",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pēc tam es gaidu ka ziņojumos lietotājam būs apakšrinda \"%1 Man vajadzīgā nozīme\" \"%2 30\" sekunžu laikā",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Gaida, kad ziņojumos lietotājam parādīsies apakšrinda vajadzīgā laika gaitā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в поле \"%1 ИмяПоля\" я ввожу значение выражения \"%2 1+1\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Вычисляет выражение и вводит результат в поле",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un laukā \"%1 LaukaVārds\" es ievadu izteiksmes nozīmi \"%2 1+1\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Aprēķina izteiksmi un ievada rezultātu laukā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в поле с именем \"%1 ИмяПоля\" я ввожу значение выражения \"%2 1+1\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un laukā ar vārdu \"%1 LaukaVārds\" es ievadu izteiksmes nozīmi \"%2 1+1\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И в сообщениях пользователю нет одинаковых сообщений",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Проверяет, что каждое сообщение пользователю встречается только один раз",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un ziņojumos lietotājam nav vienādu ziņojumu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pārbauda, ka katrs ziņojums lietotājam sastopams tikai vienu reizi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В таблице \"%1 ИмяТаблицы\" поле с именем \"%2 ИмяРеквизита\" доступно не только для просмотра",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Проверка установленного флага \"Только просмотр\" для реквизита в таблице",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Tabulā\"%1 TabulasVārds\" lauks ar vārdu \"%2 RekvizītaVārds\" pieejams ne tikai pārlūkošanai",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Uzstādīta karodziņa \"Tikai pārlūkošana\" pārbaude rekvizītam tabulā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И область \"%1 R1C1:R10C10\" табличного документа \"%2 ТабДок\" соответствует макету \"%3 ИмяТабличногоДокумента\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Сравнивает значения указанной области макета с эталоном. Макет ищется сначала в обработке фича файла, затем в каталоге проекта.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulas dokumenta \"%2 TabDok\" apgabals \"%1 R1C1:R10C10\" atbilst maketam \"%3 TabulasDokumentaVārds\"",
+      "placeholders": [
+        "%2",
+        "%1",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Salīdzina norādītā maketa apgabala nozīmes ar etalonu. Makets tiek meklēts vispirms faila funkcionāla apstrādē, pēc tam projekta katalogā.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И обратите внимание \"%1 Текст обратите внимание\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Выводит в автовидеоинструкцию нужный текст.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un pievērsiet uzmanību \"%1 Teksts pievērsiet uzmanību\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Izvada autovideoinstrukcijā vajadzīgo tekstu.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И у группы страниц \"%1 ГруппаСтраниц\" текущая страница \"%2 ИмяСтраницы\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Проверяет что у заданной группы текущей страницей является указанная",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un lappušu grupai \"%1 LappušuGrupa\" pašreizējā lappuse \"%2 LappusesVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Pārbauda, ka uzdotajai grupai pašreizējā lappuse ir norādītā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я выбираю пункт контекстного меню \"%1 ИмяПунктаМеню\" на элементе формы \"%2 ЭлементФормы\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Выбирает нужный пункт контекстного меню у элемента формы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es izvēlos kontekstizvēlnes punktu \"%1 IzvēlnesPunktaVārds\" uz formas elementa \"%2 FormasElements\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Izvēlas vajadzīgo formas elementa kontekstizvēlnes punktu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я выбираю пункт контекстного меню \"%1 ИмяПунктаМеню\" на элементе формы с именем \"%2 ЭлементФормы\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un es izvēlos kontekstizvēlnes punktu \"%1 IzvēlnesPunktaVārds\" uz formas elementa ar vārdu \"%2 FormasElements\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И я жду открытия окна \"%1 Имя окна\" в течении \"%2 600\" секунд",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Ожидает, что окно появится в течении указанного числа секунд",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Es gaidu loga \"%1 Loga vārds\" atvēršanu \"%2 600\" sekunžu laikā",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Gaida, ka logs parādīsies norādītā sekunžu daudzuma laikā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я жду что таблица \"%1 ИмяТаблицы\" станет равна данной в течении \"%2 20\" секунд",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Проверяет, что таблица TestClient станет равной таблице Gherkin в течении нужного числа секунд",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es gaidu ka tabula \"%1 TabulasVārds\" kļūs vienāda ar doto \"%2 20\" sekunžu laikā",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Pārbauda, ka tabula TestClient kļūst vienāda ar tabulu Gherkin vajadzīgā sekunžu daudzuma laikā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я жду что у группы страниц \"%1 ГруппаСтраниц\" текущей страницей станет \"%2 ИмяСтраницы\" в течении \"%3 20\" секунд",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Ожидает, что у заданной группы текущей страницей станет нужная группа в течении указанного числа секунд",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un lappušu grupai \"%1 LappušuGrupa\" par pašreizējo lappusi kļūs \"%2 LappusesVārds\" \"%3 20\" sekunžu laikā",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Gaida, ka uzdotajai grupai par pašreizējo lappusi kļūs vajadzīgā grupa norādītajā sekunžu daudzuma laikā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Когда Я задаю параметры считывания макета НачСтр \"%1 1\" НачКол \"%2 1\" КолСтр \"%3 100\" КолКол \"%4 20\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3",
+        "%4"
+      ],
+      "params_count": 4
+    },
+    {
+      "text": "Указывает область чтения макета, когда он считывается по одной ячейке из данных TestClient",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Kad Es uzdodu maketa nolasīšanas parametrus \"R1C1:R100C20\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Norāda maketa lasīšanas apgabalu, kad tas tiek nolasīts pēc vienas šūnas no TestClient datiem",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Я открыл новый сеанс TestClient или подключил уже существующий",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Открывает новый TesClient в той же базе, что и TestManager или подключает уже существующий",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Es atvēru jaunu seansu TestClient vai pieslēdzu jau esošo",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Atver jaunu TesClient tajā pašā bāzē, kur ir TestManager vai pieslēdz jau esošo",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Я запускаю сценарий открытия TestClient или подключаю уже существующий",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Подключает новый TestClient если необходимо и закрывает в нём все окна",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Es palaižu TestClient atvēršanas scenāriju vai pieslēdzu jau esošo",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pieslēdz jaunu TestClient, ja nepieciešams, un aizver tajā visus logus",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Когда Я нажимаю кнопку командного интерфейса \"%1 Имя кнопки\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Нажимает на кнопку командного интерфейса",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es nospiežu komandu interfeisa pogu \"%1 Pogas vārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Nospiež komandu interfeisa pogu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Когда В панели разделов я выбираю \"%1 ИмяКоманды\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Нажатие кнопки на панели разделов",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Kad Uz sadaļu paneļa es izvēlos \"%1 KomandasVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Sadaļu paneļa pogas nospiešana",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В панели функций я выбираю \"%1 ИмяКоманды\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Нажатие кнопки на панели функций",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Uz funkciju paneļa es izvēlos \"%1 KomandasVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Funkciju paneļa pogas nospiešana",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Тогда открылось окно \"%1 ИмяФормы\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверяет, что на экране есть активное окно с нужым заголовком",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Tad atvērās logs \"%1 FormasVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbauda, ka uz ekrāna ir aktīvs logs ar vajadzīgo virsrakstu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в поле с именем \"%1 ИмяПоля\" я ввожу текст \"%2 Значение поля\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Вводит текст в поле",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un laukā ar vārdu \"%1 LaukaVārds\" es ievadu tekstu \"%2 Lauka nozīme\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Ievada laukā tekstu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я открываю выпадающий список с именем \"%1 ИмяСписка\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Открывает выпадающий список",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es atveru izkrītošo sarakstu ar vārdu \"%1 SarakstaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Atver izkrītošo sarakstu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я нажимаю кнопку выбора у поля с именем \"%1 ИмяПоля\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Нажимает на кнопку выбора у поля",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es nospiežu izvēles pogu pie lauka ar vārdu \"%1 LaukaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Nospiež izvēles pogu pie lauka",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И из выпадающего списка с именем \"%1 МойВыпадающийСписок\" я выбираю \"%2 ЗначениеИзСписка\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Выбор из выпадающего списка",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un no izkrītošā saraksta ar vārdu \"%1 MansIzkrītošaisSaraksts\" es izvēlos \"NozīmeNoSaraksta\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Izvēle no izkrītošā saraksta",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 ИмяТаблицы\" я нажимаю на кнопку \"%2 Добавить\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Нажимает на кнопку таблицы. Кнопка ищется по заголовку.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 TabulasVārds\" es nospiežu pogu \"%2 Pievienot\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Nospiež tabulas pogu. Poga tiek meklēta pēc virsraksta.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 ИмяТаблицы\" в поле \"%2 ИмяПоля\" я ввожу текст \"%3 НужныйМнеТекст\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Ввод текста в поле таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 TabulasVārds\" laukā \"%2 LaukaVārds\" es ievadu tekstu \"%3 ManVajadzīgaisTeksts\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Teksta ievade tabulas laukā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В таблице \"%1 ИмяТаблицы\" я завершаю редактирование строки",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Завершение редактирования строки",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 TabulasVārds\" es pabeidzu rindas rediģēšanu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Rindas rediģēšanas beigas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я нажимаю на кнопку \"%1 Создать\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Нажимает на кнопку с нужным заголовокм",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es nospiežu pogu \"%1 Izveidot\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Nospiež pogu ar vajadzīgo virsrakstu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано В активном окне открылась форма с заголовком \"%1 Заголовок формы\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Шаг проверяет, что в активном окне есть нужная форма.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Aktīvajā logā atvērās forma ar virsrakstu \"%1 Formas virsraksts\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Solis pārbauda, ka aktīvajā logā ir vajadzīgā forma.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано В последнем сообщении TestClient есть строка \"%1 Стр\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Шаг позволяет проверить содержание самого нового сообщения пользователю.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Pēdējā TestClient ziņojumā ir rinda \"%1 Rinda\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Solis ļauj pārbaudīt paša jaunākā ziņojuma lietotājam saturu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Ожидаем завершения фонового формирования отчета в течение \"%1 10\" секунд",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Шаг ждёт указанное время, что завершились активные фоновые задания.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Gaidām atskaites fona sastādīšanas beigas \"%1 10\" sekunžu laikā",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Solis gaida norādīto laiku, kad aktīvie fona uzdevumi pabeigti.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Открылось окно предупреждения с заголовком \"%1 Заголовок\" и текстом \"%2 Текст\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Шаг проверяет, что сейчас на экране появилось окно предупреждения.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Atvēries brīdinājuma logs ar virsrakstu \"%1 Virsraksts\" un tekstu \"%2 Teksts\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Solis pārbauda, ka tagad uz ekrāna parādījies brīdinājuma logs.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Табличный документ формы с именем \"%1 РеквизитТабличныйДокумент\" стал равен макету с именем \"%2 ИмяМакета\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Dots Formas tabulas dokuments ar vārdu \"%1 RekvizītsTabulasDokuments\" kļuva vienāds ar maketu ar vārdu \"%2 MaketaVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Дано Я открываю основную форму обработки \"%1 Обработка1\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Открывает форму обработки по её имени в метаданных",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Es atveru apstrādes pamatformu \"%1 Apstrāde1\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Atver apstrādes formu pēc tās vārda metadatos",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Я открываю основную форму списка документа \"%1 Документ1\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Открывает основную форму списка документа по его имени в метаданных",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Es atveru dokumenta \"%1 Dokuments1\" saraksta pamatformu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Atver dokumenta saraksta pamatformu pēc tā vārda metadatos",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Я открываю основную форму списка справочника \"%1 Справочник1\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Открывает основную форму списка справочника по его имени в метаданных",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Es atveru kataloga \"%1 Katalogs1\" saraksta pamatformu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Atver kataloga saraksta pamatformu pēc tā vārda metadatos",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Я открыл сеанс TestClient от имени \"%1 МойПользователь\" с паролем \"%2 МойПароль\" или подключаю уже существующий",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Позволяет подключить TestClient с нужным логином и паролем в тойже базе, в которой запущен TestManager",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Es atvēru seansu TestClient ar vārdu \"%1 MansLietotājs\" ar paroli \"%2 ManaParole\" vai pieslēdzu jau eksistējošo",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Ļauj pieslēgt TestClient ar vajadzīgo login un paroli tajā pašā bazē, kur palaists TestManager",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Если \"%1 Истина\" тогда",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Условие. Проверяет выражение встроенного языка",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ja \"%1 Īsts\" tad",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Nosacījums. Pārbauda iebūvetās valodas izteiksmi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Если в окне предупреждения нет текста \"%1 Нужный текст\" тогда",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Условие. Истинно, когда в окне предупреждения нет искомого текста.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ja brīdinājuma logā nav teksta \"%1 Vajadzīgais teksts\" tad",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Nosacījums. Īsts, kad brīdinājuma logā nav meklējamā teksta.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Если в таблице \"%1 ИмяТаблицы\" есть строка Тогда | 'Реквизит строка' | | '2' |",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Условие. Истинно, если в таблице есть нужная строка/строки.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ja tabulā \"%1 TabulasVārds\" ir rinda Tad | 'Rekvizīts rinda' | | '2' |",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Nosacījums. Īsts, ja tabulā ir vajadzīgā rinda/rindas.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Если в таблице \"%1 ИмяТаблицы\" количество строк \"%2 меньше или равно\" \"%3 2\" Тогда",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Условие. Проверяет количество строк в таблице",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ja tabulā \"%1 TabulasVārds\" rindu daudzums \"%2 mazāks vai vienāds\" \"%3 2\" Tad",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Nosacījums. Pārbauda rindu daudzumu tabulā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Если в текущем окне есть сообщения пользователю Тогда",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Условие. Проверяет, что в текущем окне есть сообщения пользователю.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ja pašreizējā logā ir ziņojums lietotājam Tad",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Nosacījums. Pārbauda, ka pašreizējā logā ir ziņojumi lietotājam.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Если Версия платформы \"%1 >=\" \"%2 8.3.6\" Тогда",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Условие. Проверяет версию платформы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ja Platformas versija \"%1 >=\" \"%2 8.3.6\" Tad",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Nosacījums. Pārbauda platformas versiju",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Если имя текущей формы \"%1 ПечатьДокументов\" Тогда",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Условие. Проверяет имя текущей формы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ja pašreizējās formas vārds ir \"%1 DokumentuDruka\" Tad",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Nosacījums. Pārbauda pašreizējās formas vārdu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Если поле \"%1 ИмяПоля\" имеет значение \"%2 тест\" тогда",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Условие. Проверяет значение поля.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ja laukam \"%1 LaukaVārds\" ir nozīme \"%2 tests\" tad",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Nosacījums. Pārbauda lauka nozīmi.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Если поле с именем \"%1 ИмяПоля\" имеет значение \"%2 тест\" тогда",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Ja laukam ar vārdu \"%1 LaukaVārds\" ir nozīme \"%2 tests\" tad",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Если появилось окно с заголовком \"%1 ИмяОкна\" Тогда",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Условие. Проверяет, что на экране есть активное окно с нужным заголовком",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ja parādījās logs ar virsrakstu \"%1 LogaVārds\" Tad",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Nosacījums. Pārbauda, ka uz ekrāna ir aktīvs logs ar vajadzīgo virsrakstu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Если появилось окно с заголовком из таблицы Тогда",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Условие. Проверяет, что есть окно с заголовком из таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ja parādījās logs ar virsrakstu no tabulas Tad",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Nosacījums. Pārbauda, ka ir logs ar virsrakstu no tabulas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Если текущее окно \"%1 не равно\" ожидаемому окну \"%2 НужноеОкно\" Тогда",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Условие. Проверяет что текущее окно равно/неравно нужному окну, которое запомнили ранее",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ja pašreizējais logs \"%1 nav vienāds\" ar gaidāmo logu \"%2 VajadzīgaisLogs\" Tad",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Nosacījums. Pārbauda, ka pašreizējais logs vienāds/nav vienāds ar vajadzīgo logu, kurš iegaumēts iepriekš",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Если элемент \"%1 ИмяЭлементаФормы\" не присутствует на форме Тогда",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Условие. Проверяет видимость элемента на форме",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ja elements \"%1 FormasElementaVārds\" nav uz formas Tad",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Nosacījums. Pārbauda elementa redzamību uz formas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Если элемент \"%1 ИмяЭлементаФормы\" присутствует на форме Тогда",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Ja elements \"%1 FormasElementaVārds\" ir uz formas Tad",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Если это не начальная страница Тогда",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Условие. Проверяет, то текущее окно это не начальная страница",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ja tā nav sākumlapa Tad",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Nosacījums. Pārbauda, ka pašreizējais logs nav sākumlapa",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Затем Если появилось окно диалога я нажимаю на кнопку \"%1 ИмяКнопки\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Если на экране появилось диалоговое окно - нажимает на нужную кнопку.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pēc tam Ja parādījās dialoga logs es nospiežu pogu \"%1 PogasVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Ja uz ekrāna parādījies dialoga logs - nospiež vajadzīgo pogu.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Затем я останавливаю выполнение шагов",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Останавливает выполнение шагов",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pēc tam es apturu soļu izpildi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Aptur soļu izpildi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В панели функций в группе \"%1 Основное\" я выбираю \"%2 ИмяКоманды\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Нажатие кнопки на панели функций нужной группы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Uz funkciju paneļa grupā \"%1 Pamata\" es izvēlos \"%2 KomandasVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Pogas nospiešana uz vajadzīgās grupas funkciju paneļa",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в поле \"%1 ИмяПоля\" я ввожу текст \"%2 Значение поля\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un laukā \"%1 LaukaVārds\" ievadu tekstu \"%2 Lauka nozīme\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И в поле \"%1 ИмяПоля\" ввожу значение глобального ключа \"%2 Ключ\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Вставка значения ранее сохраненного ключа в реквизит",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un laukā \"%1 LaukaVārds\" ievadu globālās atslēgas nozīmi \"%2 Atslēga\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Iepriekš saglabātās atslēgas nozīmes ievietošana rekvizitā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в поле \"%1 ИмяПоля\" ввожу значение глобальной переменной \"%2 НомерДокумента\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Вставка значения ранее сохраненной переменной в реквизит",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un laukā \"%1 LaukaVārds\" ievadu globālā mainīgā nozīmi \"%2 DokumentaNumurs\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Iepriekš saglabātā mainīgā nozīmes ievietošana rekvizitā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в поле \"%1 ИмяПоля\" ввожу значение ключа \"%2 Номер документа\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Вставка значения ранее сохраненного произвольного ключа в реквизит",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un laukā \"%1 LaukaVārds\" ievadu atslēgas nozīmi \"%2 Dokumenta numurs\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Iepriekš saglabātās izvēlētās atslēgas nozīmes ievietošana rekvizitā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в поле \"%1 ИмяПоля\" ввожу значение переменной \"%2 ИмяПеременной\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un laukā \"%1 LaukaVārds\" ievadu mainīgā nozīmi \"%2 MainīgāVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И в поле с именем \"%1 ИмяПоля\" ввожу значение глобального ключа \"%2 Ключ\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un laukā ar vārdu \"%1 LaukaVārds\" ievadu globālās atslēgas nozīmi \"%2 DokumentaNumurs\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И в поле с именем \"%1 ИмяПоля\" ввожу значение глобальной переменной \"%2 НомерДокумента\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un laukā ar vārdu \"%1 LaukaVārds\" ievadu globālā mainīgā nozīmi \"%2 DokumentaNumurs\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И в поле с именем \"%1 ИмяПоля\" ввожу значение ключа \"%2 Номер документа\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un laukā ar vārdu \"%1 LaukaVārds\" ievadu atslēgas nozīmi \"%2 Dokumenta numurs\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И в поле с именем \"%1 ИмяПоля\" ввожу значение переменной \"%2 ИмяПеременной\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un laukā ar vārdu \"%1 LaukaVārds\" ievadu mainīgā nozīmi \"%2 DokumentaNumurs\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я начинаю редактирование строки",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Начало редактирования строки",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es sāku rindas rediģēšanu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Rindas rediģēšanas sākums",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я перехожу на один уровень вверх",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Переход на один уровень вверх в списке в режиме \"Иерархический список\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es pāreju vienu līmeni austāk",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pāreja par vienu līmeni uz augšu sarakstā režīmā \"Hierarhiskais saraksts\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я перехожу на один уровень вниз",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Переход на один уровень вниз в списке в режиме \"Иерархический список\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es pāreju vienu līmeni zemāk",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pāreja par vienu līmeni uz leju sarakstā režīmā \"Hierarhiskais saraksts\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я перехожу на одну строку вверх",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Переходим в таблице на предыдущую строку",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es pāreju vienu rindu augstāk",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārejam tabulā uz iepriekšējo rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В таблице \"%1 Список\" я перехожу на одну строку вверх с выделением",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Переходим в таблице на предыдущую строку с выделением",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Tabulā \"%1 Saraksts\" es pāreju vienu rindu augstāk ar iezīmēšanu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārejam tabulā uz iepriekšējo rindu ar iezīmēšanu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я перехожу на одну строку вниз",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Переходим в таблице на следующую строку",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es pāreju vienu rindu zemāk",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārejam tabulā uz nākamo rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В таблице \"%1 Список\" я перехожу на одну строку вниз с выделением",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Переходим в таблице на следующую строку с выделением",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Tabulā \"%1 Saraksts\" es pāreju vienu rindu zemāk ar iezīmēšanu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārejam tabulā uz nākamo rindu ar iezīmēšanu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Отборы\" я активизирую поле \"%2 ИмяПоля\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Активизирует поле таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Atlases\" es aktivizēju lauku \"%2 LaukaVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Aktivizē tabulas lauku",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Отборы\" я активизирую поле с именем \"%2 ИмяПоля\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un tabulā \"%1 Atlases\" es aktivizēju lauku ar vārdu \"%2 LaukaVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я выбираю текущую строку",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Выбор текущей строки с указанием таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es izvēlos pašreizējo rindu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Aktuālās rindas izvēle ar tabulas norādīšanu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я добавляю строку",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Добавление строки",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es pievienoju rindu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Rindas pievienošana",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я перехожу к первой строке",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Переход к первой строке данной таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es pāreju uz pirmo rindu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pāreja uz dotās tabulas pirmo rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я перехожу к последней строке",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Переход к последней строке данной таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es pāreju uz pēdējo rindu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pāreja uz dotās tabulas pēdējo rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я перехожу к предыдущей строке",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Переход к предыдущей строке данной таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es pāreju uz iepriekšējo rindu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pāreja uz dotās tabulas iepriekšējo rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я перехожу к следующей строке",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Переход к следующей строке данной таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es pāreju uz nākamo rindu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pāreja uz dotās tabulas nakamo rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я перехожу к строке | Наименование | | Товар1 |",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Переход к нужной строке данной таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es pāreju uz rindu: | Nosaukums | | Prece1 |",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pāreja uz dotās tabulas vajadzīgo rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я удаляю строку",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Удаление строки",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es dzēšu rindu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Rindas dzēšana",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 ИмяТаблицы\" в поле с именем \"%2 ИмяПоля\" я ввожу текст \"%3 НужныйМнеТекст\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Un tabulā \"%1 TabulasVārds\" laukā ar vārdu \"%2 LaukaVārds\" es ievadu tekstu \"%3 ManVajadzīgaisTeksts\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "И в таблице \"%1 ИмяТаблицы\" из выпадающего списка \"%2 ИмяПоля\" я выбираю \"%3 ЗначениеПоля\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Выбор значения из выпадающего списка",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 TabulasVārds\" no izkrītošā saraksta \"%2 LaukaVārds\" es izvēlos \"%3 ТestaElements21\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Nozīmes izvēle no izkrītošā saraksta",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 ИмяТаблицы\" из выпадающего списка с именем \"%2 ИмяПоля\" я выбираю \"%3 ЗначениеПоля\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Un tabulā \"%1 TabulasVārds\" no izkrītošā saraksta ar vārdu \"%2 LaukaVārds\" es izvēlos \"%3 ТestElement21\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "И в таблице \"%1 ИмяТаблицы\" поле \"%2 ИмяФлага\" имеет значение \"%3 Да\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Проверка значения поля текущей строки таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 TabulasVārds\" laukam \"%2 KarodziņaVārds\" ir nozīme \"%3 Jā\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Tabulas pašreizējās rindas lauka nozīmes pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 ИмяТаблицы\" я выбираю значение реквизита \"%2 Реквизит справочник выбор из формы списка\" из формы списка",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Выбор значения реквизита из выпадающего списка",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 TabulasVārds\" es izvēlos rekvizīta nozīmi \"%2 Rekvizīts katalogs izvēle no saraksta formas\" no saraksta formas",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Rekvizīta nozīmes izvēle no izkrītošā saraksta",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 ИмяТаблицы\" я выбираю значение реквизита с именем \"%2 Реквизит справочник выбор из формы списка\" из формы списка",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un tabulā \"%1 TabulasVārds\" es izvēlos rekvizīta nozīmi ar vārdu \"%2 Rekvizīts katalogs izvēle no saraksta formas\" no saraksta formas",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И в таблице \"%1 ИмяТаблицы\" я изменяю флаг \"%2 ИмяФлага\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Изменяет текущее состояние флага",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 TabulasVārds\" es mainu karodziņu ar vārdu \"%2 KarodziņaVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Maina karodziņa pašreizējo stāvokli",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 ИмяТаблицы\" я изменяю флаг с именем \"%2 ИмяФлага\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И в таблице \"%1 ИмяТаблицы\" я нажимаю на кнопку с именем \"%2 Добавить\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Нажимает на кнопку таблицы. Кнопка ищется по имени.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 TabulasVārds\" es nospiežu pogu ar vārdu \"%2 Pievienot\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Nospiež tabulas pogu. Poga tiek meklēta pēc vārda.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 ИмяТаблицы\" я удаляю текущую строку",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Удаляет текущую строку таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 TabulasVārds\" es dzēšu pašreizējo rindu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Dzēš tabulas pašreizējo rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в Таблицу \"%1 ИмяТаблицы\" в поле \"%2 ИмяПоля\" ввожу значение переменной \"%3 ИмяПеременной\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Un Tabulā \"%1 TabulasVārds\" laukā \"%2 LaukaVārds\" ievadu mainīgā nozīmi \"%3 MainīgāVārds\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Iepriekš saglabātā mainīgā nozīmes ievietošana rekvizītā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В таблице \"%1 Список\" я перехожу на первую строку",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Переходим в ТЧ на первую строку",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Tabulā \"%1 Saraksts\" es pāreju uz pirmo rindu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārejam TD uz pirmo rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В таблице \"%1 Список\" я перехожу на последнюю строку",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Переходим в ТЧ на последнюю строку",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Tabulā \"%1 Saraksts\" es pāreju uz pēdējo rindu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārejam TD uz pēdējo rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В таблице \"%1 ИмяТаблицы\" поле \"%2 ИмяРеквизита\" доступно",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Проверка доступности элемента таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Tabulā \"%1 TabulasVārds\" lauks \"%2 RekvizītaVārds\" pieejams",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Tabulas elementa pieejamības pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В таблице \"%1 ИмяТаблицы\" поле \"%2 ИмяРеквизита\" доступно только для просмотра",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un Tabulā \"%1 TabulasVārds\" lauks \"%2 RekvizītaVārds\" pieejams tikai pārlūkošanai",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И В таблице \"%1 ИмяТаблицы\" поле \"%2 ИмяРеквизита\" не доступно",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Проверка не доступности элемента таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Tabulā \"%1 TabulasVārds\" lauks \"%2 RekvizītaVārds\" nav pieejams",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Tabulas elementa nepieejamības pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В таблице \"%1 ИмяТаблицы\" поле с именем \"%2 ИмяРеквизита\" доступно",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un Tabulā \"%1 TabulasVārds\" lauks ar vārdu \"%2 RekvizītaVārds\" pieejams",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un Tabulā \"%1 TabulasVārds\" lauks ar vārdu \"%2 RekvizītaVārds\" pieejams ne tikai pārlūkošanai",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И В таблице \"%1 ИмяТаблицы\" поле с именем \"%2 ИмяРеквизита\" не доступно",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un Tabulā \"%1 TabulasVārds\" lauks ar vārdu \"%2 RekvizītaVārds\" nav pieejams",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И в таблице \"%1 ИмяТаблицы\" я снимаю флаг \"%2 ИмяФлага\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Устанавливает флаг в Ложь",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Tabulā \"%1 TabulasVārds\" es noņemu karodziņu \"%2 KarodziņaVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Uzstāda karodziņu Neīsts",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 ИмяТаблицы\" я устанавливаю флаг \"%2 ИмяФлага\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Устанавливает флаг в Истина",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Tabulā \"%1 TabulasVārds\" es atzīmēju karodziņu \"%2 KarodziņaVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Uzstāda karodziņu Īsts",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В таблице \"%1 ИмяТаблицы\" поле с именем \"%2 ИмяПоля\" доступно только для просмотра",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un Tabulā \"%1 TabulasVārds\" lauks ar vārdu \"%2 LaukaVārds\" pieejams tikai pārlūkošanai",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Uzstādīta karodziņa \"Tikai pārlūkošana\" pārbaude rekvizītam TD",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И из выпадающего списка \"%1 ИмяПоля\" я выбираю \"%2 ЗначениеПоля\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un no izkrītošā saraksta \"%1 LaukaVārds\" es izvēlos \"%2 LaukaNozīme\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И Пауза \"%1 1\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Позволяет сделать паузу нужной длительности.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Pauze \"%1 1\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Ļauj ieturēt vajadzīgā ilguma pauzi.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И поле \"%1 Имя поля\" не существует",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверка не существования поля",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un lauks \"%1 LaukaVārds\" neeksistē",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Lauka neesamības pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И поле \"%1 Имя поля\" отсутствует на форме",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверка невидимости поля",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un lauks \"%1 LaukaVārds\" nav uz formas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Lauka neredzamības pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И поле \"%1 Имя поля\" присутствует на форме",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверка видимости поля",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un lauks \"%1 LaukaVārds\" ir uz formas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Lauka redzamības pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И поле \"%1 Имя поля\" существует",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверка существования поля",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un lauks \"%1 LaukaVārds\" eksistē",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Lauka esamības pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И поле с именем \"%1 ИмяПоля\" имеет заголовок \"%2 Заголовок\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Проверка, что у поля нужный заголовок. Поле ищется по внутреннему идентификатору.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un laukam ar vārdu \"%1 LaukaVārds\" ir virsraksts \"%2 Virsraksts\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Pārbaude, ka laukam ir vajadzīgais virsraksts. Lauks tiek meklēts pēc iekšējā identifikatora.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И поле с именем \"%1 ИмяПоля\" не существует",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un lauks ar vārdu \"%1 LaukaVārds\" neeksistē",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И поле с именем \"%1 ИмяПоля\" отсутствует на форме",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un lauks ar vārdu \"%1 LaukaVārds\" nav uz formas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И поле с именем \"%1 ИмяПоля\" присутствует на форме",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un lauks ar vārdu \"%1 LaukaVārds\" ir uz formas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И поле с именем \"%1 ИмяПоля\" существует",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un lauks ar vārdu \"%1 LaukaVārds\" eksistē",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И таблица формы с именем \"%1 ИмяТаблицы\" содержит строки",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверяет, что таблица TestClient содержит строки таблицы Gherkin",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un formas tabula ar vārdu \"%1 TabulasVārds\" satur rindas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbauda, ka tabula TestClient satur tabulas Gherkin rindas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И таблица формы с именем \"%1 ИмяТаблицы\" стала равной",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверяет, что таблица TestClient стала равна таблице Gherkin",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un formas tabula ar vārdu \"%1 TabulasVārds\" kļuva vienāda",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbauda, ka tabula TestClient kļuvusi vienāda ar tabulu Gherkin",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И табличный документ формы с именем \"%1 РеквизитТабличныйДокумент\" стал пустым",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверяет, что табличный документ пустой",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un formas tabulas dokuments ar vārdu \"%1 RekvizītsTabulasDokuments\" kļuva tukšs",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbauda, ka tabulas dokuments ir tukšs",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И табличный документ формы с именем \"%1 РеквизитТабличныйДокумент\" стал равен",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверяет равенство табличного документа переданной таблице Gherkin. Необходимо указать параметры считывания макета.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un formas tabulas dokuments ar vārdu \"%1 RekvizītsTabulasDokuments\" kļuva vienāds",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbauda vai tabulas dokuments vienāds ar nodoto tabulu Gherkin",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И у поля \"%1 Имя поля\" я перехожу к дате \"%2 08.04.1981\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Делает переход к дате в поля календаря",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un pie lauka \"%1 Lauka vārds\" es pāreju uz datumu \"%2 08.04.1981.\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Veic pāreju uz datumu kalendāra laukos",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И у поля \"%1 ИмяПоля\" я выбираю пункт контекстного меню \"%2 ИмяПунктаМеню\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Выбирает нужный пункт контекстного меню у поля",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un pie lauka \"%1 LaukaVārds\" es izvēlos kontekstizvēlnes punktu \"%2 IzvēlnesPunktaVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Izvēlas vajadzīgo kontekstizvēlnes punktu pie lauka",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И у поля с именем \"%1 ИмяПоля\" я выбираю пункт контекстного меню \"%2 ИмяПунктаМеню\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un pie lauka ar vārdu \"%1 LaukaVārds\" es izvēlos kontekstizvēlnes punktu \"%2 IzvēlnesPunktaVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И у поля с именем \"%1 ИмяПоля\" я перехожу к дате \"%2 08.04.1981\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un pie lauka ar vārdu \"%1 LaukaVārds\" es pāreju uz datumu \"%2 08.04.1981.\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И у поля с именем \"%1 ИмяПоля\" текст подсказки равен \"%2 Заголовок\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Проверка, что у поля нужный текст подсказки. Поле ищется по внутреннему идентификатору.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un laukam ar vārdu \"%1 LaukaVārds\" uzvednes teksts vienāds \"%2 Virsraksts\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Pārbaude, ka laukam ir vajadzīgais uzvednes teksts. Lauks tiek meklēts pēc iekšējā identifikatora.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И у табличного документа с именем \"%1 ТабДок\" я ввожу текст \"%2 222\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Вводит текст в нужную ячейку табличного документа",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulas dokumentam ar vārdu \"%1 TabDok\" es ievadu tekstu \"%2 222\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Ievada tekstu vajadzīgajā tabulas dokumenta šūnā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И у табличного документа с именем \"%1 ТабДок\" я перехожу к ячейке \"%2 R4C2\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Делает нужную ячейку табличного документа активной",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un pie tabulas dokumenta ar vārdu \"%1 TabDok\" es pāreju uz šūnu \"%2 R4C2\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Padara vajadzīgo tabulas dokumenta šūnu par aktīvu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И флаг \"%1 ИмяФлага\" равен \"%2 Истина\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Проверяет значение флага",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un karodziņš \"%1 KarodziņaVārds\" vienāds ar \"%2 Īsts\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Pārbauda karodziņa nozīmi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И элемент формы \"%1 ИмяЭлемента\" доступен",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверка доступности элемента формы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un formas elements \"%1 ElementaVārds\" ir pieejams",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Formas elementa pieejamības pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И элемент формы \"%1 ИмяЭлемента\" не доступен",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un formas elements \"%1 ElementaVārds\" nav pieejams",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И элемент формы с именем \"%1 ИмяЭлемента\" доступен",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un formas elements ar vārdu \"%1 ElementaVārds\" ir pieejams",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И элемент формы с именем \"%1 ИмяЭлемента\" не доступен",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un formas elements ar vārdu \"%1 ElementaVārds\" nav pieejams",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я буду выбирать внешний файл \"%1 ИмяФайла\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Устанавливает результат диалога выбора файла.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es izvēlēšos ārējo failu \"%1 FailaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Nosaka faila izvēles dialoga rezultātu.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я выбираю значение реквизита \"%1 ИмяПоля\" из формы списка",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Нажимает на кнопку \"Выбрать из списка\" у поля",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es izvēlos rekvizīta nozīmi \"%1 LaukaVārds\" no saraksta formas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Nospiež pogu \"Izvēlēties no saraksta\" pie lauka",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я выбираю значение реквизита с именем \"%1 ИмяПоля\" из формы списка",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es izvēlos rekvizīta nozīmi ar vārdu \"%1 LaukaVārds\" no saraksta formas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я жду когда в табличном документе \"%1 РеквизитТабличныйДокумент\" заполнится ячейка \"%2 r4c2\" в течение \"%3 120\" секунд",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "По таймеру проверяет, что указанная ячейка табличного документа не пустая.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es gaidu kad tabulas dokumentā \"%1 RekvizītsTabulasDokuments\" tiks aizpildīta šūna \"%2 r4c2\" 120 sekunžu laikā",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Pēc taimera pārbauda, ka norādītā tabulas dokumenta šūna nav tukša.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Я закрываю окно \"%1 ИмяФормы\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Закрывает окно с нужным заголовком",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es aizveru logu \"%1 FormasVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Aizver logu ar vajadzīgo virsrakstu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Я закрываю текущее окно",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Закрывает активное окно",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es aizveru aktīvo logu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Aizver aktīvo logu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я запоминаю значение поля \"%1 ИмяПоля\" как \"%2 ПеременнаяНомерДокумента\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Сохранение значения поля в переменную Контекст",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es iegaumēju lauka \"%1 LaukaVārds\" nozīmi kā \"%2 MainīgaisDokumentaNumurs\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Lauka nozīmes saglabāšana mainīgajā Konteksts",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я запоминаю значение поля \"%1 ИмяПоля\" как \"%2 НомерДокумента\" глобально",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Сохранение значения поля в переменную КонтекстСохраняемый",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es iegaumēju lauka \"%1 LaukaVārds\" nozīmi kā \"%2 DokumentaNumurs\" globāli",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Lauka nozīmes saglabāšana mainīgajā KontekstsSaglabājamais",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я запоминаю значение поля \"%1 ИмяПоля\" с ключом \"%2 Номер документа\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Сохранение значения поля в переменную Контекст с произвольным ключом",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es iegaumēju lauka \"%1 LaukaVārds\" nozīmi ar atslēgu \"%2 Dokumenta numurs\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Lauka nozīmes saglabāšana mainīgajā Konteksts ar izvēlētu atslēgu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я запоминаю значение поля \"%1 ИмяПоля\" с ключом \"%2 Номер документа\" глобально",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Сохранение значения поля в переменную КонтекстСохраняемый с произвольным ключом",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es iegaumēju lauka \"%1 LaukaVārds\" nozīmi ar atslēgu \"%2 Dokumenta numurs\" globāli",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Lauka nozīmes saglabāšana mainīgajā KontekstsSaglabājamais ar izvēlētu atslēgu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я запоминаю значение таблицы \"%1 ИмяТаблицы\" поля \"%2 ИмяПоля\" как \"%3 ПеременнаяНомерДокумента\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Сохранение значения поля таблицы в переменную Контекст",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es iegaumēju lauka \"%2 LaukaVārds\" tabulas \"%1 TabulasVārds\" nozīmi kā \"%3 MainīgaisDokumentaNumurs\"",
+      "placeholders": [
+        "%2",
+        "%1",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Tabulas lauka nozīmes saglabāšana mainīgajā Konteksts",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я изменяю флаг \"%1 ИмяФлага\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es mainu karodziņu \"%1 KarodziņaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я изменяю флаг с именем \"%1 ИмяФлага\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es mainu karodziņu ar vārdu \"%1 KarodziņaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я меняю значение переключателя \"%1 Реквизит переключатель\" на \"%2 Первое значение\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Меняет значение переключателя (радиобаттона)",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es mainu pārslēdzēja \"%1 Rekvizīts pārslēdzējs\" nozīmi uz \"%2 Pirmā nozīme\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Maina pārslēdzēja (radiopogas) nozīmi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я меняю значение переключателя с именем \"%1 РеквизитПереключатель\" на \"%2 Первое значение\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un es mainu pārslēdzēja ar vārdu \"%1 RekvizītsPārslēdzējs\" nozīmi uz \"%2 Pirmā nozīme\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И я нажимаю кнопку выбора у поля \"%1 Имя поля\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es nospiežu izvēles pogu pie lauka \"%1 Lauka vārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я нажимаю кнопку очистить у поля \"%1 ИмяПоля\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Очищает поле",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es nospiežu pogu attīrīt pie lauka \"%1 LaukaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Attīra lauku",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я нажимаю кнопку очистить у поля с именем \"%1 ИмяПоля\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es nospiežu pogu attīrīt pie lauka ar vārdu \"%1 LaukaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я нажимаю на гиперссылку \"%1 Гиперссылка\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Нажатие на гиперссылку.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es nospiežu hipersaiti \"%1 Hipersaite\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Hipersaites nospiešana.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я нажимаю на гиперссылку с именем \"%1 Гиперссылка\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es nospiežu hipersaiti ar vārdu \"%1 Hipersaite\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я открываю выпадающий список \"%1 Имя списка\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es atveru izkrītošo sarakstu \"%1 Saraksta vārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И Я открываю форму документа \"%1 АвтоВзаимозачет\" заполненного на основании не проведенного \"%2 ПоступлениеАвтомобилей\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Открытие формы на основании не проведенного документа",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es atveru dokumenta formu \"%1 AutoSavstarpējaisIeskaits\" kas aizpildīts pamatojoties uz neiegrāmatotu \"%2 AutomobiļuSaņemšana\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Formas atvēršana uz neiegrāmatota dokumenta pamata",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Я открываю форму документа \"%1 АвтоВзаимозачет\" заполненного на основании проведенного \"%2 ПоступлениеАвтомобилей\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Открытие формы на основании проведенного документа",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es atveru dokumenta formu \"%1 AutoSavstarpējaisIeskaits\" kas aizpildīts pamatojoties uz iegrāmatotu \"%2 AutomobiļuSaņemšana\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Formas atvēršana uz iegrāmatota dokumenta pamata",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Я очищаю окно сообщений пользователю",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Очищает окно сообщений пользователю.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es attīru lietotāja ziņojumu logu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Attīra lietotāja ziņojumu logu.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я разворачиваю группу \"%1 ИмяГруппы\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Разворачивает группу",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es izvēršu grupu \"%1 GrupasVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Izvērš grupu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я разворачиваю группу с именем \"%1 ИмяГруппы\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es izvēršu grupu ar vārdu \"%1 GrupasVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я сворачиваю группу \"%1 ИмяГруппы\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Сворачивает группу",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es sakļauju grupu \"%1 GrupasVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Sakļauj grupu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я сворачиваю группу с именем \"%1 ИмяГруппы\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es sakļauju grupu ar vārdu \"%1 GrupasVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я снимаю флаг \"%1 ИмяФлага\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es noņemu karodziņu \"%1 KarodziņaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Uzstāda karodziņu uz Neīsts",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я снимаю флаг с именем \"%1 ИмяФлага\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es noņemu karodziņu ar vārdu \"%1 KarodziņaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И Я создаю fixtures по макету \"%1 Макет\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Создает данные из макета MXL",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es veidoju fixtures pēc maketa \"%1 Makets\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Vaido datus no MXL maketa",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я устанавливаю флаг \"%1 ИмяФлага\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es atzīmēju karodziņu \"%1 KarodziņaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Uzstāda karodziņu uz Īsts",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я устанавливаю флаг с именем \"%1 ИмяФлага\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es atzīmēju karodziņu ar vārdu \"%1 KarodziņaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я разворачиваю строку | Наименование | | Товар1 |",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Развернуть группу строк",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es izvēršu rindu: | Nosaukums | | Prece1 |",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Izvērst rindu grupu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я разворачиваю текущую строку",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Развернуть текущую строку таблицы/дерева",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es izvēršu pašreizējo rindu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Izvērst pašreizējo tabulas/koka rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я сворачиваю строку | Наименование | | Товар1 |",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Свернуть группу строк",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es sakļauju rindu: | Nosaukums | | Prece1 |",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Sakļaut rindu grupu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Список\" я сворачиваю текущую строку",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Свернуть текущую строку таблицы/дерева",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Saraksts\" es sakļauju pašreizējo rindu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Sakļaut pašreizējo tabulas/koka rindu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Я закрыл все окна клиентского приложения",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Закрывает все окна текущего TestClient.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es aizvēru visus klienta lietotnes logus",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Aizver visus pašreizējā TestClient logus.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Я закрыл все окна клиентского приложения кроме \"%1 Нужное окно\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Закрывает все окна текущего TestClient, кроме нужного окна.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es aizvēru visus klienta lietotnes logus izņemot \"%1 Vajadzīgais logs\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Aizver visus pašreizējā TestClient logus, izņemot vajadzīgo logu.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В таблице \"%1 ИмяТаблицы\" я нажимаю кнопку выбора у реквизита \"%2 ИмяКолонки\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Нажатие кнопки выбора у реквизита в таблице",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Tabulā \"%1 TabulasVārds\" es nospiežu izvēles pogu pie rekvizīta \"%2 KolonnasVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Izvēles pogas nospiešana tabulā pie rekvizīta",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В таблице \"%1 ИмяТаблицы\" я нажимаю кнопку выбора у реквизита с именем \"%2 ИмяКолонки\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un Tabulā \"%1 TabulasVārds\" es nospiežu izvēles pogu pie rekvizīta ar vārdu \"%2 KolonnasVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И В таблице \"%1 ИмяТаблицы\" я нажимаю кнопку очистить у поля \"%2 ИмяКолонки\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Нажатие кнопки очистить у поля в таблице",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Tabulā \"%1 TabulasVārds\" es nospiežu pogu attīrīt pie lauka \"%2 KolonnasVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Attīrīšanas pogas nospiešana tabulā pie lauka",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В таблице \"%1 ИмяТаблицы\" я нажимаю кнопку очистить у поля с именем \"%2 ИмяКолонки\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un Tabulā \"%1 TabulasVārds\" es nospiežu pogu attīrīt pie lauka ar vārdu \"%2 KolonnasVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И В таблице \"%1 ИмяТаблицы\" из выпадающего списка \"%2 ИмяПоля\" я выбираю \"%3 ЗначениеПоля\" с выбором",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Выбор из выпадающего списка в таблице с дополнительным вызовом метода Выбрать(). Применялось на 8.3.6.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un TD \"%1 TabulasVārds\" no izkrītošā saraksta \"%2 LaukaVārds\" es izvēlos \"%3 LaukaNozīme\" ar izvēli",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Izvēle no tabulas izkrītošā saraksta ar metodes Izvēlēties() papildizsaukumu. Tika piemērots 8.3.6.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И выражение внутреннего языка \"%1 Контекст.КоличествоФинальное - Контекст.КоличествоНачальное = 1\" Истинно",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Позволяет проверить произвольное выражение встроенного языка",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un iekšējās valodas izteiksme \"%1 Konteksts.FinālaDaudzums - Konteksts.SākumaDaudzums = 1\" Īsts",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Ļauj pārbaudīt iebūvētās valodas izvēlēto izteiksmi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И для каждой строки таблицы \"%1 ИмяТаблицы\" я выполняю",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Цикл. Выполняет шаги для каждой строки таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un katrai tabulas \"%1 TabulasVārds\" rindai es izpildu",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Cikls. Izpilda soļus katrai tabulas rindai",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Пока в таблице \"%1 ИмяТаблицы\" количество строк \"%2 >\" \"%3 0\" Тогда",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Цикл. Выполняет шаги до тех пор, пока в таблице есть строки",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Kamēr tabulā \"%1 TabulasVārds\" rindu daudzums \"%2 >\" \"%3 0\" Tad",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Cikls. Izpilda soļus tik ilgi, kamēr tabulā ir rindas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Пока выражение встроенного языка \"%1 Контекст.СлужебнаяПеременная < 2\" истинно тогда",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Цикл. Выполняет шаги пока истинно условие",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Kamēr iebūvētās valodas izteiksme \"%1 Konteksts.ServisaMainīgais < 2\" patiess tad",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Cikls. Izpilda soļus, kamēr nosacījums patiess",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И поле \"%1 Имя поля\" заполнено",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверяет заполненность поля формы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un lauks \"%1 Lauka vārds\" ir aizpildīts",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbauda formas lauka aizpildījumu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И табличный документ \"%1 ТабДок\" соответствует макету \"%2 ИмяТабличногоДокумента\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Сравнивает значения макета с эталоном. Макет ищется сначала в обработке фича файла, затем в каталоге проекта.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulas dokuments \"%1 TabDok\" atbilst meketam %2 \"TabulasDokumentaVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Salīdzina maketa nozīmes ar etalonu. Makets tiek meklēts vispirms faila apstrādē, pēc tam projekta katalogā.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И у элемента \"%1 Имя элемента\" я жду значения \"%2 Значение\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Ожидание что элемент формы примет нужное значение (таймаут 10)",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un elementam \"%1 Elementa vārds\" es gaidu nozīmi \"%2 Nozīme\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Tiek gaidīts, ka formas elements pieņems vajadzīgo nozīmi (taimauts 10)",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И у элемента \"%1 Имя элемента\" я жду значения \"%2 Значение\" в течении \"%3 20\" секунд",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Ожидание что элемент формы примет нужное значение в течении нужного времени. Иначе будет вызвано исключение.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un elementam \"%1 Elementa vārds\" es gaidu nozīmi \"%2 Nozīme\" \"%3 20\" sekunžu laikā",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Tiek gaidīts, ka formas elements pieņems vajadzīgo nozīmi vajadzīgajā laikā. Citādi tiks izsaukts izņēmums.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И у элемента с именем \"%1 ИмяЭлемента\" я жду значения \"%2 Значение\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un elementam ar vārdu \"%1 ElementaVārds\" es gaidu nozīmi \"%2 Nozīme\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И у элемента с именем \"%1 ИмяЭлемента\" я жду значения \"%2 Значение\" в течении \"%3 20\" секунд",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Un elementam ar vārdu \"%1 ElementaVārds\" es gaidu nozīmi \"%2 Nozīme\" \"%3 20\" sekunžu laikā",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "И элемент \"%1 Имя элемента\" доступен для просмотра",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверка отсутствия флага \"Только просмотр\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un elements \"%1 Elementa vārds\" pieejams pārlūkošanai",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbaude, ka nav karodziņa \"Tikai pārlūkošana\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И элемент \"%1 ИмяПоля\" доступен не только для просмотра",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверка установленного флага \"Только просмотр\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un elements \"%1 LaukaVārds\" pieejams ne tikai pārlūkošanai",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbaude, ka karodziņš \"Tikai pārlūkošana\" ir atzīmēts",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И элемент с именем \"%1 ИмяЭлемента\" доступен для просмотра",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un elements ar vārdu \"%1 ElementaVārds\" pieejams pārlūkošanai",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И элемент с именем \"%1 ИмяПоля\" доступен не только для просмотра",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un elements ar vārdu \"%1 LaukaVārds\" pieejams ne tikai pārlūkošanai",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я активизирую TestClient \"%1 ИмяКлиента\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Позволяет переключить контекст на нужный TestClient",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es aktivizēju TestClient \"%1 KlientaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Ļauj pārslēgt kontekstu uz vajadzīgo TestClient",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я активизирую окно \"%1 ИмяФормы\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Активизирует окно с нужным заголовком",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es aktivizēju logu \"%1 FormasVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Aktivizē logu ar vajadzīgo virsrakstu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я активизирую поле \"%1 Имя поля\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Сделать поле активным",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es aktivizēju lauku \"%1 Lauka vārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Padarīt lauku par aktīvu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я активизирую поле с именем \"%1 ИмяПоля\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es aktivizēju lauku ar vārdu \"%1 LaukaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я вижу элемент \"%1 Имя элемента\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверяет видимость элемента на форме",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es redzu elementu \"%1 Elementa vārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbauda elementa redzamību uz formas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я вижу элемент \"%1 Имя элемента\" на форме",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es redzu elementu \"%1 Elementa vārds\" uz formas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я вижу элемент с именем \"%1 ИмяЭлемента\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es redzu elementu ar vārdu \"%1 ElementaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я вижу элемент с именем \"%1 ИмяЭлемента\" на форме",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es redzu elementu ar vārdu \"%1 ElementaVārds\" uz formas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я жду закрытия окна \"%1 Имя окна\" в течении \"%2 600\" секунд",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Ожидает, что окно исчезнет в течении указанного числа секунд",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es gaidu loga \"%1 Loga vārds\" aizvēršanu \"%2 600\" sekunžu laikā",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Gaida, ka logs pazudīs pēc vajadzīgā sekunžu daudzuma",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я жду появления элемента \"%1 Имя элемента\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Ожидание появления элемента формы с нужным заголовком",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es gaidu elementa \"%1 Elementa vārds\" parādīšanos",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Tiek gaidīta formas elementa parādīšanās ar vajadzīgo virsrakstu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я жду появления элемента \"%1 Имя элемента\" в течении \"%2 Таймаут\" секунд",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Ожидание появления элемента формы с нужным заголовком в течении указанного числа секунд",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es gaidu elementa \"%1 Elementa vārds\" parādīšanos \"%2 Taimauts\" sekunžu laikā",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Tiek gaidīta formas elementa ar vajadzīgo virsrakstu parādīšanās pēc vajadzīgā sekunžu daudzuma",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я жду появления элемента с именем \"%1 ИмяЭлемента\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Ожидание появления элемента формы с нужным именем",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es gaidu elementa parādīšanos ar vārdu \"%1 ElementaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Tiek gaidīta formas elementa parādīšanās ar vajadzīgo vārdu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я жду появления элемента с именем \"%1 ИмяЭлемента\" в течении \"%2 Таймаут\" секунд",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Ожидание появления элемента формы с нужным именем в течении указанного числа секунд",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es gaidu elementa parādīšanos ar vārdu \"%1 ElementaVārds\" \"%2 Taimauts\" sekunžu laikā",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Tiek gaidīta formas elementa ar vajadzīgo vārdu parādīšanās pēc vajadzīgā sekunžu daudzuma",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Я завершаю редактирование строки",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es pabeidzu rindas rediģēšanu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я закрываю TestClient \"%1 ИмяКлиента\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Закрывает указанный TestClient Перед этим закрывает все окна в нём.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es aizveru TestClient \"%1 KlientaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Aizver norādīto TestClient. Pirms tam aizver tajā visus logus.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Я закрываю окно предупреждения",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Закрывает окно предупреждения если оно есть",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es aizveru brīdinājuma logu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Aizver brīdinājuma logu, ja tāds ir.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я закрываю сеанс TESTCLIENT",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Закрывает сеанс TestClient",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es aizveru TESTCLIENT seansu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Aizver TestClient seansu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Я запоминаю значение выражения \"%1 Ванесса.ПолучитьМассивPIDОкон1С().Количество()\" в переменную \"%2 КоличествоНачальное\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Позволяет сохранить в переменную Контекст произвольное выражение встроенного языка",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es iegaumēju izteiksmes nozīmi \"%1 Vanessa.Saņemt1CLoguPIDMasīvu().Daudzums()\" uz mainīgo \"%2 SākumaDaudzums\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Ļauj saglabāt mainīgajā Konteksts iebūvētās valodas izvēlēto izteiksmi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Я запоминаю значение выражения \"%1 Ванесса.ПолучитьМассивPIDОкон1С().Количество()\" в переменную \"%2 КоличествоНачальное\" глобально",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Позволяет сохранить в переменную КонтекстСохраняемый произвольное выражение встроенного языка",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es iegaumēju izteiksmes nozīmi \"%1 Vanessa.Saņemt1CLoguPIDMasīvu().Daudzums()\" uz mainīgo \"%2 SākumaDaudzums\" globāli",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Ļauj saglabāt mainīgajā KontekstsSaglabājamais iebūvētās valodas izvēlēto izteiksmi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я запоминаю текущее окно как \"%1 НужныйМнеЗаголовокОкна\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Сохранение значения заголовка текущего окна в переменную Контекст",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es iegaumēju pašreizējo logu kā \"%1 ManVajadzīgaisLogaVirsraksts\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pašreizējā loga virsraksta nozīmes saglabāšana mainīgajā Konteksts",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я не вижу элемент \"%1 Имя элемента\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверяет не видимость элемента на форме",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es neredzu elementu \"%1 Elementa vārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbauda elementa neredzamību uz formas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я не вижу элемент \"%1 Имя элемента\" на форме",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es neredzu elementu \"%1 Elementa vārds\" uz formas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я не вижу элемент с именем \"%1 ИмяЭлемента\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es neredzu elementu ar vārdu \"%1 ElementaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И я не вижу элемент с именем \"%1 ИмяЭлемента\" на форме",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Un es neredzu elementu ar vārdu \"%1 ElementaVārds\" uz formas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "И Я очищаю фильтр на форме списка",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Позволяет сбросить фильтр на список через меню \"Ещё/Настроить список\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es attīru filtru uz saraksta formas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ļauj noņemt filtru uz sarakstu caur izvēlni \"Vēl/iestatīt sarakstu\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я подключаю TestClient \"%1 ИмяКлиента\" логин \"%2 Пользователь1\" пароль \"%3 1\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Un es pieslēdzu TestClient \"%1 KlientaVārds\" login \"%2 Lietotājs1\" parole \"%3 1\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "И Я подключаю клиент тестирования \"%1 ИмяКлиентаТестирования\" из таблицы клиентов тестирования",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Подключает клиента тестирования по имени профиля",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es pieslēdzu testēšanas klientu \"%1 TestēšanasKlientaVārds\" no testēšanas klientu tabulas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pieslēdz testēšanas klientu pēc profila vārda",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я подключаю профиль TestClient \"%1 Оператор\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Позволяет подключить TestClient по имени уже существующего профиля",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es pieslēdzu TestClient profilu \"%1 Operators\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Ļauj pieslēgt TestClient pēc jau eksistējoša profila vārda",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я удаляю все строки таблицы \"%1 График\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Очистить таблицу",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es izdzēšu visas tabulas \"%1 Grafiks\" rindas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Attīrīt tabulu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Я устанавливаю фильтр на список | Наименование | Содержит | Товар1 |",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Позволяет установить фильтр на список через меню \"Ещё/Настроить список\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es uzstādu filtru sarakstam | Nosaukums | Satur | Prece1 |",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ļauj uzstādīt filtru sarakstam caur izvēlni \"Vēl/iestatīt sarakstu\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Я устанавливаю фильтр на список если это возможно | Наименование | Содержит | Товар1 |",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Позволяет установить фильтр на список через меню \"Ещё/Настроить список\". Причём если такого поля нет, то исключение вызываться не будет.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es uzstādu filtru sarakstam ja tas iespējams | Nosaukums | Satur | Prece1 |",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ļauj uzstādīt filtru sarakstam caur izvēlni \"Vēl/iestatīt sarakstu\". Turklāt, ja tāda lauka nav, tad izņēmums netiks izsaukts.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Когда в логе сообщений TestClient есть строка \"%1 Таблица параметров должна заканчиваться символом |\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверяет в логе сообщений наличие нужной строки.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Kad TestClient ziņojumu žurnālā ir rinda \"%1 Parametru tabulai jābeidzas ar simbolu |\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbauda ziņojumu žurnālā vajadzīgās rindas esamību.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Когда В панели открытых я выбираю \"%1 ИмяКоманды\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Нажатие кнопки на панели открытых окон",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Kad Uz atvērto paneļa es izvēlos \"%1 KomandasVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pogas nospiešana uz atvērto logu paneļa",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Когда Проверяю шаги на Исключение |'И в поле с именем \"Наименование2\" я ввожу текст \"Тестовый Элемент\"'|",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Проверка негативного поведения шага.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Kad Pārbaudu soļus uz Izņēmumiem: |'Un laukā ar vārdu \"%1 Nosaukums2\" es ievadu tekstu \"%2 Testa Elements\"'|",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Soļa negatīvas uzvedības pārbaude.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Когда Я открываю форму документа \"%1 АвтоВзаимозачет\" заполненного на основании не проведенного \"%2 ПоступлениеАвтомобилей\" номер \"%3 АВ00000080\" от \"%4 04.09.2016\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3",
+        "%4"
+      ],
+      "params_count": 4
+    },
+    {
+      "text": "Kad Es atveru dokumenta formu \"%1 AutoSavstarpējaisIeskaits\" kas aizpildīts pamatojoties uz neiegrāmatotu \"%2 AutomobiļuSaņemšana\" numurs \"%3 AB00000080\" no \"%4 04.09.2016.\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3",
+        "%4"
+      ],
+      "params_count": 4
+    },
+    {
+      "text": "Когда Я открываю форму документа \"%1 АвтоВзаимозачет\" заполненного на основании проведенного \"%2 ПоступлениеАвтомобилей\" номер \"%3 АИ00000002\" от \"%4 12.03.2017\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3",
+        "%4"
+      ],
+      "params_count": 4
+    },
+    {
+      "text": "Kad Es atveru dokumenta formu \"%1 AutoSavstarpējaisIeskaits\" kas aizpildīts pamatojoties uz iegrāmatotu \"%2 AutomobiļuSaņemšana\" numurs \"%3 AI00000002\" no \"%4 12.03.2017.\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3",
+        "%4"
+      ],
+      "params_count": 4
+    },
+    {
+      "text": "Когда Я подключаю клиент тестирования \"%1 ИмяКлиентаТестирования\" из таблицы клиентов тестирования от имени \"%2 Логин\" с паролем \"%3 Пароль\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Подключает клиента тестирования в туже базу, где запущен TestManager с нужным логином и паролем.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Kad Es pieslēdzu testēšanas klientu \"%1 TestēšanasKlientaVārds\" no testēšanas klientu tabulas ar vārdu \"%2 Login\" paroli \"%3 Parole\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Pieslēdz testēšanas klientu tajā pašā bazē, kur palaists TestManager ar vajadzīgo login un paroli.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Когда Я подключаю клиент тестирования с параметрами | 'Имя подключения' | 'Порт' | 'Строка соединения' | 'Логин' | 'Пароль' | 'Запускаемая обработка' | 'Дополнительные параметры строки запуска' | | 'Test 1' | '1538' | 'Srvr=\"localhost:1941\";Ref=\"Test\";' | 'Админ' | 'Админ' | 'c:\\СуперОбработка.epf' | '/UC' |",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Подключает TestClient. Все параметры подключения указываются в таблице.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Kad Es pieslēdzu testēšanas klientu ar parametriem: | 'Pieslēguma vārds' | 'Ports' | 'Savienojuma rinda' | 'Login' | 'Parole' | 'Palaižamā apstrāde' | 'Palaišanas rindas papildparametri' | | 'Test 1' | '1538' | 'Srvr=\"localhost:1941\";Ref=\"Test\";' | 'Admin' | 'Admin' | 'c:\\SuperApstrade.epf' | '/UC' |",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pieslēdz TestClient. Visi pieslēguma parametri tiek norādīti tabulā.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Тогда в таблице \"%1 Список\" я выделяю все строки",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Выделение всех строк в таблице",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Tad tabulā \"%1 Saraksts\" es iezīmēju visas rindas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Visu tabulas rindu iezīmēšana",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Тогда в таблице \"%1 ИмяТаблицы\" количество строк \"%2 меньше или равно\" \"%3 2\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Проверка на количество строк в таблице",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Tad tabulā \"%1 TabulasDaļa1\" rindu daudzums \"%2 mazāks vai vienāds\" \"%3 2\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Tabulas rindu daudzuma pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Тогда не появилось окно предупреждения системы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Проверяет, что на экране нет предупреждения системы.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Tad neparādījās sistēmas brīdinājuma logs",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pārbauda vai uz ekrāna nav sistēmas brīdinājuma.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Тогда появилось предупреждение содержащее текст \"%1 Текст\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверяет, что появилось окно предупреждения, содержащее нужный текст.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Tad parādījās brīdinājums kas satur tekstu \"%1 Teksts\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbauda vai parādījies brīdinājuma logs, kas satur vajadzīgo tekstu.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Тогда текст текущей ячейки таблицы \"%1 Таблица\" стал равен \"%2 Значение поля\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Проверка значения текущей ячейки таблицы.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Tad tabulas \"%1 Tabula\" pašreizējās šūnas teksts kļuva vienāds ar \"%2 Lauka nozīme\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Pašreizējās tabulas šūnas nozīmes pārbaude.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Тогда текст ячейки таблицы \"%1 Таблица\" \"%2 ИмяПоля\" стал равен \"%3 Значение поля\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Проверка значения ячейки таблицы. Имя ячейки указывается как оно указано в конфигураторе.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Tad tabulas \"%1 Tabula\" \"%2 LaukaVārds\" šūnas teksts kļuva vienāds ar \"%3 Lauka nozīme\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Tabulas šūnas nozīmes pārbaude. Tiek norādīts tas šūnas vārds, kurš tika norādīts konfiguratorā.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Тогда элемент формы \"%1 ИмяПоля\" стал равен \"%2 Значение поля\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Проверка значения элемента формы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Tad formas elements \"%1 LaukaVārds\" kļuva vienāds ar \"%2 Lauka nozīme\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Formas elementa nozīmes pārbaude",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Тогда элемент формы с именем \"%1 ИмяПоля\" стал равен \"%2 Значение поля\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Tad formas elements ar vārdu \"%1 LaukaVārds\" kļuva vienāds ar \"%2 Lauka nozīme\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Тогда я вызываю исключение \"%1 Текст исключения\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Вызывает исключение с нужным текстом",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Tad es izsaucu izņēmumu \"%1 Izņēmuma teksts\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Izsauc izņēmumu ar vajadzīgo tekstu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Я задаю таблицу строк \"%1 ТаблицаИсключений\" | 'Товар1' | | 'Товар2' |",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Создает в памяти таблицу строк по переданной таблице",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Es uzdodu rindu tabulu \"%1 Izņēmumu tabula\" | 'Prece1' | | 'Prece2' |",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Atmiņā veido rindu tabulu pēc nodotās tabulas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Дано Я сохраняю макет из обработки \"%1 ИмяМакетаВОбработке\" в файл \"%2 c:\\temp\\111.mxl\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Сохраняет макет из обработки, связанной с фичей, в нужный файл.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Dots Es saglabāju maketu no apstrādes \"%1 MaketaVārdsApstrādē\" failā \"%2 c:\\temp\\111.mxl\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Saglabā maketu no apstrādes, kas saistīta ar funkcionalitāti, vajadzīgajā failā.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Если переменная \"%1 ИмяПеременной\" имеет значение \"%2 ЗначениеПеременной\" Тогда",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Условие. Проверяет значение переменной контекста",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Ja mainīgajam \"%1 MainīgāVārds\" ir nozīme \"%2 MainīgāNozīme\" Tad",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Nosacījums. Pārbauda konteksta mainīgā nozīmi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в поле \"%1 СгенерированныйXML\" я ввожу текст из макета \"%2 Xml1\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Вводит текст в поле. Текст будет взят из макета",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un laukā \"%1 ĢenerētaisXML\" es ievadu tekstu no maketa \"%2 Xml1\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Ievada laukā tekstu. Teksts tiks ņemts no maketa",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в таблице \"%1 Таблица\" я перехожу к строке содержащей подстроки |'Наименование'| |'Товар1'|",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Переход к строке таблицы, когда значения колонок не полностью, а подстрокой",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulā \"%1 Tabula\" es pāreju uz rindu kas satur apakšrindas |'Nosaukums'| |'Prece1'|",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pāreja uz tabulas rindu, kad kolonnu nozīmes nav pilnībā, bet apakšrindā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в табличном документе \"%1 РеквизитТабличныйДокумент\" значения в колонке \"%2 ИмяКолонки\" неравно значению \"%3 \"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Проверяет, что в табличном документе значение в колонке равно переданному параметру",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulas dokumentā \"%1 RekvizītsTabulasDokuments\" nozīmes kolonnā \"%2 KolonnasVārds\" nav vienādas ar nozīmi \"%3 \"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Pārbauda, ka tabulas dokumentā nozīme kolonnā vienāda ar nodoto parametru",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И в табличном документе \"%1 РеквизитТабличныйДокумент\" значения в колонке \"%2 ИмяКолонки\" равно значению \"%3 \"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "Un tabulas dokumentā \"%1 RekvizītsTabulasDokuments\" nozīmes kolonnā \"%2 KolonnasVārds\" vienādas ar nozīmi \"%3 \"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3"
+      ],
+      "params_count": 3
+    },
+    {
+      "text": "И в табличном документе \"%1 РеквизитТабличныйДокумент\" значения в колонке \"%2 ИмяКолонки\" соответствуют условию \"%3 равно\" \"%4 10\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3",
+        "%4"
+      ],
+      "params_count": 4
+    },
+    {
+      "text": "Проверяет, что в табличном документе значение в колонке соответствует условию. Можно использовать числа.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un tabulas dokumentā \"%1 RekvizītsTabulasDokuments\" nozīmes kolonnā \"%2 KolonnasVārds\" atbilst nosacījumam \"%3 vienāds\" \"%4 10\"",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3",
+        "%4"
+      ],
+      "params_count": 4
+    },
+    {
+      "text": "Pārbauda, ka tabulas dokumentā nozīme kolonnā atbilst nosacījumam. Var izmantot skaitļus.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И В текущем окне я нажимаю кнопку командного интерфейса \"%1 КомандаИнтерфейса\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Нажатие кнопки командного интерфейса в текущей форме",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Pašreizējā logā es nospiežu komandu interfeisa pogu \"%1 InterfeisaKomanda\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Komandu interfeisa pogas nospiešana pašreizējā formā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И для каждого значения \"%1 ЗначениеИзМассива\" из массива \"%2 МассивЗначенийЧерезТочкуСЗапятой\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Перебирает массив значений. Первый параметр - это имя переменной, которое будет доступно в Контексте. Второй параметр, значения массива, разделенные символом \";\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un katrai nozīmei \"%1 NozīmeNoMasīva\" no masīva \"%2 NozīmjuMasīvsCaurSemikolu\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Apstrādā nozīmju masīvu. Pirmais parametrs - tas ir mainīgā vārds, kurš būs pieejams Kontekstā. Otrs parametrs, masīva nozīmes, kuras atdalītas ar simbolu \";\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И для каждого значения \"%1 ЗначениеИзМассива\" из таблицы в памяти \"%2 МассивЗначенийЧерезТочкуСЗапятой\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Перебирает массив значений. Первый параметр - это имя переменной, которое будет доступно в Контексте. Второй параметр, имя таблицы, которая сохранена в контексте",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un katrai nozīmei \"%1 NozīmeNoMasīva\" no tabulas atmiņā \"%2 NozīmjuMasīvsCaurSemikolu\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Apstrādā nozīmju masīvu. Pirmais parametrs - tas ir mainīgā vārds, kurš būs pieejams Kontekstā. Otrs parametrs, kontekstā saglabātās tabulas vārds",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И Табличный документ \"%1 ИмяТабДок\" содержит в себе значения областей | ИмяОбласти | | ЗначениеОбласти |",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверяет что в табличном документа содержатся значения, перечисленные в таблице. Таблица состоит из двух колонок: \"ИмяОбласти\" и \"Значение\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Tabulas dokuments \"%1 TabDokVārds\" satur apgabalu nozīmes | ApgabalaVārds | | ApgabalaNozīme |",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbauda, ka tabulas dokumentā ir tabulā uzskaitītās nozīmes. Tabula sastāv no divām kolonnām: \"ApgabaVārds\" un \"Nozīme\"",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И табличный документ \"%1 РеквизитТабличныйДокумент\" не содержит значения",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверяет, что в табличном документе нет значений из таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Tabulas dokuments \"%1 RekvizītsTabulasDokuments\" nesatur nozīmes",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbauda, ka tabulas dokumentā nav nozīmju no tabulas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И табличный документ \"%1 РеквизитТабличныйДокумент\" содержит значения",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверяет, что в табличном документе есть значения из таблицы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Tabulas dokuments \"%1 RekvizītsTabulasDokuments\" satur nozīmes",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbauda, ka tabulas dokumentā ir nozīmes no tabulas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И табличный документ формы с именем \"%1 РеквизитТабличныйДокумент\" содержит строки",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Проверяет, что табличный документ TestClient содержит строки таблицы Gherkin",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un formas tabulas dokuments ar vārdu \"%1 RekvizītsTabulasDokuments\" satur rindas",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Pārbauda, ka tabulas dokuments TestClient satur Gherkin tabulas rindas",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я вывожу значение переменной \"%1 ИмяПеременной\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Выводит значение переменной контекста в окно сообщений",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es izvadu mainīgā nozīmi \"%1 MainīgāVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Izvada konteksta mainīgā nozīmi ziņojumu logā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я жду что в окне \"%1 ЗаголовокОкна\" в таблице \"%2 ИмяТаблицы\" количество строк будет \"%3 больше\" \"%4 0\" в течении \"%5 20\" секунд",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3",
+        "%4",
+        "%5"
+      ],
+      "params_count": 5
+    },
+    {
+      "text": "В течении нужного числа секунд проверяется количество строк в таблице в нужном окне",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es gaidu ka logā \"%1 LogaVirsraksts\" tabulā \"%2 TabulasVārds\" rindu daudzums būs \"%3 lielāks par \" \"%4 0\" \"%5 20\" sekunžu laikā",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3",
+        "%4",
+        "%5"
+      ],
+      "params_count": 5
+    },
+    {
+      "text": "Vajadzīgajā sekunžu daudzumā tiek pārbaudīts tabulas rindu daudzums vajadzīgajā laukā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я жду что в таблице \"%1 ИмяТаблицы\" количество строк будет \"%2 больше\" \"%3 0\" в течении \"%4 20\" секунд",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3",
+        "%4"
+      ],
+      "params_count": 4
+    },
+    {
+      "text": "В течении нужного числа секунд проверяется количество строк в таблице в текущем окне",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es gaidu ka tabulā \"%1 TabulasVārds\" rindu daudzums būs \"%2 lielāks par \" \"%3 0\" \"%4 20\" sekunžu laikā",
+      "placeholders": [
+        "%1",
+        "%2",
+        "%3",
+        "%4"
+      ],
+      "params_count": 4
+    },
+    {
+      "text": "Vajadzīgajā sekunžu daudzumā tiek pārbaudīts tabulas rindu daudzums pašreizējā logā",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я жду что поле \"%1 СгенерированныйСценарий\" перестанет быть пустым в течении \"%2 30\" секунд",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Проверяет, что в течении нужного числа секунд текстовое поле станет заполненным.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es gaidu ka lauks \"%1 ĢenerētaisScenārijs\" pārstās būt tukšs \"%2 30\" sekunžu laikā",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Pārbauda, ka vajadzīgajā sekunžu daudzumā teksta laiks kļūs aizpildīts.",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я меняю значение переключателя \"%1 Реквизит переключатель\" на значение переменной \"%2 ИмяПеременной\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Изменение значение переключателя на значение ранее сохраненной переменной",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es mainu pārslēdzēja nozīmi \"%1 RekvizītsPārslēdzējs\" uz mainīgā nozīmi \"%2 MainīgāVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Pārslēdzēja nozīmes maiņa uz iepriekš saglabātā mainīgā nozīmi",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я меняю значение переключателя с именем \"%1 РеквизитПереключатель\" на значение переменной \"%2 ИмяПеременной\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "Un es mainu pārslēdzēja nozīmi ar vārdu \"%1 RekvizītsPārslēdzējs\" uz mainīgā nozīmi \"%2 MainīgāVārds\"",
+      "placeholders": [
+        "%1",
+        "%2"
+      ],
+      "params_count": 2
+    },
+    {
+      "text": "И Я обновляю нумерацию объектов для \"%1 ПолноеИмяОбъектаМетаданных\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Выполняет обновление номеров для объекта метаданных по полному имени",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un Es atjauninu objektu numerāciju \"%1 PilnsMetadatuObjektaVārds\"",
+      "placeholders": [
+        "%1"
+      ],
+      "params_count": 1
+    },
+    {
+      "text": "Izpilda numuru atjaunināšanu metadatu objektam pēc pilna vārda",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "И я перехожу к следующему реквизиту",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Переходит к следующему реквизиту формы",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Un es pāreju uz nākamo rekvizītu",
+      "placeholders": [],
+      "params_count": 0
+    },
+    {
+      "text": "Pāriet uz nākamo formas rekvizītu",
+      "placeholders": [],
+      "params_count": 0
+    }
+  ]
+}

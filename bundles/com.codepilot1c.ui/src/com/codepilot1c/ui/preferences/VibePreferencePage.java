@@ -9,6 +9,7 @@ package com.codepilot1c.ui.preferences;
 
 import org.eclipse.core.runtime.preferences.InstanceScope;
 import org.eclipse.jface.preference.BooleanFieldEditor;
+import org.eclipse.jface.preference.FileFieldEditor;
 import org.eclipse.jface.preference.FieldEditorPreferencePage;
 import org.eclipse.jface.preference.IntegerFieldEditor;
 import org.eclipse.ui.IWorkbench;
@@ -83,5 +84,14 @@ public class VibePreferencePage extends FieldEditorPreferencePage implements IWo
                 VibePreferenceConstants.PREF_CHAT_SHOW_TOKEN_USAGE,
                 Messages.PreferencePage_ShowTokenUsageLabel,
                 getFieldEditorParent()));
+
+        FileFieldEditor vaEpfEditor = new FileFieldEditor(
+                VibePreferenceConstants.PREF_QA_VA_EPF_PATH,
+                Messages.PreferencePage_VaEpfPathLabel,
+                true,
+                getFieldEditorParent());
+        vaEpfEditor.setFileExtensions(new String[] { "*.epf" }); //$NON-NLS-1$
+        vaEpfEditor.setEmptyStringAllowed(true);
+        addField(vaEpfEditor);
     }
 }

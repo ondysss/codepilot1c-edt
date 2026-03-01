@@ -53,6 +53,7 @@ public class Messages extends NLS {
     public static String PreferencePage_AutoCompactEnabledLabel;
     public static String PreferencePage_AutoCompactThresholdLabel;
     public static String PreferencePage_ShowTokenUsageLabel;
+    public static String PreferencePage_VaEpfPathLabel;
     public static String PreferencePage_TestConnectionButton;
     public static String PreferencePage_TestSuccess;
     public static String PreferencePage_TestFailed;
@@ -190,6 +191,11 @@ public class Messages extends NLS {
     public static String McpHostPreferencePage_StatusHttpFail;
     public static String McpHostPreferencePage_BindAddress;
     public static String McpHostPreferencePage_Port;
+    public static String McpHostPreferencePage_AuthMode;
+    public static String McpHostPreferencePage_AuthModeOauthBearer;
+    public static String McpHostPreferencePage_AuthModeOauth;
+    public static String McpHostPreferencePage_AuthModeBearer;
+    public static String McpHostPreferencePage_AuthModeNone;
     public static String McpHostPreferencePage_BearerToken;
     public static String McpHostPreferencePage_RotateToken;
     public static String McpHostPreferencePage_MutationPolicy;

@@ -17,3 +17,6 @@ docs/*
 OSS_SUMMARY.md
 AGENTS.md
 
+# QA локальная конфигурация и результаты
+tests/qa/qa-config.json
+tests/results/

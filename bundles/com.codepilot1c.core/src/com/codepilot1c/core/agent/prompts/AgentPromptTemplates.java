@@ -51,7 +51,16 @@ public final class AgentPromptTemplates {
         sb.append("- EDT type provider: edt_field_type_candidates (допустимые типы для поля метаданных)\n"); //$NON-NLS-1$
         sb.append("- EDT-метаданные: inspect_platform_reference, edt_validate_request, create_metadata, create_form, apply_form_recipe, extension_create_project, extension_adopt_object, extension_set_property_state, inspect_form_layout, add_metadata_child, ensure_module_artifact, update_metadata, mutate_form_model, delete_metadata, edt_trace_export\n"); //$NON-NLS-1$
         sb.append("- EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body\n"); //$NON-NLS-1$
-        sb.append("- Диагностика метаданных: edt_metadata_smoke (регрессионный smoke-прогон), edt_extension_smoke (e2e smoke для расширений), edt_external_smoke (e2e smoke для внешних объектов)\n\n"); //$NON-NLS-1$
+        sb.append("- Диагностика метаданных: edt_metadata_smoke (регрессионный smoke-прогон), edt_extension_smoke (e2e smoke для расширений), edt_external_smoke (e2e smoke для внешних объектов)\n"); //$NON-NLS-1$
+        sb.append("- QA: qa_status (проверка окружения), qa_steps_search (поиск шагов), qa_scaffold (создание feature), qa_run (запуск VA E2E)\n\n"); //$NON-NLS-1$
+
+        sb.append("## QA workflow\n"); //$NON-NLS-1$
+        sb.append("1. Перед запуском тестов сначала вызывай qa_status и устраняй ошибки конфигурации.\n"); //$NON-NLS-1$
+        sb.append("2. Для новых сценариев сначала используй qa_steps_search и подбирай шаги ТОЛЬКО из каталога шагов (встроен в плагин; при наличии можно использовать tests/va/steps_catalog.json).\n"); //$NON-NLS-1$
+        sb.append("   Если подходящих шагов нет — остановись и запроси у пользователя решение (добавить шаги или изменить сценарий).\n"); //$NON-NLS-1$
+        sb.append("3. Создавай feature только через qa_scaffold (он проверяет неизвестные шаги).\n"); //$NON-NLS-1$
+        sb.append("4. После изменения функциональности запускай qa_run с целевыми тегами или фичами; если не уверен — делай smoke по @smoke.\n"); //$NON-NLS-1$
+        sb.append("5. Если qa_run вернул tests_failed, анализируй junit/log_tail, исправляй и повторяй не более 2 раз.\n\n"); //$NON-NLS-1$
 
         sb.append("## Маршрутизация справки (обязательно)\n"); //$NON-NLS-1$
         sb.append("1. Если вопрос про встроенный язык 1С (например: Запрос, ТаблицаЗначений, Структура, методы языка) —\n"); //$NON-NLS-1$

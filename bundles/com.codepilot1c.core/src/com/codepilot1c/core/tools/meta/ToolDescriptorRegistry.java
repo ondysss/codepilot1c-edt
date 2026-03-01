@@ -89,6 +89,10 @@ public final class ToolDescriptorRegistry {
         register(ToolDescriptor.builder("edt_metadata_smoke").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
         register(ToolDescriptor.builder("edt_extension_smoke").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
         register(ToolDescriptor.builder("edt_external_smoke").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
+        register(ToolDescriptor.builder("qa_status").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
+        register(ToolDescriptor.builder("qa_run").category(ToolCategory.DIAGNOSTICS).mutating(true).build()); //$NON-NLS-1$
+        register(ToolDescriptor.builder("qa_scaffold").category(ToolCategory.FILES).mutating(true).build()); //$NON-NLS-1$
+        register(ToolDescriptor.builder("qa_steps_search").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
 
         // Validation
         register(ToolDescriptor.builder("edt_validate_request")

@@ -28,6 +28,9 @@ import com._1c.g5.v8.dt.core.platform.IExtensionProjectManager;
 import com._1c.g5.v8.dt.core.platform.IV8ProjectManager;
 import com._1c.g5.v8.dt.md.extension.IMdAdoptedPropertyAccess;
 import com._1c.g5.v8.dt.md.extension.adopt.IModelObjectAdopter;
+import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessManager;
+import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationManager;
+import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IRuntimeComponentManager;
 import com._1c.g5.v8.dt.validation.marker.IMarkerManager;
 import com.e1c.g5.dt.applications.IApplicationManager;
 import com.e1c.g5.v8.dt.check.settings.ICheckRepository;
@@ -65,6 +68,9 @@ public class VibeCorePlugin extends Plugin {
     private ServiceTracker<IMarkerManager, IMarkerManager> markerManagerTracker;
     private ServiceTracker<ICheckRepository, ICheckRepository> checkRepositoryTracker;
     private ServiceTracker<IApplicationManager, IApplicationManager> applicationManagerTracker;
+    private ServiceTracker<IInfobaseAssociationManager, IInfobaseAssociationManager> infobaseAssociationManagerTracker;
+    private ServiceTracker<IInfobaseAccessManager, IInfobaseAccessManager> infobaseAccessManagerTracker;
+    private ServiceTracker<IRuntimeComponentManager, IRuntimeComponentManager> runtimeComponentManagerTracker;
 
     @Override
     public void start(BundleContext context) throws Exception {
@@ -148,6 +154,12 @@ public class VibeCorePlugin extends Plugin {
         checkRepositoryTracker.open();
         applicationManagerTracker = new ServiceTracker<>(context, IApplicationManager.class, null);
         applicationManagerTracker.open();
+        infobaseAssociationManagerTracker = new ServiceTracker<>(context, IInfobaseAssociationManager.class, null);
+        infobaseAssociationManagerTracker.open();
+        infobaseAccessManagerTracker = new ServiceTracker<>(context, IInfobaseAccessManager.class, null);
+        infobaseAccessManagerTracker.open();
+        runtimeComponentManagerTracker = new ServiceTracker<>(context, IRuntimeComponentManager.class, null);
+        runtimeComponentManagerTracker.open();
     }
 
     @Override
@@ -210,6 +222,12 @@ public class VibeCorePlugin extends Plugin {
         checkRepositoryTracker = null;
         closeTracker(applicationManagerTracker);
         applicationManagerTracker = null;
+        closeTracker(infobaseAssociationManagerTracker);
+        infobaseAssociationManagerTracker = null;
+        closeTracker(infobaseAccessManagerTracker);
+        infobaseAccessManagerTracker = null;
+        closeTracker(runtimeComponentManagerTracker);
+        runtimeComponentManagerTracker = null;
 
         plugin = null;
         super.stop(context);
@@ -297,6 +315,18 @@ public class VibeCorePlugin extends Plugin {
 
     public IApplicationManager getApplicationManager() {
         return getTrackedService(applicationManagerTracker, "IApplicationManager"); //$NON-NLS-1$
+    }
+
+    public IInfobaseAssociationManager getInfobaseAssociationManager() {
+        return getTrackedService(infobaseAssociationManagerTracker, "IInfobaseAssociationManager"); //$NON-NLS-1$
+    }
+
+    public IInfobaseAccessManager getInfobaseAccessManager() {
+        return getTrackedService(infobaseAccessManagerTracker, "IInfobaseAccessManager"); //$NON-NLS-1$
+    }
+
+    public IRuntimeComponentManager getRuntimeComponentManager() {
+        return getTrackedService(runtimeComponentManagerTracker, "IRuntimeComponentManager"); //$NON-NLS-1$
     }
 
     private <T> T getTrackedService(ServiceTracker<T, T> tracker, String serviceName) {
