@@ -13,6 +13,8 @@
 .settings/
 .DS_Store
 docs/*
+!docs/release-notes/
+!docs/release-notes/**
 # Local notes
 OSS_SUMMARY.md
 AGENTS.md
