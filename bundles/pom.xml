@@ -17,6 +17,7 @@
 
     <modules>
         <module>com.codepilot1c.core</module>
+        <module>com.codepilot1c.core.tests</module>
         <module>com.codepilot1c.ui</module>
     </modules>
 </project>
