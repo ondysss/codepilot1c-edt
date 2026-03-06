@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -39,6 +40,9 @@ import com.codepilot1c.core.agent.events.ToolCallEvent;
 import com.codepilot1c.core.agent.events.ToolResultEvent;
 import com.codepilot1c.core.agent.graph.ToolGraphRouter;
 import com.codepilot1c.core.agent.graph.ToolGraphToolFilter;
+import com.codepilot1c.core.evaluation.trace.AgentTraceSession;
+import com.codepilot1c.core.evaluation.trace.TraceEventType;
+import com.codepilot1c.core.evaluation.trace.TracingLlmProvider;
 import com.codepilot1c.core.model.LlmMessage;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
@@ -106,6 +110,11 @@ public class AgentRunner implements IAgentRunner {
     private List<LlmMessage> conversationHistory = new ArrayList<>();
 
     private ToolGraphRouter toolGraphRouter;
+    private volatile ILlmProvider executionProvider;
+    private volatile AgentTraceSession traceSession;
+    private volatile String agentStartedTraceEventId;
+    private final Map<Integer, String> stepTraceEventIds = new ConcurrentHashMap<>();
+    private final Map<String, String> toolTraceEventIds = new ConcurrentHashMap<>();
 
     /**
      * Создает AgentRunner.
@@ -118,6 +127,7 @@ public class AgentRunner implements IAgentRunner {
         this.provider = Objects.requireNonNull(provider, "provider");
         this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
         this.systemPrompt = systemPrompt != null ? systemPrompt : "";
+        this.executionProvider = this.provider;
     }
 
     /**
@@ -172,6 +182,7 @@ public class AgentRunner implements IAgentRunner {
         }
 
         initializeToolGraph(prompt, config);
+        initializeTraceSession(config, prompt, appliedSystemPrompt.get());
 
         // Emit started event
         emit(new AgentStartedEvent(prompt, config));
@@ -202,12 +213,18 @@ public class AgentRunner implements IAgentRunner {
             // Emit completion event if we have a result
             if (res != null) {
                 emit(new AgentCompletedEvent(res));
+            } else if (traceSession != null && err != null) {
+                Throwable root = unwrapException(err);
+                traceSession.markCompleted(AgentState.ERROR.name(),
+                        root != null ? root.getMessage() : err.getMessage());
             }
 
             logPromptTelemetry(config, prompt, appliedSystemPrompt.get(), res, err);
 
             // Reset to IDLE for reuse
             state.set(AgentState.IDLE);
+            executionProvider = provider;
+            traceSession = null;
         });
     }
 
@@ -222,6 +239,16 @@ public class AgentRunner implements IAgentRunner {
         currentStreamingFuture.set(null);
         pendingConfirmation.set(null);
         toolGraphRouter = null;
+        executionProvider = provider;
+        traceSession = null;
+        agentStartedTraceEventId = null;
+        stepTraceEventIds.clear();
+        toolTraceEventIds.clear();
+    }
+
+    private void initializeTraceSession(AgentConfig config, String prompt, String appliedSystemPrompt) {
+        traceSession = AgentTraceSession.startAgentRun(config, provider, prompt, appliedSystemPrompt);
+        executionProvider = traceSession != null ? new TracingLlmProvider(provider, traceSession) : provider;
     }
 
     /**
@@ -265,10 +292,10 @@ public class AgentRunner implements IAgentRunner {
         // Execute based on streaming preference
         CompletableFuture<LlmResponse> responseFuture;
         try {
-            if (config.isStreamingEnabled() && provider.supportsStreaming()) {
+            if (config.isStreamingEnabled() && executionProvider.supportsStreaming()) {
                 responseFuture = executeStreaming(request, step);
             } else {
-                responseFuture = provider.complete(request);
+                responseFuture = executionProvider.complete(request);
             }
         } catch (Exception e) {
             // Handle synchronous provider exceptions
@@ -296,6 +323,7 @@ public class AgentRunner implements IAgentRunner {
         currentStreamingFuture.set(future);
 
         StringBuilder contentBuilder = new StringBuilder();
+        StringBuilder reasoningBuilder = new StringBuilder();
         List<ToolCall> toolCalls = new ArrayList<>();
 
         Consumer<LlmStreamChunk> chunkHandler = chunk -> {
@@ -316,6 +344,10 @@ public class AgentRunner implements IAgentRunner {
                 toolCalls.addAll(chunk.getToolCalls());
             }
 
+            if (chunk.hasReasoning()) {
+                reasoningBuilder.append(chunk.getReasoningContent());
+            }
+
             if (chunk.isComplete()) {
                 emit(StreamChunkEvent.complete(step, chunk.getFinishReason()));
 
@@ -323,6 +355,7 @@ public class AgentRunner implements IAgentRunner {
                         .content(contentBuilder.toString())
                         .toolCalls(toolCalls)
                         .finishReason(chunk.getFinishReason())
+                        .reasoningContent(reasoningBuilder.length() > 0 ? reasoningBuilder.toString() : null)
                         .build();
                 future.complete(response);
             }
@@ -334,7 +367,7 @@ public class AgentRunner implements IAgentRunner {
         };
 
         try {
-            provider.streamComplete(request, chunkHandler);
+            executionProvider.streamComplete(request, chunkHandler);
         } catch (Exception e) {
             future.completeExceptionally(e);
         }
@@ -378,7 +411,9 @@ public class AgentRunner implements IAgentRunner {
         state.set(AgentState.WAITING_TOOL);
 
         // Set agent context for tool logging
-        String sessionId = String.valueOf(System.identityHashCode(this));
+        String sessionId = traceSession != null
+                ? traceSession.getRunId()
+                : String.valueOf(System.identityHashCode(this));
         ToolLogger.getInstance().setAgentContext(sessionId, currentStep.get());
 
         // Process tool calls sequentially
@@ -500,8 +535,9 @@ public class AgentRunner implements IAgentRunner {
     private CompletableFuture<Void> executeToolAndAddResult(ToolCall call, Map<String, Object> args) {
         long toolStartTime = System.currentTimeMillis();
         int step = currentStep.get();
+        String parentTraceEventId = toolTraceEventIds.get(call.getId());
 
-        return toolRegistry.execute(call)
+        return toolRegistry.execute(call, traceSession, parentTraceEventId)
                 .handle((result, error) -> {
                     long executionTime = System.currentTimeMillis() - toolStartTime;
                     toolCallsCount.incrementAndGet();
@@ -780,7 +816,7 @@ public class AgentRunner implements IAgentRunner {
 
         // Cancel provider
         try {
-            provider.cancel();
+            executionProvider.cancel();
         } catch (Exception e) {
             logWarning("Ошибка при отмене провайдера", e);
         }
@@ -841,11 +877,110 @@ public class AgentRunner implements IAgentRunner {
      * Отправляет событие всем слушателям.
      */
     private void emit(AgentEvent event) {
+        traceAgentEvent(event);
         for (IAgentEventListener listener : listeners) {
             try {
                 listener.onEvent(event);
             } catch (Exception e) {
                 logWarning("Ошибка в обработчике события: " + event.getType(), e);
+            }
+        }
+    }
+
+    private void traceAgentEvent(AgentEvent event) {
+        if (traceSession == null || event == null) {
+            return;
+        }
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("state", event.getState().name()); //$NON-NLS-1$
+        payload.put("step", Integer.valueOf(event.getStep())); //$NON-NLS-1$
+        payload.put("timestamp", event.getTimestamp().toString()); //$NON-NLS-1$
+
+        String parentEventId = null;
+        String eventId;
+        switch (event.getType()) {
+            case STARTED -> {
+                AgentStartedEvent started = (AgentStartedEvent) event;
+                payload.put("prompt", started.getPrompt()); //$NON-NLS-1$
+                if (started.getConfig() != null) {
+                    payload.put("profile_name", started.getConfig().getProfileName()); //$NON-NLS-1$
+                    payload.put("max_steps", Integer.valueOf(started.getConfig().getMaxSteps())); //$NON-NLS-1$
+                    payload.put("streaming_enabled", Boolean.valueOf(started.getConfig().isStreamingEnabled())); //$NON-NLS-1$
+                }
+                agentStartedTraceEventId = traceSession.writeAgentEvent(TraceEventType.AGENT_STARTED, null, payload);
+            }
+            case STEP -> {
+                AgentStepEvent stepEvent = (AgentStepEvent) event;
+                payload.put("description", stepEvent.getDescription()); //$NON-NLS-1$
+                payload.put("max_steps", Integer.valueOf(stepEvent.getMaxSteps())); //$NON-NLS-1$
+                payload.put("progress", Double.valueOf(stepEvent.getProgress())); //$NON-NLS-1$
+                eventId = traceSession.writeAgentEvent(TraceEventType.AGENT_STEP, agentStartedTraceEventId, payload);
+                stepTraceEventIds.put(Integer.valueOf(stepEvent.getStep()), eventId);
+            }
+            case TOOL_CALL -> {
+                ToolCallEvent toolCallEvent = (ToolCallEvent) event;
+                payload.put("tool_name", toolCallEvent.getToolName()); //$NON-NLS-1$
+                payload.put("call_id", toolCallEvent.getCallId()); //$NON-NLS-1$
+                payload.put("parsed_arguments", toolCallEvent.getParsedArguments()); //$NON-NLS-1$
+                payload.put("requires_confirmation", Boolean.valueOf(toolCallEvent.isRequiresConfirmation())); //$NON-NLS-1$
+                parentEventId = stepTraceEventIds.get(Integer.valueOf(toolCallEvent.getStep()));
+                eventId = traceSession.writeAgentEvent(TraceEventType.TOOL_CALL, parentEventId, payload);
+                toolTraceEventIds.put(toolCallEvent.getCallId(), eventId);
+            }
+            case TOOL_RESULT -> {
+                ToolResultEvent toolResultEvent = (ToolResultEvent) event;
+                payload.put("tool_name", toolResultEvent.getToolName()); //$NON-NLS-1$
+                payload.put("call_id", toolResultEvent.getCallId()); //$NON-NLS-1$
+                payload.put("success", Boolean.valueOf(toolResultEvent.isSuccess())); //$NON-NLS-1$
+                payload.put("execution_time_ms", Long.valueOf(toolResultEvent.getExecutionTimeMs())); //$NON-NLS-1$
+                payload.put("result_type", toolResultEvent.getResult().getType().name()); //$NON-NLS-1$
+                payload.put("content", toolResultEvent.getResult().getContent()); //$NON-NLS-1$
+                payload.put("error_message", toolResultEvent.getResult().getErrorMessage()); //$NON-NLS-1$
+                parentEventId = toolTraceEventIds.get(toolResultEvent.getCallId());
+                if (parentEventId == null) {
+                    parentEventId = stepTraceEventIds.get(Integer.valueOf(toolResultEvent.getStep()));
+                }
+                traceSession.writeAgentEvent(TraceEventType.TOOL_RESULT, parentEventId, payload);
+            }
+            case STREAM_CHUNK -> {
+                StreamChunkEvent chunkEvent = (StreamChunkEvent) event;
+                payload.put("content", chunkEvent.getContent()); //$NON-NLS-1$
+                payload.put("is_complete", Boolean.valueOf(chunkEvent.isComplete())); //$NON-NLS-1$
+                payload.put("finish_reason", chunkEvent.getFinishReason()); //$NON-NLS-1$
+                parentEventId = stepTraceEventIds.get(Integer.valueOf(chunkEvent.getStep()));
+                traceSession.writeAgentEvent(TraceEventType.AGENT_STREAM_CHUNK, parentEventId, payload);
+            }
+            case CONFIRMATION_REQUIRED -> {
+                ConfirmationRequiredEvent confirmationEvent = (ConfirmationRequiredEvent) event;
+                payload.put("tool_name", confirmationEvent.getToolName()); //$NON-NLS-1$
+                payload.put("tool_description", confirmationEvent.getToolDescription()); //$NON-NLS-1$
+                payload.put("arguments", confirmationEvent.getArguments()); //$NON-NLS-1$
+                payload.put("is_destructive", Boolean.valueOf(confirmationEvent.isDestructive())); //$NON-NLS-1$
+                parentEventId = toolTraceEventIds.get(confirmationEvent.getToolCall().getId());
+                if (parentEventId == null) {
+                    parentEventId = stepTraceEventIds.get(Integer.valueOf(confirmationEvent.getStep()));
+                }
+                traceSession.writeAgentEvent(TraceEventType.AGENT_CONFIRMATION_REQUIRED, parentEventId, payload);
+            }
+            case COMPLETED -> {
+                AgentCompletedEvent completedEvent = (AgentCompletedEvent) event;
+                payload.put("final_state", completedEvent.getResult().getFinalState().name()); //$NON-NLS-1$
+                payload.put("final_response", completedEvent.getFinalResponse()); //$NON-NLS-1$
+                payload.put("error_message", completedEvent.getErrorMessage()); //$NON-NLS-1$
+                payload.put("steps_executed", Integer.valueOf(completedEvent.getResult().getStepsExecuted())); //$NON-NLS-1$
+                payload.put("tool_calls_executed", Integer.valueOf(completedEvent.getResult().getToolCallsExecuted())); //$NON-NLS-1$
+                payload.put("execution_time_ms", Long.valueOf(completedEvent.getResult().getExecutionTimeMs())); //$NON-NLS-1$
+                parentEventId = stepTraceEventIds.get(Integer.valueOf(completedEvent.getStep()));
+                if (parentEventId == null) {
+                    parentEventId = agentStartedTraceEventId;
+                }
+                traceSession.writeAgentEvent(TraceEventType.AGENT_COMPLETED, parentEventId, payload);
+                traceSession.markCompleted(completedEvent.getResult().getFinalState().name(),
+                        completedEvent.getErrorMessage());
+            }
+            default -> {
+                return;
             }
         }
     }

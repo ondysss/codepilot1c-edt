@@ -21,6 +21,8 @@ import org.eclipse.core.runtime.IConfigurationElement;
 import org.eclipse.core.runtime.IExtensionRegistry;
 import org.eclipse.core.runtime.Platform;
 
+import com.codepilot1c.core.evaluation.trace.AgentTraceSession;
+import com.codepilot1c.core.evaluation.trace.TraceEventType;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -259,10 +261,20 @@ public class ToolRegistry {
      * @return future with the result
      */
     public CompletableFuture<ToolResult> execute(ToolCall toolCall) {
+        return execute(toolCall, null, null);
+    }
+
+    public CompletableFuture<ToolResult> execute(ToolCall toolCall, AgentTraceSession traceSession,
+            String parentEventId) {
         LOG.debug("Executing tool: %s with args: %s", toolCall.getName(), toolCall.getArguments()); //$NON-NLS-1$
 
         ToolLogger toolLogger = ToolLogger.getInstance();
-
+        Map<String, Object> parameters = Collections.emptyMap();
+        try {
+            parameters = parseArguments(toolCall.getArguments());
+        } catch (Exception e) {
+            LOG.warn("Failed to pre-parse tool arguments for trace: %s", e.getMessage()); //$NON-NLS-1$
+        }
         // Use getTool() to search both built-in and dynamic tools (MCP)
         ITool tool = getTool(toolCall.getName());
         if (tool == null) {
@@ -270,12 +282,16 @@ public class ToolRegistry {
                     toolCall.getName(), tools.size(), dynamicTools.size());
             ToolResult failResult = ToolResult.failure("Unknown tool: " + toolCall.getName()); //$NON-NLS-1$
             toolLogger.logToolCallResult(-1, toolCall.getName(), failResult, 0);
+            String traceToolCallEventId = writeToolCallTrace(traceSession, parentEventId, toolCall, parameters, null);
+            writeToolResultTrace(traceSession, traceToolCallEventId, toolCall, failResult, 0, null);
             return CompletableFuture.completedFuture(failResult);
         }
 
         try {
-            Map<String, Object> parameters = parseArguments(toolCall.getArguments());
+            parameters = parseArguments(toolCall.getArguments());
             LOG.debug("Parsed parameters: %s", parameters); //$NON-NLS-1$
+            final String traceToolCallEventId =
+                    writeToolCallTrace(traceSession, parentEventId, toolCall, parameters, tool);
 
             // Log tool call start
             int callId = toolLogger.logToolCallStart(toolCall.getName(), parameters);
@@ -286,6 +302,7 @@ public class ToolRegistry {
                         long duration = System.currentTimeMillis() - startTime;
                         // Log tool call result
                         toolLogger.logToolCallResult(callId, toolCall.getName(), result, duration);
+                        writeToolResultTrace(traceSession, traceToolCallEventId, toolCall, result, duration, null);
 
                         if (result.isSuccess()) {
                             LOG.debug("Tool %s completed in %d ms, result length: %d", //$NON-NLS-1$
@@ -301,6 +318,7 @@ public class ToolRegistry {
                         long duration = System.currentTimeMillis() - startTime;
                         // Log tool call error
                         toolLogger.logToolCallError(callId, toolCall.getName(), error, duration);
+                        writeToolResultTrace(traceSession, traceToolCallEventId, toolCall, null, duration, error);
                         LOG.error("Tool %s threw exception in %d ms: %s", //$NON-NLS-1$
                                 toolCall.getName(), duration, error.getMessage());
                         return ToolResult.failure("Exception: " + error.getMessage()); //$NON-NLS-1$
@@ -309,8 +327,50 @@ public class ToolRegistry {
             LOG.error("Error executing tool %s: %s", toolCall.getName(), e.getMessage()); //$NON-NLS-1$
             ToolResult failResult = ToolResult.failure("Error executing tool: " + e.getMessage()); //$NON-NLS-1$
             toolLogger.logToolCallResult(-1, toolCall.getName(), failResult, 0);
+            String traceToolCallEventId = writeToolCallTrace(traceSession, parentEventId, toolCall, parameters, tool);
+            writeToolResultTrace(traceSession, traceToolCallEventId, toolCall, failResult, 0, e);
             return CompletableFuture.completedFuture(failResult);
         }
+    }
+
+    private String writeToolCallTrace(AgentTraceSession traceSession, String parentEventId, ToolCall toolCall,
+            Map<String, Object> parameters, ITool tool) {
+        if (traceSession == null) {
+            return null;
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("tool_name", toolCall.getName()); //$NON-NLS-1$
+        payload.put("call_id", toolCall.getId()); //$NON-NLS-1$
+        payload.put("arguments_json", toolCall.getArguments()); //$NON-NLS-1$
+        payload.put("parsed_arguments", parameters); //$NON-NLS-1$
+        if (tool != null) {
+            payload.put("tool_description", tool.getDescription()); //$NON-NLS-1$
+            payload.put("requires_confirmation", Boolean.valueOf(tool.requiresConfirmation())); //$NON-NLS-1$
+            payload.put("is_destructive", Boolean.valueOf(tool.isDestructive())); //$NON-NLS-1$
+        }
+        return traceSession.writeToolEvent(TraceEventType.TOOL_CALL, parentEventId, payload);
+    }
+
+    private void writeToolResultTrace(AgentTraceSession traceSession, String parentEventId, ToolCall toolCall,
+            ToolResult result, long durationMs, Throwable error) {
+        if (traceSession == null) {
+            return;
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("tool_name", toolCall.getName()); //$NON-NLS-1$
+        payload.put("call_id", toolCall.getId()); //$NON-NLS-1$
+        payload.put("duration_ms", Long.valueOf(durationMs)); //$NON-NLS-1$
+        if (result != null) {
+            payload.put("success", Boolean.valueOf(result.isSuccess())); //$NON-NLS-1$
+            payload.put("result_type", result.getType().name()); //$NON-NLS-1$
+            payload.put("content", result.getContent()); //$NON-NLS-1$
+            payload.put("error_message", result.getErrorMessage()); //$NON-NLS-1$
+        }
+        if (error != null) {
+            payload.put("exception_type", error.getClass().getSimpleName()); //$NON-NLS-1$
+            payload.put("exception_message", error.getMessage()); //$NON-NLS-1$
+        }
+        traceSession.writeToolEvent(TraceEventType.TOOL_RESULT, parentEventId, payload);
     }
 
     /**
