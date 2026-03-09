@@ -1,0 +1,42 @@
+{
+  "id": "SMK-001",
+  "title": "Project Discovery Smoke",
+  "category": "smoke_connectivity",
+  "channel": "qwen_mcp",
+  "risk_level": "low",
+  "workspace_requirements": {
+    "project_name": "any",
+    "notes": [
+      "At least one project is imported into the local EDT workspace."
+    ]
+  },
+  "actor": {
+    "style": "1c_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "Ты работаешь в локально запущенном проекте EDT. Проверь, что текущий проект доступен для чтения: можно использовать MCP-инструменты или обычные файловые операции в текущей папке (read-only). Коротко сообщи имя проекта. Не запускай мутации и не используй external_list_projects или extension_list_projects.",
+  "expected_tool_path": {
+    "forbidden": [
+      "external_list_projects",
+      "extension_list_projects",
+      "create_metadata",
+      "add_metadata_child",
+      "update_metadata",
+      "delete_metadata",
+      "write_file"
+    ]
+  },
+  "assertions": {
+    "tool_behavior": {
+      "max_mutating_calls": 0
+    }
+  },
+  "artifacts": {
+    "required": [
+      "qwen-stream-json",
+      "qwen-chat",
+      "result.json"
+    ]
+  }
+}

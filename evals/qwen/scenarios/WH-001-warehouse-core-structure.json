@@ -1,0 +1,52 @@
+{
+  "id": "WH-001",
+  "title": "Create Warehouse Core Structure",
+  "category": "greenfield_configuration",
+  "channel": "qwen_mcp",
+  "risk_level": "high",
+  "workspace_requirements": {
+    "project_name": "warehouse-project",
+    "notes": [
+      "Workspace contains a minimal editable configuration intended for greenfield development.",
+      "Mutation permissions are enabled for MCP host."
+    ]
+  },
+  "actor": {
+    "style": "1c_solution_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "Создай базовый каркас простой конфигурации складского учета. Нужны как минимум подсистема СкладскойУчет, а также пустые объекты для будущих справочников, документов и отчетов. Если объекты уже существуют, проверь их наличие и перечисли. После изменений обязательно проверь диагностику.",
+  "expected_tool_path": {
+    "required_any_order": [
+      "get_diagnostics"
+    ],
+    "required_rules": [
+      "every mutating call must use validation_token from edt_validate_request",
+      "post-mutation diagnostics must be executed"
+    ],
+    "forbidden": [
+      "write_file"
+    ]
+  },
+  "assertions": {
+    "workspace_state": {
+      "must_create_subsystem": "СкладскойУчет",
+      "must_create_at_least_one_metadata_group": true
+    },
+    "tool_behavior": {
+      "must_have_validation_flow": true,
+      "must_have_post_mutation_diagnostics": true
+    },
+    "final_answer": {
+      "must_report_diagnostics_status": true
+    }
+  },
+  "artifacts": {
+    "required": [
+      "events.jsonl",
+      "tools.jsonl",
+      "mcp.jsonl"
+    ]
+  }
+}

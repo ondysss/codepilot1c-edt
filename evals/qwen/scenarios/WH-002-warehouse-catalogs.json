@@ -1,0 +1,57 @@
+{
+  "id": "WH-002",
+  "title": "Create Warehouse Catalogs",
+  "category": "greenfield_configuration",
+  "channel": "qwen_mcp",
+  "risk_level": "high",
+  "workspace_requirements": {
+    "project_name": "warehouse-project",
+    "notes": [
+      "Subsystem СкладскойУчет already exists or can be created in the same scenario."
+    ]
+  },
+  "actor": {
+    "style": "1c_solution_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "В конфигурации складского учета создай справочники Склады и Номенклатура. Для Номенклатуры добавь пользовательские реквизиты Артикул и ЕдиницаИзмерения, для Склады — Адрес. Если справочники уже существуют, добавь/проверь реквизиты. Используй корректные типы и не создавай реквизиты с зарезервированными именами. После этого проверь диагностику.",
+  "expected_tool_path": {
+    "required_any_order": [
+      "edt_validate_request",
+      "add_metadata_child",
+      "get_diagnostics"
+    ],
+    "required_rules": [
+      "validation_token must be passed unchanged",
+      "reserved standard attribute names must not be reused"
+    ],
+    "forbidden": [
+      "write_file"
+    ]
+  },
+  "assertions": {
+    "workspace_state": {
+      "must_create_objects": [
+        "Catalog.Склады",
+        "Catalog.Номенклатура"
+      ],
+      "must_create_attributes": [
+        "Catalog.Номенклатура.Attribute.Артикул",
+        "Catalog.Номенклатура.Attribute.ЕдиницаИзмерения",
+        "Catalog.Склады.Attribute.Адрес"
+      ]
+    },
+    "final_answer": {
+      "must_report_created_catalogs": true,
+      "must_report_diagnostics_status": true
+    }
+  },
+  "artifacts": {
+    "required": [
+      "events.jsonl",
+      "tools.jsonl",
+      "mcp.jsonl"
+    ]
+  }
+}

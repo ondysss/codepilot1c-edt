@@ -1,0 +1,53 @@
+{
+  "id": "BUH-006",
+  "title": "Run Targeted Regression QA For Accounting Customization",
+  "category": "qa_execution",
+  "channel": "qwen_mcp",
+  "risk_level": "medium",
+  "workspace_requirements": {
+    "project_name": "buh-project",
+    "notes": [
+      "QA configuration exists for the Accounting project.",
+      "There is a targeted smoke or regression scenario related to the customized object."
+    ]
+  },
+  "actor": {
+    "style": "1c_typical_config_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "После доработки типовой 1С:Бухгалтерии выполни целевую регрессионную проверку: сначала проверь QA окружение, затем запусти только релевантный smoke/regression сценарий, а в ответе сообщи итог теста, путь к junit и что именно этим тестом проверялось.",
+  "expected_tool_path": {
+    "ordered_subsequence": [
+      "qa_status",
+      "qa_plan_scenario",
+      "qa_compile_feature",
+      "qa_validate_feature",
+      "qa_run"
+    ],
+    "preferred_followups": [
+      "qa_steps_search"
+    ],
+    "required_rules": [
+      "qa_status must run before qa_run",
+      "runner must target the changed business flow rather than all tests blindly"
+    ]
+  },
+  "assertions": {
+    "workspace_state": {
+      "must_produce_junit_report": true
+    },
+    "final_answer": {
+      "must_report_targeted_test_scope": true,
+      "must_report_junit_path": true,
+      "must_report_qa_status": true
+    }
+  },
+  "artifacts": {
+    "required": [
+      "qa-run-dir",
+      "tools.jsonl",
+      "mcp.jsonl"
+    ]
+  }
+}

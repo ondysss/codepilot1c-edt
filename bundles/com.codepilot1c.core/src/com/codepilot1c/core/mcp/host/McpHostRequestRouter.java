@@ -3,6 +3,7 @@ package com.codepilot1c.core.mcp.host;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +27,7 @@ import com.codepilot1c.core.mcp.model.McpResource;
 import com.codepilot1c.core.mcp.model.McpResourceContent;
 import com.codepilot1c.core.permissions.PermissionDecision;
 import com.codepilot1c.core.permissions.PermissionManager;
+import com.codepilot1c.core.evaluation.trace.TraceEventType;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
@@ -68,8 +70,10 @@ public class McpHostRequestRouter {
             return error(request, -32600, "Invalid request"); //$NON-NLS-1$
         }
 
+        Instant startedAt = Instant.now();
+        String requestTraceId = writeMcpRequestTrace(request, session);
         try {
-            return switch (request.getMethod()) {
+            McpMessage response = switch (request.getMethod()) {
                 case "initialize" -> handleInitialize(request, session); //$NON-NLS-1$
                 case "notifications/initialized" -> handleInitialized(request, session); //$NON-NLS-1$
                 case "tools/list" -> ok(request, Map.of("tools", listTools())); //$NON-NLS-1$ //$NON-NLS-2$
@@ -83,9 +87,15 @@ public class McpHostRequestRouter {
                 case "shutdown" -> ok(request, Map.of()); //$NON-NLS-1$
                 default -> error(request, -32601, "Method not found: " + request.getMethod()); //$NON-NLS-1$
             };
+            writeMcpResponseTrace(request, response, session, requestTraceId,
+                    Duration.between(startedAt, Instant.now()), null, null);
+            return response;
         } catch (Exception e) {
             LOG.error("MCP host request handling error", e); //$NON-NLS-1$
-            return error(request, -32603, e.getMessage() != null ? e.getMessage() : "Internal error"); //$NON-NLS-1$
+            McpMessage errorResponse = error(request, -32603, e.getMessage() != null ? e.getMessage() : "Internal error"); //$NON-NLS-1$
+            writeMcpResponseTrace(request, errorResponse, session, requestTraceId,
+                    Duration.between(startedAt, Instant.now()), null, e);
+            return errorResponse;
         }
     }
 
@@ -141,6 +151,8 @@ public class McpHostRequestRouter {
         PermissionDecision decision = resolvePermissionDecision(toolName, arguments);
 
         if (decision == PermissionDecision.DENY || decision == PermissionDecision.ASK) {
+            writeMcpToolTrace(session, toolName, arguments, decision, ToolResult.failure(
+                    "Tool execution denied by permission policy: " + decision), Duration.ZERO, null); //$NON-NLS-1$
             return ok(request, toolError("Tool execution denied by permission policy: " + decision)); //$NON-NLS-1$
         }
 
@@ -151,12 +163,15 @@ public class McpHostRequestRouter {
                 .orTimeout(timeoutSeconds, TimeUnit.SECONDS)
                 .join();
         } catch (Exception e) {
+            writeMcpToolTrace(session, toolName, arguments, decision, null,
+                    Duration.between(startedAt, Instant.now()), e);
             return ok(request, toolError("Tool execution failed: " + e.getMessage())); //$NON-NLS-1$
         }
 
         Duration duration = Duration.between(startedAt, Instant.now());
         LOG.info("MCP host tool call client=%s tool=%s decision=%s success=%s durationMs=%d", //$NON-NLS-1$
             session.getClientName(), toolName, decision, Boolean.valueOf(toolResult.isSuccess()), Long.valueOf(duration.toMillis()));
+        writeMcpToolTrace(session, toolName, arguments, decision, toolResult, duration, null);
 
         return ok(request, toMcpToolResult(toolResult));
     }
@@ -303,5 +318,68 @@ public class McpHostRequestRouter {
         }
         response.setError(new McpError(code, message, null));
         return response;
+    }
+
+    private String writeMcpRequestTrace(McpMessage request, McpHostSession session) {
+        if (session == null || session.getTraceSession() == null) {
+            return null;
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("method", request.getMethod()); //$NON-NLS-1$
+        payload.put("raw_id", request.getRawId()); //$NON-NLS-1$
+        payload.put("params", request.getParams()); //$NON-NLS-1$
+        payload.put("client_name", session.getClientName()); //$NON-NLS-1$
+        payload.put("client_version", session.getClientVersion()); //$NON-NLS-1$
+        payload.put("protocol_version", session.getProtocolVersion()); //$NON-NLS-1$
+        payload.put("transport", session.getTransport()); //$NON-NLS-1$
+        payload.put("remote_address", session.getRemoteAddress()); //$NON-NLS-1$
+        payload.put("request_path", session.getLastRequestPath()); //$NON-NLS-1$
+        payload.put("request_count", Long.valueOf(session.getRequestCount())); //$NON-NLS-1$
+        return session.getTraceSession().writeMcpEvent(TraceEventType.MCP_REQUEST, null, payload);
+    }
+
+    private void writeMcpResponseTrace(McpMessage request, McpMessage response, McpHostSession session,
+            String parentEventId, Duration duration, Map<String, Object> extra, Throwable error) {
+        if (session == null || session.getTraceSession() == null) {
+            return;
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("method", request != null ? request.getMethod() : null); //$NON-NLS-1$
+        payload.put("raw_id", request != null ? request.getRawId() : null); //$NON-NLS-1$
+        payload.put("duration_ms", Long.valueOf(duration != null ? duration.toMillis() : 0L)); //$NON-NLS-1$
+        payload.put("result", response != null ? response.getResult() : null); //$NON-NLS-1$
+        payload.put("error", response != null ? response.getError() : null); //$NON-NLS-1$
+        if (extra != null && !extra.isEmpty()) {
+            payload.putAll(extra);
+        }
+        if (error != null) {
+            payload.put("exception_type", error.getClass().getSimpleName()); //$NON-NLS-1$
+            payload.put("exception_message", error.getMessage()); //$NON-NLS-1$
+        }
+        session.getTraceSession().writeMcpEvent(TraceEventType.MCP_RESPONSE, parentEventId, payload);
+    }
+
+    private void writeMcpToolTrace(McpHostSession session, String toolName, Map<String, Object> arguments,
+            PermissionDecision decision, ToolResult toolResult, Duration duration, Throwable error) {
+        if (session == null || session.getTraceSession() == null) {
+            return;
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("method", "tools/call"); //$NON-NLS-1$ //$NON-NLS-2$
+        payload.put("tool_name", toolName); //$NON-NLS-1$
+        payload.put("arguments", arguments); //$NON-NLS-1$
+        payload.put("permission_decision", decision != null ? decision.name() : null); //$NON-NLS-1$
+        payload.put("duration_ms", Long.valueOf(duration != null ? duration.toMillis() : 0L)); //$NON-NLS-1$
+        if (toolResult != null) {
+            payload.put("success", Boolean.valueOf(toolResult.isSuccess())); //$NON-NLS-1$
+            payload.put("result_type", toolResult.getType().name()); //$NON-NLS-1$
+            payload.put("content", toolResult.getContent()); //$NON-NLS-1$
+            payload.put("error_message", toolResult.getErrorMessage()); //$NON-NLS-1$
+        }
+        if (error != null) {
+            payload.put("exception_type", error.getClass().getSimpleName()); //$NON-NLS-1$
+            payload.put("exception_message", error.getMessage()); //$NON-NLS-1$
+        }
+        session.getTraceSession().writeMcpEvent(TraceEventType.MCP_RESPONSE, null, payload);
     }
 }

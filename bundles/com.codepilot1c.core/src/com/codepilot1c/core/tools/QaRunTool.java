@@ -28,6 +28,9 @@ import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.preferences.IEclipsePreferences;
 import org.eclipse.core.runtime.preferences.InstanceScope;
 
+import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.impl.RuntimeExecutionCommandBuilder;
+import com.codepilot1c.core.edt.runtime.EdtLaunchContextBuilder;
+import com.codepilot1c.core.edt.runtime.EdtLaunchConfigurationService;
 import com.codepilot1c.core.edt.runtime.EdtRuntimeService;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
@@ -223,6 +226,8 @@ public class QaRunTool implements ITool {
 
                 EdtRuntimeService runtimeService = null;
                 String edtInfobaseConnection = null;
+                EdtRuntimeService.AccessSettings accessSettings = null;
+                EdtLaunchConfigurationService.LaunchConfigurationSettings launchConfig = null;
                 if (needEdtRuntime) {
                     if (projectName == null || projectName.isBlank()) {
                         return ToolResult.failure("QA_RUN_ERROR: project_name is required for EDT runtime"); //$NON-NLS-1$
@@ -234,9 +239,29 @@ public class QaRunTool implements ITool {
                             if (infobase != null && infobase.getConnectionString() != null) {
                                 edtInfobaseConnection = infobase.getConnectionString().asConnectionString();
                             }
+                            accessSettings = runtimeService.resolveAccessSettings(infobase);
                         } catch (Exception e) {
                             LOG.warn("[%s] Failed to resolve EDT infobase connection: %s", opId, e.getMessage()); //$NON-NLS-1$
                         }
+                        try {
+                            launchConfig = new EdtLaunchConfigurationService()
+                                    .resolveRuntimeClientConfiguration(projectName, workspaceRoot);
+                        } catch (IOException e) {
+                            return ToolResult.failure("QA_RUN_ERROR: failed to read EDT launch configuration: " //$NON-NLS-1$
+                                    + e.getMessage());
+                        }
+                        if (launchConfig == null) {
+                            return ToolResult.failure("QA_RUN_ERROR: EDT launch configuration not found for project: " //$NON-NLS-1$
+                                    + projectName);
+                        }
+                        if (!launchConfig.runtimeInstallationUseAuto()
+                                && (launchConfig.runtimeVersion() == null || launchConfig.runtimeVersion().isBlank())) {
+                            return ToolResult.failure("QA_RUN_ERROR: EDT launch configuration does not define runtime version"); //$NON-NLS-1$
+                        }
+                        platformVersion = launchConfig.runtimeInstallationUseAuto()
+                                ? null
+                                : launchConfig.runtimeVersion();
+                        accessSettings = mergeLaunchAccessSettings(accessSettings, launchConfig);
                     }
                 }
 
@@ -254,10 +279,17 @@ public class QaRunTool implements ITool {
                     }
                 }
 
+                String preferenceEpfPath = getPreferenceEpfPath();
+                if (preferenceEpfPath == null || preferenceEpfPath.isBlank()) {
+                    return ToolResult.failure("QA_RUN_ERROR: vanessa-automation.epf path is not configured in settings"); //$NON-NLS-1$
+                }
                 File epfPath = resolveEpfPath(config, workspaceRoot);
                 if (epfPath == null || !epfPath.exists()) {
                     return ToolResult.failure("QA_RUN_ERROR: vanessa-automation.epf not found: " +
                             (epfPath == null ? "<null>" : epfPath.getAbsolutePath())); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                if (useTestManager && (config.test_clients == null || config.test_clients.isEmpty())) {
+                    return ToolResult.failure("QA_RUN_ERROR: test_clients are required for TestManager runs"); //$NON-NLS-1$
                 }
 
                 File featuresDir = QaPaths.resolve(config.paths.features_dir, workspaceRoot);
@@ -266,8 +298,38 @@ public class QaRunTool implements ITool {
                 if (resultsRoot == null) {
                     return ToolResult.failure("QA_RUN_ERROR: results_dir is not configured"); //$NON-NLS-1$
                 }
+                if (stepsDir != null && !stepsDir.exists()) {
+                    if (!stepsDir.mkdirs()) {
+                        return ToolResult.failure("QA_RUN_ERROR: steps_dir not found and could not be created: " +
+                                stepsDir.getAbsolutePath()); //$NON-NLS-1$
+                    }
+                }
                 if (!resultsRoot.exists()) {
                     resultsRoot.mkdirs();
+                }
+
+                List<String> requestedFeatures = asStringList(parameters == null ? null
+                        : parameters.get("features")); //$NON-NLS-1$
+                FeatureSelection featureSelection = resolveFeatureFiles(featuresDir, requestedFeatures);
+                if (!featureSelection.unresolved().isEmpty()) {
+                    JsonObject error = new JsonObject();
+                    error.addProperty("op_id", opId); //$NON-NLS-1$
+                    error.addProperty("status", "feature_not_found"); //$NON-NLS-1$ //$NON-NLS-2$
+                    error.addProperty("features_dir",
+                            featuresDir == null ? "" : featuresDir.getAbsolutePath()); //$NON-NLS-1$ //$NON-NLS-2$
+                    error.add("requested_features", toJsonArray(requestedFeatures)); //$NON-NLS-1$
+                    error.add("unresolved_features", toJsonArray(featureSelection.unresolved())); //$NON-NLS-1$
+                    String json = new GsonBuilder().setPrettyPrinting().create().toJson(error);
+                    return ToolResult.failure("QA_RUN_ERROR: feature files were not found in features_dir\n" + json); //$NON-NLS-1$
+                }
+                if (featureSelection.files().isEmpty()) {
+                    JsonObject error = new JsonObject();
+                    error.addProperty("op_id", opId); //$NON-NLS-1$
+                    error.addProperty("status", "no_features"); //$NON-NLS-1$ //$NON-NLS-2$
+                    error.addProperty("features_dir",
+                            featuresDir == null ? "" : featuresDir.getAbsolutePath()); //$NON-NLS-1$ //$NON-NLS-2$
+                    String json = new GsonBuilder().setPrettyPrinting().create().toJson(error);
+                    return ToolResult.failure("QA_RUN_ERROR: no feature files were resolved for execution\n" + json); //$NON-NLS-1$
                 }
 
                 if (!allowUnknownSteps) {
@@ -283,9 +345,7 @@ public class QaRunTool implements ITool {
                         catalog = QaStepsCatalog.loadFromResource(BUNDLED_STEPS_CATALOG,
                                 QaRunTool.class.getClassLoader());
                     }
-                    List<File> featureFiles = resolveFeatureFiles(featuresDir, asStringList(parameters == null ? null
-                            : parameters.get("features"))); //$NON-NLS-1$
-                    List<StepIssue> unknownSteps = findUnknownSteps(featureFiles, catalog);
+                    List<StepIssue> unknownSteps = findUnknownSteps(featureSelection.files(), catalog);
                     if (!unknownSteps.isEmpty()) {
                         JsonObject error = new JsonObject();
                         error.addProperty("op_id", opId); //$NON-NLS-1$
@@ -320,9 +380,10 @@ public class QaRunTool implements ITool {
                 JsonObject params = QaJson.loadObject(templatePath);
 
                 applyCommonParams(params, featuresDir, stepsDir, junitDir, screenshotsDir);
-                applyFilters(params, parameters);
+                applyFilters(params, parameters, featureSelection.files());
                 if (useTestManager) {
-                    applyTestClients(params, config, edtInfobaseConnection, useProjectInfobaseForClients);
+                    applyTestClients(params, config, edtInfobaseConnection, useProjectInfobaseForClients,
+                            accessSettings);
                 }
 
                 File paramsFile = new File(runDir, "va-params.json"); //$NON-NLS-1$
@@ -335,13 +396,13 @@ public class QaRunTool implements ITool {
                 ProcessBuilder processBuilder;
                 List<String> command;
                 if (useEdtRuntime) {
-                    var builder = useTestManager
+                    RuntimeExecutionCommandBuilder builder = useTestManager
                             ? runtimeService.buildTestManagerCommand(projectName, epfPath, paramsFile,
                                     workspaceRoot, showMainForm, quietInstall, clearStepsCache, logFile,
-                                    platformVersion)
+                                    platformVersion, accessSettings)
                             : runtimeService.buildSingleClientCommand(projectName, epfPath, paramsFile,
                                     workspaceRoot, showMainForm, quietInstall, clearStepsCache, logFile,
-                                    platformVersion);
+                                    platformVersion, accessSettings);
                     processBuilder = builder.toProcessBuilder();
                     command = processBuilder.command();
                 } else {
@@ -434,7 +495,7 @@ public class QaRunTool implements ITool {
         params.addProperty("ЗакрытьTestClientПослеЗапускаСценариев", true); //$NON-NLS-1$
     }
 
-    private static void applyFilters(JsonObject params, Map<String, Object> parameters) {
+    private static void applyFilters(JsonObject params, Map<String, Object> parameters, List<File> featureFiles) {
         if (parameters == null) {
             return;
         }
@@ -446,9 +507,16 @@ public class QaRunTool implements ITool {
         if (!tagsExclude.isEmpty()) {
             params.add("СписокТеговИсключение", toJsonArray(tagsExclude)); //$NON-NLS-1$
         }
-        List<String> features = asStringList(parameters.get("features")); //$NON-NLS-1$
-        if (!features.isEmpty()) {
-            params.add("СписокФичДляВыполнения", toJsonArray(features)); //$NON-NLS-1$
+        if (featureFiles != null && !featureFiles.isEmpty()) {
+            JsonArray featureArray = new JsonArray();
+            for (File featureFile : featureFiles) {
+                if (featureFile != null) {
+                    featureArray.add(featureFile.getAbsolutePath());
+                }
+            }
+            if (featureArray.size() > 0) {
+                params.add("СписокФичДляВыполнения", featureArray); //$NON-NLS-1$
+            }
         }
         List<String> scenarios = asStringList(parameters.get("scenarios")); //$NON-NLS-1$
         if (!scenarios.isEmpty()) {
@@ -457,7 +525,8 @@ public class QaRunTool implements ITool {
     }
 
     private static void applyTestClients(JsonObject params, QaConfig config,
-                                         String edtInfobaseConnection, boolean useProjectInfobase) {
+                                         String edtInfobaseConnection, boolean useProjectInfobase,
+                                         EdtRuntimeService.AccessSettings accessSettings) {
         if (config.test_clients == null || config.test_clients.isEmpty()) {
             return;
         }
@@ -470,14 +539,16 @@ public class QaRunTool implements ITool {
             obj.addProperty("Имя", safe(client.name)); //$NON-NLS-1$
             obj.addProperty("Синоним", safe(client.alias)); //$NON-NLS-1$
             String ibConnection = client.ib_connection;
+            EdtRuntimeService.AccessSettings effectiveSettings = null;
             if (useProjectInfobase && edtInfobaseConnection != null && !edtInfobaseConnection.isBlank()) {
                 ibConnection = edtInfobaseConnection;
+                effectiveSettings = accessSettings;
             }
             obj.addProperty("ПутьКИнфобазе", safe(ibConnection)); //$NON-NLS-1$
             if (client.port != null) {
                 obj.addProperty("ПортЗапускаТестКлиента", client.port); //$NON-NLS-1$
             }
-            obj.addProperty("ДопПараметры", safe(client.additional)); //$NON-NLS-1$
+            obj.addProperty("ДопПараметры", mergeAdditionalParams(client.additional, effectiveSettings)); //$NON-NLS-1$
             obj.addProperty("ТипКлиента", normalizeClientType(client.type)); //$NON-NLS-1$
             obj.addProperty("ИмяКомпьютера", safe(client.host)); //$NON-NLS-1$
             clients.add(obj);
@@ -485,6 +556,12 @@ public class QaRunTool implements ITool {
         if (clients.size() > 0) {
             params.add("ДанныеКлиентовТестирования", clients); //$NON-NLS-1$
         }
+    }
+
+    private static EdtRuntimeService.AccessSettings mergeLaunchAccessSettings(
+            EdtRuntimeService.AccessSettings fallback,
+            EdtLaunchConfigurationService.LaunchConfigurationSettings launchConfig) {
+        return EdtLaunchContextBuilder.mergeLaunchAccessSettings(fallback, launchConfig);
     }
 
     private static JsonArray toJsonArray(List<String> values) {
@@ -497,6 +574,56 @@ public class QaRunTool implements ITool {
 
     private static String safe(String value) {
         return value == null ? "" : value; //$NON-NLS-1$
+    }
+
+    private static String mergeAdditionalParams(String base, EdtRuntimeService.AccessSettings accessSettings) {
+        String result = base == null ? "" : base.trim();
+        List<String> parts = new ArrayList<>();
+        if (!result.isBlank()) {
+            parts.add(result);
+        }
+        if (accessSettings != null) {
+            String extra = accessSettings.getAdditionalParameters();
+            if (extra != null && !extra.isBlank() && !containsIgnoreCase(result, extra)) {
+                parts.add(extra.trim());
+            }
+            if (accessSettings.isInfobaseAuthentication()) {
+                String user = accessSettings.getUserName();
+                String password = accessSettings.getPassword();
+                if (user != null && !user.isBlank() && !containsOption(result, "/N")) { //$NON-NLS-1$
+                    parts.add("/N " + quoteIfNeeded(user)); //$NON-NLS-1$
+                }
+                if (password != null && !password.isBlank() && !containsOption(result, "/P")) { //$NON-NLS-1$
+                    parts.add("/P " + quoteIfNeeded(password)); //$NON-NLS-1$
+                }
+            }
+        }
+        return String.join(" ", parts).trim();
+    }
+
+    private static boolean containsOption(String value, String option) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        String normalized = value.toLowerCase(Locale.ROOT);
+        return normalized.contains(option.toLowerCase(Locale.ROOT));
+    }
+
+    private static boolean containsIgnoreCase(String value, String token) {
+        if (value == null || value.isBlank() || token == null || token.isBlank()) {
+            return false;
+        }
+        return value.toLowerCase(Locale.ROOT).contains(token.toLowerCase(Locale.ROOT));
+    }
+
+    private static String quoteIfNeeded(String value) {
+        if (value == null) {
+            return ""; //$NON-NLS-1$
+        }
+        if (value.contains(" ") || value.contains("\t")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "\"" + value.replace("\"", "\\\"") + "\""; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        }
+        return value;
     }
 
     private static String normalizeClientType(String value) {
@@ -640,39 +767,60 @@ public class QaRunTool implements ITool {
         return result;
     }
 
-    private static List<File> resolveFeatureFiles(File featuresDir, List<String> featureNames) throws IOException {
+    private static FeatureSelection resolveFeatureFiles(File featuresDir, List<String> featureNames) throws IOException {
         if (featuresDir == null || !featuresDir.exists()) {
-            return List.of();
+            return new FeatureSelection(List.of(), featureNames == null ? List.of() : List.copyOf(featureNames));
         }
         if (featureNames == null || featureNames.isEmpty()) {
-            return listAllFeatures(featuresDir);
+            return new FeatureSelection(listAllFeatures(featuresDir), List.of());
         }
         List<File> result = new ArrayList<>();
+        List<String> unresolved = new ArrayList<>();
         for (String name : featureNames) {
             if (name == null || name.isBlank()) {
                 continue;
             }
-            File candidate = new File(name);
-            if (!candidate.isAbsolute()) {
-                candidate = new File(featuresDir, name);
-            }
-            if (!candidate.exists() && !name.toLowerCase(Locale.ROOT).endsWith(".feature")) { //$NON-NLS-1$
-                File withExt = new File(featuresDir, name + ".feature"); //$NON-NLS-1$
-                if (withExt.exists()) {
-                    candidate = withExt;
-                }
-            }
-            if (!candidate.exists()) {
-                File found = findByFileName(featuresDir, name);
-                if (found != null) {
-                    candidate = found;
-                }
-            }
-            if (candidate.exists()) {
-                result.add(candidate);
+            File candidate = resolveFeatureFile(featuresDir, name);
+            if (candidate != null && candidate.exists()) {
+                result.add(candidate.getCanonicalFile());
+            } else {
+                unresolved.add(name);
             }
         }
-        return result;
+        return new FeatureSelection(result, unresolved);
+    }
+
+    private static File resolveFeatureFile(File featuresDir, String name) throws IOException {
+        if (featuresDir == null || name == null || name.isBlank()) {
+            return null;
+        }
+        File explicit = new File(name);
+        if (explicit.isAbsolute()) {
+            if (explicit.exists() && isWithinDirectory(featuresDir, explicit)) {
+                return explicit;
+            }
+            return findByFileName(featuresDir, explicit.getName());
+        }
+        File candidate = new File(featuresDir, name);
+        if (candidate.exists()) {
+            return candidate;
+        }
+        if (!name.toLowerCase(Locale.ROOT).endsWith(".feature")) { //$NON-NLS-1$
+            File withExt = new File(featuresDir, name + ".feature"); //$NON-NLS-1$
+            if (withExt.exists()) {
+                return withExt;
+            }
+        }
+        return findByFileName(featuresDir, new File(name).getName());
+    }
+
+    private static boolean isWithinDirectory(File root, File candidate) throws IOException {
+        if (root == null || candidate == null) {
+            return false;
+        }
+        String rootPath = root.getCanonicalPath();
+        String candidatePath = candidate.getCanonicalPath();
+        return candidatePath.equals(rootPath) || candidatePath.startsWith(rootPath + File.separator);
     }
 
     private static File findByFileName(File root, String name) throws IOException {
@@ -703,6 +851,9 @@ public class QaRunTool implements ITool {
                     .map(Path::toFile)
                     .collect(Collectors.toList());
         }
+    }
+
+    private record FeatureSelection(List<File> files, List<String> unresolved) {
     }
 
     private static List<StepIssue> findUnknownSteps(List<File> featureFiles, QaStepsCatalog catalog)
@@ -960,14 +1111,11 @@ public class QaRunTool implements ITool {
     }
 
     private static File resolveEpfPath(QaConfig config, File workspaceRoot) {
-        String path = config.vanessa == null ? null : config.vanessa.epf_path;
-        if (path == null || path.isBlank()) {
-            String pref = getPreferenceEpfPath();
-            if (pref != null && !pref.isBlank()) {
-                path = pref;
-            }
+        String pref = getPreferenceEpfPath();
+        if (pref != null && !pref.isBlank()) {
+            return QaPaths.resolve(pref, workspaceRoot);
         }
-        return QaPaths.resolve(path, workspaceRoot);
+        return null;
     }
 
     private static String getPreferenceEpfPath() {

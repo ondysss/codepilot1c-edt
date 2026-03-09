@@ -42,6 +42,38 @@ URL update site: `https://ondysss.github.io/codepilot1c-edt/`
 mvn -B -V --no-transfer-progress clean verify
 ```
 
+## Локальный E2E workflow для EDT
+
+Для полного локального цикла `build -> p2 update -> relaunch EDT -> MCP smoke -> qa_status -> qa_run`
+используйте:
+
+```bash
+EDT_HOME=/path/to/test-1cedt \
+EDT_WORKSPACE=/path/to/test-workspace \
+EDT_PROJECT_PATHS=/abs/path/to/project \
+QA_PROJECT_NAME=MyProject \
+tools/run-edt-e2e-local.sh
+```
+
+Скрипт:
+
+- собирает полный reactor через `mvn verify`;
+- обновляет выделенную test-инсталляцию EDT через локальный p2 site
+  `repositories/com.codepilot1c.update/target/repository`;
+- патчит `bundles.info` для auto-start `com.codepilot1c.core` в headless режиме;
+- поднимает EDT с MCP host на `http://127.0.0.1:8765/mcp`;
+- выполняет `tools/list`, затем `qa_status` и `qa_run` через MCP;
+- складывает логи и trace-артефакты в `.runs/edt-e2e/<run-id>/`.
+
+Ключевые переменные:
+
+- `EDT_HOME` — обязательная test-инсталляция 1C:EDT.
+- `EDT_WORKSPACE` — отдельный workspace для прогона.
+- `EDT_PROJECT_PATHS` — список проектов через `:`, которые будут смонтированы в workspace симлинками.
+- `QA_PROJECT_NAME` — EDT project name для `qa_status`/`qa_run`.
+- `MCP_BEARER_TOKEN` — опционально; если не задан, скрипт создаст временный токен на один прогон.
+- `RUN_QA=false` — только build/update/launch/smoke без QA запуска.
+
 ## Публикация p2 из локальной сборки
 
 Автоматическая публикация p2 из GitHub Actions отключена. Публикация выполняется локально:

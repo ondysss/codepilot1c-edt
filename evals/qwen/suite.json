@@ -1,0 +1,14 @@
+{
+  "suite_id": "qwen-1c-developer-core",
+  "title": "Qwen 1C Developer Core Scenarios",
+  "description": "Baseline mixed eval suite for Qwen acting as a 1C developer over EDT MCP host.",
+  "channel": "qwen_mcp",
+  "scenarios": [
+    "scenarios/CPQW-001-metadata-exploration.json",
+    "scenarios/CPQW-002-catalog-attribute-mutation.json",
+    "scenarios/CPQW-003-diagnostics-remediation.json",
+    "scenarios/CPQW-004-qa-smoke-authoring-and-run.json",
+    "scenarios/CPQW-005-readonly-policy-denial.json",
+    "scenarios/CPQW-006-qa-failure-investigation.json"
+  ]
+}

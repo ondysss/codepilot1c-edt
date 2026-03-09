@@ -1,0 +1,48 @@
+{
+  "id": "BUH-004",
+  "title": "Adjust Typical Accounting Posting Logic",
+  "category": "typical_customization",
+  "channel": "qwen_mcp",
+  "risk_level": "high",
+  "workspace_requirements": {
+    "project_name": "buh-project",
+    "notes": [
+      "The target typical accounting object has logic or metadata that can be customized without broad uncontrolled edits."
+    ]
+  },
+  "actor": {
+    "style": "1c_typical_config_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "Сделай небольшую точечную доработку логики типового объекта в 1С:Бухгалтерии, связанную с новым реквизитом КомментарийМенеджера: найди правильную точку изменения, внеси минимально необходимую доработку, затем проверь диагностику и сообщи, что именно изменено и где.",
+  "expected_tool_path": {
+    "required_any_order": [
+      "scan_metadata_index",
+      "search_in_code",
+      "edt_validate_request",
+      "update_metadata",
+      "get_diagnostics"
+    ],
+    "required_rules": [
+      "changes must stay scoped to the identified target object or module",
+      "model must not report broad refactoring when only a local change was requested"
+    ]
+  },
+  "assertions": {
+    "final_answer": {
+      "must_identify_change_scope": true,
+      "must_report_diagnostics_status": true
+    },
+    "tool_behavior": {
+      "must_have_validation_flow": true
+    }
+  },
+  "artifacts": {
+    "required": [
+      "events.jsonl",
+      "tools.jsonl",
+      "mcp.jsonl"
+    ]
+  }
+}

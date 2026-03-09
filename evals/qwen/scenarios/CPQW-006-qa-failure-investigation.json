@@ -1,0 +1,51 @@
+{
+  "id": "CPQW-006",
+  "title": "QA Failure Investigation From Artifacts",
+  "category": "qa_analysis",
+  "channel": "qwen_mcp",
+  "risk_level": "medium",
+  "workspace_requirements": {
+    "project_name": "sample-project",
+    "notes": [
+      "A previous qa_run artifact directory with junit and log output is available.",
+      "The workspace contains the code or metadata related to the failing scenario."
+    ]
+  },
+  "actor": {
+    "style": "1c_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "Разберись, почему упал последний smoke тест. Сначала получи статус окружения, затем запусти нужный smoke сценарий или проанализируй его свежие junit/log артефакты, найди вероятную причину падения и укажи, в каком объекте конфигурации или модуле следует исправлять проблему. Само исправление сейчас не выполняй.",
+  "expected_tool_path": {
+    "required_any_order": [
+      "qa_status",
+      "qa_run"
+    ],
+    "preferred_followups": [
+      "search_in_code",
+      "describe_metadata"
+    ],
+    "forbidden": [
+      "create_metadata",
+      "add_metadata_child",
+      "update_metadata",
+      "delete_metadata"
+    ]
+  },
+  "assertions": {
+    "final_answer": {
+      "must_identify_probable_failure_area": true,
+      "must_reference_qa_artifact_evidence": true,
+      "must_not_claim_fix_applied": true
+    }
+  },
+  "artifacts": {
+    "required": [
+      "qwen-stream-json",
+      "mcp.jsonl",
+      "tools.jsonl",
+      "qa-run-dir"
+    ]
+  }
+}

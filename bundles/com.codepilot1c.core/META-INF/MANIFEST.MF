@@ -108,6 +108,7 @@ Export-Package: com.codepilot1c.core.agent,
  com.codepilot1c.core.mcp.client,
  com.codepilot1c.core.mcp.config,
  com.codepilot1c.core.context7,
+ com.codepilot1c.core.evaluation.trace,
  com.codepilot1c.core.agent.prompts,
  com.codepilot1c.core.agent.langgraph,
  com.codepilot1c.core.internal;x-friends:="com.codepilot1c.ui"

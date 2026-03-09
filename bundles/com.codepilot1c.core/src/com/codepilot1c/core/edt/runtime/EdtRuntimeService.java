@@ -23,6 +23,61 @@ public class EdtRuntimeService {
 
     private final EdtRuntimeGateway gateway;
 
+    public static final class AccessSettings {
+        private final boolean osAuthentication;
+        private final boolean infobaseAuthentication;
+        private final String userName;
+        private final String password;
+        private final String additionalParameters;
+
+        private AccessSettings(boolean osAuthentication, boolean infobaseAuthentication,
+                               String userName, String password, String additionalParameters) {
+            this.osAuthentication = osAuthentication;
+            this.infobaseAuthentication = infobaseAuthentication;
+            this.userName = userName;
+            this.password = password;
+            this.additionalParameters = additionalParameters;
+        }
+
+        public boolean isOsAuthentication() {
+            return osAuthentication;
+        }
+
+        public boolean isInfobaseAuthentication() {
+            return infobaseAuthentication;
+        }
+
+        public String getUserName() {
+            return userName;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public String getAdditionalParameters() {
+            return additionalParameters;
+        }
+
+        public static AccessSettings osAuthentication(String additionalParameters) {
+            return new AccessSettings(true, false, null, null, additionalParameters);
+        }
+
+        public static AccessSettings infobaseAuthentication(String userName, String password,
+                                                            String additionalParameters) {
+            return new AccessSettings(false, true, userName, password, additionalParameters);
+        }
+
+        public static AccessSettings additionalParameters(String additionalParameters) {
+            return new AccessSettings(false, false, null, null, additionalParameters);
+        }
+
+        public AccessSettings withAdditionalParameters(String additionalParameters) {
+            return new AccessSettings(osAuthentication, infobaseAuthentication, userName, password,
+                    additionalParameters);
+        }
+    }
+
     public EdtRuntimeService() {
         this(new EdtRuntimeGateway());
     }
@@ -48,6 +103,32 @@ public class EdtRuntimeService {
             throw new IllegalStateException("Infobase reference not found for project: " + projectName); //$NON-NLS-1$
         }
         return infobase;
+    }
+
+    public AccessSettings resolveAccessSettings(String projectName) {
+        InfobaseReference infobase = resolveDefaultInfobase(projectName);
+        return resolveAccessSettings(infobase);
+    }
+
+    public AccessSettings resolveAccessSettings(InfobaseReference infobase) {
+        if (infobase == null) {
+            return null;
+        }
+        IInfobaseAccessSettings settings;
+        try {
+            IInfobaseAccessManager accessManager = gateway.getInfobaseAccessManager();
+            settings = accessManager.getSettings(infobase, InfobaseAccess.INFOBASE);
+        } catch (Exception e) {
+            return null;
+        }
+        if (settings == null || settings == IInfobaseAccessSettings.NOT_DEFINED) {
+            return null;
+        }
+        InfobaseAccess access = settings.access();
+        boolean osAuth = access == InfobaseAccess.OS;
+        boolean infobaseAuth = access == InfobaseAccess.INFOBASE;
+        return new AccessSettings(osAuth, infobaseAuth, settings.userName(), settings.password(),
+                settings.additionalProperties());
     }
 
     public ThickClientInfo resolveThickClientInfo(InfobaseReference infobase) {
@@ -85,6 +166,16 @@ public class EdtRuntimeService {
                                                                   boolean showMainForm, boolean quietInstall,
                                                                   boolean clearStepsCache, File logFile,
                                                                   String versionMask) {
+        return buildTestManagerCommand(projectName, epfPath, vaParamsPath, workspaceRoot, showMainForm,
+                quietInstall, clearStepsCache, logFile, versionMask, null);
+    }
+
+    public RuntimeExecutionCommandBuilder buildTestManagerCommand(String projectName, File epfPath,
+                                                                  File vaParamsPath, File workspaceRoot,
+                                                                  boolean showMainForm, boolean quietInstall,
+                                                                  boolean clearStepsCache, File logFile,
+                                                                  String versionMask,
+                                                                  AccessSettings explicitAccessSettings) {
         InfobaseReference infobase = resolveDefaultInfobase(projectName);
         ThickClientInfo info = resolveThickClientInfo(infobase, versionMask);
         File clientFile = info.component().getFile();
@@ -95,7 +186,11 @@ public class EdtRuntimeService {
             throw new IllegalStateException("Infobase connection string not available"); //$NON-NLS-1$
         }
         builder.forInfobase(infobase.getConnectionString(), false);
-        applyAccessSettings(builder, infobase);
+        if (explicitAccessSettings != null) {
+            applyAccessSettings(builder, explicitAccessSettings);
+        } else {
+            applyAccessSettings(builder, infobase);
+        }
         builder.testManagerMode();
         if (epfPath != null) {
             builder.execute(epfPath.getAbsolutePath());
@@ -123,6 +218,16 @@ public class EdtRuntimeService {
                                                                    boolean showMainForm, boolean quietInstall,
                                                                    boolean clearStepsCache, File logFile,
                                                                    String versionMask) {
+        return buildSingleClientCommand(projectName, epfPath, vaParamsPath, workspaceRoot, showMainForm,
+                quietInstall, clearStepsCache, logFile, versionMask, null);
+    }
+
+    public RuntimeExecutionCommandBuilder buildSingleClientCommand(String projectName, File epfPath,
+                                                                   File vaParamsPath, File workspaceRoot,
+                                                                   boolean showMainForm, boolean quietInstall,
+                                                                   boolean clearStepsCache, File logFile,
+                                                                   String versionMask,
+                                                                   AccessSettings explicitAccessSettings) {
         InfobaseReference infobase = resolveDefaultInfobase(projectName);
         ThickClientInfo info = resolveThickClientInfo(infobase, versionMask);
         File clientFile = info.component().getFile();
@@ -133,7 +238,11 @@ public class EdtRuntimeService {
             throw new IllegalStateException("Infobase connection string not available"); //$NON-NLS-1$
         }
         builder.forInfobase(infobase.getConnectionString(), false);
-        applyAccessSettings(builder, infobase);
+        if (explicitAccessSettings != null) {
+            applyAccessSettings(builder, explicitAccessSettings);
+        } else {
+            applyAccessSettings(builder, infobase);
+        }
         if (epfPath != null) {
             builder.execute(epfPath.getAbsolutePath());
         }
@@ -168,6 +277,34 @@ public class EdtRuntimeService {
         return builder;
     }
 
+    public ProcessBuilder buildEnterpriseLaunchProcess(EdtResolvedLaunchContext context,
+            String additionalParameters, File logFile) {
+        if (context == null) {
+            throw new IllegalArgumentException("Launch context is required"); //$NON-NLS-1$
+        }
+        InfobaseReference infobase = context.infobase();
+        if (infobase == null) {
+            throw new IllegalStateException("Infobase reference not available"); //$NON-NLS-1$
+        }
+        if (context.clientFile() == null) {
+            throw new IllegalStateException("Client executable not available"); //$NON-NLS-1$
+        }
+        RuntimeExecutionCommandBuilder builder = new RuntimeExecutionCommandBuilder(
+                context.clientFile(), ThickClientMode.ENTERPRISE);
+        if (infobase.getConnectionString() == null) {
+            throw new IllegalStateException("Infobase connection string not available"); //$NON-NLS-1$
+        }
+        builder.forInfobase(infobase.getConnectionString(), false);
+        AccessSettings effectiveSettings = mergeAdditionalParameters(context.accessSettings(), additionalParameters);
+        applyAccessSettings(builder, effectiveSettings);
+        builder.disableStartupDialogs();
+        builder.disableStartupMessages();
+        if (logFile != null) {
+            builder.logTo(logFile, true);
+        }
+        return builder.toProcessBuilder();
+    }
+
     public boolean updateInfobase(String projectName) throws Exception {
         return updateInfobase(projectName, true, new NullProgressMonitor());
     }
@@ -196,6 +333,37 @@ public class EdtRuntimeService {
             }
             throw new IllegalStateException("EDT updateInfobase failed: " + e.getMessage(), e); //$NON-NLS-1$
         }
+    }
+
+    public void applyAccessSettings(RuntimeExecutionCommandBuilder builder, AccessSettings settings) {
+        if (builder == null || settings == null) {
+            return;
+        }
+        if (settings.isOsAuthentication()) {
+            builder.osAuthentication(true);
+        } else if (settings.isInfobaseAuthentication()) {
+            String user = settings.getUserName();
+            if (user != null && !user.isBlank()) {
+                builder.userName(user);
+            }
+            String password = settings.getPassword();
+            if (password != null && !password.isBlank()) {
+                builder.userPassword(password);
+            }
+        }
+        String additional = settings.getAdditionalParameters();
+        if (additional != null && !additional.isBlank()) {
+            builder.additionalParameters(additional);
+        }
+    }
+
+    public AccessSettings mergeAdditionalParameters(AccessSettings settings, String additionalParameters) {
+        if (settings == null) {
+            String merged = normalizeAdditionalParameters(null, additionalParameters);
+            return merged == null ? null : AccessSettings.additionalParameters(merged);
+        }
+        String merged = normalizeAdditionalParameters(settings.getAdditionalParameters(), additionalParameters);
+        return settings.withAdditionalParameters(merged);
     }
 
     private static Object createAutoUpdateCallback(ClassLoader loader) throws ClassNotFoundException {
@@ -314,5 +482,20 @@ public class EdtRuntimeService {
             sb.append(";ClearStepsCache"); //$NON-NLS-1$
         }
         return sb.toString();
+    }
+
+    static String normalizeAdditionalParameters(String base, String extra) {
+        String left = base == null ? "" : base.trim(); //$NON-NLS-1$
+        String right = extra == null ? "" : extra.trim(); //$NON-NLS-1$
+        if (left.isBlank()) {
+            return right.isBlank() ? null : right;
+        }
+        if (right.isBlank()) {
+            return left;
+        }
+        if (left.contains(right)) {
+            return left;
+        }
+        return left + " " + right; //$NON-NLS-1$
     }
 }

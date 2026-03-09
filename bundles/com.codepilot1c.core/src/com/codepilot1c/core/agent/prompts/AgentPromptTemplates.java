@@ -40,7 +40,8 @@ public final class AgentPromptTemplates {
         sb.append("2. Составь минимальный план изменений.\n"); //$NON-NLS-1$
         sb.append("3. Выполни изменения подходящим инструментом.\n"); //$NON-NLS-1$
         sb.append("4. Выполни повторную диагностику.\n"); //$NON-NLS-1$
-        sb.append("5. Отчитайся по схеме: что было -> что изменено -> почему -> результат проверки.\n\n"); //$NON-NLS-1$
+        sb.append("5. Если любой tool вернул ошибку, сначала разбери ее через analyze_tool_error.\n"); //$NON-NLS-1$
+        sb.append("6. Отчитайся по схеме: что было -> что изменено -> почему -> результат проверки.\n\n"); //$NON-NLS-1$
 
         sb.append("## Доступные инструменты\n"); //$NON-NLS-1$
         sb.append("- Файлы: read_file, edit_file, write_file, glob, grep\n"); //$NON-NLS-1$
@@ -52,15 +53,19 @@ public final class AgentPromptTemplates {
         sb.append("- EDT-метаданные: inspect_platform_reference, edt_validate_request, create_metadata, create_form, apply_form_recipe, extension_create_project, extension_adopt_object, extension_set_property_state, inspect_form_layout, add_metadata_child, ensure_module_artifact, update_metadata, mutate_form_model, delete_metadata, edt_trace_export, author_yaxunit_tests\n"); //$NON-NLS-1$
         sb.append("- EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body\n"); //$NON-NLS-1$
         sb.append("- Диагностика метаданных: edt_metadata_smoke (регрессионный smoke-прогон), edt_extension_smoke (e2e smoke для расширений), edt_external_smoke (e2e smoke для внешних объектов)\n"); //$NON-NLS-1$
-        sb.append("- QA: qa_status (проверка окружения), qa_steps_search (поиск шагов), qa_scaffold (создание feature), qa_run (запуск VA E2E)\n\n"); //$NON-NLS-1$
+        sb.append("- EDT runtime: edt_update_infobase (обновление связанной инфобазы проекта), edt_launch_app (запуск приложения по RuntimeClient launch config)\n"); //$NON-NLS-1$
+        sb.append("- Анализ ошибок tools: analyze_tool_error (разбор error_code/message/log_path и рекомендации по восстановлению)\n"); //$NON-NLS-1$
+        sb.append("- QA: qa_status (проверка окружения), qa_prepare_form_context (ensure+inspect формы для QA), qa_plan_scenario (планирование сценария), qa_compile_feature (компиляция feature), qa_validate_feature (проверка feature), qa_run (запуск VA E2E), qa_steps_search (debug-поиск legacy шагов)\n\n"); //$NON-NLS-1$
 
         sb.append("## QA workflow\n"); //$NON-NLS-1$
         sb.append("1. Перед запуском тестов сначала вызывай qa_status и устраняй ошибки конфигурации.\n"); //$NON-NLS-1$
-        sb.append("2. Для новых сценариев сначала используй qa_steps_search и подбирай шаги ТОЛЬКО из каталога шагов (встроен в плагин; при наличии можно использовать tests/va/steps_catalog.json).\n"); //$NON-NLS-1$
-        sb.append("   Если подходящих шагов нет — остановись и запроси у пользователя решение (добавить шаги или изменить сценарий).\n"); //$NON-NLS-1$
-        sb.append("3. Создавай feature только через qa_scaffold (он проверяет неизвестные шаги).\n"); //$NON-NLS-1$
-        sb.append("4. После изменения функциональности запускай qa_run с целевыми тегами или фичами; если не уверен — делай smoke по @smoke.\n"); //$NON-NLS-1$
-        sb.append("5. Если qa_run вернул tests_failed, анализируй junit/log_tail, исправляй и повторяй не более 2 раз.\n\n"); //$NON-NLS-1$
+        sb.append("2. Если сценарий зависит от формы списка/объекта, сначала вызывай qa_prepare_form_context: он проверит форму, при отсутствии создаст default форму и сразу вернет inspect_form_layout.\n"); //$NON-NLS-1$
+        sb.append("3. Для новых сценариев затем вызывай qa_plan_scenario и описывай цель/контекст на уровне намерений, а не строк Gherkin.\n"); //$NON-NLS-1$
+        sb.append("4. Затем вызывай qa_compile_feature: он сам подберет канонические шаги Vanessa и создаст feature.\n"); //$NON-NLS-1$
+        sb.append("5. Перед qa_run обязательно вызывай qa_validate_feature. Если validation/compile вернули unresolved issues — исправляй plan, а не пиши шаги вручную.\n"); //$NON-NLS-1$
+        sb.append("6. Используй qa_steps_search только как debug-инструмент для исследования legacy каталога шагов, а не как основной способ написания сценария.\n"); //$NON-NLS-1$
+        sb.append("7. После изменения функциональности запускай qa_run с целевыми тегами или фичами; если не уверен — делай smoke по @smoke.\n"); //$NON-NLS-1$
+        sb.append("8. Если qa_run вернул tests_failed, анализируй junit/log_tail, исправляй и повторяй не более 2 раз.\n\n"); //$NON-NLS-1$
 
         sb.append("## Маршрутизация справки (обязательно)\n"); //$NON-NLS-1$
         sb.append("1. Если вопрос про встроенный язык 1С (например: Запрос, ТаблицаЗначений, Структура, методы языка) —\n"); //$NON-NLS-1$
@@ -165,7 +170,8 @@ public final class AgentPromptTemplates {
         sb.append("5. Для вопросов по встроенному языку используй inspect_platform_reference, "); //$NON-NLS-1$
         sb.append("для объектов конфигурации — edt_metadata_details.\n"); //$NON-NLS-1$
         sb.append("6. Если inspect_platform_reference вернул EDT_SERVICE_UNAVAILABLE/TYPE_NOT_FOUND, "); //$NON-NLS-1$
-        sb.append("не заменяй результат справкой \"из памяти\".\n\n"); //$NON-NLS-1$
+        sb.append("не заменяй результат справкой \"из памяти\".\n"); //$NON-NLS-1$
+        sb.append("7. Если инструмент вернул ошибку, можешь разобрать ее через analyze_tool_error.\n\n"); //$NON-NLS-1$
 
         sb.append("## Шаблон ответа\n"); //$NON-NLS-1$
         sb.append("## Задача\n[Краткое описание]\n\n"); //$NON-NLS-1$
@@ -178,7 +184,7 @@ public final class AgentPromptTemplates {
         sb.append("get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index,\n"); //$NON-NLS-1$
         sb.append("dcs_get_summary, dcs_list_nodes,\n"); //$NON-NLS-1$
         sb.append("extension_list_projects, extension_list_objects, external_list_projects, external_list_objects, external_get_details,\n"); //$NON-NLS-1$
-        sb.append("inspect_form_layout, bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, inspect_platform_reference.\n"); //$NON-NLS-1$
+        sb.append("inspect_form_layout, analyze_tool_error, bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, inspect_platform_reference.\n"); //$NON-NLS-1$
 
         return PromptQualityAssurance.verify(
                 "plan", //$NON-NLS-1$
@@ -205,7 +211,8 @@ public final class AgentPromptTemplates {
         sb.append("5. Разделяй проблемы UI формы и объектной логики.\n"); //$NON-NLS-1$
         sb.append("6. Если inspect_platform_reference вернул EDT_SERVICE_UNAVAILABLE/TYPE_NOT_FOUND, "); //$NON-NLS-1$
         sb.append("фиксируй ошибку инструмента, не пиши справку \"из общих знаний\".\n"); //$NON-NLS-1$
-        sb.append("7. Не предлагай изменения, если пользователь не просил реализацию.\n\n"); //$NON-NLS-1$
+        sb.append("7. При необходимости разбери ошибку инструмента через analyze_tool_error.\n"); //$NON-NLS-1$
+        sb.append("8. Не предлагай изменения, если пользователь не просил реализацию.\n\n"); //$NON-NLS-1$
 
         sb.append("## Формат ответа\n"); //$NON-NLS-1$
         sb.append("- Короткий вывод (1-3 пункта).\n"); //$NON-NLS-1$
@@ -217,7 +224,7 @@ public final class AgentPromptTemplates {
         sb.append("get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index,\n"); //$NON-NLS-1$
         sb.append("dcs_get_summary, dcs_list_nodes,\n"); //$NON-NLS-1$
         sb.append("extension_list_projects, extension_list_objects, external_list_projects, external_list_objects, external_get_details,\n"); //$NON-NLS-1$
-        sb.append("inspect_form_layout, bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, inspect_platform_reference.\n"); //$NON-NLS-1$
+        sb.append("inspect_form_layout, analyze_tool_error, bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, inspect_platform_reference.\n"); //$NON-NLS-1$
 
         return PromptQualityAssurance.verify(
                 "explore", //$NON-NLS-1$

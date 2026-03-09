@@ -1,0 +1,52 @@
+{
+  "id": "CPQW-003",
+  "title": "Diagnostics Remediation For Invalid Type",
+  "category": "diagnostics_fix",
+  "channel": "qwen_mcp",
+  "risk_level": "high",
+  "workspace_requirements": {
+    "project_name": "sample-project",
+    "notes": [
+      "Workspace fixture contains a metadata object with a known type-related warning or error.",
+      "The problem must be fixable through update_metadata or another supported mutation tool."
+    ]
+  },
+  "actor": {
+    "style": "1c_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "Проверь диагностику проекта и исправь одну конкретную type-related проблему в метаданных. После исправления повторно запусти диагностику и дай короткий отчёт: что было не так, чем исправлено, и исчезла ли ошибка.",
+  "expected_tool_path": {
+    "ordered_subsequence": [
+      "get_diagnostics",
+      "edt_validate_request",
+      "update_metadata",
+      "get_diagnostics"
+    ],
+    "forbidden": [
+      "write_file"
+    ]
+  },
+  "assertions": {
+    "tool_behavior": {
+      "must_have_post_mutation_diagnostics": true,
+      "must_have_validation_flow": true
+    },
+    "workspace_state": {
+      "diagnostics_error_count_must_decrease": true
+    },
+    "final_answer": {
+      "must_explain_root_cause": true,
+      "must_report_before_after_status": true
+    }
+  },
+  "artifacts": {
+    "required": [
+      "qwen-stream-json",
+      "mcp.jsonl",
+      "tools.jsonl",
+      "events.jsonl"
+    ]
+  }
+}

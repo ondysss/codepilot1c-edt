@@ -66,8 +66,14 @@ public final class ToolDisplayNames {
             case "edt_external_smoke" -> "Smoke внешних объектов EDT"; //$NON-NLS-1$ //$NON-NLS-2$
             case "get_diagnostics" -> "Диагностики"; //$NON-NLS-1$ //$NON-NLS-2$
             case "qa_status" -> "QA статус"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "analyze_tool_error" -> "Анализ ошибки инструмента"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "edt_update_infobase" -> "EDT обновление инфобазы"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "edt_launch_app" -> "EDT запуск приложения"; //$NON-NLS-1$ //$NON-NLS-2$
             case "qa_run" -> "QA запуск тестов"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "qa_scaffold" -> "QA создать feature"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "qa_prepare_form_context" -> "QA подготовка формы"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "qa_plan_scenario" -> "QA планирование сценария"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "qa_compile_feature" -> "QA компиляция feature"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "qa_validate_feature" -> "QA проверка feature"; //$NON-NLS-1$ //$NON-NLS-2$
             case "qa_steps_search" -> "QA поиск шагов"; //$NON-NLS-1$ //$NON-NLS-2$
             case "list_metadata" -> "Список метаданных"; //$NON-NLS-1$ //$NON-NLS-2$
             case "get_metadata" -> "Получение метаданных"; //$NON-NLS-1$ //$NON-NLS-2$

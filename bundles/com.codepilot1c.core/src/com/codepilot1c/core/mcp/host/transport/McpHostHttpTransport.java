@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.codepilot1c.core.evaluation.trace.AgentTraceSession;
+import com.codepilot1c.core.evaluation.trace.TraceEventType;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 import com.sun.net.httpserver.HttpExchange;
@@ -93,6 +95,7 @@ public class McpHostHttpTransport implements IMcpHostTransport {
             server.stop(0);
             server = null;
         }
+        sessions.values().forEach(this::closeTraceSession);
         sessions.clear();
     }
 
@@ -137,13 +140,14 @@ public class McpHostHttpTransport implements IMcpHostTransport {
                 McpHostSession session;
                 String responseSessionId;
                 if (requestedSessionId != null && !requestedSessionId.isBlank()) {
-                    session = sessions.computeIfAbsent(requestedSessionId, id -> new McpHostSession());
+                    session = sessions.computeIfAbsent(requestedSessionId, id -> createSession(id, exchange));
                     responseSessionId = requestedSessionId;
                 } else {
-                    session = new McpHostSession();
+                    session = createSession(null, exchange);
                     responseSessionId = session.getSessionId();
                     sessions.put(responseSessionId, session);
                 }
+                updateSessionRequestMetadata(session, exchange);
                 exchange.getResponseHeaders().add("Mcp-Session-Id", responseSessionId); //$NON-NLS-1$
                 McpMessage response = router.route(request, session);
                 if (request != null && request.isNotification()) {
@@ -268,6 +272,52 @@ public class McpHostHttpTransport implements IMcpHostTransport {
         return accept != null && accept.contains("text/event-stream"); //$NON-NLS-1$
     }
 
+    private McpHostSession createSession(String sessionId, HttpExchange exchange) {
+        McpHostSession session = sessionId != null ? new McpHostSession(sessionId) : new McpHostSession();
+        session.setTransport("http"); //$NON-NLS-1$
+        session.setRemoteAddress(exchange != null && exchange.getRemoteAddress() != null
+                ? String.valueOf(exchange.getRemoteAddress())
+                : null);
+        session.setLastRequestPath(exchange != null && exchange.getRequestURI() != null
+                ? exchange.getRequestURI().getPath()
+                : null);
+        AgentTraceSession traceSession = AgentTraceSession.startMcpSession(
+                session.getSessionId(),
+                session.getTransport(),
+                session.getRemoteAddress(),
+                session.getLastRequestPath());
+        session.setTraceSession(traceSession);
+        if (traceSession != null) {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("transport", session.getTransport()); //$NON-NLS-1$
+            payload.put("remote_address", session.getRemoteAddress()); //$NON-NLS-1$
+            payload.put("request_path", session.getLastRequestPath()); //$NON-NLS-1$
+            traceSession.writeMcpEvent(TraceEventType.MCP_SESSION_CREATED, null, payload);
+        }
+        return session;
+    }
+
+    private void updateSessionRequestMetadata(McpHostSession session, HttpExchange exchange) {
+        if (session == null || exchange == null) {
+            return;
+        }
+        session.setLastRequestPath(exchange.getRequestURI() != null ? exchange.getRequestURI().getPath() : null);
+        session.setRemoteAddress(exchange.getRemoteAddress() != null ? String.valueOf(exchange.getRemoteAddress()) : null);
+        session.incrementRequestCount();
+    }
+
+    private void closeTraceSession(McpHostSession session) {
+        if (session == null || session.getTraceSession() == null) {
+            return;
+        }
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("request_count", Long.valueOf(session.getRequestCount())); //$NON-NLS-1$
+        payload.put("client_name", session.getClientName()); //$NON-NLS-1$
+        payload.put("client_version", session.getClientVersion()); //$NON-NLS-1$
+        session.getTraceSession().writeMcpEvent(TraceEventType.MCP_SESSION_CLOSED, null, payload);
+        session.getTraceSession().markCompleted("STOPPED", null); //$NON-NLS-1$
+    }
+
     private boolean isAuthorized(HttpExchange exchange) {
         switch (authMode) {
             case NONE:
@@ -299,15 +349,42 @@ public class McpHostHttpTransport implements IMcpHostTransport {
     }
 
     private void writeSseReady(HttpExchange exchange) throws IOException {
-        String payload = "event: ready\n" //$NON-NLS-1$
-            + "data: {\"status\":\"ok\"}\n\n"; //$NON-NLS-1$
-        byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "text/event-stream"); //$NON-NLS-1$ //$NON-NLS-2$
         exchange.getResponseHeaders().add("Cache-Control", "no-cache"); //$NON-NLS-1$ //$NON-NLS-2$
-        exchange.sendResponseHeaders(200, bytes.length);
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(bytes);
-        }
+        exchange.getResponseHeaders().add("Connection", "keep-alive"); //$NON-NLS-1$ //$NON-NLS-2$
+        exchange.getResponseHeaders().add("X-Accel-Buffering", "no"); //$NON-NLS-1$ //$NON-NLS-2$
+        // Use chunked encoding to keep the SSE stream open.
+        exchange.sendResponseHeaders(200, 0);
+
+        OutputStream os = exchange.getResponseBody();
+        Thread heartbeat = new Thread(() -> {
+            try {
+                writeSseEvent(os, "ready", "{\"status\":\"ok\"}"); //$NON-NLS-1$ //$NON-NLS-2$
+                while (running) {
+                    Thread.sleep(15000);
+                    writeSseEvent(os, "ping", "{\"status\":\"ok\"}"); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+            } catch (IOException e) {
+                // Client disconnected or stream closed.
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                try {
+                    os.close();
+                } catch (IOException e) {
+                    // Ignore close failures.
+                }
+            }
+        }, "mcp-sse-heartbeat"); //$NON-NLS-1$
+        heartbeat.setDaemon(true);
+        heartbeat.start();
+    }
+
+    private void writeSseEvent(OutputStream os, String event, String json) throws IOException {
+        String payload = "event: " + event + "\n" //$NON-NLS-1$ //$NON-NLS-2$
+            + "data: " + json + "\n\n"; //$NON-NLS-1$ //$NON-NLS-2$
+        os.write(payload.getBytes(StandardCharsets.UTF_8));
+        os.flush();
     }
 
     private Map<String, String> parseUrlEncoded(String raw) {

@@ -1,0 +1,61 @@
+{
+  "id": "WH-007",
+  "title": "Create Counterparties Catalog with Forms",
+  "category": "greenfield_configuration",
+  "channel": "qwen_mcp",
+  "risk_level": "high",
+  "workspace_requirements": {
+    "project_name": "warehouse-project",
+    "notes": [
+      "Configuration is new or allows adding Catalog.Контрагенты."
+    ]
+  },
+  "actor": {
+    "style": "1c_solution_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "Создай справочник Контрагенты. Добавь пользовательские реквизиты ИНН и Телефон (строковый тип). Создай форму элемента и форму списка для справочника Контрагенты. Если объекты уже существуют, проверь наличие реквизитов и форм. Не удаляй объекты. Используй правильный validation_token flow и затем проверь диагностику.",
+  "expected_tool_path": {
+    "required_any_order": [
+      "get_diagnostics"
+    ],
+    "required_rules": [
+      "validation_token must be passed unchanged",
+      "reserved standard attribute names must not be reused"
+    ],
+    "forbidden": [
+      "delete_metadata",
+      "write_file"
+    ]
+  },
+  "assertions": {
+    "tool_behavior": {
+      "must_have_validation_flow": true,
+      "must_have_post_mutation_diagnostics": true
+    },
+    "workspace_state": {
+      "must_create_objects": [
+        "Catalog.Контрагенты"
+      ],
+      "must_create_attributes": [
+        "Catalog.Контрагенты.Attribute.ИНН",
+        "Catalog.Контрагенты.Attribute.Телефон"
+      ],
+      "must_create_form_for": [
+        "Catalog.Контрагенты.Form.ФормаЭлемента",
+        "Catalog.Контрагенты.Form.ФормаСписка"
+      ]
+    },
+    "final_answer": {
+      "must_report_diagnostics_status": true
+    }
+  },
+  "artifacts": {
+    "required": [
+      "events.jsonl",
+      "tools.jsonl",
+      "mcp.jsonl"
+    ]
+  }
+}

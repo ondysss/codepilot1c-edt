@@ -8,11 +8,10 @@ import java.util.regex.Pattern;
 import com.codepilot1c.core.agent.AgentConfig;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.model.LlmRequest;
+import com.codepilot1c.core.tools.ToolErrorParser;
 import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.tools.meta.ToolDescriptor;
 import com.codepilot1c.core.tools.meta.ToolDescriptorRegistry;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
 /**
  * Router that limits tool availability based on a tool graph.
@@ -205,23 +204,11 @@ public class ToolGraphRouter {
         if (raw == null || raw.isBlank()) {
             return null;
         }
-        String trimmed = raw.trim();
-        if (trimmed.startsWith("{")) { //$NON-NLS-1$
-            try {
-                JsonObject obj = JsonParser.parseString(trimmed).getAsJsonObject();
-                if (obj.has("error")) { //$NON-NLS-1$
-                    return obj.get("error").getAsString(); //$NON-NLS-1$
-                }
-            } catch (Exception e) {
-                LOG.debug("ToolGraphRouter: failed to parse error json: %s", e.getMessage()); //$NON-NLS-1$
-            }
+        try {
+            return ToolErrorParser.parse(raw).errorCode();
+        } catch (Exception e) {
+            LOG.debug("ToolGraphRouter: failed to parse tool error: %s", e.getMessage()); //$NON-NLS-1$
+            return null;
         }
-        if (trimmed.startsWith("[")) { //$NON-NLS-1$
-            int idx = trimmed.indexOf(']');
-            if (idx > 1) {
-                return trimmed.substring(1, idx);
-            }
-        }
-        return null;
     }
 }

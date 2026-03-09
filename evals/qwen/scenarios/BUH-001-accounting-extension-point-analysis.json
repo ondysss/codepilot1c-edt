@@ -1,0 +1,46 @@
+{
+  "id": "BUH-001",
+  "title": "Analyze Extension Point In Typical Accounting",
+  "category": "typical_customization",
+  "channel": "qwen_mcp",
+  "risk_level": "medium",
+  "workspace_requirements": {
+    "project_name": "buh-project",
+    "notes": [
+      "Workspace contains a typical 1C Accounting configuration or its extension project."
+    ]
+  },
+  "actor": {
+    "style": "1c_typical_config_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "В типовой 1С:Бухгалтерии найди наиболее подходящий объект для доработки пользовательского комментария в документе реализации. Ничего не изменяй. Опиши, какой объект, форма и модуль должны быть затронуты и почему именно они.",
+  "expected_tool_path": {
+    "required_any_order": [
+      "scan_metadata_index",
+      "describe_metadata",
+      "search_in_code"
+    ],
+    "forbidden": [
+      "create_metadata",
+      "add_metadata_child",
+      "update_metadata",
+      "delete_metadata",
+      "write_file"
+    ]
+  },
+  "assertions": {
+    "final_answer": {
+      "must_identify_target_object": true,
+      "must_identify_form_or_module": true,
+      "must_explain_choice": true
+    }
+  },
+  "artifacts": {
+    "required": [
+      "tools.jsonl",
+      "mcp.jsonl"
+    ]
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "id": "CPQW-001",
+  "title": "Metadata Exploration And Impact Analysis",
+  "category": "exploration",
+  "channel": "qwen_mcp",
+  "risk_level": "low",
+  "workspace_requirements": {
+    "project_name": "sample-project",
+    "notes": [
+      "Workspace contains a valid EDT project.",
+      "The target metadata object exists and has at least one module or related form."
+    ]
+  },
+  "actor": {
+    "style": "1c_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "Найди в проекте объект метаданных Catalog.Номенклатура, кратко опиши его структуру, перечисли связанные формы и модули, а затем скажи, какие объекты вероятнее всего затронет изменение логики заполнения наименования. Не изменяй проект.",
+  "expected_tool_path": {
+    "required_any_order": [
+      "scan_metadata_index",
+      "describe_metadata",
+      "search_in_code"
+    ],
+    "forbidden": [
+      "create_metadata",
+      "add_metadata_child",
+      "update_metadata",
+      "delete_metadata",
+      "write_file"
+    ]
+  },
+  "assertions": {
+    "final_answer": {
+      "must_mention": [
+        "Catalog.Номенклатура"
+      ],
+      "must_include_sections": [
+        "структура",
+        "формы",
+        "модули",
+        "влияние"
+      ]
+    },
+    "tool_behavior": {
+      "max_mutating_calls": 0
+    }
+  },
+  "artifacts": {
+    "required": [
+      "qwen-stream-json",
+      "mcp.jsonl",
+      "tools.jsonl"
+    ]
+  }
+}

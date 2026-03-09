@@ -1,0 +1,55 @@
+{
+  "id": "BUH-002",
+  "title": "Add Attribute To Typical Accounting Object",
+  "category": "typical_customization",
+  "channel": "qwen_mcp",
+  "risk_level": "high",
+  "workspace_requirements": {
+    "project_name": "buh-project",
+    "notes": [
+      "A known customizable document or catalog exists in the Accounting configuration.",
+      "Mutation permissions are enabled."
+    ]
+  },
+  "actor": {
+    "style": "1c_typical_config_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "В типовой 1С:Бухгалтерии добавь к целевому документу пользовательский реквизит КомментарийМенеджера строкового типа. Сделай это безопасно через EDT mutation flow, затем проверь диагностику и сообщи, в какой объект внесено изменение.",
+  "expected_tool_path": {
+    "ordered_subsequence": [
+      "edt_validate_request",
+      "add_metadata_child",
+      "get_diagnostics"
+    ],
+    "required_rules": [
+      "validation_token must be preserved unchanged",
+      "no direct file edits are allowed"
+    ],
+    "forbidden": [
+      "write_file"
+    ]
+  },
+  "assertions": {
+    "workspace_state": {
+      "must_create_attribute": true,
+      "attribute_type_contains": "String"
+    },
+    "tool_behavior": {
+      "must_have_validation_flow": true,
+      "must_have_post_mutation_diagnostics": true
+    },
+    "final_answer": {
+      "must_identify_modified_object": true,
+      "must_report_diagnostics_status": true
+    }
+  },
+  "artifacts": {
+    "required": [
+      "events.jsonl",
+      "tools.jsonl",
+      "mcp.jsonl"
+    ]
+  }
+}

@@ -93,8 +93,14 @@ public class BuildAgentProfile implements AgentProfile {
             "edt_trace_export",
             "edt_metadata_smoke",
             "qa_status",
+            "analyze_tool_error",
+            "edt_update_infobase",
+            "edt_launch_app",
             "qa_run",
-            "qa_scaffold",
+            "qa_prepare_form_context",
+            "qa_plan_scenario",
+            "qa_compile_feature",
+            "qa_validate_feature",
             "qa_steps_search"
     ));
 
@@ -153,7 +159,10 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("edt_metadata_smoke").forAllResources(),
                 PermissionRule.allow("inspect_form_layout").forAllResources(),
                 PermissionRule.allow("qa_status").forAllResources(),
+                PermissionRule.allow("analyze_tool_error").forAllResources(),
                 PermissionRule.allow("qa_run").forAllResources(),
+                PermissionRule.allow("qa_plan_scenario").forAllResources(),
+                PermissionRule.allow("qa_validate_feature").forAllResources(),
                 PermissionRule.allow("qa_steps_search").forAllResources(),
 
                 // Write tools - ask
@@ -223,10 +232,19 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.ask("delete_metadata_object")
                         .withDescription("Удаление объектов метаданных EDT")
                         .forAllResources(),
-                PermissionRule.ask("qa_scaffold")
-                        .withDescription("Создание feature файла для тестов")
+                PermissionRule.ask("qa_compile_feature")
+                        .withDescription("Компиляция structured QA плана в feature файл")
+                        .forAllResources(),
+                PermissionRule.ask("qa_prepare_form_context")
+                        .withDescription("Подготовка QA контекста формы с автосозданием default формы при отсутствии")
+                        .forAllResources(),
+                PermissionRule.ask("edt_update_infobase")
+                        .withDescription("Обновление инфобазы EDT проекта")
+                        .forAllResources(),
+                PermissionRule.ask("edt_launch_app")
+                        .withDescription("Запуск приложения EDT проекта")
                         .forAllResources()
-	        );
+		        );
 	    }
 
     @Override

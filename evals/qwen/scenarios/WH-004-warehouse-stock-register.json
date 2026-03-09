@@ -1,0 +1,55 @@
+{
+  "id": "WH-004",
+  "title": "Create Stock Accumulation Register",
+  "category": "greenfield_configuration",
+  "channel": "qwen_mcp",
+  "risk_level": "high",
+  "workspace_requirements": {
+    "project_name": "warehouse-project",
+    "notes": [
+      "Document ПоступлениеТоваров already exists."
+    ]
+  },
+  "actor": {
+    "style": "1c_solution_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "Добавь регистр накопления ОстаткиТоваров с измерениями Склад и Номенклатура и ресурсом Количество. Затем доработай структуру так, чтобы документ ПоступлениеТоваров мог использовать этот регистр для движений. Если регистр уже существует, проверь измерения/ресурсы и связь с документом. Не используй write_file или прямые правки .mdo. После всех изменений проверь диагностику и кратко опиши схему учета остатков.",
+  "expected_tool_path": {
+    "required_any_order": [
+      "get_diagnostics"
+    ],
+    "required_rules": [
+      "all mutation calls must use validation flow",
+      "post-mutation diagnostics are mandatory"
+    ],
+    "forbidden": [
+      "delete_metadata",
+      "write_file"
+    ]
+  },
+  "assertions": {
+    "workspace_state": {
+      "must_create_object": "AccumulationRegister.ОстаткиТоваров",
+      "must_create_dimensions": [
+        "AccumulationRegister.ОстаткиТоваров.Dimension.Склад",
+        "AccumulationRegister.ОстаткиТоваров.Dimension.Номенклатура"
+      ],
+      "must_create_resources": [
+        "AccumulationRegister.ОстаткиТоваров.Resource.Количество"
+      ]
+    },
+    "final_answer": {
+      "must_explain_stock_accounting_scheme": true,
+      "must_report_diagnostics_status": true
+    }
+  },
+  "artifacts": {
+    "required": [
+      "events.jsonl",
+      "tools.jsonl",
+      "mcp.jsonl"
+    ]
+  }
+}

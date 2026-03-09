@@ -1,0 +1,57 @@
+{
+  "id": "CPQW-002",
+  "title": "Catalog Attribute Mutation With Validation Flow",
+  "category": "metadata_mutation",
+  "channel": "qwen_mcp",
+  "risk_level": "high",
+  "workspace_requirements": {
+    "project_name": "sample-project",
+    "notes": [
+      "Workspace contains catalog Catalog.Номенклатура.",
+      "Mutation permissions are enabled for the MCP host."
+    ]
+  },
+  "actor": {
+    "style": "1c_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "Добавь в Catalog.Номенклатура новый пользовательский реквизит с именем Комментарий и строковым типом длиной 200. Если имя зарезервировано, выбери безопасную альтернативу и явно сообщи её. После изменения обязательно проверь диагностику и сообщи итоговый статус.",
+  "expected_tool_path": {
+    "ordered_subsequence": [
+      "edt_validate_request",
+      "add_metadata_child",
+      "get_diagnostics"
+    ],
+    "forbidden": [
+      "write_file"
+    ],
+    "required_rules": [
+      "validation_token must be passed unchanged from edt_validate_request to add_metadata_child",
+      "custom attribute name must not collide with reserved standard names"
+    ]
+  },
+  "assertions": {
+    "tool_behavior": {
+      "must_have_post_mutation_diagnostics": true,
+      "must_have_validation_flow": true
+    },
+    "workspace_state": {
+      "must_create_attribute": true,
+      "attribute_parent": "Catalog.Номенклатура",
+      "attribute_type_contains": "String"
+    },
+    "final_answer": {
+      "must_report_actual_attribute_name": true,
+      "must_report_diagnostics_status": true
+    }
+  },
+  "artifacts": {
+    "required": [
+      "qwen-stream-json",
+      "mcp.jsonl",
+      "tools.jsonl",
+      "events.jsonl"
+    ]
+  }
+}

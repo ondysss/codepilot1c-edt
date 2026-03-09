@@ -1,0 +1,183 @@
+{
+  "steps": [
+    {
+      "id": "session.open_test_client",
+      "intent": "session.open_test_client",
+      "canonical_text": "Дано Я открыл новый сеанс TestClient или подключил уже существующий",
+      "ui_scope": "session",
+      "parameters": []
+    },
+    {
+      "id": "ui.close_all_windows",
+      "intent": "ui.close_all_windows",
+      "canonical_text": "И Я закрыл все окна клиентского приложения",
+      "ui_scope": "session",
+      "parameters": []
+    },
+    {
+      "id": "navigation.open_section",
+      "intent": "navigation.open_section",
+      "canonical_text": "Когда В панели разделов я выбираю \"%1 ИмяКоманды\"",
+      "ui_scope": "navigation",
+      "parameters": [
+        { "name": "section_name", "type": "string", "required": true, "defaultValue": null }
+      ]
+    },
+    {
+      "id": "catalog.open_list_form",
+      "intent": "catalog.open_list_form",
+      "canonical_text": "Дано Я открываю основную форму списка справочника \"%1 Справочник1\"",
+      "ui_scope": "list_form",
+      "parameters": [
+        { "name": "metadata_name", "type": "string", "required": true, "defaultValue": null }
+      ]
+    },
+    {
+      "id": "document.open_list_form",
+      "intent": "document.open_list_form",
+      "canonical_text": "Дано Я открываю основную форму списка документа \"%1 Документ1\"",
+      "ui_scope": "list_form",
+      "parameters": [
+        { "name": "metadata_name", "type": "string", "required": true, "defaultValue": null }
+      ]
+    },
+    {
+      "id": "list.create_via_table_add",
+      "intent": "list.create_via_table_add",
+      "canonical_text": "И в таблице \"%1 ИмяТаблицы\" я нажимаю на кнопку \"%2 Добавить\"",
+      "ui_scope": "list_form",
+      "parameters": [
+        { "name": "table", "type": "string", "required": true, "defaultValue": "Список" },
+        { "name": "button", "type": "string", "required": true, "defaultValue": "Добавить" }
+      ]
+    },
+    {
+      "id": "list.create_via_form_button",
+      "intent": "list.create_via_form_button",
+      "canonical_text": "И я нажимаю на кнопку \"%1 Создать\"",
+      "ui_scope": "list_form",
+      "parameters": [
+        { "name": "button", "type": "string", "required": true, "defaultValue": "Создать" }
+      ]
+    },
+    {
+      "id": "form.assert_window_open",
+      "intent": "form.assert_window_open",
+      "canonical_text": "Тогда открылось окно \"%1 ИмяФормы\"",
+      "ui_scope": "form",
+      "parameters": [
+        { "name": "window_title", "type": "string", "required": true, "defaultValue": null }
+      ]
+    },
+    {
+      "id": "form.pick_from_list",
+      "intent": "form.pick_from_list",
+      "canonical_text": "И я выбираю значение реквизита \"%1 ИмяПоля\" из формы списка",
+      "ui_scope": "form",
+      "parameters": [
+        { "name": "field", "type": "string", "required": true, "defaultValue": null }
+      ]
+    },
+    {
+      "id": "field.set_text",
+      "intent": "field.set_text",
+      "canonical_text": "И в поле \"%1 ИмяПоля\" я ввожу текст \"%2 Значение поля\"",
+      "ui_scope": "form",
+      "parameters": [
+        { "name": "field", "type": "string", "required": true, "defaultValue": null },
+        { "name": "value", "type": "string", "required": true, "defaultValue": null }
+      ]
+    },
+    {
+      "id": "table.add_row",
+      "intent": "table.add_row",
+      "canonical_text": "И в таблице \"%1 Список\" я добавляю строку",
+      "ui_scope": "table",
+      "parameters": [
+        { "name": "table", "type": "string", "required": true, "defaultValue": "Товары" }
+      ]
+    },
+    {
+      "id": "table.pick_from_list",
+      "intent": "table.pick_from_list",
+      "canonical_text": "И в таблице \"%1 ИмяТаблицы\" я выбираю значение реквизита \"%2 Реквизит справочник выбор из формы списка\" из формы списка",
+      "ui_scope": "table",
+      "parameters": [
+        { "name": "table", "type": "string", "required": true, "defaultValue": "Товары" },
+        { "name": "field", "type": "string", "required": true, "defaultValue": null }
+      ]
+    },
+    {
+      "id": "table.set_text",
+      "intent": "table.set_text",
+      "canonical_text": "И в таблице \"%1 ИмяТаблицы\" в поле \"%2 ИмяПоля\" я ввожу текст \"%3 НужныйМнеТекст\"",
+      "ui_scope": "table",
+      "parameters": [
+        { "name": "table", "type": "string", "required": true, "defaultValue": "Товары" },
+        { "name": "field", "type": "string", "required": true, "defaultValue": null },
+        { "name": "value", "type": "string", "required": true, "defaultValue": null }
+      ]
+    },
+    {
+      "id": "table.finish_edit_row",
+      "intent": "table.finish_edit_row",
+      "canonical_text": "И В таблице \"%1 ИмяТаблицы\" я завершаю редактирование строки",
+      "ui_scope": "table",
+      "parameters": [
+        { "name": "table", "type": "string", "required": true, "defaultValue": "Товары" }
+      ]
+    },
+    {
+      "id": "ui.close_current_window",
+      "intent": "ui.close_current_window",
+      "canonical_text": "И Я закрываю текущее окно",
+      "ui_scope": "form",
+      "parameters": []
+    },
+    {
+      "id": "client.close_named",
+      "intent": "client.close_named",
+      "canonical_text": "И я закрываю TestClient \"%1 ИмяКлиента\"",
+      "ui_scope": "session",
+      "parameters": [
+        { "name": "client_name", "type": "string", "required": true, "defaultValue": "Этот клиент" }
+      ]
+    }
+  ],
+  "recipes": [
+    {
+      "id": "create_catalog_item",
+      "title": "Создание элемента справочника",
+      "keywords": ["справочник", "catalog", "элемент", "контрагент", "номенклатур"],
+      "steps": [
+        { "intent": "session.open_test_client", "args": {} },
+        { "intent": "ui.close_all_windows", "args": {} },
+        { "intent": "catalog.open_list_form", "args": { "metadata_name": "${object_name}" } },
+        { "intent": "list.create_via_form_button", "args": { "button": "Создать" } },
+        { "intent": "form.assert_window_open", "args": { "window_title": "${create_window_title}" } }
+      ]
+    },
+    {
+      "id": "create_document_draft",
+      "title": "Создание черновика документа",
+      "keywords": ["документ", "поступлен", "товар", "receipt", "warehouse", "склад"],
+      "steps": [
+        { "intent": "session.open_test_client", "args": {} },
+        { "intent": "ui.close_all_windows", "args": {} },
+        { "intent": "document.open_list_form", "args": { "metadata_name": "${object_name}" } },
+        { "intent": "list.create_via_form_button", "args": { "button": "Создать" } },
+        { "intent": "form.assert_window_open", "args": { "window_title": "${create_window_title}" } }
+      ]
+    },
+    {
+      "id": "open_navigation_smoke",
+      "title": "Smoke-проверка открытия раздела",
+      "keywords": ["smoke", "открыть", "раздел", "navigation", "список"],
+      "steps": [
+        { "intent": "session.open_test_client", "args": {} },
+        { "intent": "ui.close_all_windows", "args": {} },
+        { "intent": "navigation.open_section", "args": { "section_name": "${section_name}" } }
+      ]
+    }
+  ]
+}

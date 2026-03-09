@@ -1,0 +1,15 @@
+{
+  "suite_id": "qwen-1c-greenfield-warehouse",
+  "title": "Qwen Greenfield Warehouse Configuration",
+  "description": "Mutation-heavy scenarios for creating a simple warehouse accounting configuration from scratch.",
+  "channel": "qwen_mcp",
+  "scenarios": [
+    "scenarios/WH-001-warehouse-core-structure.json",
+    "scenarios/WH-002-warehouse-catalogs.json",
+    "scenarios/WH-003-warehouse-receipt-document.json",
+    "scenarios/WH-004-warehouse-stock-register.json",
+    "scenarios/WH-005-warehouse-forms-and-diagnostics.json",
+    "scenarios/WH-006-warehouse-smoke-qa.json",
+    "scenarios/WH-007-counterparties-catalog-forms.json"
+  ]
+}

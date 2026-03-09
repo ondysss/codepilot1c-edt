@@ -36,6 +36,7 @@ import com.e1c.g5.dt.applications.IApplicationManager;
 import com.e1c.g5.v8.dt.check.settings.ICheckRepository;
 import com.codepilot1c.core.http.DefaultHttpClientFactory;
 import com.codepilot1c.core.http.HttpClientFactory;
+import com.codepilot1c.core.edt.runtime.EdtLaunchProcessRegistry;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.mcp.host.McpHostManager;
 import com.codepilot1c.core.mcp.McpServerManager;
@@ -89,6 +90,8 @@ public class VibeCorePlugin extends Plugin {
 
         logInfo("1C Copilot Core plugin started"); //$NON-NLS-1$
         vibeLogger.info("Core", "VibeLogger initialized. Log file: %s", vibeLogger.getLogFilePath()); //$NON-NLS-1$ //$NON-NLS-2$
+
+        WorkspaceProjectBootstrap.importConfiguredProjects();
 
         // Initialize LLM providers and set initial state.
         // If no providers are configured, plugin still starts but shows NOT_CONFIGURED.
@@ -176,6 +179,11 @@ public class VibeCorePlugin extends Plugin {
             McpHostManager.getInstance().stopAll();
         } catch (Exception e) {
             logWarn("Error stopping MCP host", e); //$NON-NLS-1$
+        }
+        try {
+            EdtLaunchProcessRegistry.getInstance().cleanupAll();
+        } catch (Exception e) {
+            logWarn("Error cleaning EDT launch processes", e); //$NON-NLS-1$
         }
 
         // Dispose HTTP client factory

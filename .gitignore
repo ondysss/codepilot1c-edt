@@ -5,6 +5,8 @@
 # Codex / agent artifacts
 .codex/
 .claude/
+.runs/
+tools/__pycache__/
 
 # IDE / OS
 .idea/

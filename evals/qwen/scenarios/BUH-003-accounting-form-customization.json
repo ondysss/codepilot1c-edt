@@ -1,0 +1,50 @@
+{
+  "id": "BUH-003",
+  "title": "Customize Typical Accounting Form",
+  "category": "typical_customization",
+  "channel": "qwen_mcp",
+  "risk_level": "high",
+  "workspace_requirements": {
+    "project_name": "buh-project",
+    "notes": [
+      "The target object already has a managed form that can be adjusted."
+    ]
+  },
+  "actor": {
+    "style": "1c_typical_config_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "Доработай форму типового объекта так, чтобы на ней отображался пользовательский реквизит КомментарийМенеджера. Если формы нет, создай её корректно. После изменения проверь диагностику и кратко опиши, что добавлено на форму.",
+  "expected_tool_path": {
+    "required_any_order": [
+      "edt_validate_request",
+      "create_form",
+      "mutate_form_model",
+      "get_diagnostics"
+    ],
+    "required_rules": [
+      "form changes must go through supported form mutation tools",
+      "diagnostics must be re-run after form mutation"
+    ],
+    "forbidden": [
+      "write_file"
+    ]
+  },
+  "assertions": {
+    "workspace_state": {
+      "must_have_form_update": true
+    },
+    "final_answer": {
+      "must_describe_form_change": true,
+      "must_report_diagnostics_status": true
+    }
+  },
+  "artifacts": {
+    "required": [
+      "events.jsonl",
+      "tools.jsonl",
+      "mcp.jsonl"
+    ]
+  }
+}

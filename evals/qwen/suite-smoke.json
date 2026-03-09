@@ -1,0 +1,9 @@
+{
+  "suite_id": "qwen-1c-smoke",
+  "title": "Qwen Smoke Suite",
+  "description": "Minimal safe suite for validating runner + qwen + MCP connectivity without mutations.",
+  "channel": "qwen_mcp",
+  "scenarios": [
+    "scenarios/SMK-001-project-discovery.json"
+  ]
+}

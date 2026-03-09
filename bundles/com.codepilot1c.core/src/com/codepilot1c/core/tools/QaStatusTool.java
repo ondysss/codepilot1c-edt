@@ -13,6 +13,7 @@ import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.preferences.IEclipsePreferences;
 import org.eclipse.core.runtime.preferences.InstanceScope;
 
+import com.codepilot1c.core.edt.runtime.EdtLaunchConfigurationService;
 import com.codepilot1c.core.edt.runtime.EdtRuntimeService;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
@@ -56,6 +57,10 @@ public class QaStatusTool implements ITool {
                 "project_name": {
                   "type": "string",
                   "description": "EDT project name for infobase association"
+                },
+                "auto_create_config": {
+                  "type": "boolean",
+                  "description": "Auto-create qa-config.json when missing (default: true)"
                 }
               }
             }
@@ -89,6 +94,8 @@ public class QaStatusTool implements ITool {
                 boolean useEdtRuntimeParam = parameters != null && Boolean.TRUE.equals(parameters.get("use_edt_runtime")); //$NON-NLS-1$
                 boolean useTestManager = parameters == null || !Boolean.FALSE.equals(parameters.get("use_test_manager")); //$NON-NLS-1$
                 String projectNameParam = parameters == null ? null : (String) parameters.get("project_name"); //$NON-NLS-1$
+                boolean autoCreateConfig = parameters == null
+                        || !Boolean.FALSE.equals(parameters.get("auto_create_config")); //$NON-NLS-1$
 
                 File configFile = QaPaths.resolveConfigFile(configPath, workspaceRoot, DEFAULT_CONFIG_PATH);
 
@@ -99,11 +106,21 @@ public class QaStatusTool implements ITool {
                     return buildResult(opId, workspaceRoot, configFile, checks);
                 }
                 if (configFile == null || !configFile.exists()) {
-                    checks.add(Check.error("config", "QA config not found", configFile)); //$NON-NLS-1$ //$NON-NLS-2$
-                    return buildResult(opId, workspaceRoot, configFile, checks);
+                    if (!autoCreateConfig) {
+                        checks.add(Check.error("config", "QA config not found", configFile)); //$NON-NLS-1$ //$NON-NLS-2$
+                        return buildResult(opId, workspaceRoot, configFile, checks);
+                    }
+                    String defaultProjectName = resolveProjectName(projectNameParam);
+                    QaConfig.defaultConfig(defaultProjectName).save(configFile);
                 }
 
                 QaConfig config = QaConfig.load(configFile);
+                if (autoCreateConfig && shouldRegenerateConfig(config, useEdtRuntimeParam, useTestManager)) {
+                    String defaultProjectName = resolveProjectName(projectNameParam);
+                    QaConfig.defaultConfig(defaultProjectName).save(configFile);
+                    config = QaConfig.load(configFile);
+                    checks.add(Check.warn("config", "QA config regenerated with defaults", configFile)); //$NON-NLS-1$ //$NON-NLS-2$
+                }
                 List<String> configErrors = new ArrayList<>(config.validate());
                 if (useEdtRuntimeParam) {
                     configErrors.removeIf(error -> error.startsWith("platform.bin_path") //$NON-NLS-1$
@@ -115,7 +132,8 @@ public class QaStatusTool implements ITool {
                 if (projectNameParam != null && !projectNameParam.isBlank()) {
                     configErrors.removeIf(error -> error.startsWith("edt.project_name")); //$NON-NLS-1$
                 }
-                if (getPreferenceEpfPath() != null && !getPreferenceEpfPath().isBlank()) {
+                String preferenceEpfPath = getPreferenceEpfPath();
+                if (preferenceEpfPath != null && !preferenceEpfPath.isBlank()) {
                     configErrors.removeIf(error -> error.startsWith("vanessa.epf_path")); //$NON-NLS-1$
                 }
                 if (!configErrors.isEmpty()) {
@@ -145,24 +163,56 @@ public class QaStatusTool implements ITool {
                         checks.add(Check.error("edt.project_name", "Не задано имя EDT проекта", null)); //$NON-NLS-1$ //$NON-NLS-2$
                     } else {
                         try {
+                            EdtLaunchConfigurationService launchService = new EdtLaunchConfigurationService();
+                            var launchConfig = launchService.resolveRuntimeClientConfiguration(projectName, workspaceRoot);
+                            if (launchConfig == null) {
+                                checks.add(Check.error("edt.launch_config",
+                                        "Конфигурация запуска EDT не найдена", null)); //$NON-NLS-1$ //$NON-NLS-2$
+                            } else {
+                                checks.add(Check.ok("edt.launch_config",
+                                        "Конфигурация запуска EDT найдена"
+                                                + (launchConfig.runtimeVersion() == null
+                                                        || launchConfig.runtimeVersion().isBlank()
+                                                                ? ""
+                                                                : " (" + launchConfig.runtimeVersion() + ")"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                                        launchConfig.file()));
+                            }
                             EdtRuntimeService runtimeService = new EdtRuntimeService();
                             var infobase = runtimeService.resolveDefaultInfobase(projectName);
-                            runtimeService.resolveThickClientInfo(infobase);
-                            checks.add(Check.ok("edt.runtime", "EDT runtime и инфобаза доступны", null)); //$NON-NLS-1$ //$NON-NLS-2$
+                            if (launchConfig == null) {
+                                checks.add(Check.error("edt.runtime",
+                                        "EDT runtime не может быть проверен без launch configuration", null)); //$NON-NLS-1$ //$NON-NLS-2$
+                            } else if (!launchConfig.runtimeInstallationUseAuto()
+                                    && (launchConfig.runtimeVersion() == null
+                                            || launchConfig.runtimeVersion().isBlank())) {
+                                checks.add(Check.error("edt.runtime",
+                                        "В launch configuration не задана версия платформы", launchConfig.file())); //$NON-NLS-1$ //$NON-NLS-2$
+                            } else {
+                                runtimeService.resolveThickClientInfo(infobase,
+                                        launchConfig.runtimeInstallationUseAuto()
+                                                ? null
+                                                : launchConfig.runtimeVersion());
+                                checks.add(Check.ok("edt.runtime", "EDT runtime и инфобаза доступны", null)); //$NON-NLS-1$ //$NON-NLS-2$
+                            }
                         } catch (Exception e) {
                             checks.add(Check.error("edt.runtime", "EDT runtime недоступен: " + e.getMessage(), null)); //$NON-NLS-1$ //$NON-NLS-2$
                         }
                     }
                 }
 
+                if (preferenceEpfPath == null || preferenceEpfPath.isBlank()) {
+                    checks.add(Check.error("vanessa.epf_path",
+                            "vanessa-automation.epf path must be configured in settings", null)); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+
                 File epfPath = resolveEpfPath(config, workspaceRoot);
-                if (epfPath != null && epfPath.exists()) {
+                if (preferenceEpfPath != null && !preferenceEpfPath.isBlank() && epfPath != null && epfPath.exists()) {
                     String message = "vanessa-automation.epf найден"; //$NON-NLS-1$
                     if (config.vanessa == null || config.vanessa.epf_path == null || config.vanessa.epf_path.isBlank()) {
                         message = "vanessa-automation.epf найден (из настроек)"; //$NON-NLS-1$
                     }
                     checks.add(Check.ok("vanessa.epf_path", message, epfPath)); //$NON-NLS-1$
-                } else {
+                } else if (preferenceEpfPath != null && !preferenceEpfPath.isBlank()) {
                     checks.add(Check.error("vanessa.epf_path", "vanessa-automation.epf не найден", epfPath)); //$NON-NLS-1$ //$NON-NLS-2$
                 }
 
@@ -187,24 +237,31 @@ public class QaStatusTool implements ITool {
                 }
 
                 File featuresDir = QaPaths.resolve(config.paths == null ? null : config.paths.features_dir, workspaceRoot);
-                if (featuresDir != null && featuresDir.exists()) {
-                    checks.add(Check.ok("paths.features_dir", "Каталог feature найден", featuresDir)); //$NON-NLS-1$ //$NON-NLS-2$
-                } else {
-                    checks.add(Check.warn("paths.features_dir", "Каталог feature не найден", featuresDir)); //$NON-NLS-1$ //$NON-NLS-2$
+                Check featuresCheck = ensureDirectory(featuresDir, autoCreateConfig, "paths.features_dir",
+                        "Каталог feature"); //$NON-NLS-1$ //$NON-NLS-2$
+                if (featuresCheck != null) {
+                    checks.add(featuresCheck);
                 }
 
                 File stepsDir = QaPaths.resolve(config.paths == null ? null : config.paths.steps_dir, workspaceRoot);
-                if (stepsDir != null && stepsDir.exists()) {
-                    checks.add(Check.ok("paths.steps_dir", "Каталог шагов найден", stepsDir)); //$NON-NLS-1$ //$NON-NLS-2$
-                } else if (stepsDir != null) {
-                    checks.add(Check.warn("paths.steps_dir", "Каталог шагов не найден", stepsDir)); //$NON-NLS-1$ //$NON-NLS-2$
+                if (stepsDir != null) {
+                    Check stepsCheck = ensureDirectory(stepsDir, autoCreateConfig, "paths.steps_dir",
+                            "Каталог шагов"); //$NON-NLS-1$ //$NON-NLS-2$
+                    if (stepsCheck != null) {
+                        checks.add(stepsCheck);
+                    }
                 }
 
                 File resultsDir = QaPaths.resolve(config.paths == null ? null : config.paths.results_dir, workspaceRoot);
-                if (resultsDir != null && resultsDir.exists()) {
-                    checks.add(Check.ok("paths.results_dir", "Каталог результатов найден", resultsDir)); //$NON-NLS-1$ //$NON-NLS-2$
-                } else {
-                    checks.add(Check.warn("paths.results_dir", "Каталог результатов не найден", resultsDir)); //$NON-NLS-1$ //$NON-NLS-2$
+                Check resultsCheck = ensureDirectory(resultsDir, autoCreateConfig, "paths.results_dir",
+                        "Каталог результатов"); //$NON-NLS-1$ //$NON-NLS-2$
+                if (resultsCheck != null) {
+                    checks.add(resultsCheck);
+                }
+
+                if (useTestManager && (config.test_clients == null || config.test_clients.isEmpty())) {
+                    checks.add(Check.error("test_clients",
+                            "TestManager requires at least one test client definition", null)); //$NON-NLS-1$ //$NON-NLS-2$
                 }
 
                 if (validatePorts && config.test_clients != null) {
@@ -272,6 +329,21 @@ public class QaStatusTool implements ITool {
         return root.getLocation().toFile();
     }
 
+    private static String resolveProjectName(String projectNameParam) {
+        if (projectNameParam != null && !projectNameParam.isBlank()) {
+            return projectNameParam;
+        }
+        var projects = ResourcesPlugin.getWorkspace().getRoot().getProjects();
+        if (projects != null) {
+            for (var project : projects) {
+                if (project != null && project.isOpen()) {
+                    return project.getName();
+                }
+            }
+        }
+        return null;
+    }
+
     private static boolean isLocalHost(String host) {
         if (host == null || host.isBlank()) {
             return true;
@@ -293,14 +365,49 @@ public class QaStatusTool implements ITool {
     }
 
     private static File resolveEpfPath(QaConfig config, File workspaceRoot) {
-        String path = config.vanessa == null ? null : config.vanessa.epf_path;
-        if (path == null || path.isBlank()) {
-            String pref = getPreferenceEpfPath();
-            if (pref != null && !pref.isBlank()) {
-                path = pref;
+        String pref = getPreferenceEpfPath();
+        if (pref != null && !pref.isBlank()) {
+            return QaPaths.resolve(pref, workspaceRoot);
+        }
+        return null;
+    }
+
+    private static Check ensureDirectory(File dir, boolean autoCreate, String checkId, String label) {
+        if (dir == null) {
+            return null;
+        }
+        if (dir.exists()) {
+            return Check.ok(checkId, label + " найден", dir); //$NON-NLS-1$
+        }
+        if (autoCreate && dir.mkdirs()) {
+            return Check.ok(checkId, label + " создан", dir); //$NON-NLS-1$
+        }
+        return Check.warn(checkId, label + " не найден", dir); //$NON-NLS-1$
+    }
+
+    private static boolean shouldRegenerateConfig(QaConfig config, boolean useEdtRuntime, boolean useTestManager) {
+        if (config == null) {
+            return true;
+        }
+        if (config.paths == null || config.paths.features_dir == null || config.paths.features_dir.isBlank()
+                || config.paths.results_dir == null || config.paths.results_dir.isBlank()) {
+            return true;
+        }
+        if (useEdtRuntime && (config.edt == null || config.edt.project_name == null
+                || config.edt.project_name.isBlank())) {
+            return true;
+        }
+        if (useTestManager && (config.test_clients == null || config.test_clients.isEmpty())) {
+            return true;
+        }
+        if (useTestManager && config.test_clients != null) {
+            for (QaConfig.TestClient client : config.test_clients) {
+                if (client == null || client.port == null || client.port.intValue() <= 0) {
+                    return true;
+                }
             }
         }
-        return QaPaths.resolve(path, workspaceRoot);
+        return false;
     }
 
     private static String getPreferenceEpfPath() {

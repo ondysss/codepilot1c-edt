@@ -1,0 +1,59 @@
+{
+  "id": "WH-003",
+  "title": "Create Goods Receipt Document",
+  "category": "greenfield_configuration",
+  "channel": "qwen_mcp",
+  "risk_level": "high",
+  "workspace_requirements": {
+    "project_name": "warehouse-project",
+    "notes": [
+      "Catalogs Склады and Номенклатура already exist."
+    ]
+  },
+  "actor": {
+    "style": "1c_solution_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "Создай документ ПоступлениеТоваров для складского учета. У документа должны быть реквизиты Склад, Поставщик и Комментарий, а также табличная часть Товары с колонками Номенклатура, Количество и Цена. После создания проверь диагностику и опиши структуру документа.",
+  "expected_tool_path": {
+    "required_any_order": [
+      "edt_validate_request",
+      "create_metadata",
+      "add_metadata_child",
+      "get_diagnostics"
+    ],
+    "required_rules": [
+      "tabular section columns must be created through mutation tools, not text patching",
+      "validation_token must be used for all mutations"
+    ],
+    "forbidden": [
+      "write_file"
+    ]
+  },
+  "assertions": {
+    "workspace_state": {
+      "must_create_object": "Document.ПоступлениеТоваров",
+      "must_create_tabular_section": "Document.ПоступлениеТоваров.Товары",
+      "must_create_columns": [
+        "Document.ПоступлениеТоваров.Товары.Номенклатура",
+        "Document.ПоступлениеТоваров.Товары.Количество",
+        "Document.ПоступлениеТоваров.Товары.Цена"
+      ]
+    },
+    "tool_behavior": {
+      "must_have_validation_flow": true,
+      "must_have_post_mutation_diagnostics": true
+    },
+    "final_answer": {
+      "must_describe_document_structure": true
+    }
+  },
+  "artifacts": {
+    "required": [
+      "events.jsonl",
+      "tools.jsonl",
+      "mcp.jsonl"
+    ]
+  }
+}

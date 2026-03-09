@@ -1,0 +1,46 @@
+{
+  "id": "BUH-005",
+  "title": "Remediate Diagnostics After Accounting Customization",
+  "category": "typical_customization",
+  "channel": "qwen_mcp",
+  "risk_level": "high",
+  "workspace_requirements": {
+    "project_name": "buh-project",
+    "notes": [
+      "The workspace fixture contains at least one diagnostics issue caused by a previous customization."
+    ]
+  },
+  "actor": {
+    "style": "1c_typical_config_developer",
+    "must_act_like_user": true,
+    "must_not_reference_internal_traces": true
+  },
+  "prompt": "После недавней доработки типовой конфигурации появилась диагностика. Найди одну конкретную проблему, исправь её через поддерживаемые EDT mutation tools, затем повторно запусти диагностику и дай короткий отчёт по исправлению.",
+  "expected_tool_path": {
+    "ordered_subsequence": [
+      "get_diagnostics",
+      "edt_validate_request",
+      "update_metadata",
+      "get_diagnostics"
+    ],
+    "forbidden": [
+      "write_file"
+    ]
+  },
+  "assertions": {
+    "workspace_state": {
+      "diagnostics_error_count_must_decrease": true
+    },
+    "final_answer": {
+      "must_report_before_after_status": true,
+      "must_explain_fix": true
+    }
+  },
+  "artifacts": {
+    "required": [
+      "events.jsonl",
+      "tools.jsonl",
+      "mcp.jsonl"
+    ]
+  }
+}

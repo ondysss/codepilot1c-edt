@@ -1,0 +1,14 @@
+{
+  "suite_id": "qwen-1c-typical-accounting-customization",
+  "title": "Qwen Typical Accounting Customization",
+  "description": "Scenarios for safe and targeted customization of a typical 1C Accounting configuration.",
+  "channel": "qwen_mcp",
+  "scenarios": [
+    "scenarios/BUH-001-accounting-extension-point-analysis.json",
+    "scenarios/BUH-002-accounting-add-attribute.json",
+    "scenarios/BUH-003-accounting-form-customization.json",
+    "scenarios/BUH-004-accounting-posting-logic-adjustment.json",
+    "scenarios/BUH-005-accounting-diagnostics-remediation.json",
+    "scenarios/BUH-006-accounting-targeted-regression-qa.json"
+  ]
+}

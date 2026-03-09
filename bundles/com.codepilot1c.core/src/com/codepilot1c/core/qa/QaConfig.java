@@ -15,6 +15,7 @@ import com.google.gson.JsonSyntaxException;
 public class QaConfig {
 
     private static final Gson GSON = new Gson();
+    private static final int DEFAULT_TEST_CLIENT_PORT = 48111;
 
     public Platform platform = new Platform();
     public Vanessa vanessa = new Vanessa();
@@ -37,6 +38,46 @@ public class QaConfig {
         }
     }
 
+    public static QaConfig defaultConfig(String projectName) {
+        QaConfig config = new QaConfig();
+        if (config.edt == null) {
+            config.edt = new Edt();
+        }
+        config.edt.use_runtime = Boolean.TRUE;
+        config.edt.project_name = projectName;
+        if (config.test_clients == null) {
+            config.test_clients = new ArrayList<>();
+        }
+        if (config.test_clients.isEmpty()) {
+            TestClient client = new TestClient();
+            client.name = "TestClient"; //$NON-NLS-1$
+            client.alias = "Test Client"; //$NON-NLS-1$
+            client.type = "thin"; //$NON-NLS-1$
+            client.host = "localhost"; //$NON-NLS-1$
+            client.port = Integer.valueOf(DEFAULT_TEST_CLIENT_PORT);
+            config.test_clients.add(client);
+        }
+        if (config.paths == null) {
+            config.paths = new Paths();
+        }
+        config.paths.features_dir = "tests/features";
+        config.paths.steps_dir = "tests/steps";
+        config.paths.results_dir = "tests/qa/results";
+        return config;
+    }
+
+    public void save(File file) throws IOException {
+        if (file == null) {
+            throw new IOException("QA config path is null");
+        }
+        File parent = file.getParentFile();
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
+        String json = new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(this);
+        Files.writeString(file.toPath(), json, StandardCharsets.UTF_8);
+    }
+
     public List<String> validate() {
         List<String> errors = new ArrayList<>();
         boolean useEdt = edt != null && Boolean.TRUE.equals(edt.use_runtime);
@@ -49,9 +90,6 @@ public class QaConfig {
             }
         } else if (edt == null || isBlank(edt.project_name)) {
             errors.add("edt.project_name is required when edt.use_runtime=true");
-        }
-        if (vanessa == null || isBlank(vanessa.epf_path)) {
-            errors.add("vanessa.epf_path is required");
         }
         if (paths == null || isBlank(paths.features_dir)) {
             errors.add("paths.features_dir is required");
