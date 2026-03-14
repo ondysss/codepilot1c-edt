@@ -222,6 +222,12 @@ public class ProviderEditDialog extends TitleAreaDialog {
         fetchModelsButton.setText(Messages.ProviderEditDialog_FetchModels);
 
         if (!result.isSuccess()) {
+            if (result.requiresManualModelEntry()) {
+                setErrorMessage(null);
+                setMessage(Messages.ProviderEditDialog_ManualModelEntryRequired, IMessageProvider.WARNING);
+                modelText.setFocus();
+                return;
+            }
             setErrorMessage(result.getError());
             return;
         }

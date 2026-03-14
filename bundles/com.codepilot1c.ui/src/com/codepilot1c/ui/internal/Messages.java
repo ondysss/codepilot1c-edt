@@ -116,6 +116,7 @@ public class Messages extends NLS {
     public static String ProviderEditDialog_Fetching;
     public static String ProviderEditDialog_FetchTooltip;
     public static String ProviderEditDialog_FetchNotSupported;
+    public static String ProviderEditDialog_ManualModelEntryRequired;
     public static String ProviderEditDialog_NoModelsFound;
     public static String ProviderEditDialog_NameRequired;
     public static String ProviderEditDialog_BaseUrlRequired;

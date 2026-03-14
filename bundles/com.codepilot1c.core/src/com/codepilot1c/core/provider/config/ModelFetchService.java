@@ -94,17 +94,24 @@ public class ModelFetchService {
         private final List<ModelInfo> models;
         private final String error;
         private final boolean success;
+        private final boolean manualModelEntryRequired;
 
         private FetchResult(List<ModelInfo> models) {
             this.models = models;
             this.error = null;
             this.success = true;
+            this.manualModelEntryRequired = false;
         }
 
         private FetchResult(String error) {
+            this(error, false);
+        }
+
+        private FetchResult(String error, boolean manualModelEntryRequired) {
             this.models = Collections.emptyList();
             this.error = error;
             this.success = false;
+            this.manualModelEntryRequired = manualModelEntryRequired;
         }
 
         public List<ModelInfo> getModels() {
@@ -119,12 +126,20 @@ public class ModelFetchService {
             return success;
         }
 
+        public boolean requiresManualModelEntry() {
+            return manualModelEntryRequired;
+        }
+
         public static FetchResult success(List<ModelInfo> models) {
             return new FetchResult(models);
         }
 
         public static FetchResult failure(String error) {
             return new FetchResult(error);
+        }
+
+        public static FetchResult manualModelEntryRequired() {
+            return new FetchResult(null, true);
         }
     }
 
@@ -176,6 +191,9 @@ public class ModelFetchService {
      */
     private FetchResult parseModelsResponse(HttpResponse<String> response, ProviderType type) {
         if (response.statusCode() != 200) {
+            if (type == ProviderType.OPENAI_COMPATIBLE && response.statusCode() == 404) {
+                return FetchResult.manualModelEntryRequired();
+            }
             return FetchResult.failure("API error: " + response.statusCode()); //$NON-NLS-1$
         }
 
