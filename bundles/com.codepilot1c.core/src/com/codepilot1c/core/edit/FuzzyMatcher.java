@@ -386,28 +386,36 @@ public class FuzzyMatcher {
     }
 
     /**
-     * Finds the end offset in original document.
+     * Finds the end offset in original document for the matched search text.
      */
     private int findOriginalEnd(String documentContent, int originalStart, String searchText, int normalizedLength) {
-        // Approximate by finding the search text lines in document
         String[] searchLines = searchText.split("\n", -1); //$NON-NLS-1$
         int lineCount = searchLines.length;
 
-        int currentLine = 0;
+        // Trailing empty element from split means searchText ends with \n
+        boolean trailingNewline = lineCount > 0 && searchLines[lineCount - 1].isEmpty();
+        if (trailingNewline) {
+            lineCount--;
+        }
+
         int pos = originalStart;
-        while (pos < documentContent.length() && currentLine < lineCount) {
+        int linesConsumed = 0;
+
+        while (pos < documentContent.length() && linesConsumed < lineCount) {
             int nextNewline = documentContent.indexOf('\n', pos);
             if (nextNewline < 0) {
                 pos = documentContent.length();
+                linesConsumed++;
                 break;
             }
-            currentLine++;
-            pos = nextNewline + 1;
+            linesConsumed++;
+            if (linesConsumed < lineCount) {
+                pos = nextNewline + 1;
+            } else {
+                pos = trailingNewline ? nextNewline + 1 : nextNewline;
+            }
         }
-        // Adjust for last line if not followed by newline
-        if (currentLine < lineCount && pos < documentContent.length()) {
-            pos = documentContent.length();
-        }
+
         return Math.min(pos, documentContent.length());
     }
 
