@@ -1,0 +1,6 @@
+data: {"choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}
+data: {"choices":[{"delta":{"reasoning_content":"Сначала проверю доступные инструменты.","content":null},"finish_reason":null}]}
+data: {"choices":[{"delta":{"reasoning_content":"Для этого нужен вызов git_inspect.","content":null},"finish_reason":null}]}
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_glm","type":"function","function":{"name":"git_inspect","arguments":""}}]},"finish_reason":null}]}
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"operation\":\"status\"}"}}]},"finish_reason":"tool_calls"}]}
+data: [DONE]

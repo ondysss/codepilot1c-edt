@@ -65,6 +65,30 @@ public class Messages extends NLS {
     public static String PreferencePage_TestConnectionButton;
     public static String PreferencePage_TestSuccess;
     public static String PreferencePage_TestFailed;
+    public static String QaProjectPropertyPage_NoProject;
+    public static String QaProjectPropertyPage_InfoGroup;
+    public static String QaProjectPropertyPage_ProjectLabel;
+    public static String QaProjectPropertyPage_ConfigPathLabel;
+    public static String QaProjectPropertyPage_RuntimeGroup;
+    public static String QaProjectPropertyPage_UseEdtRuntimeLabel;
+    public static String QaProjectPropertyPage_UseTestManagerLabel;
+    public static String QaProjectPropertyPage_ProjectNameLabel;
+    public static String QaProjectPropertyPage_TimeoutLabel;
+    public static String QaProjectPropertyPage_EpfPathLabel;
+    public static String QaProjectPropertyPage_EpfPathNote;
+    public static String QaProjectPropertyPage_ParamsTemplateLabel;
+    public static String QaProjectPropertyPage_PathsGroup;
+    public static String QaProjectPropertyPage_FeaturesDirLabel;
+    public static String QaProjectPropertyPage_StepsDirLabel;
+    public static String QaProjectPropertyPage_ResultsDirLabel;
+    public static String QaProjectPropertyPage_BehaviorGroup;
+    public static String QaProjectPropertyPage_JunitReportLabel;
+    public static String QaProjectPropertyPage_ScreenshotsLabel;
+    public static String QaProjectPropertyPage_CloseClientLabel;
+    public static String QaProjectPropertyPage_QuietInstallLabel;
+    public static String QaProjectPropertyPage_ShowMainFormLabel;
+    public static String QaProjectPropertyPage_BrowseButton;
+    public static String QaProjectPropertyPage_SaveErrorTitle;
 
 
     // Model configuration editor

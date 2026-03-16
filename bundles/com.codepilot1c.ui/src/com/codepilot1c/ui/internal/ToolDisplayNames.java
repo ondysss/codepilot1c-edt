@@ -71,6 +71,7 @@ public final class ToolDisplayNames {
             case "edt_external_smoke" -> "Smoke внешних объектов EDT"; //$NON-NLS-1$ //$NON-NLS-2$
             case "get_diagnostics" -> "Диагностики"; //$NON-NLS-1$ //$NON-NLS-2$
             case "qa_status" -> "QA статус"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "qa_migrate_config" -> "QA миграция конфига"; //$NON-NLS-1$ //$NON-NLS-2$
             case "analyze_tool_error" -> "Анализ ошибки инструмента"; //$NON-NLS-1$ //$NON-NLS-2$
             case "edt_update_infobase" -> "EDT обновление инфобазы"; //$NON-NLS-1$ //$NON-NLS-2$
             case "edt_launch_app" -> "EDT запуск приложения"; //$NON-NLS-1$ //$NON-NLS-2$

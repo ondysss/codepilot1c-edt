@@ -118,4 +118,5 @@ Export-Package: com.codepilot1c.core.agent,
  com.codepilot1c.core.evaluation.trace,
  com.codepilot1c.core.agent.prompts,
  com.codepilot1c.core.agent.langgraph,
+ com.codepilot1c.core.qa;x-friends:="com.codepilot1c.ui",
  com.codepilot1c.core.internal;x-friends:="com.codepilot1c.ui"

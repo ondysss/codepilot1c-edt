@@ -1,0 +1,6 @@
+data: {"choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}
+data: {"choices":[{"delta":{"reasoning_content":"Соберу план действий.","content":null},"finish_reason":null}]}
+data: {"choices":[{"delta":{"reasoning_content":"Проверка git-состояния требует tool call.","content":null},"finish_reason":null}]}
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_minimax","type":"function","function":{"name":"git_inspect","arguments":""}}]},"finish_reason":null}]}
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"operation\":\"status\",\"repo_path\":\".\"}"}}]},"finish_reason":"tool_calls"}]}
+data: [DONE]

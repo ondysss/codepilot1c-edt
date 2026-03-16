@@ -56,17 +56,18 @@ public final class AgentPromptTemplates {
         sb.append("- Диагностика метаданных: edt_metadata_smoke (регрессионный smoke-прогон), edt_extension_smoke (e2e smoke для расширений), edt_external_smoke (e2e smoke для внешних объектов)\n"); //$NON-NLS-1$
         sb.append("- EDT runtime: edt_update_infobase (обновление связанной инфобазы проекта), edt_launch_app (запуск приложения по RuntimeClient launch config), import_project_from_infobase (standalone export + import нового EDT проекта)\n"); //$NON-NLS-1$
         sb.append("- Анализ ошибок tools: analyze_tool_error (разбор error_code/message/log_path и рекомендации по восстановлению)\n"); //$NON-NLS-1$
-        sb.append("- QA: qa_status (проверка окружения), qa_prepare_form_context (ensure+inspect формы для QA), qa_plan_scenario (планирование сценария), qa_compile_feature (компиляция feature), qa_validate_feature (проверка feature), qa_run (запуск VA E2E), qa_steps_search (debug-поиск legacy шагов)\n\n"); //$NON-NLS-1$
+        sb.append("- QA: qa_status (проверка окружения), qa_migrate_config (миграция legacy qa-config), qa_prepare_form_context (ensure+inspect формы для QA), qa_plan_scenario (планирование сценария), qa_compile_feature (компиляция feature), qa_validate_feature (проверка feature), qa_run (запуск VA E2E), qa_steps_search (debug-поиск legacy шагов)\n\n"); //$NON-NLS-1$
 
         sb.append("## QA workflow\n"); //$NON-NLS-1$
         sb.append("1. Перед запуском тестов сначала вызывай qa_status и устраняй ошибки конфигурации.\n"); //$NON-NLS-1$
-        sb.append("2. Если сценарий зависит от формы списка/объекта, сначала вызывай qa_prepare_form_context: он проверит форму, при отсутствии создаст default форму и сразу вернет inspect_form_layout.\n"); //$NON-NLS-1$
-        sb.append("3. Для новых сценариев затем вызывай qa_plan_scenario и описывай цель/контекст на уровне намерений, а не строк Gherkin.\n"); //$NON-NLS-1$
-        sb.append("4. Затем вызывай qa_compile_feature: он сам подберет канонические шаги Vanessa и создаст feature.\n"); //$NON-NLS-1$
-        sb.append("5. Перед qa_run обязательно вызывай qa_validate_feature. Если validation/compile вернули unresolved issues — исправляй plan, а не пиши шаги вручную.\n"); //$NON-NLS-1$
-        sb.append("6. Используй qa_steps_search только как debug-инструмент для исследования legacy каталога шагов, а не как основной способ написания сценария.\n"); //$NON-NLS-1$
-        sb.append("7. После изменения функциональности запускай qa_run с целевыми тегами или фичами; если не уверен — делай smoke по @smoke.\n"); //$NON-NLS-1$
-        sb.append("8. Если qa_run вернул tests_failed, анализируй junit/log_tail, исправляй и повторяй не более 2 раз.\n\n"); //$NON-NLS-1$
+        sb.append("2. Если qa_status сообщил о legacy/incomplete qa-config, сначала вызывай qa_migrate_config и только потом продолжай QA pipeline.\n"); //$NON-NLS-1$
+        sb.append("3. Если сценарий зависит от формы списка/объекта, сначала вызывай qa_prepare_form_context: он проверит форму, при отсутствии создаст default форму и сразу вернет inspect_form_layout.\n"); //$NON-NLS-1$
+        sb.append("4. Для новых сценариев затем вызывай qa_plan_scenario и описывай цель/контекст на уровне намерений, а не строк Gherkin.\n"); //$NON-NLS-1$
+        sb.append("5. Затем вызывай qa_compile_feature: он сам подберет канонические шаги Vanessa и создаст feature.\n"); //$NON-NLS-1$
+        sb.append("6. Перед qa_run обязательно вызывай qa_validate_feature. Если validation/compile вернули unresolved issues — исправляй plan, а не пиши шаги вручную.\n"); //$NON-NLS-1$
+        sb.append("7. Используй qa_steps_search только как debug-инструмент для исследования legacy каталога шагов, а не как основной способ написания сценария.\n"); //$NON-NLS-1$
+        sb.append("8. После изменения функциональности запускай qa_run с целевыми тегами или фичами; если не уверен — делай smoke по @smoke.\n"); //$NON-NLS-1$
+        sb.append("9. Если qa_run вернул tests_failed, анализируй junit/log_tail, исправляй и повторяй не более 2 раз.\n\n"); //$NON-NLS-1$
 
         sb.append("## Маршрутизация справки (обязательно)\n"); //$NON-NLS-1$
         sb.append("1. Если вопрос про встроенный язык 1С (например: Запрос, ТаблицаЗначений, Структура, методы языка) —\n"); //$NON-NLS-1$

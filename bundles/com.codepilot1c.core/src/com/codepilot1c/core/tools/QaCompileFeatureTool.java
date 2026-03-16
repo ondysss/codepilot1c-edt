@@ -18,6 +18,7 @@ import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.qa.QaCompiledFeature;
 import com.codepilot1c.core.qa.QaConfig;
+import com.codepilot1c.core.qa.QaConfigMigration;
 import com.codepilot1c.core.qa.QaFeatureCompiler;
 import com.codepilot1c.core.qa.QaFeatureValidationResult;
 import com.codepilot1c.core.qa.QaPaths;
@@ -119,10 +120,13 @@ public class QaCompileFeatureTool implements ITool {
                     QaConfig.defaultConfig(defaultProjectName).save(configFile);
                 }
                 QaConfig config = QaConfig.load(configFile);
-                if (autoCreateConfig && shouldRegenerateConfig(config)) {
-                    String defaultProjectName = resolveProjectName(projectNameParam);
-                    QaConfig.defaultConfig(defaultProjectName).save(configFile);
-                    config = QaConfig.load(configFile);
+                QaConfigMigration.MigrationReport migration = QaConfigMigration.analyze(config,
+                        resolveProjectName(projectNameParam),
+                        config.edt != null && Boolean.TRUE.equals(config.edt.use_runtime),
+                        config.test_runner == null || !Boolean.FALSE.equals(config.test_runner.use_test_manager));
+                if (autoCreateConfig && (migration.changed() || migration.legacyDetected() || migration.incomplete())) {
+                    LOG.info("[%s] qa_compile_feature detected legacy/incomplete QA config; preserving existing file",
+                            opId); //$NON-NLS-1$
                 }
                 File featuresDir = QaPaths.resolve(config.paths == null ? null : config.paths.features_dir, workspaceRoot);
                 if (featuresDir == null) {
@@ -239,17 +243,6 @@ public class QaCompileFeatureTool implements ITool {
             }
         }
         return null;
-    }
-
-    private static boolean shouldRegenerateConfig(QaConfig config) {
-        if (config == null) {
-            return true;
-        }
-        if (config.paths == null || config.paths.features_dir == null || config.paths.features_dir.isBlank()
-                || config.paths.results_dir == null || config.paths.results_dir.isBlank()) {
-            return true;
-        }
-        return config.test_clients == null || config.test_clients.isEmpty();
     }
 
     private static QaStepsCatalog loadCatalog(QaConfig config, File workspaceRoot) throws IOException {

@@ -34,6 +34,15 @@
         </page>
     </extension>
 
+    <extension point="org.eclipse.ui.propertyPages">
+        <page
+            id="com.codepilot1c.ui.properties.QaProjectPropertyPage"
+            name="%properties.qa.name"
+            class="com.codepilot1c.ui.preferences.QaProjectPropertyPage"
+            objectClass="org.eclipse.core.resources.IProject">
+        </page>
+    </extension>
+
     <extension point="org.eclipse.ui.startup">
         <startup class="com.codepilot1c.ui.startup.McpHostStartup"/>
     </extension>

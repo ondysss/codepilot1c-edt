@@ -39,6 +39,7 @@ import com.codepilot1c.core.qa.QaConfig;
 import com.codepilot1c.core.qa.QaJUnitReport;
 import com.codepilot1c.core.qa.QaJson;
 import com.codepilot1c.core.qa.QaPaths;
+import com.codepilot1c.core.qa.QaRuntimeSettings;
 import com.codepilot1c.core.qa.QaStepsCatalog;
 import com.codepilot1c.core.qa.QaStepsMatcher;
 import com.codepilot1c.core.qa.QaStatusState;
@@ -177,7 +178,12 @@ public class QaRunTool implements ITool {
 
                 QaConfig config = QaConfig.load(configFile);
                 boolean useEdtRuntimeParam = parameters != null && Boolean.TRUE.equals(parameters.get("use_edt_runtime")); //$NON-NLS-1$
-                boolean useTestManager = parameters == null || !Boolean.FALSE.equals(parameters.get("use_test_manager")); //$NON-NLS-1$
+                Boolean useTestManagerParam = parameters != null && parameters.containsKey("use_test_manager") //$NON-NLS-1$
+                        ? Boolean.valueOf(Boolean.TRUE.equals(parameters.get("use_test_manager")))
+                        : null;
+                boolean useTestManager = useTestManagerParam != null
+                        ? useTestManagerParam.booleanValue()
+                        : config.test_runner == null || !Boolean.FALSE.equals(config.test_runner.use_test_manager);
                 String projectNameParam = parameters == null ? null : (String) parameters.get("project_name"); //$NON-NLS-1$
                 String platformVersion = parameters == null ? null : (String) parameters.get("platform_version"); //$NON-NLS-1$
                 boolean allowUnknownSteps = parameters != null && Boolean.TRUE.equals(parameters.get("allow_unknown_steps")); //$NON-NLS-1$
@@ -280,8 +286,9 @@ public class QaRunTool implements ITool {
                 }
 
                 String preferenceEpfPath = getPreferenceEpfPath();
-                if (preferenceEpfPath == null || preferenceEpfPath.isBlank()) {
-                    return ToolResult.failure("QA_RUN_ERROR: vanessa-automation.epf path is not configured in settings"); //$NON-NLS-1$
+                if (!QaRuntimeSettings.hasConfiguredEpfPath(config, preferenceEpfPath)) {
+                    return ToolResult.failure(
+                            "QA_RUN_ERROR: vanessa-automation.epf path is not configured in project settings or preferences"); //$NON-NLS-1$
                 }
                 File epfPath = resolveEpfPath(config, workspaceRoot);
                 if (epfPath == null || !epfPath.exists()) {
@@ -379,7 +386,7 @@ public class QaRunTool implements ITool {
                 File templatePath = QaPaths.resolve(config.vanessa.params_template, workspaceRoot);
                 JsonObject params = QaJson.loadObject(templatePath);
 
-                applyCommonParams(params, featuresDir, stepsDir, junitDir, screenshotsDir);
+                applyCommonParams(params, config, featuresDir, stepsDir, junitDir, screenshotsDir);
                 applyFilters(params, parameters, featureSelection.files());
                 if (useTestManager) {
                     applyTestClients(params, config, edtInfobaseConnection, useProjectInfobaseForClients,
@@ -415,7 +422,7 @@ public class QaRunTool implements ITool {
                 boolean dryRun = parameters != null && Boolean.TRUE.equals(parameters.get("dry_run")); //$NON-NLS-1$
                 if (dryRun) {
                     JsonObject result = buildDryRunResult(opId, configFile, command, runDir, paramsFile, junitDir,
-                            screenshotsDir, logFile);
+                            screenshotsDir, logFile, templatePath, params, config, preferenceEpfPath);
                     String json = new GsonBuilder().setPrettyPrinting().create().toJson(result);
                     return ToolResult.success(json, ToolResult.ToolResultType.CODE);
                 }
@@ -428,7 +435,7 @@ public class QaRunTool implements ITool {
                             writeUpdateLog(updateLog, "EDT update succeeded"); //$NON-NLS-1$
                         } else {
                             writeUpdateLog(updateLog, "EDT update failed: result=false"); //$NON-NLS-1$
-                            JsonObject result = buildRunResult(opId, configFile, List.of(), runDir,
+                            JsonObject result = buildRunResult(opId, configFile, config, List.of(), runDir,
                                     paramsFile, junitDir, screenshotsDir, logFile,
                                     new ProcessResult(1, true, List.of("EDT update returned false")), null, 0); //$NON-NLS-1$
                             result.addProperty("status", "update_failed"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -437,7 +444,7 @@ public class QaRunTool implements ITool {
                         }
                     } catch (Exception e) {
                         writeUpdateLog(updateLog, "EDT update failed: " + e.getMessage()); //$NON-NLS-1$
-                        JsonObject result = buildRunResult(opId, configFile, List.of(), runDir,
+                        JsonObject result = buildRunResult(opId, configFile, config, List.of(), runDir,
                                 paramsFile, junitDir, screenshotsDir, logFile,
                                 new ProcessResult(1, true, List.of(e.getMessage())), null, 0);
                         result.addProperty("status", "update_failed"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -448,7 +455,7 @@ public class QaRunTool implements ITool {
                     return ToolResult.failure("QA_RUN_ERROR: EDT runtime is required for update_db"); //$NON-NLS-1$
                 }
 
-                int timeout = extractTimeout(parameters);
+                int timeout = extractTimeout(parameters, config);
                 long start = System.currentTimeMillis();
                 ProcessResult processResult = runProcess(processBuilder, logFile, timeout, workspaceRoot);
                 long durationMs = System.currentTimeMillis() - start;
@@ -460,7 +467,7 @@ public class QaRunTool implements ITool {
                     LOG.warn("[%s] Failed to parse JUnit report: %s", opId, e.getMessage()); //$NON-NLS-1$
                 }
 
-                JsonObject result = buildRunResult(opId, configFile, command, runDir, paramsFile, junitDir,
+                JsonObject result = buildRunResult(opId, configFile, config, command, runDir, paramsFile, junitDir,
                         screenshotsDir, logFile, processResult, report, durationMs);
                 String json = new GsonBuilder().setPrettyPrinting().create().toJson(result);
                 return ToolResult.success(json, ToolResult.ToolResultType.CODE);
@@ -476,23 +483,38 @@ public class QaRunTool implements ITool {
         return root.getLocation().toFile();
     }
 
-    private static void applyCommonParams(JsonObject params, File featuresDir, File stepsDir,
+    private static void applyCommonParams(JsonObject params, QaConfig config, File featuresDir, File stepsDir,
                                           File junitDir, File screenshotsDir) {
+        QaConfig.Vanessa vanessa = config == null ? null : config.vanessa;
+        boolean junitReportEnabled = resolveConfiguredOrExistingBoolean(
+                vanessa == null ? null : vanessa.junit_report_enabled,
+                params,
+                "ДелатьОтчетВФорматеjUnit",
+                true); //$NON-NLS-1$
+        boolean screenshotsOnFailure = resolveConfiguredOrExistingBoolean(
+                vanessa == null ? null : vanessa.screenshots_on_failure,
+                params,
+                "ДелатьСкриншотПриВозникновенииОшибки",
+                true); //$NON-NLS-1$
+        boolean closeTestClientAfterRun = resolveConfiguredOrExistingBoolean(
+                vanessa == null ? null : vanessa.close_test_client_after_run,
+                params,
+                "ЗакрытьTestClientПослеЗапускаСценариев",
+                true); //$NON-NLS-1$
         if (featuresDir != null) {
             params.addProperty("КаталогФич", featuresDir.getAbsolutePath()); //$NON-NLS-1$
             params.addProperty("КаталогОтносительноКоторогоНадоСтроитьИерархию", featuresDir.getAbsolutePath()); //$NON-NLS-1$
         }
         if (stepsDir != null) {
-            JsonArray libs = new JsonArray();
-            libs.add(stepsDir.getAbsolutePath());
+            JsonArray libs = mergeLibraries(params.getAsJsonArray("КаталогиБиблиотек"), stepsDir.getAbsolutePath()); //$NON-NLS-1$
             params.add("КаталогиБиблиотек", libs); //$NON-NLS-1$
         }
         params.addProperty("ВыполнитьСценарии", true); //$NON-NLS-1$
-        params.addProperty("ДелатьОтчетВФорматеjUnit", true); //$NON-NLS-1$
+        params.addProperty("ДелатьОтчетВФорматеjUnit", junitReportEnabled); //$NON-NLS-1$
         params.addProperty("КаталогOutputjUnit", junitDir.getAbsolutePath()); //$NON-NLS-1$
         params.addProperty("КаталогOutputСкриншоты", screenshotsDir.getAbsolutePath()); //$NON-NLS-1$
-        params.addProperty("ДелатьСкриншотПриВозникновенииОшибки", true); //$NON-NLS-1$
-        params.addProperty("ЗакрытьTestClientПослеЗапускаСценариев", true); //$NON-NLS-1$
+        params.addProperty("ДелатьСкриншотПриВозникновенииОшибки", screenshotsOnFailure); //$NON-NLS-1$
+        params.addProperty("ЗакрытьTestClientПослеЗапускаСценариев", closeTestClientAfterRun); //$NON-NLS-1$
     }
 
     private static void applyFilters(JsonObject params, Map<String, Object> parameters, List<File> featureFiles) {
@@ -726,6 +748,59 @@ public class QaRunTool implements ITool {
         return null;
     }
 
+    private static boolean resolveBoolean(Boolean value, boolean defaultValue) {
+        return value == null ? defaultValue : value.booleanValue();
+    }
+
+    private static boolean resolveConfiguredOrExistingBoolean(Boolean configuredValue, JsonObject params,
+                                                              String key, boolean defaultValue) {
+        if (configuredValue != null) {
+            return configuredValue.booleanValue();
+        }
+        if (params != null && params.has(key) && !params.get(key).isJsonNull()) {
+            try {
+                return params.get(key).getAsBoolean();
+            } catch (Exception e) {
+                return defaultValue;
+            }
+        }
+        return defaultValue;
+    }
+
+    private static JsonArray mergeLibraries(JsonArray existing, String libraryPath) {
+        JsonArray merged = new JsonArray();
+        if (existing != null) {
+            for (var element : existing) {
+                if (element == null || element.isJsonNull()) {
+                    continue;
+                }
+                String value = element.getAsString();
+                if (!value.isBlank()) {
+                    merged.add(value);
+                }
+            }
+        }
+        if (libraryPath != null && !libraryPath.isBlank() && !containsPath(merged, libraryPath)) {
+            merged.add(libraryPath);
+        }
+        return merged;
+    }
+
+    private static boolean containsPath(JsonArray values, String candidate) {
+        if (values == null || candidate == null || candidate.isBlank()) {
+            return false;
+        }
+        for (var element : values) {
+            if (element == null || element.isJsonNull()) {
+                continue;
+            }
+            if (candidate.equalsIgnoreCase(element.getAsString())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static String formatValue(String value) {
         if (value == null) {
             return ""; //$NON-NLS-1$
@@ -736,17 +811,27 @@ public class QaRunTool implements ITool {
         return value;
     }
 
-    private static int extractTimeout(Map<String, Object> parameters) {
+    private static int extractTimeout(Map<String, Object> parameters, QaConfig config) {
         if (parameters == null) {
-            return DEFAULT_TIMEOUT_SECONDS;
+            return extractTimeoutFromConfig(config);
         }
         Object value = parameters.get("timeout_s"); //$NON-NLS-1$
         if (value instanceof Number number) {
             int timeout = number.intValue();
             if (timeout <= 0) {
-                return DEFAULT_TIMEOUT_SECONDS;
+                return extractTimeoutFromConfig(config);
             }
             return Math.max(timeout, MIN_TIMEOUT_SECONDS);
+        }
+        return extractTimeoutFromConfig(config);
+    }
+
+    private static int extractTimeoutFromConfig(QaConfig config) {
+        if (config != null && config.test_runner != null && config.test_runner.timeout_seconds != null) {
+            int timeout = config.test_runner.timeout_seconds.intValue();
+            if (timeout > 0) {
+                return Math.max(timeout, MIN_TIMEOUT_SECONDS);
+            }
         }
         return DEFAULT_TIMEOUT_SECONDS;
     }
@@ -965,19 +1050,29 @@ public class QaRunTool implements ITool {
         thread.start();
 
         boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        TimeoutDiagnostics timeoutDiagnostics = null;
         if (!finished) {
-            terminateProcessTree(process);
+            long logSizeBeforeTerminate = safeFileSize(logFile);
+            TerminationSnapshot termination = terminateProcessTree(process);
+            long logSizeAfterTerminate = safeFileSize(logFile);
+            timeoutDiagnostics = new TimeoutDiagnostics(
+                    timeoutSeconds,
+                    termination.descendantCount,
+                    termination.aliveDescendantsAfterTerminate,
+                    termination.rootAliveAfterTerminate,
+                    logSizeBeforeTerminate,
+                    logSizeAfterTerminate);
         }
         thread.join(5000);
         int exitCode = finished ? process.exitValue() : -1;
         List<String> tail = tee.getTailLines();
 
-        return new ProcessResult(exitCode, finished, tail);
+        return new ProcessResult(exitCode, finished, tail, timeoutDiagnostics);
     }
 
-    private static void terminateProcessTree(Process process) throws InterruptedException {
+    private static TerminationSnapshot terminateProcessTree(Process process) throws InterruptedException {
         if (process == null) {
-            return;
+            return new TerminationSnapshot(0, false, 0);
         }
         List<ProcessHandle> descendants = process.descendants().collect(Collectors.toList());
         for (ProcessHandle handle : descendants) {
@@ -992,11 +1087,21 @@ public class QaRunTool implements ITool {
             process.destroyForcibly();
             process.waitFor(5, TimeUnit.SECONDS);
         }
+        int aliveDescendantsAfterTerminate = (int) descendants.stream().filter(ProcessHandle::isAlive).count();
+        return new TerminationSnapshot(descendants.size(), process.isAlive(), aliveDescendantsAfterTerminate);
+    }
+
+    private static long safeFileSize(File file) {
+        if (file == null || !file.exists()) {
+            return 0L;
+        }
+        return file.length();
     }
 
     private static JsonObject buildDryRunResult(String opId, File configFile, List<String> command,
                                                File runDir, File paramsFile, File junitDir,
-                                               File screenshotsDir, File logFile) {
+                                               File screenshotsDir, File logFile, File templatePath,
+                                               JsonObject params, QaConfig config, String preferenceEpfPath) {
         JsonObject result = new JsonObject();
         result.addProperty("op_id", opId); //$NON-NLS-1$
         result.addProperty("status", "dry_run"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -1004,12 +1109,48 @@ public class QaRunTool implements ITool {
         if (configFile != null) {
             result.addProperty("config_path", configFile.getAbsolutePath()); //$NON-NLS-1$
         }
+        if (templatePath != null && templatePath.exists()) {
+            result.addProperty("params_template_path", templatePath.getAbsolutePath()); //$NON-NLS-1$
+        }
         result.add("command", toCommandJson(command)); //$NON-NLS-1$
         result.add("paths", buildPaths(runDir, paramsFile, junitDir, screenshotsDir, logFile)); //$NON-NLS-1$
+        result.add("effective_settings", buildEffectiveSettings(config, preferenceEpfPath, templatePath)); //$NON-NLS-1$
+        if (params != null) {
+            result.add("va_params", params.deepCopy()); //$NON-NLS-1$
+        }
         return result;
     }
 
-    private static JsonObject buildRunResult(String opId, File configFile, List<String> command,
+    private static JsonObject buildEffectiveSettings(QaConfig config, String preferenceEpfPath, File templatePath) {
+        JsonObject effective = new JsonObject();
+        effective.addProperty("epf_source", QaRuntimeSettings.describeEpfSource(config, preferenceEpfPath)); //$NON-NLS-1$
+        if (config != null && config.vanessa != null) {
+            if (config.vanessa.epf_path != null && !config.vanessa.epf_path.isBlank()) {
+                effective.addProperty("epf_path_from_config", config.vanessa.epf_path); //$NON-NLS-1$
+            }
+            if (config.vanessa.params_template != null && !config.vanessa.params_template.isBlank()) {
+                effective.addProperty("params_template_from_config", config.vanessa.params_template); //$NON-NLS-1$
+            }
+            if (config.vanessa.junit_report_enabled != null) {
+                effective.addProperty("junit_report_enabled", config.vanessa.junit_report_enabled); //$NON-NLS-1$
+            }
+            if (config.vanessa.screenshots_on_failure != null) {
+                effective.addProperty("screenshots_on_failure", config.vanessa.screenshots_on_failure); //$NON-NLS-1$
+            }
+            if (config.vanessa.close_test_client_after_run != null) {
+                effective.addProperty("close_test_client_after_run", config.vanessa.close_test_client_after_run); //$NON-NLS-1$
+            }
+        }
+        if (preferenceEpfPath != null && !preferenceEpfPath.isBlank()) {
+            effective.addProperty("epf_path_from_preferences", preferenceEpfPath); //$NON-NLS-1$
+        }
+        if (templatePath != null && templatePath.exists()) {
+            effective.addProperty("params_template_resolved_path", templatePath.getAbsolutePath()); //$NON-NLS-1$
+        }
+        return effective;
+    }
+
+    private static JsonObject buildRunResult(String opId, File configFile, QaConfig config, List<String> command,
                                             File runDir, File paramsFile, File junitDir,
                                             File screenshotsDir, File logFile, ProcessResult processResult,
                                             QaJUnitReport report, long durationMs) {
@@ -1027,7 +1168,9 @@ public class QaRunTool implements ITool {
 
         String status = "infra_error"; //$NON-NLS-1$
         if (!processResult.finished) {
-            status = "timeout"; //$NON-NLS-1$
+            status = processResult.timeoutDiagnostics != null && processResult.timeoutDiagnostics.hasResidualActivity()
+                    ? "timeout_with_activity" //$NON-NLS-1$
+                    : "timeout"; //$NON-NLS-1$
         } else if (report != null) {
             status = (report.failures + report.errors) > 0 ? "tests_failed" : "passed"; //$NON-NLS-1$ //$NON-NLS-2$
         }
@@ -1041,7 +1184,72 @@ public class QaRunTool implements ITool {
             tail.add(line);
         }
         result.add("log_tail", tail); //$NON-NLS-1$
+        JsonObject timeoutDiagnostics = toTimeoutDiagnosticsJson(processResult.timeoutDiagnostics, config);
+        if (timeoutDiagnostics != null) {
+            result.add("timeout_diagnostics", timeoutDiagnostics); //$NON-NLS-1$
+        }
         return result;
+    }
+
+    private static JsonObject toTimeoutDiagnosticsJson(TimeoutDiagnostics timeoutDiagnostics, QaConfig config) {
+        if (timeoutDiagnostics == null) {
+            return null;
+        }
+        JsonObject diagnostics = new JsonObject();
+        diagnostics.addProperty("timeout_seconds", timeoutDiagnostics.timeoutSeconds); //$NON-NLS-1$
+        diagnostics.addProperty("descendants_detected", timeoutDiagnostics.descendantCount); //$NON-NLS-1$
+        diagnostics.addProperty("alive_descendants_after_terminate",
+                timeoutDiagnostics.aliveDescendantsAfterTerminate); //$NON-NLS-1$
+        diagnostics.addProperty("root_alive_after_terminate", timeoutDiagnostics.rootAliveAfterTerminate); //$NON-NLS-1$
+        diagnostics.addProperty("log_size_before_terminate", timeoutDiagnostics.logSizeBeforeTerminate); //$NON-NLS-1$
+        diagnostics.addProperty("log_size_after_terminate", timeoutDiagnostics.logSizeAfterTerminate); //$NON-NLS-1$
+        diagnostics.addProperty("log_grew_after_terminate", timeoutDiagnostics.logGrewAfterTerminate()); //$NON-NLS-1$
+        diagnostics.add("test_client_ports", buildPortDiagnostics(config)); //$NON-NLS-1$
+        return diagnostics;
+    }
+
+    private static JsonArray buildPortDiagnostics(QaConfig config) {
+        JsonArray ports = new JsonArray();
+        if (config == null || config.test_clients == null) {
+            return ports;
+        }
+        for (QaConfig.TestClient client : config.test_clients) {
+            if (client == null || client.port == null) {
+                continue;
+            }
+            JsonObject port = new JsonObject();
+            String host = client.host == null || client.host.isBlank() ? "localhost" : client.host; //$NON-NLS-1$
+            port.addProperty("name", safe(client.name)); //$NON-NLS-1$
+            port.addProperty("host", host); //$NON-NLS-1$
+            port.addProperty("port", client.port); //$NON-NLS-1$
+            boolean local = isLocalHost(host);
+            port.addProperty("local", local); //$NON-NLS-1$
+            if (local) {
+                port.addProperty("free", isPortFree(client.port.intValue())); //$NON-NLS-1$
+            }
+            ports.add(port);
+        }
+        return ports;
+    }
+
+    private static boolean isLocalHost(String host) {
+        if (host == null || host.isBlank()) {
+            return true;
+        }
+        String value = host.trim().toLowerCase(Locale.ROOT);
+        return "localhost".equals(value) || "127.0.0.1".equals(value); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static boolean isPortFree(int port) {
+        if (port <= 0) {
+            return true;
+        }
+        try (var socket = new java.net.ServerSocket()) {
+            socket.bind(new java.net.InetSocketAddress("127.0.0.1", port)); //$NON-NLS-1$
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static JsonObject toJUnitJson(QaJUnitReport report) {
@@ -1111,11 +1319,7 @@ public class QaRunTool implements ITool {
     }
 
     private static File resolveEpfPath(QaConfig config, File workspaceRoot) {
-        String pref = getPreferenceEpfPath();
-        if (pref != null && !pref.isBlank()) {
-            return QaPaths.resolve(pref, workspaceRoot);
-        }
-        return null;
+        return QaRuntimeSettings.resolveEpfPath(config, workspaceRoot, getPreferenceEpfPath());
     }
 
     private static String getPreferenceEpfPath() {
@@ -1127,11 +1331,58 @@ public class QaRunTool implements ITool {
         private final int exitCode;
         private final boolean finished;
         private final List<String> tailLines;
+        private final TimeoutDiagnostics timeoutDiagnostics;
 
         private ProcessResult(int exitCode, boolean finished, List<String> tailLines) {
+            this(exitCode, finished, tailLines, null);
+        }
+
+        private ProcessResult(int exitCode, boolean finished, List<String> tailLines,
+                TimeoutDiagnostics timeoutDiagnostics) {
             this.exitCode = exitCode;
             this.finished = finished;
             this.tailLines = tailLines == null ? List.of() : tailLines;
+            this.timeoutDiagnostics = timeoutDiagnostics;
+        }
+    }
+
+    private static class TimeoutDiagnostics {
+        private final int timeoutSeconds;
+        private final int descendantCount;
+        private final int aliveDescendantsAfterTerminate;
+        private final boolean rootAliveAfterTerminate;
+        private final long logSizeBeforeTerminate;
+        private final long logSizeAfterTerminate;
+
+        private TimeoutDiagnostics(int timeoutSeconds, int descendantCount, int aliveDescendantsAfterTerminate,
+                boolean rootAliveAfterTerminate, long logSizeBeforeTerminate, long logSizeAfterTerminate) {
+            this.timeoutSeconds = timeoutSeconds;
+            this.descendantCount = descendantCount;
+            this.aliveDescendantsAfterTerminate = aliveDescendantsAfterTerminate;
+            this.rootAliveAfterTerminate = rootAliveAfterTerminate;
+            this.logSizeBeforeTerminate = logSizeBeforeTerminate;
+            this.logSizeAfterTerminate = logSizeAfterTerminate;
+        }
+
+        private boolean logGrewAfterTerminate() {
+            return logSizeAfterTerminate > logSizeBeforeTerminate;
+        }
+
+        private boolean hasResidualActivity() {
+            return rootAliveAfterTerminate || aliveDescendantsAfterTerminate > 0 || logGrewAfterTerminate();
+        }
+    }
+
+    private static class TerminationSnapshot {
+        private final int descendantCount;
+        private final boolean rootAliveAfterTerminate;
+        private final int aliveDescendantsAfterTerminate;
+
+        private TerminationSnapshot(int descendantCount, boolean rootAliveAfterTerminate,
+                int aliveDescendantsAfterTerminate) {
+            this.descendantCount = descendantCount;
+            this.rootAliveAfterTerminate = rootAliveAfterTerminate;
+            this.aliveDescendantsAfterTerminate = aliveDescendantsAfterTerminate;
         }
     }
 

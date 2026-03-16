@@ -19,7 +19,9 @@ import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.internal.VibeCorePlugin;
 import com.codepilot1c.core.qa.QaConfig;
+import com.codepilot1c.core.qa.QaConfigMigration;
 import com.codepilot1c.core.qa.QaPaths;
+import com.codepilot1c.core.qa.QaRuntimeSettings;
 import com.codepilot1c.core.qa.QaStepsCatalog;
 import com.codepilot1c.core.qa.QaStatusState;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
@@ -92,7 +94,9 @@ public class QaStatusTool implements ITool {
                 String configPath = parameters == null ? null : (String) parameters.get("config_path"); //$NON-NLS-1$
                 boolean validatePorts = parameters != null && Boolean.TRUE.equals(parameters.get("validate_ports")); //$NON-NLS-1$
                 boolean useEdtRuntimeParam = parameters != null && Boolean.TRUE.equals(parameters.get("use_edt_runtime")); //$NON-NLS-1$
-                boolean useTestManager = parameters == null || !Boolean.FALSE.equals(parameters.get("use_test_manager")); //$NON-NLS-1$
+                Boolean useTestManagerParam = parameters != null && parameters.containsKey("use_test_manager") //$NON-NLS-1$
+                        ? Boolean.valueOf(Boolean.TRUE.equals(parameters.get("use_test_manager")))
+                        : null;
                 String projectNameParam = parameters == null ? null : (String) parameters.get("project_name"); //$NON-NLS-1$
                 boolean autoCreateConfig = parameters == null
                         || !Boolean.FALSE.equals(parameters.get("auto_create_config")); //$NON-NLS-1$
@@ -115,11 +119,18 @@ public class QaStatusTool implements ITool {
                 }
 
                 QaConfig config = QaConfig.load(configFile);
-                if (autoCreateConfig && shouldRegenerateConfig(config, useEdtRuntimeParam, useTestManager)) {
-                    String defaultProjectName = resolveProjectName(projectNameParam);
-                    QaConfig.defaultConfig(defaultProjectName).save(configFile);
-                    config = QaConfig.load(configFile);
-                    checks.add(Check.warn("config", "QA config regenerated with defaults", configFile)); //$NON-NLS-1$ //$NON-NLS-2$
+                boolean useTestManager = useTestManagerParam != null
+                        ? useTestManagerParam.booleanValue()
+                        : config.test_runner == null || !Boolean.FALSE.equals(config.test_runner.use_test_manager);
+                boolean effectiveUseEdtRuntime = useEdtRuntimeParam
+                        || (config.edt != null && Boolean.TRUE.equals(config.edt.use_runtime));
+                QaConfigMigration.MigrationReport migration = QaConfigMigration.analyze(config,
+                        resolveProjectName(projectNameParam), effectiveUseEdtRuntime, useTestManager);
+                if (migration.legacyDetected() || migration.incomplete() || migration.changed()) {
+                    String message = migration.incomplete()
+                            ? "QA config uses legacy or incomplete format; run qa_migrate_config to normalize it" //$NON-NLS-1$
+                            : "QA config contains legacy fields; run qa_migrate_config to normalize it"; //$NON-NLS-1$
+                    checks.add(Check.warn("config", message, configFile)); //$NON-NLS-1$
                 }
                 List<String> configErrors = new ArrayList<>(config.validate());
                 if (useEdtRuntimeParam) {
@@ -144,8 +155,7 @@ public class QaStatusTool implements ITool {
                     checks.add(Check.ok("config", "QA config loaded", configFile)); //$NON-NLS-1$ //$NON-NLS-2$
                 }
 
-                boolean useEdtRuntime = useEdtRuntimeParam
-                        || (config.edt != null && Boolean.TRUE.equals(config.edt.use_runtime));
+                boolean useEdtRuntime = effectiveUseEdtRuntime;
                 String projectName = projectNameParam;
                 if (projectName == null || projectName.isBlank()) {
                     projectName = config.edt == null ? null : config.edt.project_name;
@@ -200,19 +210,22 @@ public class QaStatusTool implements ITool {
                     }
                 }
 
-                if (preferenceEpfPath == null || preferenceEpfPath.isBlank()) {
+                if (!QaRuntimeSettings.hasConfiguredEpfPath(config, preferenceEpfPath)) {
                     checks.add(Check.error("vanessa.epf_path",
-                            "vanessa-automation.epf path must be configured in settings", null)); //$NON-NLS-1$ //$NON-NLS-2$
+                            "vanessa-automation.epf path must be configured in project settings or preferences", null)); //$NON-NLS-1$ //$NON-NLS-2$
                 }
 
                 File epfPath = resolveEpfPath(config, workspaceRoot);
-                if (preferenceEpfPath != null && !preferenceEpfPath.isBlank() && epfPath != null && epfPath.exists()) {
+                if (QaRuntimeSettings.hasConfiguredEpfPath(config, preferenceEpfPath)
+                        && epfPath != null && epfPath.exists()) {
                     String message = "vanessa-automation.epf найден"; //$NON-NLS-1$
-                    if (config.vanessa == null || config.vanessa.epf_path == null || config.vanessa.epf_path.isBlank()) {
+                    if ("preferences".equals(QaRuntimeSettings.describeEpfSource(config, preferenceEpfPath))) { //$NON-NLS-1$
                         message = "vanessa-automation.epf найден (из настроек)"; //$NON-NLS-1$
+                    } else if ("project_config".equals(QaRuntimeSettings.describeEpfSource(config, preferenceEpfPath))) { //$NON-NLS-1$
+                        message = "vanessa-automation.epf найден (из qa-config.json)"; //$NON-NLS-1$
                     }
                     checks.add(Check.ok("vanessa.epf_path", message, epfPath)); //$NON-NLS-1$
-                } else if (preferenceEpfPath != null && !preferenceEpfPath.isBlank()) {
+                } else if (QaRuntimeSettings.hasConfiguredEpfPath(config, preferenceEpfPath)) {
                     checks.add(Check.error("vanessa.epf_path", "vanessa-automation.epf не найден", epfPath)); //$NON-NLS-1$ //$NON-NLS-2$
                 }
 
@@ -365,11 +378,7 @@ public class QaStatusTool implements ITool {
     }
 
     private static File resolveEpfPath(QaConfig config, File workspaceRoot) {
-        String pref = getPreferenceEpfPath();
-        if (pref != null && !pref.isBlank()) {
-            return QaPaths.resolve(pref, workspaceRoot);
-        }
-        return null;
+        return QaRuntimeSettings.resolveEpfPath(config, workspaceRoot, getPreferenceEpfPath());
     }
 
     private static Check ensureDirectory(File dir, boolean autoCreate, String checkId, String label) {
@@ -383,31 +392,6 @@ public class QaStatusTool implements ITool {
             return Check.ok(checkId, label + " создан", dir); //$NON-NLS-1$
         }
         return Check.warn(checkId, label + " не найден", dir); //$NON-NLS-1$
-    }
-
-    private static boolean shouldRegenerateConfig(QaConfig config, boolean useEdtRuntime, boolean useTestManager) {
-        if (config == null) {
-            return true;
-        }
-        if (config.paths == null || config.paths.features_dir == null || config.paths.features_dir.isBlank()
-                || config.paths.results_dir == null || config.paths.results_dir.isBlank()) {
-            return true;
-        }
-        if (useEdtRuntime && (config.edt == null || config.edt.project_name == null
-                || config.edt.project_name.isBlank())) {
-            return true;
-        }
-        if (useTestManager && (config.test_clients == null || config.test_clients.isEmpty())) {
-            return true;
-        }
-        if (useTestManager && config.test_clients != null) {
-            for (QaConfig.TestClient client : config.test_clients) {
-                if (client == null || client.port == null || client.port.intValue() <= 0) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     private static String getPreferenceEpfPath() {

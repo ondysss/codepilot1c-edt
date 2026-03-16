@@ -20,6 +20,7 @@ public class QaConfig {
     public Platform platform = new Platform();
     public Vanessa vanessa = new Vanessa();
     public TestManager test_manager = new TestManager();
+    public TestRunner test_runner = new TestRunner();
     public List<TestClient> test_clients = new ArrayList<>();
     public Paths paths = new Paths();
     public Edt edt = new Edt();
@@ -32,14 +33,14 @@ public class QaConfig {
         }
         try (Reader reader = Files.newBufferedReader(file.toPath(), StandardCharsets.UTF_8)) {
             QaConfig config = GSON.fromJson(reader, QaConfig.class);
-            return config == null ? new QaConfig() : config;
+            return normalize(config == null ? new QaConfig() : config);
         } catch (JsonSyntaxException e) {
             throw new IOException("Invalid QA config JSON: " + e.getMessage(), e);
         }
     }
 
     public static QaConfig defaultConfig(String projectName) {
-        QaConfig config = new QaConfig();
+        QaConfig config = normalize(new QaConfig());
         if (config.edt == null) {
             config.edt = new Edt();
         }
@@ -63,7 +64,25 @@ public class QaConfig {
         config.paths.features_dir = "tests/features";
         config.paths.steps_dir = "tests/steps";
         config.paths.results_dir = "tests/qa/results";
+        if (config.vanessa == null) {
+            config.vanessa = new Vanessa();
+        }
+        config.vanessa.screenshots_on_failure = Boolean.TRUE;
+        config.vanessa.close_test_client_after_run = Boolean.TRUE;
+        config.vanessa.junit_report_enabled = Boolean.TRUE;
+        if (config.test_runner == null) {
+            config.test_runner = new TestRunner();
+        }
+        config.test_runner.use_test_manager = Boolean.TRUE;
+        config.test_runner.timeout_seconds = Integer.valueOf(300);
         return config;
+    }
+
+    public static QaConfig copyOf(QaConfig source) {
+        if (source == null) {
+            return normalize(new QaConfig());
+        }
+        return normalize(GSON.fromJson(GSON.toJson(source), QaConfig.class));
     }
 
     public void save(File file) throws IOException {
@@ -104,6 +123,53 @@ public class QaConfig {
         return value == null || value.isBlank();
     }
 
+    public static QaConfig normalize(QaConfig config) {
+        if (config == null) {
+            config = new QaConfig();
+        }
+        if (config.platform == null) {
+            config.platform = new Platform();
+        }
+        if (config.vanessa == null) {
+            config.vanessa = new Vanessa();
+        }
+        if (config.test_manager == null) {
+            config.test_manager = new TestManager();
+        }
+        if (config.test_runner == null) {
+            config.test_runner = new TestRunner();
+        }
+        if (config.test_clients == null) {
+            config.test_clients = new ArrayList<>();
+        }
+        if (config.paths == null) {
+            config.paths = new Paths();
+        }
+        if (config.edt == null) {
+            config.edt = new Edt();
+        }
+        if (config.infobase == null) {
+            config.infobase = new Infobase();
+        }
+        if (isBlank(config.paths.steps_dir) && !isBlank(config.paths.libraries_dir)) {
+            config.paths.steps_dir = config.paths.libraries_dir;
+        }
+        if (config.test_clients.isEmpty()) {
+            boolean runtimeOrManager = Boolean.TRUE.equals(config.edt.use_runtime)
+                    || Boolean.TRUE.equals(config.test_runner.use_test_manager);
+            if (runtimeOrManager) {
+                TestClient client = new TestClient();
+                client.name = "TestClient"; //$NON-NLS-1$
+                client.alias = "Test Client"; //$NON-NLS-1$
+                client.type = "thin"; //$NON-NLS-1$
+                client.host = "localhost"; //$NON-NLS-1$
+                client.port = Integer.valueOf(DEFAULT_TEST_CLIENT_PORT);
+                config.test_clients.add(client);
+            }
+        }
+        return config;
+    }
+
     public static class Platform {
         public String bin_path;
     }
@@ -114,10 +180,22 @@ public class QaConfig {
         public String steps_catalog;
         public Boolean quiet_install_ext;
         public Boolean show_main_form;
+        public Boolean screenshots_on_failure;
+        public Boolean close_test_client_after_run;
+        public Boolean junit_report_enabled;
+        public String path_to_va;
+        public String version;
     }
 
     public static class TestManager {
         public String ib_connection;
+    }
+
+    public static class TestRunner {
+        public Boolean use_test_manager;
+        public Integer timeout_seconds;
+        public Boolean auto_steps;
+        public Boolean load_step_libraries;
     }
 
     public static class TestClient {
@@ -134,6 +212,8 @@ public class QaConfig {
         public String features_dir;
         public String steps_dir;
         public String results_dir;
+        public String snippets_dir;
+        public String libraries_dir;
     }
 
     public static class Edt {
@@ -143,5 +223,8 @@ public class QaConfig {
 
     public static class Infobase {
         public String ib_connection;
+        public String platform_version;
+        public String db_type;
+        public String db_path;
     }
 }
