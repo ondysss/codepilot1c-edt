@@ -17,6 +17,7 @@ import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.qa.QaConfig;
 import com.codepilot1c.core.qa.QaPaths;
+import com.codepilot1c.core.qa.QaRuntimeSettings;
 import com.codepilot1c.core.qa.QaStepsCatalog;
 import com.codepilot1c.core.qa.QaStepsMatcher;
 import com.google.gson.GsonBuilder;
@@ -28,7 +29,6 @@ public class QaStepsSearchTool implements ITool {
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(QaStepsSearchTool.class);
 
     private static final String DEFAULT_CONFIG_PATH = "tests/qa/qa-config.json"; //$NON-NLS-1$
-    private static final String DEFAULT_STEPS_CATALOG = "tests/va/steps_catalog.json"; //$NON-NLS-1$
     private static final String BUNDLED_STEPS_CATALOG = "com/codepilot1c/core/qa/steps_catalog.json"; //$NON-NLS-1$
 
     private static final String SCHEMA = """
@@ -102,11 +102,7 @@ public class QaStepsSearchTool implements ITool {
                 }
                 QaConfig config = QaConfig.load(configFile);
 
-                File stepsCatalogFile = QaPaths.resolve(config.vanessa == null ? null : config.vanessa.steps_catalog,
-                        workspaceRoot);
-                if (stepsCatalogFile == null) {
-                    stepsCatalogFile = QaPaths.resolve(DEFAULT_STEPS_CATALOG, workspaceRoot);
-                }
+                File stepsCatalogFile = QaRuntimeSettings.resolveStepsCatalog(config, workspaceRoot);
                 QaStepsCatalog catalog;
                 if (stepsCatalogFile != null && stepsCatalogFile.exists()) {
                     catalog = QaStepsCatalog.load(stepsCatalogFile);
@@ -148,6 +144,11 @@ public class QaStepsSearchTool implements ITool {
                 result.addProperty("op_id", opId); //$NON-NLS-1$
                 result.addProperty("query", query); //$NON-NLS-1$
                 result.addProperty("total", matches.size()); //$NON-NLS-1$
+                if (stepsCatalogFile != null) {
+                    result.addProperty("steps_catalog", stepsCatalogFile.getAbsolutePath()); //$NON-NLS-1$
+                }
+                result.addProperty("steps_catalog_source",
+                        QaRuntimeSettings.describeStepsCatalogSource(config, workspaceRoot, stepsCatalogFile)); //$NON-NLS-1$
                 JsonArray items = new JsonArray();
                 for (ScoredStep step : matches) {
                     JsonObject item = new JsonObject();

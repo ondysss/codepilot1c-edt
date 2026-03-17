@@ -107,12 +107,16 @@ public class QaStatusTool implements ITool {
                 if (configFile != null && workspaceRoot != null
                         && !QaPaths.isWithinWorkspace(workspaceRoot, configFile)) {
                     checks.add(Check.error("config_path", "QA config must be within workspace", configFile)); //$NON-NLS-1$ //$NON-NLS-2$
-                    return buildResult(opId, workspaceRoot, configFile, checks);
+                    return buildResult(opId, workspaceRoot, configFile, checks, null, getPreferenceEpfPath(), null,
+                            null, QaStepsCatalog.resourceExists(BUNDLED_STEPS_CATALOG,
+                                    QaStatusTool.class.getClassLoader()));
                 }
                 if (configFile == null || !configFile.exists()) {
                     if (!autoCreateConfig) {
                         checks.add(Check.error("config", "QA config not found", configFile)); //$NON-NLS-1$ //$NON-NLS-2$
-                        return buildResult(opId, workspaceRoot, configFile, checks);
+                        return buildResult(opId, workspaceRoot, configFile, checks, null, getPreferenceEpfPath(), null,
+                                null, QaStepsCatalog.resourceExists(BUNDLED_STEPS_CATALOG,
+                                        QaStatusTool.class.getClassLoader()));
                     }
                     String defaultProjectName = resolveProjectName(projectNameParam);
                     QaConfig.defaultConfig(defaultProjectName).save(configFile);
@@ -235,14 +239,29 @@ public class QaStatusTool implements ITool {
                     checks.add(Check.ok("vanessa.params_template", "VAParams template найден", paramsTemplate)); //$NON-NLS-1$ //$NON-NLS-2$
                 } else if (paramsTemplate != null) {
                     checks.add(Check.warn("vanessa.params_template", "VAParams template не найден", paramsTemplate)); //$NON-NLS-1$ //$NON-NLS-2$
+                } else {
+                    checks.add(Check.info("vanessa.params_template",
+                            "vanessa.params_template не задан; runtime va-params.json будет собран автоматически из qa-config.json",
+                            null)); //$NON-NLS-1$
                 }
 
-                File stepsCatalog = QaPaths.resolve(config.vanessa == null ? null : config.vanessa.steps_catalog,
-                        workspaceRoot);
+                boolean bundledStepsCatalogExists = QaStepsCatalog.resourceExists(BUNDLED_STEPS_CATALOG,
+                        QaStatusTool.class.getClassLoader());
+                File stepsCatalog = QaRuntimeSettings.resolveStepsCatalog(config, workspaceRoot);
                 if (stepsCatalog != null && stepsCatalog.exists()) {
-                    checks.add(Check.ok("vanessa.steps_catalog", "Каталог шагов найден", stepsCatalog)); //$NON-NLS-1$ //$NON-NLS-2$
-                } else if (QaStepsCatalog.resourceExists(BUNDLED_STEPS_CATALOG, QaStatusTool.class.getClassLoader())) {
-                    checks.add(Check.ok("vanessa.steps_catalog", "Используется встроенный каталог шагов", null)); //$NON-NLS-1$ //$NON-NLS-2$
+                    String source = QaRuntimeSettings.describeStepsCatalogSource(config, workspaceRoot,
+                            bundledStepsCatalogExists);
+                    String message = "Каталог шагов найден"; //$NON-NLS-1$
+                    if (QaRuntimeSettings.SOURCE_WORKSPACE_DEFAULT.equals(source)) {
+                        message = "Используется tests/va/steps_catalog.json из проекта"; //$NON-NLS-1$
+                    } else if (QaRuntimeSettings.SOURCE_PROJECT_CONFIG.equals(source)) {
+                        message = "Каталог шагов найден (из qa-config.json)"; //$NON-NLS-1$
+                    }
+                    checks.add(Check.ok("vanessa.steps_catalog", message, stepsCatalog)); //$NON-NLS-1$
+                } else if (bundledStepsCatalogExists) {
+                    checks.add(Check.info("vanessa.steps_catalog",
+                            "Используется встроенный каталог шагов только для предварительной проверки; Vanessa runtime может знать больше шагов",
+                            null)); //$NON-NLS-1$
                 } else if (stepsCatalog != null) {
                     checks.add(Check.warn("vanessa.steps_catalog", "Каталог шагов не найден", stepsCatalog)); //$NON-NLS-1$ //$NON-NLS-2$
                 } else {
@@ -297,7 +316,8 @@ public class QaStatusTool implements ITool {
                     }
                 }
 
-                return buildResult(opId, workspaceRoot, configFile, checks);
+                return buildResult(opId, workspaceRoot, configFile, checks, config, preferenceEpfPath,
+                        paramsTemplate, stepsCatalog, bundledStepsCatalogExists);
             } catch (Exception e) {
                 LOG.error("[" + opId + "] qa_status failed", e); //$NON-NLS-1$ //$NON-NLS-2$
                 return ToolResult.failure("QA_STATUS_ERROR: " + e.getMessage()); //$NON-NLS-1$
@@ -305,7 +325,9 @@ public class QaStatusTool implements ITool {
         });
     }
 
-    private ToolResult buildResult(String opId, File workspaceRoot, File configFile, List<Check> checks) {
+    private ToolResult buildResult(String opId, File workspaceRoot, File configFile, List<Check> checks,
+            QaConfig config, String preferenceEpfPath, File paramsTemplate, File stepsCatalog,
+            boolean bundledStepsCatalogExists) {
         JsonObject result = new JsonObject();
         result.addProperty("op_id", opId); //$NON-NLS-1$
         if (workspaceRoot != null) {
@@ -330,6 +352,9 @@ public class QaStatusTool implements ITool {
         result.addProperty("errors", errors); //$NON-NLS-1$
         result.addProperty("warnings", warnings); //$NON-NLS-1$
         result.addProperty("status", errors > 0 ? "error" : (warnings > 0 ? "warning" : "ok")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        result.add("effective_config",
+                buildEffectiveConfig(config, workspaceRoot, preferenceEpfPath, paramsTemplate, stepsCatalog,
+                        bundledStepsCatalogExists)); //$NON-NLS-1$
 
         QaStatusState.record(workspaceRoot, configFile, errors, warnings);
 
@@ -399,6 +424,40 @@ public class QaStatusTool implements ITool {
         return prefs.get(VibePreferenceConstants.PREF_QA_VA_EPF_PATH, ""); //$NON-NLS-1$
     }
 
+    private static JsonObject buildEffectiveConfig(QaConfig config, File workspaceRoot, String preferenceEpfPath,
+            File paramsTemplate, File stepsCatalog, boolean bundledStepsCatalogExists) {
+        JsonObject effective = new JsonObject();
+        File epfPath = QaRuntimeSettings.resolveEpfPath(config, workspaceRoot, preferenceEpfPath);
+        if (epfPath != null) {
+            effective.addProperty("effective_epf_path", epfPath.getAbsolutePath()); //$NON-NLS-1$
+        }
+        effective.addProperty("epf_source", QaRuntimeSettings.describeEpfSource(config, preferenceEpfPath)); //$NON-NLS-1$
+        if (paramsTemplate != null) {
+            effective.addProperty("effective_params_template", paramsTemplate.getAbsolutePath()); //$NON-NLS-1$
+        }
+        effective.addProperty("params_template_source",
+                QaRuntimeSettings.describeParamsTemplateSource(config, workspaceRoot)); //$NON-NLS-1$
+        if (stepsCatalog != null && stepsCatalog.exists()) {
+            effective.addProperty("effective_steps_catalog", stepsCatalog.getAbsolutePath()); //$NON-NLS-1$
+        }
+        effective.addProperty("steps_catalog_source",
+                QaRuntimeSettings.describeStepsCatalogSource(config, workspaceRoot, bundledStepsCatalogExists)); //$NON-NLS-1$
+        if (config != null && config.paths != null) {
+            addResolvedPath(effective, "effective_features_dir", config.paths.features_dir, workspaceRoot); //$NON-NLS-1$ //$NON-NLS-2$
+            addResolvedPath(effective, "effective_steps_dir", config.paths.steps_dir, workspaceRoot); //$NON-NLS-1$ //$NON-NLS-2$
+            addResolvedPath(effective, "effective_results_dir", config.paths.results_dir, workspaceRoot); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        effective.addProperty("unknown_steps_mode", QaRuntimeSettings.resolveUnknownStepsMode(config)); //$NON-NLS-1$
+        return effective;
+    }
+
+    private static void addResolvedPath(JsonObject target, String property, String rawPath, File workspaceRoot) {
+        File resolved = QaPaths.resolve(rawPath, workspaceRoot);
+        if (resolved != null) {
+            target.addProperty(property, resolved.getAbsolutePath());
+        }
+    }
+
     private static class Check {
         private final String id;
         private final boolean ok;
@@ -420,6 +479,10 @@ public class QaStatusTool implements ITool {
 
         static Check warn(String id, String message, File path) {
             return new Check(id, false, "warn", message, path); //$NON-NLS-1$
+        }
+
+        static Check info(String id, String message, File path) {
+            return new Check(id, true, "info", message, path); //$NON-NLS-1$
         }
 
         static Check error(String id, String message, File path) {

@@ -97,6 +97,8 @@ public class BuildAgentProfile implements AgentProfile {
             "delete_metadata_object",
             "edt_trace_export",
             "edt_metadata_smoke",
+            "qa_init_config",
+            "qa_explain_config",
             "qa_status",
             "qa_migrate_config",
             "analyze_tool_error",
@@ -165,6 +167,10 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("edt_trace_export").forAllResources(),
                 PermissionRule.allow("edt_metadata_smoke").forAllResources(),
                 PermissionRule.allow("inspect_form_layout").forAllResources(),
+                PermissionRule.ask("qa_init_config")
+                        .withDescription("Создание начального qa-config.json")
+                        .forAllResources(),
+                PermissionRule.allow("qa_explain_config").forAllResources(),
                 PermissionRule.allow("qa_status").forAllResources(),
                 PermissionRule.ask("qa_migrate_config")
                         .withDescription("Миграция и нормализация qa-config.json")

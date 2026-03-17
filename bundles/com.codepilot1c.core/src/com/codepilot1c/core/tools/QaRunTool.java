@@ -109,7 +109,12 @@ public class QaRunTool implements ITool {
                 },
                 "allow_unknown_steps": {
                   "type": "boolean",
-                  "description": "Разрешить неизвестные шаги в feature (по умолчанию false)"
+                  "description": "Устаревший флаг совместимости. true=off, false=strict"
+                },
+                "unknown_steps_mode": {
+                  "type": "string",
+                  "enum": ["off", "warn", "strict"],
+                  "description": "Режим предварительной проверки шагов: off=не проверять, warn=показать предупреждение и продолжить, strict=остановить запуск"
                 },
                 "use_test_manager": {
                   "type": "boolean",
@@ -186,7 +191,7 @@ public class QaRunTool implements ITool {
                         : config.test_runner == null || !Boolean.FALSE.equals(config.test_runner.use_test_manager);
                 String projectNameParam = parameters == null ? null : (String) parameters.get("project_name"); //$NON-NLS-1$
                 String platformVersion = parameters == null ? null : (String) parameters.get("platform_version"); //$NON-NLS-1$
-                boolean allowUnknownSteps = parameters != null && Boolean.TRUE.equals(parameters.get("allow_unknown_steps")); //$NON-NLS-1$
+                String unknownStepsMode = resolveUnknownStepsMode(parameters, config); //$NON-NLS-1$
                 boolean updateDb = true;
                 if (parameters != null && parameters.containsKey("update_db")) { //$NON-NLS-1$
                     updateDb = Boolean.TRUE.equals(parameters.get("update_db")); //$NON-NLS-1$
@@ -339,12 +344,11 @@ public class QaRunTool implements ITool {
                     return ToolResult.failure("QA_RUN_ERROR: no feature files were resolved for execution\n" + json); //$NON-NLS-1$
                 }
 
-                if (!allowUnknownSteps) {
-                    File stepsCatalogFile = QaPaths.resolve(config.vanessa == null ? null : config.vanessa.steps_catalog,
-                            workspaceRoot);
-                    if (stepsCatalogFile == null) {
-                        stepsCatalogFile = QaPaths.resolve("tests/va/steps_catalog.json", workspaceRoot); //$NON-NLS-1$
-                    }
+                UnknownStepsSummary unknownStepsSummary = null;
+                if (!QaRuntimeSettings.UNKNOWN_STEPS_MODE_OFF.equals(unknownStepsMode)) {
+                    boolean bundledStepsCatalogExists = QaStepsCatalog.resourceExists(BUNDLED_STEPS_CATALOG,
+                            QaRunTool.class.getClassLoader());
+                    File stepsCatalogFile = QaRuntimeSettings.resolveStepsCatalog(config, workspaceRoot);
                     QaStepsCatalog catalog;
                     if (stepsCatalogFile != null && stepsCatalogFile.exists()) {
                         catalog = QaStepsCatalog.load(stepsCatalogFile);
@@ -353,21 +357,27 @@ public class QaRunTool implements ITool {
                                 QaRunTool.class.getClassLoader());
                     }
                     List<StepIssue> unknownSteps = findUnknownSteps(featureSelection.files(), catalog);
+                    unknownStepsSummary = new UnknownStepsSummary(unknownStepsMode,
+                            QaRuntimeSettings.describeStepsCatalogSource(config, workspaceRoot,
+                                    bundledStepsCatalogExists),
+                            stepsCatalogFile,
+                            unknownSteps);
                     if (!unknownSteps.isEmpty()) {
-                        JsonObject error = new JsonObject();
-                        error.addProperty("op_id", opId); //$NON-NLS-1$
-                        error.addProperty("status", "unknown_steps"); //$NON-NLS-1$ //$NON-NLS-2$
-                        JsonArray items = new JsonArray();
-                        for (StepIssue issue : unknownSteps) {
-                            JsonObject item = new JsonObject();
-                            item.addProperty("file", issue.file); //$NON-NLS-1$
-                            item.addProperty("line", issue.line); //$NON-NLS-1$
-                            item.addProperty("step", issue.step); //$NON-NLS-1$
-                            items.add(item);
+                        if (QaRuntimeSettings.UNKNOWN_STEPS_MODE_STRICT.equals(unknownStepsMode)) {
+                            JsonObject error = new JsonObject();
+                            error.addProperty("op_id", opId); //$NON-NLS-1$
+                            error.addProperty("status", "unknown_steps"); //$NON-NLS-1$ //$NON-NLS-2$
+                            error.addProperty("unknown_steps_mode", unknownStepsMode); //$NON-NLS-1$
+                            error.addProperty("unknown_steps_source",
+                                    unknownStepsSummary.catalogSource); //$NON-NLS-1$
+                            error.addProperty("message",
+                                    "Предварительная проверка шагов использует steps_catalog; Vanessa runtime может знать больше шагов"); //$NON-NLS-1$
+                            error.add("unknown_steps", toUnknownStepsJson(unknownSteps)); //$NON-NLS-1$
+                            String json = new GsonBuilder().setPrettyPrinting().create().toJson(error);
+                            return ToolResult.failure("QA_RUN_ERROR: unknown_steps\n" + json); //$NON-NLS-1$
                         }
-                        error.add("unknown_steps", items); //$NON-NLS-1$
-                        String json = new GsonBuilder().setPrettyPrinting().create().toJson(error);
-                        return ToolResult.failure("QA_RUN_ERROR: unknown_steps\n" + json); //$NON-NLS-1$
+                        LOG.info("[%s] Continuing qa_run with %d unknown steps in %s mode", opId,
+                                Integer.valueOf(unknownSteps.size()), unknownStepsMode); //$NON-NLS-1$
                     }
                 }
 
@@ -422,7 +432,8 @@ public class QaRunTool implements ITool {
                 boolean dryRun = parameters != null && Boolean.TRUE.equals(parameters.get("dry_run")); //$NON-NLS-1$
                 if (dryRun) {
                     JsonObject result = buildDryRunResult(opId, configFile, command, runDir, paramsFile, junitDir,
-                            screenshotsDir, logFile, templatePath, params, config, preferenceEpfPath);
+                            screenshotsDir, logFile, templatePath, params, config, preferenceEpfPath,
+                            unknownStepsSummary);
                     String json = new GsonBuilder().setPrettyPrinting().create().toJson(result);
                     return ToolResult.success(json, ToolResult.ToolResultType.CODE);
                 }
@@ -437,7 +448,8 @@ public class QaRunTool implements ITool {
                             writeUpdateLog(updateLog, "EDT update failed: result=false"); //$NON-NLS-1$
                             JsonObject result = buildRunResult(opId, configFile, config, List.of(), runDir,
                                     paramsFile, junitDir, screenshotsDir, logFile,
-                                    new ProcessResult(1, true, List.of("EDT update returned false")), null, 0); //$NON-NLS-1$
+                                    new ProcessResult(1, true, List.of("EDT update returned false")), null, 0,
+                                    preferenceEpfPath, templatePath, unknownStepsSummary); //$NON-NLS-1$
                             result.addProperty("status", "update_failed"); //$NON-NLS-1$ //$NON-NLS-2$
                             String json = new GsonBuilder().setPrettyPrinting().create().toJson(result);
                             return ToolResult.success(json, ToolResult.ToolResultType.CODE);
@@ -446,7 +458,8 @@ public class QaRunTool implements ITool {
                         writeUpdateLog(updateLog, "EDT update failed: " + e.getMessage()); //$NON-NLS-1$
                         JsonObject result = buildRunResult(opId, configFile, config, List.of(), runDir,
                                 paramsFile, junitDir, screenshotsDir, logFile,
-                                new ProcessResult(1, true, List.of(e.getMessage())), null, 0);
+                                new ProcessResult(1, true, List.of(e.getMessage())), null, 0,
+                                preferenceEpfPath, templatePath, unknownStepsSummary);
                         result.addProperty("status", "update_failed"); //$NON-NLS-1$ //$NON-NLS-2$
                         String json = new GsonBuilder().setPrettyPrinting().create().toJson(result);
                         return ToolResult.success(json, ToolResult.ToolResultType.CODE);
@@ -468,7 +481,8 @@ public class QaRunTool implements ITool {
                 }
 
                 JsonObject result = buildRunResult(opId, configFile, config, command, runDir, paramsFile, junitDir,
-                        screenshotsDir, logFile, processResult, report, durationMs);
+                        screenshotsDir, logFile, processResult, report, durationMs, preferenceEpfPath, templatePath,
+                        unknownStepsSummary);
                 String json = new GsonBuilder().setPrettyPrinting().create().toJson(result);
                 return ToolResult.success(json, ToolResult.ToolResultType.CODE);
             } catch (Exception e) {
@@ -596,6 +610,26 @@ public class QaRunTool implements ITool {
 
     private static String safe(String value) {
         return value == null ? "" : value; //$NON-NLS-1$
+    }
+
+    private static String resolveUnknownStepsMode(Map<String, Object> parameters, QaConfig config) {
+        if (parameters != null && parameters.containsKey("unknown_steps_mode")) { //$NON-NLS-1$
+            Object value = parameters.get("unknown_steps_mode"); //$NON-NLS-1$
+            if (value instanceof String text && !text.isBlank()) {
+                String normalized = text.trim().toLowerCase(Locale.ROOT);
+                if (QaRuntimeSettings.UNKNOWN_STEPS_MODE_OFF.equals(normalized)
+                        || QaRuntimeSettings.UNKNOWN_STEPS_MODE_WARN.equals(normalized)
+                        || QaRuntimeSettings.UNKNOWN_STEPS_MODE_STRICT.equals(normalized)) {
+                    return normalized;
+                }
+            }
+        }
+        if (parameters != null && parameters.containsKey("allow_unknown_steps")) { //$NON-NLS-1$
+            return Boolean.TRUE.equals(parameters.get("allow_unknown_steps")) //$NON-NLS-1$
+                    ? QaRuntimeSettings.UNKNOWN_STEPS_MODE_OFF
+                    : QaRuntimeSettings.UNKNOWN_STEPS_MODE_STRICT;
+        }
+        return QaRuntimeSettings.resolveUnknownStepsMode(config);
     }
 
     private static String mergeAdditionalParams(String base, EdtRuntimeService.AccessSettings accessSettings) {
@@ -1101,7 +1135,8 @@ public class QaRunTool implements ITool {
     private static JsonObject buildDryRunResult(String opId, File configFile, List<String> command,
                                                File runDir, File paramsFile, File junitDir,
                                                File screenshotsDir, File logFile, File templatePath,
-                                               JsonObject params, QaConfig config, String preferenceEpfPath) {
+                                               JsonObject params, QaConfig config, String preferenceEpfPath,
+                                               UnknownStepsSummary unknownStepsSummary) {
         JsonObject result = new JsonObject();
         result.addProperty("op_id", opId); //$NON-NLS-1$
         result.addProperty("status", "dry_run"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -1110,20 +1145,30 @@ public class QaRunTool implements ITool {
             result.addProperty("config_path", configFile.getAbsolutePath()); //$NON-NLS-1$
         }
         if (templatePath != null && templatePath.exists()) {
-            result.addProperty("params_template_path", templatePath.getAbsolutePath()); //$NON-NLS-1$
+        result.addProperty("params_template_path", templatePath.getAbsolutePath()); //$NON-NLS-1$
         }
         result.add("command", toCommandJson(command)); //$NON-NLS-1$
         result.add("paths", buildPaths(runDir, paramsFile, junitDir, screenshotsDir, logFile)); //$NON-NLS-1$
-        result.add("effective_settings", buildEffectiveSettings(config, preferenceEpfPath, templatePath)); //$NON-NLS-1$
+        result.add("effective_settings", buildEffectiveSettings(config, preferenceEpfPath, templatePath,
+                getWorkspaceRoot(), unknownStepsSummary)); //$NON-NLS-1$
         if (params != null) {
             result.add("va_params", params.deepCopy()); //$NON-NLS-1$
+        }
+        JsonObject unknownStepsJson = toUnknownStepsSummaryJson(unknownStepsSummary);
+        if (unknownStepsJson != null) {
+            result.add("unknown_steps_precheck", unknownStepsJson); //$NON-NLS-1$
         }
         return result;
     }
 
-    private static JsonObject buildEffectiveSettings(QaConfig config, String preferenceEpfPath, File templatePath) {
+    private static JsonObject buildEffectiveSettings(QaConfig config, String preferenceEpfPath, File templatePath,
+            File workspaceRoot, UnknownStepsSummary unknownStepsSummary) {
         JsonObject effective = new JsonObject();
         effective.addProperty("epf_source", QaRuntimeSettings.describeEpfSource(config, preferenceEpfPath)); //$NON-NLS-1$
+        File effectiveEpfPath = QaRuntimeSettings.resolveEpfPath(config, workspaceRoot, preferenceEpfPath);
+        if (effectiveEpfPath != null) {
+            effective.addProperty("effective_epf_path", effectiveEpfPath.getAbsolutePath()); //$NON-NLS-1$
+        }
         if (config != null && config.vanessa != null) {
             if (config.vanessa.epf_path != null && !config.vanessa.epf_path.isBlank()) {
                 effective.addProperty("epf_path_from_config", config.vanessa.epf_path); //$NON-NLS-1$
@@ -1140,6 +1185,9 @@ public class QaRunTool implements ITool {
             if (config.vanessa.close_test_client_after_run != null) {
                 effective.addProperty("close_test_client_after_run", config.vanessa.close_test_client_after_run); //$NON-NLS-1$
             }
+            if (config.vanessa.steps_catalog != null && !config.vanessa.steps_catalog.isBlank()) {
+                effective.addProperty("steps_catalog_from_config", config.vanessa.steps_catalog); //$NON-NLS-1$
+            }
         }
         if (preferenceEpfPath != null && !preferenceEpfPath.isBlank()) {
             effective.addProperty("epf_path_from_preferences", preferenceEpfPath); //$NON-NLS-1$
@@ -1147,13 +1195,27 @@ public class QaRunTool implements ITool {
         if (templatePath != null && templatePath.exists()) {
             effective.addProperty("params_template_resolved_path", templatePath.getAbsolutePath()); //$NON-NLS-1$
         }
+        effective.addProperty("params_template_source",
+                QaRuntimeSettings.describeParamsTemplateSource(config, workspaceRoot)); //$NON-NLS-1$
+        if (config != null && config.paths != null) {
+            addResolvedPath(effective, "effective_features_dir", config.paths.features_dir, workspaceRoot); //$NON-NLS-1$ //$NON-NLS-2$
+            addResolvedPath(effective, "effective_steps_dir", config.paths.steps_dir, workspaceRoot); //$NON-NLS-1$ //$NON-NLS-2$
+            addResolvedPath(effective, "effective_results_dir", config.paths.results_dir, workspaceRoot); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        effective.addProperty("unknown_steps_mode",
+                unknownStepsSummary == null ? QaRuntimeSettings.resolveUnknownStepsMode(config)
+                        : unknownStepsSummary.mode); //$NON-NLS-1$
+        if (unknownStepsSummary != null) {
+            effective.addProperty("steps_catalog_source", unknownStepsSummary.catalogSource); //$NON-NLS-1$
+        }
         return effective;
     }
 
     private static JsonObject buildRunResult(String opId, File configFile, QaConfig config, List<String> command,
                                             File runDir, File paramsFile, File junitDir,
                                             File screenshotsDir, File logFile, ProcessResult processResult,
-                                            QaJUnitReport report, long durationMs) {
+                                            QaJUnitReport report, long durationMs, String preferenceEpfPath,
+                                            File templatePath, UnknownStepsSummary unknownStepsSummary) {
         JsonObject result = new JsonObject();
         result.addProperty("op_id", opId); //$NON-NLS-1$
         result.addProperty("timestamp", Instant.now().toString()); //$NON-NLS-1$
@@ -1188,7 +1250,55 @@ public class QaRunTool implements ITool {
         if (timeoutDiagnostics != null) {
             result.add("timeout_diagnostics", timeoutDiagnostics); //$NON-NLS-1$
         }
+        result.add("effective_settings",
+                buildEffectiveSettings(config, preferenceEpfPath, templatePath, getWorkspaceRoot(),
+                        unknownStepsSummary)); //$NON-NLS-1$
+        JsonObject unknownStepsJson = toUnknownStepsSummaryJson(unknownStepsSummary);
+        if (unknownStepsJson != null) {
+            result.add("unknown_steps_precheck", unknownStepsJson); //$NON-NLS-1$
+        }
         return result;
+    }
+
+    private static void addResolvedPath(JsonObject target, String property, String rawPath, File workspaceRoot) {
+        File resolved = QaPaths.resolve(rawPath, workspaceRoot);
+        if (resolved != null) {
+            target.addProperty(property, resolved.getAbsolutePath());
+        }
+    }
+
+    private static JsonArray toUnknownStepsJson(List<StepIssue> issues) {
+        JsonArray items = new JsonArray();
+        if (issues == null) {
+            return items;
+        }
+        for (StepIssue issue : issues) {
+            JsonObject item = new JsonObject();
+            item.addProperty("file", issue.file); //$NON-NLS-1$
+            item.addProperty("line", issue.line); //$NON-NLS-1$
+            item.addProperty("step", issue.step); //$NON-NLS-1$
+            items.add(item);
+        }
+        return items;
+    }
+
+    private static JsonObject toUnknownStepsSummaryJson(UnknownStepsSummary summary) {
+        if (summary == null) {
+            return null;
+        }
+        JsonObject json = new JsonObject();
+        json.addProperty("mode", summary.mode); //$NON-NLS-1$
+        json.addProperty("source", summary.catalogSource); //$NON-NLS-1$
+        json.addProperty("count", summary.issues.size()); //$NON-NLS-1$
+        json.addProperty("advisory",
+                "Предварительная проверка использует steps_catalog и может знать меньше шагов, чем реальная Vanessa Automation"); //$NON-NLS-1$
+        if (summary.catalogPath != null && summary.catalogPath.exists()) {
+            json.addProperty("catalog_path", summary.catalogPath.getAbsolutePath()); //$NON-NLS-1$
+        }
+        if (!summary.issues.isEmpty()) {
+            json.add("issues", toUnknownStepsJson(summary.issues)); //$NON-NLS-1$
+        }
+        return json;
     }
 
     private static JsonObject toTimeoutDiagnosticsJson(TimeoutDiagnostics timeoutDiagnostics, QaConfig config) {
@@ -1383,6 +1493,20 @@ public class QaRunTool implements ITool {
             this.descendantCount = descendantCount;
             this.rootAliveAfterTerminate = rootAliveAfterTerminate;
             this.aliveDescendantsAfterTerminate = aliveDescendantsAfterTerminate;
+        }
+    }
+
+    private static class UnknownStepsSummary {
+        private final String mode;
+        private final String catalogSource;
+        private final File catalogPath;
+        private final List<StepIssue> issues;
+
+        private UnknownStepsSummary(String mode, String catalogSource, File catalogPath, List<StepIssue> issues) {
+            this.mode = mode;
+            this.catalogSource = catalogSource;
+            this.catalogPath = catalogPath;
+            this.issues = issues == null ? List.of() : List.copyOf(issues);
         }
     }
 

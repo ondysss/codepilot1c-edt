@@ -64,6 +64,10 @@ public final class QaConfigMigration {
             config.test_runner.timeout_seconds = defaults.test_runner.timeout_seconds;
             appliedChanges.add("Set test_runner.timeout_seconds to default 300"); //$NON-NLS-1$
         }
+        if (isBlank(config.test_runner.unknown_steps_mode)) {
+            config.test_runner.unknown_steps_mode = defaults.test_runner.unknown_steps_mode;
+            appliedChanges.add("Set test_runner.unknown_steps_mode to default warn"); //$NON-NLS-1$
+        }
         if (isBlank(config.paths.features_dir)) {
             config.paths.features_dir = defaults.paths.features_dir;
             appliedChanges.add("Filled paths.features_dir with tests/features"); //$NON-NLS-1$

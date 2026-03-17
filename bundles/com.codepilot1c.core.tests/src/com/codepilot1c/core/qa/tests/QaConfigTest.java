@@ -29,6 +29,7 @@ public class QaConfigTest {
         assertTrue(Boolean.TRUE.equals(config.vanessa.junit_report_enabled));
         assertTrue(Boolean.TRUE.equals(config.test_runner.use_test_manager));
         assertEquals(Integer.valueOf(300), config.test_runner.timeout_seconds);
+        assertEquals("warn", config.test_runner.unknown_steps_mode); //$NON-NLS-1$
     }
 
     @Test
@@ -112,5 +113,34 @@ public class QaConfigTest {
 
         assertTrue(QaRuntimeSettings.hasConfiguredEpfPath(config, "")); //$NON-NLS-1$
         assertEquals("project_config", QaRuntimeSettings.describeEpfSource(config, "/pref/path.epf")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void runtimeSettingsDefaultUnknownStepsModeToWarn() {
+        QaConfig config = new QaConfig();
+
+        assertEquals("warn", QaRuntimeSettings.resolveUnknownStepsMode(config)); //$NON-NLS-1$
+    }
+
+    @Test
+    public void runtimeSettingsResolveTemplateAndCatalogSources() throws Exception {
+        File workspace = Files.createTempDirectory("qa-runtime-settings").toFile(); //$NON-NLS-1$
+        File template = new File(workspace, "tests/qa/va-base.json"); //$NON-NLS-1$
+        template.getParentFile().mkdirs();
+        Files.writeString(template.toPath(), "{}"); //$NON-NLS-1$
+        File catalog = new File(workspace, "tests/va/steps_catalog.json"); //$NON-NLS-1$
+        catalog.getParentFile().mkdirs();
+        Files.writeString(catalog.toPath(), "{}"); //$NON-NLS-1$
+
+        QaConfig config = QaConfig.defaultConfig("Demo"); //$NON-NLS-1$
+        config.vanessa.params_template = "tests/qa/va-base.json"; //$NON-NLS-1$
+
+        assertEquals("project_config", QaRuntimeSettings.describeParamsTemplateSource(config, workspace)); //$NON-NLS-1$
+        assertEquals(template.getAbsolutePath(),
+                QaRuntimeSettings.resolveParamsTemplate(config, workspace).getAbsolutePath());
+        assertEquals("workspace_default",
+                QaRuntimeSettings.describeStepsCatalogSource(config, workspace, true)); //$NON-NLS-1$
+        assertEquals(catalog.getAbsolutePath(),
+                QaRuntimeSettings.resolveStepsCatalog(config, workspace).getAbsolutePath());
     }
 }

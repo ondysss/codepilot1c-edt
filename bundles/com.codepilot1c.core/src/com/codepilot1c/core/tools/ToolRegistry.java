@@ -124,6 +124,8 @@ public class ToolRegistry {
         register(new ExternalCreateReportTool());
         register(new ExternalCreateProcessingTool());
         register(new EdtExternalSmokeTool());
+        register(new QaInitConfigTool());
+        register(new QaExplainConfigTool());
         register(new QaStatusTool());
         register(new QaMigrateConfigTool());
         register(new AnalyzeToolErrorTool());

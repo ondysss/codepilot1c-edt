@@ -77,11 +77,17 @@ public class Messages extends NLS {
     public static String QaProjectPropertyPage_EpfPathLabel;
     public static String QaProjectPropertyPage_EpfPathNote;
     public static String QaProjectPropertyPage_ParamsTemplateLabel;
+    public static String QaProjectPropertyPage_ParamsTemplateNote;
     public static String QaProjectPropertyPage_PathsGroup;
     public static String QaProjectPropertyPage_FeaturesDirLabel;
     public static String QaProjectPropertyPage_StepsDirLabel;
+    public static String QaProjectPropertyPage_StepsDirNote;
+    public static String QaProjectPropertyPage_StepsCatalogLabel;
+    public static String QaProjectPropertyPage_StepsCatalogNote;
     public static String QaProjectPropertyPage_ResultsDirLabel;
     public static String QaProjectPropertyPage_BehaviorGroup;
+    public static String QaProjectPropertyPage_UnknownStepsModeLabel;
+    public static String QaProjectPropertyPage_UnknownStepsModeNote;
     public static String QaProjectPropertyPage_JunitReportLabel;
     public static String QaProjectPropertyPage_ScreenshotsLabel;
     public static String QaProjectPropertyPage_CloseClientLabel;

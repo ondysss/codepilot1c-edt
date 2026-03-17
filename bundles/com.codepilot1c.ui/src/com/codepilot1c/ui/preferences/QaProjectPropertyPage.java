@@ -10,6 +10,7 @@ import org.eclipse.swt.SWT;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Button;
+import org.eclipse.swt.widgets.Combo;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.DirectoryDialog;
@@ -33,9 +34,11 @@ public class QaProjectPropertyPage extends PropertyPage {
     private Text timeoutSecondsText;
     private Text epfPathText;
     private Text paramsTemplateText;
+    private Text stepsCatalogText;
     private Text featuresDirText;
     private Text stepsDirText;
     private Text resultsDirText;
+    private Combo unknownStepsModeCombo;
     private Button junitReportButton;
     private Button screenshotsOnFailureButton;
     private Button closeTestClientButton;
@@ -142,6 +145,10 @@ public class QaProjectPropertyPage extends PropertyPage {
         createLabel(group, Messages.QaProjectPropertyPage_ParamsTemplateLabel);
         paramsTemplateText = createText(group);
         createFileBrowseButton(group, paramsTemplateText, false);
+
+        Label templateNote = new Label(group, SWT.WRAP);
+        templateNote.setText(Messages.QaProjectPropertyPage_ParamsTemplateNote);
+        templateNote.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 3, 1));
     }
 
     private void createPathsSection(Composite parent) {
@@ -154,6 +161,18 @@ public class QaProjectPropertyPage extends PropertyPage {
         createLabel(group, Messages.QaProjectPropertyPage_StepsDirLabel);
         stepsDirText = createText(group);
         createDirectoryBrowseButton(group, stepsDirText);
+
+        Label stepsDirNote = new Label(group, SWT.WRAP);
+        stepsDirNote.setText(Messages.QaProjectPropertyPage_StepsDirNote);
+        stepsDirNote.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 3, 1));
+
+        createLabel(group, Messages.QaProjectPropertyPage_StepsCatalogLabel);
+        stepsCatalogText = createText(group);
+        createFileBrowseButton(group, stepsCatalogText, false);
+
+        Label stepsCatalogNote = new Label(group, SWT.WRAP);
+        stepsCatalogNote.setText(Messages.QaProjectPropertyPage_StepsCatalogNote);
+        stepsCatalogNote.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false, 3, 1));
 
         createLabel(group, Messages.QaProjectPropertyPage_ResultsDirLabel);
         resultsDirText = createText(group);
@@ -168,6 +187,23 @@ public class QaProjectPropertyPage extends PropertyPage {
         closeTestClientButton = createCheckbox(group, Messages.QaProjectPropertyPage_CloseClientLabel);
         quietInstallButton = createCheckbox(group, Messages.QaProjectPropertyPage_QuietInstallLabel);
         showMainFormButton = createCheckbox(group, Messages.QaProjectPropertyPage_ShowMainFormLabel);
+
+        Composite row = new Composite(group, SWT.NONE);
+        row.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        row.setLayout(new GridLayout(2, false));
+        createLabel(row, Messages.QaProjectPropertyPage_UnknownStepsModeLabel);
+        unknownStepsModeCombo = new Combo(row, SWT.DROP_DOWN | SWT.READ_ONLY);
+        unknownStepsModeCombo.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        unknownStepsModeCombo.setItems(new String[] {
+                "warn", //$NON-NLS-1$
+                "off", //$NON-NLS-1$
+                "strict" //$NON-NLS-1$
+        });
+        unknownStepsModeCombo.select(0);
+
+        Label unknownStepsNote = new Label(group, SWT.WRAP);
+        unknownStepsNote.setText(Messages.QaProjectPropertyPage_UnknownStepsModeNote);
+        unknownStepsNote.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
     }
 
     private void loadConfigIntoControls(IProject project) {
@@ -202,6 +238,7 @@ public class QaProjectPropertyPage extends PropertyPage {
         timeoutSecondsText.setText(Integer.toString(resolveTimeout(effective)));
         epfPathText.setText(safe(effective.vanessa.epf_path, "")); //$NON-NLS-1$
         paramsTemplateText.setText(safe(effective.vanessa.params_template, "")); //$NON-NLS-1$
+        stepsCatalogText.setText(safe(effective.vanessa.steps_catalog, "")); //$NON-NLS-1$
         featuresDirText.setText(safe(effective.paths.features_dir, "tests/features")); //$NON-NLS-1$
         stepsDirText.setText(safe(effective.paths.steps_dir, "tests/steps")); //$NON-NLS-1$
         resultsDirText.setText(safe(effective.paths.results_dir, "tests/qa/results")); //$NON-NLS-1$
@@ -210,6 +247,7 @@ public class QaProjectPropertyPage extends PropertyPage {
         closeTestClientButton.setSelection(resolveBoolean(effective.vanessa.close_test_client_after_run, true));
         quietInstallButton.setSelection(Boolean.TRUE.equals(effective.vanessa.quiet_install_ext));
         showMainFormButton.setSelection(Boolean.TRUE.equals(effective.vanessa.show_main_form));
+        selectUnknownStepsMode(safe(effective.test_runner.unknown_steps_mode, "warn")); //$NON-NLS-1$
     }
 
     private QaConfig createConfigFromControls(IProject project) throws IOException {
@@ -235,11 +273,13 @@ public class QaProjectPropertyPage extends PropertyPage {
 
         config.vanessa.epf_path = normalize(epfPathText.getText(), null);
         config.vanessa.params_template = normalize(paramsTemplateText.getText(), null);
+        config.vanessa.steps_catalog = normalize(stepsCatalogText.getText(), null);
         config.vanessa.junit_report_enabled = Boolean.valueOf(junitReportButton.getSelection());
         config.vanessa.screenshots_on_failure = Boolean.valueOf(screenshotsOnFailureButton.getSelection());
         config.vanessa.close_test_client_after_run = Boolean.valueOf(closeTestClientButton.getSelection());
         config.vanessa.quiet_install_ext = Boolean.valueOf(quietInstallButton.getSelection());
         config.vanessa.show_main_form = Boolean.valueOf(showMainFormButton.getSelection());
+        config.test_runner.unknown_steps_mode = normalize(unknownStepsModeCombo.getText(), "warn"); //$NON-NLS-1$
 
         config.paths.features_dir = normalize(featuresDirText.getText(), "tests/features"); //$NON-NLS-1$
         config.paths.steps_dir = normalize(stepsDirText.getText(), "tests/steps"); //$NON-NLS-1$
@@ -363,5 +403,15 @@ public class QaProjectPropertyPage extends PropertyPage {
         } catch (NumberFormatException e) {
             return fallback;
         }
+    }
+
+    private void selectUnknownStepsMode(String mode) {
+        String normalized = normalize(mode, "warn"); //$NON-NLS-1$
+        int index = switch (normalized) {
+            case "off" -> 1; //$NON-NLS-1$
+            case "strict" -> 2; //$NON-NLS-1$
+            default -> 0;
+        };
+        unknownStepsModeCombo.select(index);
     }
 }

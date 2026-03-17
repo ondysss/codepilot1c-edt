@@ -17,8 +17,10 @@ import com.codepilot1c.core.qa.QaConfig;
 import com.codepilot1c.core.qa.QaFeatureCompiler;
 import com.codepilot1c.core.qa.QaFeatureValidationResult;
 import com.codepilot1c.core.qa.QaPaths;
+import com.codepilot1c.core.qa.QaRuntimeSettings;
 import com.codepilot1c.core.qa.QaStepRegistry;
 import com.codepilot1c.core.qa.QaStepsCatalog;
+import com.codepilot1c.core.qa.QaValidationIssue;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 
@@ -27,7 +29,6 @@ public class QaValidateFeatureTool implements ITool {
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(QaValidateFeatureTool.class);
 
     private static final String DEFAULT_CONFIG_PATH = "tests/qa/qa-config.json"; //$NON-NLS-1$
-    private static final String DEFAULT_STEPS_CATALOG = "tests/va/steps_catalog.json"; //$NON-NLS-1$
     private static final String BUNDLED_STEPS_CATALOG = "com/codepilot1c/core/qa/steps_catalog.json"; //$NON-NLS-1$
 
     private static final String SCHEMA = """
@@ -40,6 +41,11 @@ public class QaValidateFeatureTool implements ITool {
                 "feature_file": {
                   "type": "string",
                   "description": "Имя файла .feature или абсолютный путь"
+                },
+                "unknown_steps_mode": {
+                  "type": "string",
+                  "enum": ["off", "warn", "strict"],
+                  "description": "Режим проверки catalog_unknown_step; по умолчанию берётся из qa-config или warn"
                 }
               },
               "required": ["feature_file"]
@@ -78,6 +84,7 @@ public class QaValidateFeatureTool implements ITool {
                 File configFile = QaPaths.resolveConfigFile((String) parameters.get("config_path"), workspaceRoot,
                         DEFAULT_CONFIG_PATH); //$NON-NLS-1$
                 QaConfig config = QaConfig.load(configFile);
+                String unknownStepsMode = resolveUnknownStepsMode(parameters, config);
                 File featuresDir = QaPaths.resolve(config.paths == null ? null : config.paths.features_dir, workspaceRoot);
                 File targetFile = resolveFeatureFile(featureFile, featuresDir);
                 if (targetFile == null || !targetFile.exists()) {
@@ -86,11 +93,21 @@ public class QaValidateFeatureTool implements ITool {
                 List<String> lines = Files.readAllLines(targetFile.toPath(), StandardCharsets.UTF_8);
                 QaFeatureValidationResult validation = QaFeatureCompiler.validateFeatureLines(lines,
                         QaStepRegistry.loadDefault(), loadCatalog(config, workspaceRoot));
+                int catalogUnknownSteps = (int) validation.issues().stream()
+                        .filter(issue -> "catalog_unknown_step".equals(issue.code())) //$NON-NLS-1$
+                        .count();
+                QaFeatureValidationResult effectiveValidation = applyUnknownStepsMode(validation, unknownStepsMode);
                 JsonObject result = new JsonObject();
                 result.addProperty("op_id", opId); //$NON-NLS-1$
                 result.addProperty("feature_file", targetFile.getAbsolutePath()); //$NON-NLS-1$
-                result.add("validation", new GsonBuilder().setPrettyPrinting().create().toJsonTree(validation)); //$NON-NLS-1$
-                if (!validation.ready()) {
+                result.addProperty("unknown_steps_mode", unknownStepsMode); //$NON-NLS-1$
+                if (catalogUnknownSteps > 0 && !QaRuntimeSettings.UNKNOWN_STEPS_MODE_STRICT.equals(unknownStepsMode)) {
+                    result.addProperty("catalog_unknown_steps_advisory",
+                            "catalog_unknown_step является advisory-сигналом; реальная Vanessa Automation может знать эти шаги"); //$NON-NLS-1$
+                    result.addProperty("catalog_unknown_steps_count", catalogUnknownSteps); //$NON-NLS-1$
+                }
+                result.add("validation", new GsonBuilder().setPrettyPrinting().create().toJsonTree(effectiveValidation)); //$NON-NLS-1$
+                if (!effectiveValidation.ready()) {
                     return ToolResult.failure("QA_VALIDATE_FEATURE_ERROR: validation_failed\n"
                             + new GsonBuilder().setPrettyPrinting().create().toJson(result)); //$NON-NLS-1$
                 }
@@ -154,14 +171,39 @@ public class QaValidateFeatureTool implements ITool {
     }
 
     private static QaStepsCatalog loadCatalog(QaConfig config, File workspaceRoot) throws Exception {
-        File stepsCatalogFile = QaPaths.resolve(config.vanessa == null ? null : config.vanessa.steps_catalog,
-                workspaceRoot);
-        if (stepsCatalogFile == null) {
-            stepsCatalogFile = QaPaths.resolve(DEFAULT_STEPS_CATALOG, workspaceRoot);
-        }
+        File stepsCatalogFile = QaRuntimeSettings.resolveStepsCatalog(config, workspaceRoot);
         if (stepsCatalogFile != null && stepsCatalogFile.exists()) {
             return QaStepsCatalog.load(stepsCatalogFile);
         }
         return QaStepsCatalog.loadFromResource(BUNDLED_STEPS_CATALOG, QaValidateFeatureTool.class.getClassLoader());
+    }
+
+    private static String resolveUnknownStepsMode(Map<String, Object> parameters, QaConfig config) {
+        if (parameters != null && parameters.containsKey("unknown_steps_mode")) { //$NON-NLS-1$
+            Object value = parameters.get("unknown_steps_mode"); //$NON-NLS-1$
+            if (value instanceof String text && !text.isBlank()) {
+                String normalized = text.trim().toLowerCase(Locale.ROOT);
+                if (QaRuntimeSettings.UNKNOWN_STEPS_MODE_OFF.equals(normalized)
+                        || QaRuntimeSettings.UNKNOWN_STEPS_MODE_WARN.equals(normalized)
+                        || QaRuntimeSettings.UNKNOWN_STEPS_MODE_STRICT.equals(normalized)) {
+                    return normalized;
+                }
+            }
+        }
+        return QaRuntimeSettings.resolveUnknownStepsMode(config);
+    }
+
+    private static QaFeatureValidationResult applyUnknownStepsMode(QaFeatureValidationResult validation, String mode) {
+        if (validation == null || validation.issues() == null || validation.issues().isEmpty()) {
+            return validation;
+        }
+        if (QaRuntimeSettings.UNKNOWN_STEPS_MODE_STRICT.equals(mode)) {
+            return validation;
+        }
+        List<QaValidationIssue> filtered = validation.issues().stream()
+                .filter(issue -> !"catalog_unknown_step".equals(issue.code())) //$NON-NLS-1$
+                .toList();
+        boolean ready = filtered.isEmpty();
+        return new QaFeatureValidationResult(ready, filtered);
     }
 }

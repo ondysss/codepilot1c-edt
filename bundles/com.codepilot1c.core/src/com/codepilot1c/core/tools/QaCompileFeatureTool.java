@@ -22,6 +22,7 @@ import com.codepilot1c.core.qa.QaConfigMigration;
 import com.codepilot1c.core.qa.QaFeatureCompiler;
 import com.codepilot1c.core.qa.QaFeatureValidationResult;
 import com.codepilot1c.core.qa.QaPaths;
+import com.codepilot1c.core.qa.QaRuntimeSettings;
 import com.codepilot1c.core.qa.QaScenarioPlan;
 import com.codepilot1c.core.qa.QaScenarioStep;
 import com.codepilot1c.core.qa.QaStepRegistry;
@@ -36,7 +37,6 @@ public class QaCompileFeatureTool implements ITool {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private static final String DEFAULT_CONFIG_PATH = "tests/qa/qa-config.json"; //$NON-NLS-1$
-    private static final String DEFAULT_STEPS_CATALOG = "tests/va/steps_catalog.json"; //$NON-NLS-1$
     private static final String BUNDLED_STEPS_CATALOG = "com/codepilot1c/core/qa/steps_catalog.json"; //$NON-NLS-1$
 
     private static final String SCHEMA = """
@@ -175,6 +175,14 @@ public class QaCompileFeatureTool implements ITool {
                 result.addProperty("op_id", opId); //$NON-NLS-1$
                 result.addProperty("status", validation.ready() ? "compiled" : "compiled_with_issues"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                 result.addProperty("feature_file", targetFile.getAbsolutePath()); //$NON-NLS-1$
+                File stepsCatalogFile = QaRuntimeSettings.resolveStepsCatalog(config, workspaceRoot);
+                if (stepsCatalogFile != null) {
+                    result.addProperty("steps_catalog", stepsCatalogFile.getAbsolutePath()); //$NON-NLS-1$
+                }
+                result.addProperty("steps_catalog_source",
+                        QaRuntimeSettings.describeStepsCatalogSource(config, workspaceRoot, stepsCatalogFile)); //$NON-NLS-1$
+                result.addProperty("unknown_steps_mode",
+                        QaRuntimeSettings.resolveUnknownStepsMode(config)); //$NON-NLS-1$
                 result.add("compiled", GSON.toJsonTree(compiled)); //$NON-NLS-1$
                 result.add("validation", GSON.toJsonTree(validation)); //$NON-NLS-1$
                 return ToolResult.success(GSON.toJson(result), ToolResult.ToolResultType.CODE);
@@ -246,11 +254,7 @@ public class QaCompileFeatureTool implements ITool {
     }
 
     private static QaStepsCatalog loadCatalog(QaConfig config, File workspaceRoot) throws IOException {
-        File stepsCatalogFile = QaPaths.resolve(config.vanessa == null ? null : config.vanessa.steps_catalog,
-                workspaceRoot);
-        if (stepsCatalogFile == null) {
-            stepsCatalogFile = QaPaths.resolve(DEFAULT_STEPS_CATALOG, workspaceRoot);
-        }
+        File stepsCatalogFile = QaRuntimeSettings.resolveStepsCatalog(config, workspaceRoot);
         if (stepsCatalogFile != null && stepsCatalogFile.exists()) {
             return QaStepsCatalog.load(stepsCatalogFile);
         }

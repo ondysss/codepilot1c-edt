@@ -75,6 +75,7 @@ public class QaConfig {
         }
         config.test_runner.use_test_manager = Boolean.TRUE;
         config.test_runner.timeout_seconds = Integer.valueOf(300);
+        config.test_runner.unknown_steps_mode = QaRuntimeSettings.UNKNOWN_STEPS_MODE_WARN;
         return config;
     }
 
@@ -196,6 +197,7 @@ public class QaConfig {
         public Integer timeout_seconds;
         public Boolean auto_steps;
         public Boolean load_step_libraries;
+        public String unknown_steps_mode;
     }
 
     public static class TestClient {
