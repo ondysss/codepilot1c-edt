@@ -27,6 +27,7 @@ import com.codepilot1c.core.internal.VibeCorePlugin;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.model.LlmMessage;
+import com.codepilot1c.core.model.LlmConversationSanitizer;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
@@ -546,7 +547,9 @@ public class DynamicLlmProvider implements ILlmProvider {
         JsonArray messages = new JsonArray();
 
         // Add all messages (including system messages and tool results)
-        for (LlmMessage msg : request.getMessages()) {
+        List<LlmMessage> sanitizedMessages = LlmConversationSanitizer
+                .sanitizeForOpenAiToolCalls(request.getMessages());
+        for (LlmMessage msg : sanitizedMessages) {
             messages.add(serializeMessage(msg));
         }
 

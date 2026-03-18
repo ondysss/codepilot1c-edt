@@ -130,6 +130,18 @@ public class Messages extends NLS {
     public static String ProvidersPreferencePage_SetActive;
     public static String ProvidersPreferencePage_RemoveConfirmTitle;
     public static String ProvidersPreferencePage_RemoveConfirmMessage;
+    public static String ProvidersPreferencePage_AccountGroup;
+    public static String ProvidersPreferencePage_AccountStatus;
+    public static String ProvidersPreferencePage_AccountModel;
+    public static String ProvidersPreferencePage_AccountDetails;
+    public static String ProvidersPreferencePage_UseAccountProvider;
+    public static String ProvidersPreferencePage_AccountStatusConnected;
+    public static String ProvidersPreferencePage_AccountStatusConnectedActive;
+    public static String ProvidersPreferencePage_AccountStatusDisconnected;
+    public static String ProvidersPreferencePage_AccountDetailsConnected;
+    public static String ProvidersPreferencePage_AccountDetailsDisconnected;
+    public static String ProvidersPreferencePage_AccountNotAvailableTitle;
+    public static String ProvidersPreferencePage_AccountNotAvailableMessage;
 
     // Provider edit dialog
     public static String ProviderEditDialog_TitleAdd;

@@ -35,6 +35,7 @@ import org.eclipse.ui.part.ViewPart;
 import com.codepilot1c.core.diff.CodeDiffUtils;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.model.LlmMessage;
+import com.codepilot1c.core.model.LlmConversationSanitizer;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
@@ -1840,6 +1841,7 @@ public class ChatView extends ViewPart {
         }
 
         int keepFrom = Math.max(0, conversationHistory.size() - tailMessages);
+        keepFrom = LlmConversationSanitizer.findSafeCompactionStart(conversationHistory, keepFrom);
         List<LlmMessage> head = new ArrayList<>(conversationHistory.subList(0, keepFrom));
         List<LlmMessage> tail = new ArrayList<>(conversationHistory.subList(keepFrom, conversationHistory.size()));
         String summary = buildHistorySummary(head);

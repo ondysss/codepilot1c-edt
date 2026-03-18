@@ -17,6 +17,7 @@ import java.util.function.Consumer;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.model.LlmMessage;
+import com.codepilot1c.core.model.LlmConversationSanitizer;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
@@ -301,7 +302,9 @@ public class OpenAiProvider extends AbstractLlmProvider {
 
         // Build messages array with tool call support
         JsonArray messages = new JsonArray();
-        for (LlmMessage msg : request.getMessages()) {
+        List<LlmMessage> sanitizedMessages = LlmConversationSanitizer
+                .sanitizeForOpenAiToolCalls(request.getMessages());
+        for (LlmMessage msg : sanitizedMessages) {
             messages.add(serializeMessage(msg));
         }
         body.add("messages", messages); //$NON-NLS-1$
@@ -323,7 +326,7 @@ public class OpenAiProvider extends AbstractLlmProvider {
 
         String json = gson.toJson(body);
         LOG.debug("Request: model=%s, messages=%d, tools=%d", //$NON-NLS-1$
-                model, request.getMessages().size(), request.hasTools() ? request.getTools().size() : 0);
+                model, sanitizedMessages.size(), request.hasTools() ? request.getTools().size() : 0);
         // Log request body for debugging (truncate if too long)
         if (json.length() < 5000) {
             LOG.debug("Request body: %s", json); //$NON-NLS-1$

@@ -15,6 +15,12 @@
             class="com.codepilot1c.ui.preferences.PromptsPreferencePage">
         </page>
         <page
+            id="com.codepilot1c.ui.preferences.AccountPreferencePage"
+            name="%preferences.account.name"
+            category="com.codepilot1c.ui.preferences.VibePreferencePage"
+            class="com.codepilot1c.ui.preferences.AccountPreferencePage">
+        </page>
+        <page
             id="com.codepilot1c.ui.preferences.ProvidersPreferencePage"
             name="%preferences.providers.name"
             category="com.codepilot1c.ui.preferences.VibePreferencePage"
@@ -139,6 +145,12 @@
             description="%command.dumpEdtDiagnostics.description"
             categoryId="com.codepilot1c.ui.commands.category">
         </command>
+        <command
+            id="com.codepilot1c.ui.commands.Register"
+            name="%command.register.name"
+            description="%command.register.description"
+            categoryId="com.codepilot1c.ui.commands.category">
+        </command>
     </extension>
 
     <!-- Handlers -->
@@ -178,6 +190,10 @@
         <handler
             commandId="com.codepilot1c.ui.commands.DumpEdtDiagnostics"
             class="com.codepilot1c.ui.handlers.DumpEdtDiagnosticsHandler">
+        </handler>
+        <handler
+            commandId="com.codepilot1c.ui.commands.Register"
+            class="com.codepilot1c.ui.handlers.RegisterHandler">
         </handler>
     </extension>
 
@@ -221,6 +237,10 @@
                 mnemonic="V">
                 <command
                     commandId="com.codepilot1c.ui.commands.OpenChat"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.Register"
                     style="push">
                 </command>
                 <command

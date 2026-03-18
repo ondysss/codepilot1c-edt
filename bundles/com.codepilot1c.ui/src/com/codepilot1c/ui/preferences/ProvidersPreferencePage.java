@@ -29,12 +29,17 @@ import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
+import org.eclipse.swt.widgets.Group;
+import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Table;
 import org.eclipse.swt.widgets.TableColumn;
 import org.eclipse.ui.IWorkbench;
 import org.eclipse.ui.IWorkbenchPreferencePage;
 
+import com.codepilot1c.core.backend.BackendService;
+import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
+import com.codepilot1c.core.provider.config.DynamicLlmProvider;
 import com.codepilot1c.core.provider.config.LlmProviderConfig;
 import com.codepilot1c.core.provider.config.LlmProviderConfigStore;
 import com.codepilot1c.ui.internal.Messages;
@@ -53,6 +58,10 @@ public class ProvidersPreferencePage extends PreferencePage implements IWorkbenc
     private Button removeButton;
     private Button duplicateButton;
     private Button setActiveButton;
+    private Button useAccountButton;
+    private Label accountStatusValue;
+    private Label accountModelValue;
+    private Label accountDetailsValue;
 
     private List<LlmProviderConfig> providers;
     private String activeProviderId;
@@ -66,25 +75,69 @@ public class ProvidersPreferencePage extends PreferencePage implements IWorkbenc
         // Load providers from config store
         LlmProviderConfigStore store = LlmProviderConfigStore.getInstance();
         providers = new ArrayList<>(store.getProviders());
-        activeProviderId = store.getActiveProviderId();
+        activeProviderId = LlmProviderRegistry.getInstance().getEffectiveActiveProviderId();
     }
 
     @Override
     protected Control createContents(Composite parent) {
         Composite container = new Composite(parent, SWT.NONE);
-        container.setLayout(new GridLayout(2, false));
+        container.setLayout(new GridLayout(1, false));
         container.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
 
+        createAccountProviderSection(container);
+
+        Composite providersContainer = new Composite(container, SWT.NONE);
+        providersContainer.setLayout(new GridLayout(2, false));
+        providersContainer.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+
         // Create table
-        createTable(container);
+        createTable(providersContainer);
 
         // Create buttons
-        createButtons(container);
+        createButtons(providersContainer);
 
         // Initial update
         updateButtonStates();
+        refreshAccountProviderSection();
 
         return container;
+    }
+
+    private void createAccountProviderSection(Composite parent) {
+        Group group = new Group(parent, SWT.NONE);
+        group.setText(Messages.ProvidersPreferencePage_AccountGroup);
+        group.setLayout(new GridLayout(2, false));
+        group.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false));
+
+        createAccountRow(group, Messages.ProvidersPreferencePage_AccountStatus);
+        accountStatusValue = new Label(group, SWT.WRAP);
+        accountStatusValue.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+
+        createAccountRow(group, Messages.ProvidersPreferencePage_AccountModel);
+        accountModelValue = new Label(group, SWT.WRAP);
+        accountModelValue.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+
+        createAccountRow(group, Messages.ProvidersPreferencePage_AccountDetails);
+        accountDetailsValue = new Label(group, SWT.WRAP);
+        GridData detailsData = new GridData(SWT.FILL, SWT.CENTER, true, false);
+        detailsData.widthHint = 420;
+        accountDetailsValue.setLayoutData(detailsData);
+
+        useAccountButton = new Button(group, SWT.PUSH);
+        useAccountButton.setText(Messages.ProvidersPreferencePage_UseAccountProvider);
+        useAccountButton.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false, 2, 1));
+        useAccountButton.addSelectionListener(new SelectionAdapter() {
+            @Override
+            public void widgetSelected(SelectionEvent e) {
+                setActiveAccountProvider();
+            }
+        });
+    }
+
+    private void createAccountRow(Composite parent, String labelText) {
+        Label label = new Label(parent, SWT.NONE);
+        label.setText(labelText);
+        label.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
     }
 
     private void createTable(Composite parent) {
@@ -208,6 +261,10 @@ public class ProvidersPreferencePage extends PreferencePage implements IWorkbenc
         duplicateButton.setEnabled(hasSelection);
         setActiveButton.setEnabled(hasSelection && selected != null &&
                 !selected.getId().equals(activeProviderId));
+        if (useAccountButton != null && !useAccountButton.isDisposed()) {
+            boolean hasConfiguredBackend = BackendService.getInstance().isConfigured();
+            useAccountButton.setEnabled(hasConfiguredBackend && !"backend".equals(activeProviderId)); //$NON-NLS-1$
+        }
     }
 
     private void addProvider() {
@@ -294,7 +351,46 @@ public class ProvidersPreferencePage extends PreferencePage implements IWorkbenc
         LlmProviderConfig config = (LlmProviderConfig) selection.getFirstElement();
         activeProviderId = config.getId();
         tableViewer.refresh();
+        refreshAccountProviderSection();
         updateButtonStates();
+    }
+
+    private void setActiveAccountProvider() {
+        if (!BackendService.getInstance().isConfigured()) {
+            MessageDialog.openInformation(
+                    getShell(),
+                    Messages.ProvidersPreferencePage_AccountNotAvailableTitle,
+                    Messages.ProvidersPreferencePage_AccountNotAvailableMessage);
+            return;
+        }
+        activeProviderId = "backend"; //$NON-NLS-1$
+        tableViewer.refresh();
+        refreshAccountProviderSection();
+        updateButtonStates();
+    }
+
+    private void refreshAccountProviderSection() {
+        if (accountStatusValue == null || accountStatusValue.isDisposed()) {
+            return;
+        }
+        ILlmProvider backend = LlmProviderRegistry.getInstance().getBackendProvider();
+        boolean isConfigured = backend != null && backend.isConfigured();
+        boolean isActive = "backend".equals(activeProviderId); //$NON-NLS-1$
+
+        accountStatusValue.setText(isConfigured
+                ? (isActive
+                        ? Messages.ProvidersPreferencePage_AccountStatusConnectedActive
+                        : Messages.ProvidersPreferencePage_AccountStatusConnected)
+                : Messages.ProvidersPreferencePage_AccountStatusDisconnected);
+        accountModelValue.setText(isConfigured
+                ? (backend instanceof DynamicLlmProvider dynamicProvider
+                        ? dynamicProvider.getConfig().getModel()
+                        : backend.getDisplayName())
+                : "—"); //$NON-NLS-1$
+        accountDetailsValue.setText(isConfigured
+                ? Messages.ProvidersPreferencePage_AccountDetailsConnected
+                : Messages.ProvidersPreferencePage_AccountDetailsDisconnected);
+        accountStatusValue.getParent().layout(true, true);
     }
 
     @Override
@@ -303,6 +399,7 @@ public class ProvidersPreferencePage extends PreferencePage implements IWorkbenc
         providers.clear();
         activeProviderId = null;
         tableViewer.refresh();
+        refreshAccountProviderSection();
         updateButtonStates();
         super.performDefaults();
     }
@@ -312,12 +409,14 @@ public class ProvidersPreferencePage extends PreferencePage implements IWorkbenc
         // Save providers to config store
         LlmProviderConfigStore store = LlmProviderConfigStore.getInstance();
         store.saveProviders(providers);
-        if (activeProviderId != null) {
-            store.setActiveProviderId(activeProviderId);
+        if (activeProviderId == null) {
+            store.setActiveProviderId(""); //$NON-NLS-1$
         }
-
-        // Refresh provider registry
-        LlmProviderRegistry.getInstance().refreshDynamicProviders();
+        LlmProviderRegistry registry = LlmProviderRegistry.getInstance();
+        registry.refreshDynamicProviders();
+        if (activeProviderId != null) {
+            registry.setActiveProvider(activeProviderId);
+        }
 
         return super.performOk();
     }

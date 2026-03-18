@@ -38,10 +38,15 @@ import com.e1c.g5.v8.dt.check.settings.ICheckRepository;
 import com.e1c.g5.v8.dt.platform.standaloneserver.wst.core.IStandaloneServerService;
 import com.codepilot1c.core.http.DefaultHttpClientFactory;
 import com.codepilot1c.core.http.HttpClientFactory;
+import com.codepilot1c.core.backend.BackendConfig;
+import com.codepilot1c.core.backend.BackendService;
 import com.codepilot1c.core.edt.runtime.EdtLaunchProcessRegistry;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.mcp.host.McpHostManager;
 import com.codepilot1c.core.mcp.McpServerManager;
+import com.codepilot1c.core.provider.config.DynamicLlmProvider;
+import com.codepilot1c.core.provider.config.LlmProviderConfig;
+import com.codepilot1c.core.provider.config.ProviderType;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
 import com.codepilot1c.core.state.VibeStateService;
 
@@ -102,12 +107,17 @@ public class VibeCorePlugin extends Plugin {
         try {
             LlmProviderRegistry registry = LlmProviderRegistry.getInstance();
             registry.initialize();
+            BackendService backendService = BackendService.getInstance();
+            if (backendService.isConfigured()) {
+                initializeLlmProvider(backendService.getApiKey());
+                CompletableFuture.runAsync(backendService::refreshUsage);
+            }
             var active = registry.getActiveProvider();
             if (active != null && active.isConfigured()) {
                 VibeStateService.getInstance().setIdle();
             } else {
                 VibeStateService.getInstance().setNotConfigured(
-                        "No LLM providers configured. Configure one in Preferences."); //$NON-NLS-1$
+                        "No LLM providers configured. Configure one in Preferences or sign in."); //$NON-NLS-1$
             }
         } catch (Exception e) {
             VibeStateService.getInstance().setError(e.getMessage());
@@ -208,6 +218,11 @@ public class VibeCorePlugin extends Plugin {
             LlmProviderRegistry.getInstance().dispose();
         } catch (Exception e) {
             logWarn("Error disposing LLM provider registry", e); //$NON-NLS-1$
+        }
+        try {
+            BackendService.getInstance().dispose();
+        } catch (Exception e) {
+            logWarn("Error disposing backend service", e); //$NON-NLS-1$
         }
 
         closeTracker(configurationProviderTracker);
@@ -418,6 +433,47 @@ public class VibeCorePlugin extends Plugin {
      */
     public static void logError(Throwable e) {
         logError(e.getMessage(), e);
+    }
+
+    /**
+     * Initializes the transient backend LLM provider from a registration/login API key.
+     *
+     * @param apiKey backend API key
+     */
+    public static void initializeLlmProvider(String apiKey) {
+        initializeLlmProvider(apiKey, false);
+    }
+
+    /**
+     * Initializes the transient backend LLM provider from a registration/login API key.
+     *
+     * @param apiKey backend API key
+     * @param activateIfNoConfiguredProvider activate backend provider only when nothing usable is configured
+     */
+    public static void initializeLlmProvider(String apiKey, boolean activateIfNoConfiguredProvider) {
+        LlmProviderRegistry registry = LlmProviderRegistry.getInstance();
+        var previousActive = activateIfNoConfiguredProvider ? registry.getActiveProvider() : null;
+        LlmProviderConfig config = new LlmProviderConfig(
+                "backend", //$NON-NLS-1$
+                "CodePilot Account", //$NON-NLS-1$
+                ProviderType.OPENAI_COMPATIBLE,
+                BackendConfig.LITELLM_BASE_URL,
+                apiKey,
+                "auto", //$NON-NLS-1$
+                4096);
+        config.setStreamingEnabled(true);
+        registry.setBackendProvider(new DynamicLlmProvider(config));
+        if (activateIfNoConfiguredProvider
+                && (previousActive == null || !previousActive.isConfigured())) {
+            registry.setActiveProvider("backend"); //$NON-NLS-1$
+        }
+    }
+
+    /**
+     * Clears the transient backend LLM provider.
+     */
+    public static void clearBackendLlmProvider() {
+        LlmProviderRegistry.getInstance().clearBackendProvider();
     }
 
     /**
