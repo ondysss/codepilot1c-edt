@@ -4,13 +4,24 @@ import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.List;
 
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessManager;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessSettings;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociation;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationManager;
+import com._1c.g5.v8.dt.platform.services.core.infobases.InfobaseAccessType;
+import com._1c.g5.v8.dt.platform.services.core.runtimes.environments.IResolvableRuntimeInstallation;
+import com._1c.g5.v8.dt.platform.services.core.runtimes.environments.IResolvableRuntimeInstallationManager;
+import com._1c.g5.v8.dt.platform.services.core.runtimes.environments.MatchingRuntimeNotFound;
+import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.ComponentExecutorInfo;
+import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.ILaunchableRuntimeComponent;
+import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IThickClientLauncher;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IRuntimeComponentManager;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IRuntimeComponentManager.ThickClientInfo;
+import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IRuntimeComponentTypes;
+import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.RuntimeExecutionException;
+import com._1c.g5.v8.dt.platform.services.model.AppArch;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.impl.RuntimeExecutionCommandBuilder;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.impl.RuntimeExecutionCommandBuilder.ThickClientMode;
 import com._1c.g5.v8.dt.platform.services.model.InfobaseAccess;
@@ -136,25 +147,36 @@ public class EdtRuntimeService {
     }
 
     public ThickClientInfo resolveThickClientInfo(InfobaseReference infobase, String versionMask) {
+        IResolvableRuntimeInstallationManager installationManager = gateway.getResolvableRuntimeInstallationManager();
         IRuntimeComponentManager runtimeComponentManager = gateway.getRuntimeComponentManager();
-        ThickClientInfo info;
         try {
-            // TODO: getThickClientInfo was removed in EDT 2025.2.0; use reflection for backward compatibility
-            Method getThickClientInfoMethod;
+            IResolvableRuntimeInstallation resolvable;
             if (versionMask != null && !versionMask.isBlank()) {
-                getThickClientInfoMethod = runtimeComponentManager.getClass().getMethod("getThickClientInfo", String.class); //$NON-NLS-1$
-                info = (ThickClientInfo) getThickClientInfoMethod.invoke(runtimeComponentManager, versionMask);
+                resolvable = installationManager.resolveByVersionOrMask(IRuntimeComponentTypes.THICK_CLIENT, versionMask);
             } else {
-                getThickClientInfoMethod = runtimeComponentManager.getClass().getMethod("getThickClientInfo", InfobaseReference.class); //$NON-NLS-1$
-                info = (ThickClientInfo) getThickClientInfoMethod.invoke(runtimeComponentManager, infobase);
+                IProject project = gateway.getInfobaseAssociationManager()
+                        .getAssociation(infobase)
+                        .map(IInfobaseAssociation::getProject)
+                        .orElse(null);
+                resolvable = installationManager.resolveByProjectAndInfobase(
+                        IRuntimeComponentTypes.THICK_CLIENT, project, infobase, InfobaseAccessType.CLIENT_LAUNCH);
             }
-        } catch (Exception e) {
+            var installation = resolvable.resolve(List.of(IRuntimeComponentTypes.THICK_CLIENT), AppArch.AUTO);
+            ComponentExecutorInfo<ILaunchableRuntimeComponent, IThickClientLauncher> executorInfo =
+                    runtimeComponentManager.resolveExecutor(
+                            ILaunchableRuntimeComponent.class, IThickClientLauncher.class,
+                            installation, IRuntimeComponentTypes.THICK_CLIENT);
+            ThickClientInfo info = new ThickClientInfo(resolvable, executorInfo.getInstallation(),
+                    executorInfo.getComponent(), executorInfo.getExecutor());
+            if (info.component() == null || info.component().getFile() == null) {
+                throw new IllegalStateException("Thick client runtime component not resolved for infobase"); //$NON-NLS-1$
+            }
+            return info;
+        } catch (MatchingRuntimeNotFound | RuntimeExecutionException e) {
             throw new IllegalStateException("Failed to resolve thick client: " + e.getMessage(), e); //$NON-NLS-1$
+        } catch (Exception e) {
+            throw new IllegalStateException("Unexpected error resolving thick client: " + e.getMessage(), e); //$NON-NLS-1$
         }
-        if (info == null || info.component() == null || info.component().getFile() == null) {
-            throw new IllegalStateException("Thick client runtime component not resolved for infobase"); //$NON-NLS-1$
-        }
-        return info;
     }
 
     public RuntimeExecutionCommandBuilder buildTestManagerCommand(String projectName, File epfPath,
