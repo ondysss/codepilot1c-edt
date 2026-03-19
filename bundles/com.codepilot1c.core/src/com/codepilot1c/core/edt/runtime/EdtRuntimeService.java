@@ -117,7 +117,7 @@ public class EdtRuntimeService {
         IInfobaseAccessSettings settings;
         try {
             IInfobaseAccessManager accessManager = gateway.getInfobaseAccessManager();
-            settings = accessManager.getSettings(infobase, InfobaseAccess.INFOBASE);
+            settings = accessManager.resolveSettings(infobase);
         } catch (Exception e) {
             return null;
         }
@@ -139,10 +139,14 @@ public class EdtRuntimeService {
         IRuntimeComponentManager runtimeComponentManager = gateway.getRuntimeComponentManager();
         ThickClientInfo info;
         try {
+            // TODO: getThickClientInfo was removed in EDT 2025.2.0; use reflection for backward compatibility
+            Method getThickClientInfoMethod;
             if (versionMask != null && !versionMask.isBlank()) {
-                info = runtimeComponentManager.getThickClientInfo(versionMask);
+                getThickClientInfoMethod = runtimeComponentManager.getClass().getMethod("getThickClientInfo", String.class); //$NON-NLS-1$
+                info = (ThickClientInfo) getThickClientInfoMethod.invoke(runtimeComponentManager, versionMask);
             } else {
-                info = runtimeComponentManager.getThickClientInfo(infobase);
+                getThickClientInfoMethod = runtimeComponentManager.getClass().getMethod("getThickClientInfo", InfobaseReference.class); //$NON-NLS-1$
+                info = (ThickClientInfo) getThickClientInfoMethod.invoke(runtimeComponentManager, infobase);
             }
         } catch (Exception e) {
             throw new IllegalStateException("Failed to resolve thick client: " + e.getMessage(), e); //$NON-NLS-1$
@@ -268,7 +272,7 @@ public class EdtRuntimeService {
         }
         builder.forInfobase(infobase.getConnectionString(), false);
         applyAccessSettings(builder, infobase);
-        builder.updateInfobase();
+        builder.updateDatabaseConfiguration();
         builder.disableStartupDialogs();
         builder.disableStartupMessages();
         if (logFile != null) {
@@ -430,7 +434,7 @@ public class EdtRuntimeService {
         IInfobaseAccessSettings settings = null;
         try {
             IInfobaseAccessManager accessManager = gateway.getInfobaseAccessManager();
-            settings = accessManager.getSettings(infobase, InfobaseAccess.INFOBASE);
+            settings = accessManager.resolveSettings(infobase);
         } catch (Exception e) {
             settings = null;
         }
