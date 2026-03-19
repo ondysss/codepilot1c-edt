@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.ByteArrayInputStream;
 import java.lang.reflect.Method;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
@@ -84,6 +85,7 @@ import com._1c.g5.v8.dt.mcore.McoreFactory;
 import com._1c.g5.v8.dt.mcore.McorePackage;
 import com._1c.g5.v8.dt.mcore.NamedElement;
 import com._1c.g5.v8.dt.mcore.NumberQualifiers;
+import com._1c.g5.v8.dt.mcore.NumberValue;
 import com._1c.g5.v8.dt.mcore.StringQualifiers;
 import com._1c.g5.v8.dt.mcore.TypeDescription;
 import com._1c.g5.v8.dt.mcore.TypeItem;
@@ -4832,6 +4834,28 @@ public class EdtMetadataService {
         }
 
         feature.setType(typeDesc);
+        fixNullNumberFillValue(feature, typeName);
+    }
+
+    /**
+     * Fix NPE in ValueWriter.writeValue(): some EDT EMF adapters react to setType()
+     * by creating a NumberValue with null BigDecimal as FillValue.
+     * If found, replace with BigDecimal.ZERO so XML serialization succeeds.
+     */
+    private void fixNullNumberFillValue(BasicFeature feature, String typeName) {
+        if (!isNumberType(typeName)) {
+            return;
+        }
+        EStructuralFeature fillValueFeature = feature.eClass().getEStructuralFeature("fillValue"); //$NON-NLS-1$
+        if (fillValueFeature == null) {
+            return;
+        }
+        Object current = feature.eGet(fillValueFeature);
+        if (current instanceof NumberValue nv && nv.getValue() == null) {
+            nv.setValue(BigDecimal.ZERO);
+            LOG.debug("fixNullNumberFillValue: fixed null BigDecimal in FillValue for %s", //$NON-NLS-1$
+                    feature.eClass().getName());
+        }
     }
 
     private TypeItem resolveExternalTypeItemCandidate(

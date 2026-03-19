@@ -99,7 +99,9 @@ public class GetDiagnosticsTool implements ITool {
         String severityStr = (String) parameters.getOrDefault("severity", "info"); //$NON-NLS-1$ //$NON-NLS-2$
         int maxItems = getIntParam(parameters, "max_items", 0); //$NON-NLS-1$
         long waitMs = getIntParam(parameters, "wait_ms", 0); //$NON-NLS-1$
-        boolean includeRuntimeMarkers = getBooleanParam(parameters, "include_runtime_markers", true); //$NON-NLS-1$
+        // For scope=file/active_editor, runtime markers default to false to avoid cross-module noise (issue #24)
+        boolean includeRuntimeMarkersDefault = !"file".equals(scope) && !"active_editor".equals(scope); //$NON-NLS-1$ //$NON-NLS-2$
+        boolean includeRuntimeMarkers = getBooleanParam(parameters, "include_runtime_markers", includeRuntimeMarkersDefault); //$NON-NLS-1$
 
         // Validate parameters
         if (maxItems < 0) maxItems = 0;

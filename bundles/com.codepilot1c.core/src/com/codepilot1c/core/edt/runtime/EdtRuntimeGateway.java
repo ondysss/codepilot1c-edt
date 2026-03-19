@@ -6,6 +6,7 @@ import org.eclipse.core.resources.ResourcesPlugin;
 
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessManager;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationManager;
+import com._1c.g5.v8.dt.platform.services.core.runtimes.environments.IResolvableRuntimeInstallationManager;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IRuntimeComponentManager;
 import com.codepilot1c.core.internal.VibeCorePlugin;
 import org.osgi.framework.BundleContext;
@@ -53,6 +54,15 @@ public class EdtRuntimeGateway {
         Object service = context.getService(ref);
         if (service == null) {
             throw serviceUnavailable("IInfobaseSynchronizationManager"); //$NON-NLS-1$
+        }
+        return service;
+    }
+
+    public IResolvableRuntimeInstallationManager getResolvableRuntimeInstallationManager() {
+        VibeCorePlugin plugin = requirePlugin();
+        IResolvableRuntimeInstallationManager service = plugin.getResolvableRuntimeInstallationManager();
+        if (service == null) {
+            throw serviceUnavailable("IResolvableRuntimeInstallationManager"); //$NON-NLS-1$
         }
         return service;
     }

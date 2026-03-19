@@ -232,7 +232,7 @@ public class EdtProjectImportService {
             RuntimeExecutionArguments arguments = new RuntimeExecutionArguments();
             arguments.setMonitor(new NullProgressMonitor());
             applyAccessSettings(arguments, accessSettings);
-            Path exported = thickClientInfo.launcher().exportConfigurationToXml(
+            Path exported = thickClientInfo.launcher().exportFullXmlFromInfobase(
                     thickClientInfo.component(),
                     infobase,
                     ConfigurationFilesFormat.HIERARCHICAL,
