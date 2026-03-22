@@ -1,6 +1,7 @@
 package com.codepilot1c.core.agent.prompts;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -104,6 +105,13 @@ public class PromptSnapshotTest {
                 explore.contains("task"), //$NON-NLS-1$
                 subagent.contains("## Роль")) //$NON-NLS-1$
                 .stripIndent();
+    }
+
+    @Test
+    public void buildPromptIncludesSingleMethodStopRuleForBslAnalysis() {
+        String build = AgentPromptTemplates.buildBuildPrompt();
+        assertTrue(build.contains("не вызывай bsl_analyze_method повторно")); //$NON-NLS-1$
+        assertTrue(build.contains("заверши ответ после первого успешного анализа")); //$NON-NLS-1$
     }
 
     private void setStoreState(List<LlmProviderConfig> configs, String activeProviderId) throws Exception {

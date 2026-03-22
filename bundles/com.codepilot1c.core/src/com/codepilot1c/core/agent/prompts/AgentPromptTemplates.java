@@ -167,7 +167,9 @@ public final class AgentPromptTemplates {
         sb.append("3. Для оценки сложности, call graph и flow-рисков используй bsl_analyze_method после выбора точного метода.\n"); //$NON-NLS-1$
         sb.append("4. Если bsl_get_method_body или bsl_analyze_method вернул AMBIGUOUS_METHOD и candidates[], покажи список кандидатов (имя, kind, start_line) и попроси пользователя выбрать start_line.\n"); //$NON-NLS-1$
         sb.append("5. После выбора повтори вызов с start_line.\n"); //$NON-NLS-1$
-        sb.append("6. Если METHOD_NOT_FOUND, уточни имя/модуль у пользователя.\n\n"); //$NON-NLS-1$
+        sb.append("6. Если METHOD_NOT_FOUND после выбора по bsl_list_methods, сделай не более одной corrective retry с exact name/start_line из списка методов, затем остановись и сообщи проблему.\n"); //$NON-NLS-1$
+        sb.append("7. После первого успешного bsl_analyze_method по выбранному методу не вызывай bsl_analyze_method повторно для других методов, если пользователь явно не просил сравнение нескольких методов.\n"); //$NON-NLS-1$
+        sb.append("8. Если запрос просит выбрать один наиболее нетривиальный метод, выбери один раз и заверши ответ после первого успешного анализа.\n\n"); //$NON-NLS-1$
 
         sb.append("## Формат финального ответа\n"); //$NON-NLS-1$
         sb.append("1. Кратко: что сделано.\n"); //$NON-NLS-1$

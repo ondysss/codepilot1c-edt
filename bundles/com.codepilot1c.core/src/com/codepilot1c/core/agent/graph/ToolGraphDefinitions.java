@@ -44,12 +44,14 @@ final class ToolGraphDefinitions {
 
         ToolNode inspect = ToolNode.builder("bsl_inspect") //$NON-NLS-1$
                 .allowTools(inspectTools)
+                .allowTools(orchestrationTools())
                 .allowTool("edt_validate_request") //$NON-NLS-1$
                 .maxVisits(20)
                 .build();
 
         ToolNode validated = ToolNode.builder("bsl_validated") //$NON-NLS-1$
                 .allowTools(inspectTools)
+                .allowTools(orchestrationTools())
                 .allowTool("ensure_module_artifact") //$NON-NLS-1$
                 .allowTool("edt_validate_request") //$NON-NLS-1$
                 .maxVisits(20)
@@ -86,12 +88,14 @@ final class ToolGraphDefinitions {
 
         ToolNode inspect = ToolNode.builder("metadata_inspect") //$NON-NLS-1$
                 .allowTools(inspectTools)
+                .allowTools(orchestrationTools())
                 .allowTool("edt_validate_request") //$NON-NLS-1$
                 .maxVisits(10)
                 .build();
 
         ToolNode mutate = ToolNode.builder("metadata_mutate") //$NON-NLS-1$
                 .allowTools(mutateTools)
+                .allowTools(orchestrationTools())
                 .allowTool("ensure_module_artifact") //$NON-NLS-1$
                 .allowTool("edt_validate_request") //$NON-NLS-1$
                 .maxVisits(10)
@@ -99,6 +103,7 @@ final class ToolGraphDefinitions {
 
         ToolNode moduleEdit = ToolNode.builder("metadata_module_edit") //$NON-NLS-1$
                 .allowTools(inspectTools)
+                .allowTools(orchestrationTools())
                 .allowTool("read_file") //$NON-NLS-1$
                 .allowTool("edit_file") //$NON-NLS-1$
                 .allowTool("write_file") //$NON-NLS-1$
@@ -111,6 +116,7 @@ final class ToolGraphDefinitions {
         ToolNode diagnostics = ToolNode.builder("metadata_diagnostics") //$NON-NLS-1$
                 .allowTools(diagTools)
                 .allowTools(inspectTools)
+                .allowTools(orchestrationTools())
                 .maxVisits(10)
                 .build();
 
@@ -159,12 +165,14 @@ final class ToolGraphDefinitions {
 
         ToolNode inspect = ToolNode.builder("form_inspect") //$NON-NLS-1$
                 .allowTools(inspectTools)
+                .allowTools(orchestrationTools())
                 .allowTool("edt_validate_request") //$NON-NLS-1$
                 .maxVisits(10)
                 .build();
 
         ToolNode mutate = ToolNode.builder("form_mutate") //$NON-NLS-1$
                 .allowTools(mutateTools)
+                .allowTools(orchestrationTools())
                 .allowTool("edt_validate_request") //$NON-NLS-1$
                 .maxVisits(10)
                 .build();
@@ -172,6 +180,7 @@ final class ToolGraphDefinitions {
         ToolNode diagnostics = ToolNode.builder("form_diagnostics") //$NON-NLS-1$
                 .allowTools(diagTools)
                 .allowTools(inspectTools)
+                .allowTools(orchestrationTools())
                 .maxVisits(10)
                 .build();
 
@@ -200,6 +209,13 @@ final class ToolGraphDefinitions {
                 inspect.getId(),
                 nodes,
                 edges
+        );
+    }
+
+    private static Set<String> orchestrationTools() {
+        return Set.of(
+                "delegate_to_agent", //$NON-NLS-1$
+                "task" //$NON-NLS-1$
         );
     }
 }
