@@ -48,6 +48,7 @@ import com.codepilot1c.core.provider.config.DynamicLlmProvider;
 import com.codepilot1c.core.provider.config.LlmProviderConfig;
 import com.codepilot1c.core.provider.config.ProviderType;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
+import com.codepilot1c.core.remote.IRemoteWorkbenchBridge;
 import com.codepilot1c.core.state.VibeStateService;
 
 /**
@@ -81,6 +82,7 @@ public class VibeCorePlugin extends Plugin {
     private ServiceTracker<IRuntimeComponentManager, IRuntimeComponentManager> runtimeComponentManagerTracker;
     private ServiceTracker<IImportConfigurationFilesApi, IImportConfigurationFilesApi> importConfigurationFilesApiTracker;
     private ServiceTracker<IStandaloneServerService, IStandaloneServerService> standaloneServerServiceTracker;
+    private ServiceTracker<IRemoteWorkbenchBridge, IRemoteWorkbenchBridge> remoteWorkbenchBridgeTracker;
 
     @Override
     public void start(BundleContext context) throws Exception {
@@ -181,6 +183,8 @@ public class VibeCorePlugin extends Plugin {
         importConfigurationFilesApiTracker.open();
         standaloneServerServiceTracker = new ServiceTracker<>(context, IStandaloneServerService.class, null);
         standaloneServerServiceTracker.open();
+        remoteWorkbenchBridgeTracker = new ServiceTracker<>(context, IRemoteWorkbenchBridge.class, null);
+        remoteWorkbenchBridgeTracker.open();
     }
 
     @Override
@@ -263,6 +267,8 @@ public class VibeCorePlugin extends Plugin {
         importConfigurationFilesApiTracker = null;
         closeTracker(standaloneServerServiceTracker);
         standaloneServerServiceTracker = null;
+        closeTracker(remoteWorkbenchBridgeTracker);
+        remoteWorkbenchBridgeTracker = null;
 
         plugin = null;
         super.stop(context);
@@ -370,6 +376,10 @@ public class VibeCorePlugin extends Plugin {
 
     public IStandaloneServerService getStandaloneServerService() {
         return getTrackedService(standaloneServerServiceTracker, "IStandaloneServerService"); //$NON-NLS-1$
+    }
+
+    public IRemoteWorkbenchBridge getRemoteWorkbenchBridge() {
+        return getTrackedService(remoteWorkbenchBridgeTracker, "IRemoteWorkbenchBridge"); //$NON-NLS-1$
     }
 
     private <T> T getTrackedService(ServiceTracker<T, T> tracker, String serviceName) {

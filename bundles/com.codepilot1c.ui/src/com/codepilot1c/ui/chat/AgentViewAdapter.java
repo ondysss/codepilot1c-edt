@@ -17,7 +17,6 @@ import org.eclipse.swt.widgets.Display;
 import com.codepilot1c.core.agent.AgentConfig;
 import com.codepilot1c.core.agent.AgentResult;
 import com.codepilot1c.core.agent.AgentState;
-import com.codepilot1c.core.agent.IAgentRunner;
 import com.codepilot1c.core.agent.events.AgentCompletedEvent;
 import com.codepilot1c.core.agent.events.AgentEvent;
 import com.codepilot1c.core.agent.events.AgentStartedEvent;
@@ -29,12 +28,11 @@ import com.codepilot1c.core.agent.events.ToolCallEvent;
 import com.codepilot1c.core.agent.events.ToolResultEvent;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
-import com.codepilot1c.core.agent.langgraph.LangGraphAgentRunner;
 import com.codepilot1c.core.agent.langgraph.LangGraphStudioService;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
+import com.codepilot1c.core.remote.AgentSessionController;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
-import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.ui.dialogs.ToolConfirmationDialog;
 import com.codepilot1c.ui.internal.ToolDisplayNames;
 
@@ -57,7 +55,7 @@ public class AgentViewAdapter implements IAgentEventListener {
     private static final String CORE_PLUGIN_ID = "com.codepilot1c.core"; //$NON-NLS-1$
 
     private final Display display;
-    private IAgentRunner currentRunner;
+    private final AgentSessionController sessionController;
     private StringBuilder streamingContent;
     private String currentStreamingMessageId;
     private boolean graphMessageSent;
@@ -75,6 +73,8 @@ public class AgentViewAdapter implements IAgentEventListener {
      */
     public AgentViewAdapter(Display display) {
         this.display = Objects.requireNonNull(display, "display");
+        this.sessionController = AgentSessionController.getInstance();
+        this.sessionController.addAgentListener(this);
     }
 
     /**
@@ -127,20 +127,14 @@ public class AgentViewAdapter implements IAgentEventListener {
         // Create config from profile
         AgentConfig config = AgentProfileRegistry.getInstance().createConfig(profile);
 
-        // Create runner with system prompt
-        currentRunner = new LangGraphAgentRunner(provider, ToolRegistry.getInstance(),
-                profile.getSystemPromptAddition());
-        currentRunner.addListener(this);
-
         // Initialize streaming state
         streamingContent = new StringBuilder();
         currentStreamingMessageId = null;
         graphMessageSent = false;
 
         // Run the agent
-        return currentRunner.run(prompt, config)
+        return sessionController.submitFromDesktop(prompt, config.getProfileName())
                 .whenComplete((result, error) -> {
-                    currentRunner.removeListener(this);
                     if (error != null && stateChangeListener != null) {
                         asyncExec(() -> stateChangeListener.onStateChange(
                                 AgentState.ERROR, error.getMessage()));
@@ -152,16 +146,14 @@ public class AgentViewAdapter implements IAgentEventListener {
      * Отменяет текущее выполнение.
      */
     public void cancel() {
-        if (currentRunner != null) {
-            currentRunner.cancel();
-        }
+        sessionController.stopFromDesktop();
     }
 
     /**
      * Возвращает текущее состояние агента.
      */
     public AgentState getState() {
-        return currentRunner != null ? currentRunner.getState() : AgentState.IDLE;
+        return sessionController.getCurrentState();
     }
 
     /**
@@ -412,10 +404,7 @@ public class AgentViewAdapter implements IAgentEventListener {
      */
     public void dispose() {
         cancel();
-        if (currentRunner != null) {
-            currentRunner.dispose();
-            currentRunner = null;
-        }
+        sessionController.removeAgentListener(this);
     }
 
     // --- Callback interfaces ---

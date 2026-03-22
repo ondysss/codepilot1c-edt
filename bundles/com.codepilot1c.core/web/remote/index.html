@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodePilot1C Удаленный помощник</title>
+  <link rel="stylesheet" href="/remote/app.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">CodePilot1C</p>
+        <h1>Удаленный помощник</h1>
+      </div>
+      <div class="topbar-actions">
+        <button id="claim-controller" class="secondary">Захватить управление</button>
+        <button id="release-controller" class="secondary">Освободить</button>
+        <button id="refresh-bootstrap" class="secondary">Обновить</button>
+        <button id="logout" class="danger">Выйти</button>
+      </div>
+    </header>
+
+    <section id="login-card" class="card auth-card">
+      <div>
+        <p class="eyebrow">Доступ</p>
+        <h2>Подключить браузер к EDT</h2>
+        <p class="muted">
+          Вставьте статический bearer-токен, настроенный для встроенного MCP host.
+          Сервер обменяет его на короткоживущую HttpOnly cookie для <code>/remote/api</code>.
+        </p>
+      </div>
+      <form id="login-form" class="stack">
+        <label class="stack">
+          <span>Bearer-токен</span>
+          <textarea id="token-input" rows="4" placeholder="cp_..."></textarea>
+        </label>
+        <button type="submit">Войти</button>
+      </form>
+      <p id="login-error" class="error"></p>
+    </section>
+
+    <main id="app" class="app hidden">
+      <section class="card panel session-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Лента сессии</p>
+            <h2>Сессия агента</h2>
+          </div>
+          <div id="session-badges" class="badges"></div>
+        </div>
+
+        <form id="agent-form" class="stack">
+          <label class="stack">
+            <span>Запрос</span>
+            <textarea id="prompt-input" rows="5" placeholder="Опишите задачу для агента..."></textarea>
+          </label>
+          <div class="row">
+            <label class="stack grow">
+              <span>Профиль</span>
+              <select id="profile-select"></select>
+            </label>
+            <div class="row">
+              <button type="button" id="agent-start">Новая сессия</button>
+              <button type="button" id="agent-input" class="secondary">Продолжить</button>
+              <button type="button" id="agent-stop" class="danger">Остановить</button>
+            </div>
+          </div>
+        </form>
+
+        <div id="timeline" class="timeline"></div>
+      </section>
+
+      <section class="card panel tools-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Поток инструментов</p>
+            <h2>Вызовы и подтверждения</h2>
+          </div>
+        </div>
+        <div id="pending-confirmation" class="confirmation empty">Нет ожидающих подтверждений.</div>
+        <div id="tool-events" class="tool-events"></div>
+      </section>
+
+      <section class="card panel ide-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Снимок IDE</p>
+            <h2>Состояние workbench</h2>
+          </div>
+          <button id="snapshot-refresh" class="secondary">Обновить снимок</button>
+        </div>
+        <div id="ide-snapshot" class="snapshot-grid"></div>
+      </section>
+
+      <section class="card panel command-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Палитра команд</p>
+            <h2>Команды Eclipse</h2>
+          </div>
+        </div>
+        <form id="command-form" class="stack">
+          <label class="stack">
+            <span>Идентификатор команды</span>
+            <input id="command-input" list="command-list" placeholder="org.eclipse.ui.navigate.next">
+            <datalist id="command-list"></datalist>
+          </label>
+          <label class="stack">
+            <span>Параметры (JSON)</span>
+            <textarea id="command-params" rows="4" placeholder='{"key":"value"}'></textarea>
+          </label>
+          <button type="submit">Выполнить команду</button>
+        </form>
+        <div id="command-results" class="results"></div>
+      </section>
+
+      <section class="card panel editor-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Действия редактора</p>
+            <h2>Открыть, показать, применить</h2>
+          </div>
+        </div>
+        <form id="editor-open-form" class="stack">
+          <label class="stack">
+            <span>Путь к файлу</span>
+            <input id="editor-path" placeholder="/Project/src/CommonModules/Module.bsl">
+          </label>
+          <div class="row">
+            <button type="submit">Открыть файл</button>
+            <button type="button" id="editor-selection" class="secondary">Получить выделение</button>
+          </div>
+        </form>
+
+        <form id="editor-reveal-form" class="stack compact-form">
+          <div class="grid-5">
+            <input id="reveal-start-line" type="number" min="1" placeholder="Нач. строка">
+            <input id="reveal-start-column" type="number" min="1" placeholder="Нач. столбец">
+            <input id="reveal-end-line" type="number" min="1" placeholder="Кон. строка">
+            <input id="reveal-end-column" type="number" min="1" placeholder="Кон. столбец">
+            <button type="submit" class="secondary">Показать диапазон</button>
+          </div>
+        </form>
+
+        <form id="editor-text-form" class="stack">
+          <label class="stack">
+            <span>Текст / Сгенерированный ответ</span>
+            <textarea id="editor-text" rows="7" placeholder="Текст для вставки, замены или применения..."></textarea>
+          </label>
+          <div class="row">
+            <button type="button" id="replace-selection" class="secondary">Заменить выделение</button>
+            <button type="button" id="insert-at-cursor" class="secondary">Вставить в курсор</button>
+            <button type="button" id="apply-generated-code">Применить сгенерированный код</button>
+          </div>
+          <label class="inline-check">
+            <input id="apply-replace-selection" type="checkbox">
+            <span>Заменить текущее выделение при применении сгенерированного кода</span>
+          </label>
+        </form>
+        <div id="editor-results" class="results"></div>
+      </section>
+    </main>
+
+    <section id="notice-bar" class="notice-bar"></section>
+  </div>
+
+  <script src="/remote/app.js"></script>
+</body>
+</html>
