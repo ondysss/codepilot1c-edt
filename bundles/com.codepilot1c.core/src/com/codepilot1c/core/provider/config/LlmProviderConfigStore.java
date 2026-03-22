@@ -33,6 +33,7 @@ import com.google.gson.JsonParser;
 public class LlmProviderConfigStore {
 
     private static final int CURRENT_CONFIG_VERSION = 1;
+    static final String RESERVED_BACKEND_PROVIDER_ID = "backend"; //$NON-NLS-1$
     private static LlmProviderConfigStore instance;
 
     /**
@@ -134,6 +135,11 @@ public class LlmProviderConfigStore {
      * Adds a new provider configuration.
      */
     public void addProvider(LlmProviderConfig config) {
+        if (config == null || isReservedId(config.getId())) {
+            VibeCorePlugin.logWarn("Ignoring provider config with reserved ID: " //$NON-NLS-1$
+                    + (config != null ? config.getId() : "null")); //$NON-NLS-1$
+            return;
+        }
         if (cachedConfigs == null) {
             loadFromPreferences();
         }
@@ -145,6 +151,11 @@ public class LlmProviderConfigStore {
      * Updates an existing provider configuration.
      */
     public void updateProvider(LlmProviderConfig config) {
+        if (config == null || isReservedId(config.getId())) {
+            VibeCorePlugin.logWarn("Ignoring update for provider config with reserved ID: " //$NON-NLS-1$
+                    + (config != null ? config.getId() : "null")); //$NON-NLS-1$
+            return;
+        }
         if (cachedConfigs == null) {
             loadFromPreferences();
         }
@@ -176,7 +187,11 @@ public class LlmProviderConfigStore {
      * Saves all providers at once (for batch updates).
      */
     public void saveProviders(List<LlmProviderConfig> providers) {
-        this.cachedConfigs = new ArrayList<>(providers);
+        LoadedState sanitized = sanitizeLoadedState(
+                providers != null ? providers : List.of(),
+                cachedActiveProviderId);
+        this.cachedConfigs = sanitized.configs();
+        this.cachedActiveProviderId = sanitized.activeProviderId();
         saveToPreferences();
     }
 
@@ -198,21 +213,24 @@ public class LlmProviderConfigStore {
         // Load providers JSON
         String json = prefs.get(VibePreferenceConstants.PREF_LLM_PROVIDERS, "[]"); //$NON-NLS-1$
         try {
-            cachedConfigs = new ArrayList<>();
+            List<LlmProviderConfig> loadedConfigs = new ArrayList<>();
             JsonArray array = JsonParser.parseString(json).getAsJsonArray();
             for (JsonElement element : array) {
                 LlmProviderConfig config = gson.fromJson(element, LlmProviderConfig.class);
                 if (config != null) {
-                    cachedConfigs.add(config);
+                    loadedConfigs.add(config);
                 }
             }
+            LoadedState sanitized = sanitizeLoadedState(
+                    loadedConfigs,
+                    prefs.get(VibePreferenceConstants.PREF_LLM_ACTIVE_PROVIDER_ID, "")); //$NON-NLS-1$
+            cachedConfigs = sanitized.configs();
+            cachedActiveProviderId = sanitized.activeProviderId();
         } catch (Exception e) {
             VibeCorePlugin.logWarn("Failed to parse provider configs: " + e.getMessage()); //$NON-NLS-1$
             cachedConfigs = new ArrayList<>();
+            cachedActiveProviderId = prefs.get(VibePreferenceConstants.PREF_LLM_ACTIVE_PROVIDER_ID, ""); //$NON-NLS-1$
         }
-
-        // Load active provider ID
-        cachedActiveProviderId = prefs.get(VibePreferenceConstants.PREF_LLM_ACTIVE_PROVIDER_ID, ""); //$NON-NLS-1$
     }
 
     /**
@@ -253,6 +271,53 @@ public class LlmProviderConfigStore {
      */
     private IEclipsePreferences getPreferences() {
         return InstanceScope.INSTANCE.getNode(VibeCorePlugin.PLUGIN_ID);
+    }
+
+    static LoadedState sanitizeLoadedState(List<LlmProviderConfig> configs, String activeProviderId) {
+        List<LlmProviderConfig> sanitizedConfigs = new ArrayList<>();
+        boolean strippedReservedConfig = false;
+        if (configs != null) {
+            for (LlmProviderConfig config : configs) {
+                if (config == null) {
+                    continue;
+                }
+                if (isReservedId(config.getId())) {
+                    strippedReservedConfig = true;
+                    VibeCorePlugin.logWarn("Skipping persisted config with reserved system ID: " + config.getId()); //$NON-NLS-1$
+                    continue;
+                }
+                sanitizedConfigs.add(config);
+            }
+        }
+
+        String sanitizedActiveProviderId = activeProviderId != null ? activeProviderId : ""; //$NON-NLS-1$
+        if (strippedReservedConfig && isReservedId(sanitizedActiveProviderId)) {
+            sanitizedActiveProviderId = ""; //$NON-NLS-1$
+        }
+
+        return new LoadedState(sanitizedConfigs, sanitizedActiveProviderId);
+    }
+
+    static boolean isReservedId(String id) {
+        return RESERVED_BACKEND_PROVIDER_ID.equals(id);
+    }
+
+    static final class LoadedState {
+        private final List<LlmProviderConfig> configs;
+        private final String activeProviderId;
+
+        LoadedState(List<LlmProviderConfig> configs, String activeProviderId) {
+            this.configs = new ArrayList<>(configs);
+            this.activeProviderId = activeProviderId != null ? activeProviderId : ""; //$NON-NLS-1$
+        }
+
+        List<LlmProviderConfig> configs() {
+            return new ArrayList<>(configs);
+        }
+
+        String activeProviderId() {
+            return activeProviderId;
+        }
     }
 
     /**

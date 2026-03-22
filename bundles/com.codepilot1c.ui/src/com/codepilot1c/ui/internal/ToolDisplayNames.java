@@ -86,6 +86,7 @@ public final class ToolDisplayNames {
             case "list_metadata" -> "Список метаданных"; //$NON-NLS-1$ //$NON-NLS-2$
             case "get_metadata" -> "Получение метаданных"; //$NON-NLS-1$ //$NON-NLS-2$
             case "open_module" -> "Открытие модуля"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "delegate_to_agent" -> "Делегирование агенту"; //$NON-NLS-1$ //$NON-NLS-2$
             case "task" -> "Подзадача"; //$NON-NLS-1$ //$NON-NLS-2$
             default -> name;
         };

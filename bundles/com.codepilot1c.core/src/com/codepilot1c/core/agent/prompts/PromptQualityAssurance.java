@@ -13,10 +13,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-import org.eclipse.core.runtime.ILog;
 import org.eclipse.core.runtime.IStatus;
-import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
+
+import com.codepilot1c.core.internal.VibeCorePlugin;
 
 /**
  * Легковесная QA-валидация системных промптов.
@@ -27,7 +27,6 @@ import org.eclipse.core.runtime.Status;
 public final class PromptQualityAssurance {
 
     private static final String PLUGIN_ID = "com.codepilot1c.core"; //$NON-NLS-1$
-    private static final ILog LOG = Platform.getLog(PromptQualityAssurance.class);
 
     private static final String PROP_QA_STRICT = "codepilot1c.prompt.qa.strict"; //$NON-NLS-1$
     private static final int MIN_PROMPT_LENGTH = 80;
@@ -79,7 +78,7 @@ public final class PromptQualityAssurance {
             if (isStrictMode()) {
                 throw new IllegalStateException(message);
             }
-            LOG.log(new Status(IStatus.WARNING, PLUGIN_ID, message));
+            logWarning(message);
         }
 
         return value;
@@ -88,5 +87,14 @@ public final class PromptQualityAssurance {
     private static boolean isStrictMode() {
         String raw = System.getProperty(PROP_QA_STRICT);
         return raw != null && Boolean.parseBoolean(raw.trim());
+    }
+
+    private static void logWarning(String message) {
+        try {
+            VibeCorePlugin.logWarn(message);
+        } catch (RuntimeException e) {
+            // Headless/unit-test execution can run before Eclipse logging is initialized.
+            System.err.println(new Status(IStatus.WARNING, PLUGIN_ID, message).getMessage());
+        }
     }
 }

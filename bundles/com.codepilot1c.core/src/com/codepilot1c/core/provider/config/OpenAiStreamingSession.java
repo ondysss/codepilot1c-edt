@@ -14,10 +14,12 @@ import com.google.gson.JsonParser;
 final class OpenAiStreamingSession {
 
     private final OpenAiChunkAdapter chunkAdapter;
+    private final OpenAiStreamingToolCallParser toolCallParser;
     private final ProviderStreamProcessingSummary summary;
 
     OpenAiStreamingSession(String correlationId, boolean requestHasTools,
             OpenAiStreamingToolCallParser toolCallParser) {
+        this.toolCallParser = toolCallParser;
         this.summary = new ProviderStreamProcessingSummary(correlationId, requestHasTools);
         this.chunkAdapter = new OpenAiChunkAdapter(toolCallParser);
     }
@@ -63,9 +65,22 @@ final class OpenAiStreamingSession {
                 summary.getToolCallFragments().addAndGet(chunkData.getToolCallFragments());
             }
 
+            if (chunkData.getRepairedToolCalls() > 0) {
+                summary.getRepairedToolCalls().addAndGet(chunkData.getRepairedToolCalls());
+            }
+
+            if (chunkData.getTruncatedToolCalls() > 0) {
+                summary.getTruncatedToolCalls().addAndGet(chunkData.getTruncatedToolCalls());
+            }
+
             if (chunkData.hasCompletedToolCalls()) {
                 summary.getCompletedToolCalls().addAndGet(chunkData.getCompletedToolCalls().size());
                 consumer.accept(LlmStreamChunk.toolCalls(chunkData.getCompletedToolCalls()));
+            }
+
+            if (chunkData.hasError()) {
+                summary.markTerminalError(chunkData.getErrorMessage());
+                consumer.accept(LlmStreamChunk.error(chunkData.getErrorMessage()));
             }
 
             if (chunkData.isMetadataOnly()) {
@@ -81,6 +96,25 @@ final class OpenAiStreamingSession {
         }
     }
 
+    String completePendingToolCalls(Consumer<LlmStreamChunk> consumer) {
+        if (!toolCallParser.hasPendingToolCalls()) {
+            return null;
+        }
+        OpenAiStreamingToolCallParser.DrainResult drainResult = toolCallParser.drainCompletedToolCalls();
+        if (drainResult.repairedCount() > 0) {
+            summary.getRepairedToolCalls().addAndGet(drainResult.repairedCount());
+        }
+        if (drainResult.truncatedCount() > 0) {
+            summary.getTruncatedToolCalls().addAndGet(drainResult.truncatedCount());
+        }
+        if (!drainResult.toolCalls().isEmpty()) {
+            summary.getCompletedToolCalls().addAndGet(drainResult.toolCalls().size());
+            consumer.accept(LlmStreamChunk.toolCalls(drainResult.toolCalls()));
+            return com.codepilot1c.core.model.LlmResponse.FINISH_REASON_TOOL_USE;
+        }
+        return null;
+    }
+
     void logSummary(VibeLogger.CategoryLogger log) {
         if (summary.getNullPayloads().get() == 0
                 && summary.getMetadataChunks().get() == 0
@@ -88,7 +122,7 @@ final class OpenAiStreamingSession {
                 && summary.getParseFailures().get() == 0) {
             return;
         }
-        log.debug("[%s] Stream summary: nullPayloads=%d, metadataChunks=%d, opaqueChunks=%d, parseFailures=%d, contentChunks=%d, reasoningChunks=%d, toolCallChunks=%d, completedToolCalls=%d", //$NON-NLS-1$
+        log.debug("[%s] Stream summary: nullPayloads=%d, metadataChunks=%d, opaqueChunks=%d, parseFailures=%d, contentChunks=%d, reasoningChunks=%d, toolCallChunks=%d, completedToolCalls=%d repairedToolCalls=%d, truncatedToolCalls=%d, errorChunks=%d", //$NON-NLS-1$
                 summary.getCorrelationId(),
                 summary.getNullPayloads().get(),
                 summary.getMetadataChunks().get(),
@@ -97,6 +131,9 @@ final class OpenAiStreamingSession {
                 summary.getContentChunks().get(),
                 summary.getReasoningChunks().get(),
                 summary.getToolCallFragments().get(),
-                summary.getCompletedToolCalls().get());
+                summary.getCompletedToolCalls().get(),
+                summary.getRepairedToolCalls().get(),
+                summary.getTruncatedToolCalls().get(),
+                summary.getErrorChunks().get());
     }
 }

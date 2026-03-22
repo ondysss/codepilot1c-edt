@@ -280,19 +280,10 @@ public final class LlmProviderRegistry {
             }
         }
 
-        // First check new config system
+        // Only fall back to non-backend dynamic providers when no explicit selection exists.
         if (configStore != null && configStore.hasConfiguredProviders()) {
-            Optional<LlmProviderConfig> activeConfig = configStore.getActiveProvider();
-            if (activeConfig.isPresent()) {
-                DynamicLlmProvider provider = dynamicProviders.get(activeConfig.get().getId());
-                if (provider != null && provider.isConfigured()) {
-                    return provider;
-                }
-            }
-
-            // If no active set, return first configured dynamic provider
             for (DynamicLlmProvider provider : dynamicProviders.values()) {
-                if (provider.isConfigured()) {
+                if (provider.isConfigured() && !ProviderSelectionGate.isCodePilotBackend(provider)) {
                     return provider;
                 }
             }
@@ -311,10 +302,6 @@ public final class LlmProviderRegistry {
             if (provider.isConfigured()) {
                 return provider;
             }
-        }
-
-        if (backendProvider != null && backendProvider.isConfigured()) {
-            return backendProvider;
         }
 
         return null;

@@ -23,9 +23,11 @@ import com.codepilot1c.core.agent.langgraph.LangGraphAgentRunner;
 import com.codepilot1c.core.agent.AgentState;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.agent.profiles.ProfileRouter;
 import com.codepilot1c.core.agent.prompts.AgentPromptTemplates;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
+import com.codepilot1c.core.provider.ProviderUtils;
 
 /**
  * Инструмент для запуска подагентов.
@@ -36,7 +38,7 @@ import com.codepilot1c.core.provider.LlmProviderRegistry;
  * <p>Особенности:</p>
  * <ul>
  *   <li>Ограничение глубины вложенности (макс. 3)</li>
- *   <li>Выбор профиля подагента (explore, plan, build)</li>
+ *   <li>Выбор профиля подагента (auto, explore, plan, code, metadata, qa, dcs, extension, recovery)</li>
  *   <li>Автоматическое суммирование результата</li>
  *   <li>Таймаут выполнения</li>
  * </ul>
@@ -46,14 +48,14 @@ import com.codepilot1c.core.provider.LlmProviderRegistry;
  * // Делегировать исследование кодовой базы
  * task(prompt="Найди все обработчики событий формы", profile="explore")
  *
- * // Делегировать создание плана
- * task(prompt="Создай план рефакторинга модуля", profile="plan")
+ * // Делегировать задачу по метаданным
+ * task(prompt="Создай справочник Товары и форму списка", profile="metadata")
  * </pre>
  */
-public class TaskTool implements ITool {
+@ToolMeta(name = "task", category = "general", tags = {"workspace"})
+public class TaskTool extends AbstractTool {
 
     private static final String PLUGIN_ID = "com.codepilot1c.core";
-    private static final ILog LOG = Platform.getLog(TaskTool.class);
 
     private static final String SCHEMA = """
             {
@@ -65,8 +67,8 @@ public class TaskTool implements ITool {
                     },
                     "profile": {
                         "type": "string",
-                        "enum": ["explore", "plan", "build"],
-                        "description": "Agent profile: explore (fast search), plan (analysis), build (full access)"
+                        "enum": ["auto", "explore", "plan", "build", "code", "metadata", "qa", "dcs", "extension", "recovery", "orchestrator"],
+                        "description": "Sub-agent profile or auto routing based on prompt keywords."
                     },
                     "description": {
                         "type": "string",
@@ -85,6 +87,8 @@ public class TaskTool implements ITool {
             ThreadLocal.withInitial(() -> new AtomicInteger(0));
 
     private final ToolRegistry toolRegistry;
+    private final ProfileRouter profileRouter;
+    private final SubagentExecutor subagentExecutor;
 
     /**
      * Создает TaskTool с указанным реестром инструментов.
@@ -92,19 +96,23 @@ public class TaskTool implements ITool {
      * @param toolRegistry реестр инструментов для подагентов
      */
     public TaskTool(ToolRegistry toolRegistry) {
-        this.toolRegistry = toolRegistry;
+        this(toolRegistry, new ProfileRouter(), DefaultSubagentExecutor.INSTANCE);
     }
 
-    @Override
-    public String getName() {
-        return "task";
+    TaskTool(ToolRegistry toolRegistry, ProfileRouter profileRouter) {
+        this(toolRegistry, profileRouter, DefaultSubagentExecutor.INSTANCE);
+    }
+
+    TaskTool(ToolRegistry toolRegistry, ProfileRouter profileRouter, SubagentExecutor subagentExecutor) {
+        this.toolRegistry = toolRegistry;
+        this.profileRouter = profileRouter;
+        this.subagentExecutor = subagentExecutor;
     }
 
     @Override
     public String getDescription() {
         return "Запускает подагента для выполнения сложной задачи. " +
-               "Используйте для делегирования исследования кода (explore), " +
-               "создания планов (plan) или выполнения задач (build).";
+               "Используйте для делегирования в domain-профили или через auto routing.";
     }
 
     @Override
@@ -113,22 +121,12 @@ public class TaskTool implements ITool {
     }
 
     @Override
-    public CompletableFuture<ToolResult> execute(Map<String, Object> parameters) {
+    protected CompletableFuture<ToolResult> doExecute(ToolParameters params) {
         return CompletableFuture.supplyAsync(() -> {
-            String prompt = (String) parameters.get("prompt");
-            if (prompt == null || prompt.isEmpty()) {
-                return ToolResult.failure("Параметр prompt обязателен");
-            }
-
-            String profileId = (String) parameters.get("profile");
-            if (profileId == null || profileId.isEmpty()) {
-                profileId = "explore"; // Default to fast explore
-            }
-
-            String description = (String) parameters.get("description");
-            if (description == null || description.isEmpty()) {
-                description = "Подзадача";
-            }
+            String prompt = params.requireString("prompt"); //$NON-NLS-1$
+            String requestedProfileId = profileRouter.normalizeProfileId(params.optString("profile", "auto")); //$NON-NLS-1$ //$NON-NLS-2$
+            String profileId = profileRouter.resolveRequestedProfile(prompt, requestedProfileId);
+            String description = params.optString("description", "Подзадача"); //$NON-NLS-1$ //$NON-NLS-2$
 
             // Check depth limit
             AtomicInteger depth = currentDepth.get();
@@ -157,6 +155,9 @@ public class TaskTool implements ITool {
         if (provider == null || !provider.isConfigured()) {
             return ToolResult.failure("LLM провайдер не настроен");
         }
+        if (!ProviderUtils.isCodePilotBackend(provider)) {
+            return ToolResult.failure("Tool task доступен только при активном CodePilot Account backend"); //$NON-NLS-1$
+        }
 
         // Get profile
         AgentProfile profile = AgentProfileRegistry.getInstance()
@@ -180,24 +181,12 @@ public class TaskTool implements ITool {
 
         AgentConfig config = configBuilder.build();
 
-        // Create and run subagent
-        LangGraphAgentRunner subagent = new LangGraphAgentRunner(provider, toolRegistry,
-                profile.getSystemPromptAddition());
-
         try {
-            CompletableFuture<AgentResult> future = subagent.run(prompt, config);
-
-            // Wait with timeout
-            AgentResult result = future.get(DEFAULT_TIMEOUT_SECONDS + 10, TimeUnit.SECONDS);
-
+            AgentResult result = subagentExecutor.run(provider, toolRegistry, profile, prompt, config);
             return formatResult(result, description, profileId);
-
         } catch (Exception e) {
             logError("Ошибка выполнения подагента", e);
-            subagent.cancel();
             return ToolResult.failure("Ошибка подагента: " + e.getMessage());
-        } finally {
-            subagent.dispose();
         }
     }
 
@@ -273,10 +262,56 @@ public class TaskTool implements ITool {
     }
 
     private void logInfo(String message) {
-        LOG.log(new Status(IStatus.INFO, PLUGIN_ID, message));
+        ILog log = safeLog();
+        if (log != null) {
+            log.log(new Status(IStatus.INFO, PLUGIN_ID, message));
+        }
     }
 
     private void logError(String message, Throwable error) {
-        LOG.log(new Status(IStatus.ERROR, PLUGIN_ID, message, error));
+        ILog log = safeLog();
+        if (log != null) {
+            log.log(new Status(IStatus.ERROR, PLUGIN_ID, message, error));
+        }
+    }
+
+    private ILog safeLog() {
+        try {
+            return Platform.getLog(TaskTool.class);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    @FunctionalInterface
+    interface SubagentExecutor {
+        AgentResult run(
+                ILlmProvider provider,
+                ToolRegistry toolRegistry,
+                AgentProfile profile,
+                String prompt,
+                AgentConfig config) throws Exception;
+    }
+
+    private static final class DefaultSubagentExecutor implements SubagentExecutor {
+
+        private static final DefaultSubagentExecutor INSTANCE = new DefaultSubagentExecutor();
+
+        @Override
+        public AgentResult run(
+                ILlmProvider provider,
+                ToolRegistry toolRegistry,
+                AgentProfile profile,
+                String prompt,
+                AgentConfig config) throws Exception {
+            LangGraphAgentRunner subagent = new LangGraphAgentRunner(provider, toolRegistry,
+                    profile.getSystemPromptAddition());
+            try {
+                CompletableFuture<AgentResult> future = subagent.run(prompt, config);
+                return future.get(DEFAULT_TIMEOUT_SECONDS + 10L, TimeUnit.SECONDS);
+            } finally {
+                subagent.dispose();
+            }
+        }
     }
 }

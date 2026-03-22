@@ -41,6 +41,92 @@ public class OpenAiStreamingSessionTest {
         assertNotNull(findToolChunk(chunks));
     }
 
+    @Test
+    public void repairsIncompleteArgumentsAtFinish() {
+        OpenAiStreamingSession session = new OpenAiStreamingSession("repair", true, new OpenAiStreamingToolCallParser()); //$NON-NLS-1$
+        List<LlmStreamChunk> chunks = new ArrayList<>();
+
+        String finishReason = session.processLine(
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"git_inspect\",\"arguments\":\"{\\\"operation\\\":\\\"status\\\"\"}}]},\"finish_reason\":\"tool_calls\"}]}", //$NON-NLS-1$
+                chunks::add);
+        if (finishReason != null) {
+            chunks.add(LlmStreamChunk.complete(finishReason));
+        }
+
+        LlmStreamChunk toolChunk = findToolChunk(chunks);
+        assertNotNull(toolChunk);
+        assertEquals("{\"operation\":\"status\"}", toolChunk.getToolCalls().get(0).getArguments()); //$NON-NLS-1$
+        assertEquals(1, session.getSummary().getRepairedToolCalls().get());
+        assertFalse(session.getSummary().shouldFallbackToNonStreaming());
+    }
+
+    @Test
+    public void reusedIndexCollisionPreservesBothToolCalls() {
+        OpenAiStreamingSession session = new OpenAiStreamingSession("collision", true, new OpenAiStreamingToolCallParser()); //$NON-NLS-1$
+        List<LlmStreamChunk> chunks = new ArrayList<>();
+
+        session.processLine(
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"git_inspect\",\"arguments\":\"{\\\"operation\\\":\\\"status\\\"}\"}}]},\"finish_reason\":null}]}", //$NON-NLS-1$
+                chunks::add);
+        String finishReason = session.processLine(
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_2\",\"type\":\"function\",\"function\":{\"name\":\"git_inspect\",\"arguments\":\"{\\\"operation\\\":\\\"diff\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}", //$NON-NLS-1$
+                chunks::add);
+        if (finishReason != null) {
+            chunks.add(LlmStreamChunk.complete(finishReason));
+        }
+
+        LlmStreamChunk toolChunk = findToolChunk(chunks);
+        assertNotNull(toolChunk);
+        assertEquals(2, toolChunk.getToolCalls().size());
+        assertEquals("call_1", toolChunk.getToolCalls().get(0).getId()); //$NON-NLS-1$
+        assertEquals("call_2", toolChunk.getToolCalls().get(1).getId()); //$NON-NLS-1$
+    }
+
+    @Test
+    public void completesPendingToolCallsOnDoneWithoutFinishReason() {
+        OpenAiStreamingSession session = new OpenAiStreamingSession("done", true, new OpenAiStreamingToolCallParser()); //$NON-NLS-1$
+        List<LlmStreamChunk> chunks = new ArrayList<>();
+
+        session.processLine(
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_done\",\"type\":\"function\",\"function\":{\"name\":\"git_inspect\",\"arguments\":\"{\\\"operation\\\":\\\"status\\\"\"}}]},\"finish_reason\":null}]}", //$NON-NLS-1$
+                chunks::add);
+        String finishReason = session.completePendingToolCalls(chunks::add);
+        if (finishReason != null) {
+            chunks.add(LlmStreamChunk.complete(finishReason));
+        }
+
+        LlmStreamChunk toolChunk = findToolChunk(chunks);
+        assertNotNull(toolChunk);
+        assertEquals("call_done", toolChunk.getToolCalls().get(0).getId()); //$NON-NLS-1$
+        assertEquals(LlmResponse.FINISH_REASON_TOOL_USE, lastFinishReason(chunks));
+    }
+
+    @Test
+    public void unrecoverableArgumentsTriggerFallbackSignal() {
+        OpenAiStreamingSession session = new OpenAiStreamingSession("truncated", true, new OpenAiStreamingToolCallParser()); //$NON-NLS-1$
+        List<LlmStreamChunk> chunks = new ArrayList<>();
+
+        session.processLine(
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_bad\",\"type\":\"function\",\"function\":{\"name\":\"git_inspect\",\"arguments\":\"{\\\"operation\\\":\"}}]},\"finish_reason\":\"tool_calls\"}]}", //$NON-NLS-1$
+                chunks::add);
+
+        assertEquals(1, session.getSummary().getTruncatedToolCalls().get());
+        assertTrue(session.getSummary().shouldFallbackToNonStreaming());
+        assertNotNull(chunks);
+    }
+
+    @Test
+    public void errorPayloadProducesStructuredErrorChunk() {
+        OpenAiStreamingSession session = new OpenAiStreamingSession("error", true, new OpenAiStreamingToolCallParser()); //$NON-NLS-1$
+        List<LlmStreamChunk> chunks = new ArrayList<>();
+
+        session.processLine("data: {\"error\":{\"message\":\"rate limited\"}}", chunks::add); //$NON-NLS-1$
+
+        assertEquals(1, session.getSummary().getErrorChunks().get());
+        assertTrue(session.getSummary().hasTerminalError());
+        assertEquals("rate limited", chunks.get(0).getErrorMessage()); //$NON-NLS-1$
+    }
+
     private void assertFixtureProducesToolUse(String fixtureName, String expectedId,
             String expectedArguments, boolean expectReasoning) throws Exception {
         OpenAiStreamingSession session = new OpenAiStreamingSession("fixture-" + fixtureName, true, //$NON-NLS-1$

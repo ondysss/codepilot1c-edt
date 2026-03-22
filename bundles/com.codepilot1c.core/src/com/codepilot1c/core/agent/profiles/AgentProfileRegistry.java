@@ -46,6 +46,13 @@ public class AgentProfileRegistry {
     private void registerDefaultProfiles() {
         AgentPromptTemplates.runStartupChecks();
         register(new BuildAgentProfile());
+        register(new OrchestratorProfile());
+        register(new CodeBuildProfile());
+        register(new MetadataBuildProfile());
+        register(new QABuildProfile());
+        register(new DCSBuildProfile());
+        register(new ExtensionBuildProfile());
+        register(new RecoveryProfile());
         register(new PlanAgentProfile());
         register(new ExploreAgentProfile());
     }
@@ -147,6 +154,13 @@ public class AgentProfileRegistry {
      */
     public AgentProfile getBuildProfile() {
         return profiles.get(BuildAgentProfile.ID);
+    }
+
+    /**
+     * Возвращает профиль "orchestrator" (координация подагентов).
+     */
+    public AgentProfile getOrchestratorProfile() {
+        return profiles.get(OrchestratorProfile.ID);
     }
 
     /**

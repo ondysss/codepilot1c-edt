@@ -77,6 +77,18 @@ public class ToolDefinition {
             return this;
         }
 
+        public String getName() {
+            return name;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+
+        public String getParametersSchema() {
+            return parametersSchema;
+        }
+
         public ToolDefinition build() {
             return new ToolDefinition(name, description, parametersSchema);
         }

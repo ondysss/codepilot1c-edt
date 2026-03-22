@@ -33,7 +33,10 @@ public class EdtMetadataInspectorService {
 
     public MetadataDetailsResult getMetadataDetails(MetadataDetailsRequest req) {
         req.validate();
+        return executeRead(req.getProjectName(), () -> doGetMetadataDetails(req));
+    }
 
+    MetadataDetailsResult doGetMetadataDetails(MetadataDetailsRequest req) {
         IProject project = gateway.resolveProject(req.getProjectName());
         readinessChecker.ensureReady(project);
 
@@ -62,6 +65,27 @@ public class EdtMetadataInspectorService {
         }
 
         return new MetadataDetailsResult(req.getProjectName(), "edt_emf", nodes); //$NON-NLS-1$
+    }
+
+    private <T> T executeRead(String projectName, ReadOnlyTask<T> task) {
+        IProject project = gateway.resolveProject(projectName);
+        if (project == null) {
+            return task.execute();
+        }
+        try {
+            return gateway.getBmModelManager().executeReadOnlyTask(project, tx -> task.execute());
+        } catch (EdtAstException e) {
+            if (e.getCode() == EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE) {
+                return task.execute();
+            }
+            throw e;
+        } catch (RuntimeException e) {
+            throw new EdtAstException(
+                    EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE,
+                    "Failed to execute metadata inspection read transaction: " + e.getMessage(), //$NON-NLS-1$
+                    true,
+                    e);
+        }
     }
 
     private MetadataNode inspectEObject(EObject object, String path, boolean full, int depth) {
@@ -272,5 +296,10 @@ public class EdtMetadataInspectorService {
             }
         }
         return map;
+    }
+
+    @FunctionalInterface
+    private interface ReadOnlyTask<T> {
+        T execute();
     }
 }

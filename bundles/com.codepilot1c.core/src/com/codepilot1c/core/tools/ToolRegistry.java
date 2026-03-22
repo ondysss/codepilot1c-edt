@@ -22,16 +22,28 @@ import org.eclipse.core.runtime.IExtensionRegistry;
 import org.eclipse.core.runtime.Platform;
 
 import com.codepilot1c.core.evaluation.trace.AgentTraceSession;
-import com.codepilot1c.core.evaluation.trace.TraceEventType;
 import com.google.gson.Gson;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.google.gson.JsonSyntaxException;
 
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
+import com.codepilot1c.core.agent.profiles.AgentProfile;
+import com.codepilot1c.core.tools.bsl.*;
+import com.codepilot1c.core.tools.dcs.*;
+import com.codepilot1c.core.tools.diagnostics.*;
+import com.codepilot1c.core.tools.extension.*;
+import com.codepilot1c.core.tools.external.*;
+import com.codepilot1c.core.tools.file.*;
+import com.codepilot1c.core.tools.forms.*;
+import com.codepilot1c.core.tools.git.*;
+import com.codepilot1c.core.tools.metadata.*;
+import com.codepilot1c.core.tools.qa.*;
+import com.codepilot1c.core.tools.surface.BuiltinToolTaxonomy;
+import com.codepilot1c.core.tools.surface.ToolCategory;
+import com.codepilot1c.core.tools.surface.ToolSurfaceAugmentor;
+import com.codepilot1c.core.tools.surface.ToolSurfaceContext;
+import com.codepilot1c.core.tools.meta.ToolDescriptorRegistry;
+import com.codepilot1c.core.tools.workspace.*;
 
 /**
  * Registry for AI tools.
@@ -50,10 +62,18 @@ public class ToolRegistry {
     private final Map<String, ITool> tools = new HashMap<>();
     private final Map<String, ITool> dynamicTools = new ConcurrentHashMap<>();
     private final Gson gson = new Gson();
+    private ToolArgumentParser argumentParser;
+    private ToolExecutionService executionService;
+    private ProviderContextResolver providerContextResolver;
+    private volatile ToolSurfaceAugmentor augmentor;
 
     private ToolRegistry() {
         // Register default tools
         registerDefaultTools();
+        augmentor = ToolSurfaceAugmentor.defaultAugmentor();
+        argumentParser = new ToolArgumentParser();
+        providerContextResolver = new ProviderContextResolver();
+        executionService = new ToolExecutionService(this);
         LOG.info("ToolRegistry initialized with %d tools", tools.size()); //$NON-NLS-1$
     }
 
@@ -93,6 +113,8 @@ public class ToolRegistry {
         register(new BslScopeMembersTool());
         register(new BslListMethodsTool());
         register(new BslGetMethodBodyTool());
+        register(new BslModuleContextTool());
+        register(new BslModuleExportsTool());
         register(new EdtValidateRequestTool());
         register(new CreateMetadataTool());
         register(new CreateFormTool());
@@ -137,6 +159,9 @@ public class ToolRegistry {
         register(new QaCompileFeatureTool());
         register(new QaValidateFeatureTool());
         register(new QaStepsSearchTool());
+        register(new SkillTool());
+        register(new DelegateToAgentTool(this));
+        register(new TaskTool(this));
 
         // Extra tools may be contributed by an overlay (e.g. Pro) via extension point.
         loadToolsFromExtensionPoint();
@@ -175,6 +200,7 @@ public class ToolRegistry {
      */
     public void register(ITool tool) {
         tools.put(tool.getName(), tool);
+        ToolDescriptorRegistry.getInstance().registerTool(tool);
     }
 
     /**
@@ -195,6 +221,7 @@ public class ToolRegistry {
      */
     public void registerDynamicTool(ITool tool) {
         dynamicTools.put(tool.getName(), tool);
+        ToolDescriptorRegistry.getInstance().registerTool(tool);
         LOG.debug("Registered dynamic tool: %s", tool.getName()); //$NON-NLS-1$
     }
 
@@ -260,12 +287,45 @@ public class ToolRegistry {
      * @return list of tool definitions
      */
     public List<ToolDefinition> getToolDefinitions() {
+        return getToolDefinitions(ToolSurfaceContext.defaultProfile());
+    }
+
+    public List<ToolDefinition> getToolDefinitions(AgentProfile profile) {
+        ToolSurfaceContext baseContext = createRuntimeSurfaceContext(profile);
         return getAllTools().stream()
-                .map(tool -> new ToolDefinition(
-                        tool.getName(),
-                        tool.getDescription(),
-                        tool.getParameterSchema()))
+                .map(tool -> getToolDefinition(tool, baseContext))
                 .collect(Collectors.toList());
+    }
+
+    public List<ToolDefinition> getToolDefinitions(ToolSurfaceContext baseContext) {
+        return getAllTools().stream()
+                .map(tool -> getToolDefinition(tool, baseContext))
+                .collect(Collectors.toList());
+    }
+
+    public ToolDefinition getToolDefinition(ITool tool, ToolSurfaceContext baseContext) {
+        return effectiveAugmentor().augment(tool, contextForTool(tool, baseContext));
+    }
+
+    public ToolSurfaceContext createRuntimeSurfaceContext(AgentProfile profile) {
+        return providerContextResolver().createRuntimeSurfaceContext(profile);
+    }
+
+    public void setAugmentor(ToolSurfaceAugmentor augmentor) {
+        this.augmentor = augmentor != null ? augmentor : ToolSurfaceAugmentor.passthrough();
+    }
+
+    public ToolSurfaceAugmentor getAugmentor() {
+        return effectiveAugmentor();
+    }
+
+    /**
+     * Returns the execution service for running tool calls.
+     *
+     * @return the execution service
+     */
+    public ToolExecutionService getExecutionService() {
+        return executionService();
     }
 
     /**
@@ -275,116 +335,49 @@ public class ToolRegistry {
      * @return future with the result
      */
     public CompletableFuture<ToolResult> execute(ToolCall toolCall) {
-        return execute(toolCall, null, null);
+        return executionService().execute(toolCall);
     }
 
     public CompletableFuture<ToolResult> execute(ToolCall toolCall, AgentTraceSession traceSession,
             String parentEventId) {
-        LOG.debug("Executing tool: %s with args: %s", toolCall.getName(), toolCall.getArguments()); //$NON-NLS-1$
-
-        ToolLogger toolLogger = ToolLogger.getInstance();
-        Map<String, Object> parameters = Collections.emptyMap();
-        try {
-            parameters = parseArguments(toolCall.getArguments());
-        } catch (Exception e) {
-            LOG.warn("Failed to pre-parse tool arguments for trace: %s", e.getMessage()); //$NON-NLS-1$
-        }
-        // Use getTool() to search both built-in and dynamic tools (MCP)
-        ITool tool = getTool(toolCall.getName());
-        if (tool == null) {
-            LOG.error("Unknown tool: %s (checked %d built-in and %d dynamic tools)", //$NON-NLS-1$
-                    toolCall.getName(), tools.size(), dynamicTools.size());
-            ToolResult failResult = ToolResult.failure("Unknown tool: " + toolCall.getName()); //$NON-NLS-1$
-            toolLogger.logToolCallResult(-1, toolCall.getName(), failResult, 0);
-            String traceToolCallEventId = writeToolCallTrace(traceSession, parentEventId, toolCall, parameters, null);
-            writeToolResultTrace(traceSession, traceToolCallEventId, toolCall, failResult, 0, null);
-            return CompletableFuture.completedFuture(failResult);
-        }
-
-        try {
-            parameters = parseArguments(toolCall.getArguments());
-            LOG.debug("Parsed parameters: %s", parameters); //$NON-NLS-1$
-            final String traceToolCallEventId =
-                    writeToolCallTrace(traceSession, parentEventId, toolCall, parameters, tool);
-
-            // Log tool call start
-            int callId = toolLogger.logToolCallStart(toolCall.getName(), parameters);
-            long startTime = System.currentTimeMillis();
-
-            return tool.execute(parameters)
-                    .thenApply(result -> {
-                        long duration = System.currentTimeMillis() - startTime;
-                        // Log tool call result
-                        toolLogger.logToolCallResult(callId, toolCall.getName(), result, duration);
-                        writeToolResultTrace(traceSession, traceToolCallEventId, toolCall, result, duration, null);
-
-                        if (result.isSuccess()) {
-                            LOG.debug("Tool %s completed in %d ms, result length: %d", //$NON-NLS-1$
-                                    toolCall.getName(), duration,
-                                    result.getContent() != null ? result.getContent().length() : 0);
-                        } else {
-                            LOG.warn("Tool %s failed in %d ms: %s", //$NON-NLS-1$
-                                    toolCall.getName(), duration, result.getErrorMessage());
-                        }
-                        return result;
-                    })
-                    .exceptionally(error -> {
-                        long duration = System.currentTimeMillis() - startTime;
-                        // Log tool call error
-                        toolLogger.logToolCallError(callId, toolCall.getName(), error, duration);
-                        writeToolResultTrace(traceSession, traceToolCallEventId, toolCall, null, duration, error);
-                        LOG.error("Tool %s threw exception in %d ms: %s", //$NON-NLS-1$
-                                toolCall.getName(), duration, error.getMessage());
-                        return ToolResult.failure("Exception: " + error.getMessage()); //$NON-NLS-1$
-                    });
-        } catch (Exception e) {
-            LOG.error("Error executing tool %s: %s", toolCall.getName(), e.getMessage()); //$NON-NLS-1$
-            ToolResult failResult = ToolResult.failure("Error executing tool: " + e.getMessage()); //$NON-NLS-1$
-            toolLogger.logToolCallResult(-1, toolCall.getName(), failResult, 0);
-            String traceToolCallEventId = writeToolCallTrace(traceSession, parentEventId, toolCall, parameters, tool);
-            writeToolResultTrace(traceSession, traceToolCallEventId, toolCall, failResult, 0, e);
-            return CompletableFuture.completedFuture(failResult);
-        }
+        return executionService().execute(toolCall, traceSession, parentEventId);
     }
 
-    private String writeToolCallTrace(AgentTraceSession traceSession, String parentEventId, ToolCall toolCall,
-            Map<String, Object> parameters, ITool tool) {
-        if (traceSession == null) {
-            return null;
-        }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("tool_name", toolCall.getName()); //$NON-NLS-1$
-        payload.put("call_id", toolCall.getId()); //$NON-NLS-1$
-        payload.put("arguments_json", toolCall.getArguments()); //$NON-NLS-1$
-        payload.put("parsed_arguments", parameters); //$NON-NLS-1$
-        if (tool != null) {
-            payload.put("tool_description", tool.getDescription()); //$NON-NLS-1$
-            payload.put("requires_confirmation", Boolean.valueOf(tool.requiresConfirmation())); //$NON-NLS-1$
-            payload.put("is_destructive", Boolean.valueOf(tool.isDestructive())); //$NON-NLS-1$
-        }
-        return traceSession.writeToolEvent(TraceEventType.TOOL_CALL, parentEventId, payload);
+    private ToolSurfaceContext contextForTool(ITool tool, ToolSurfaceContext baseContext) {
+        boolean builtIn = tool != null && tools.containsKey(tool.getName());
+        return (baseContext != null ? baseContext : ToolSurfaceContext.passthrough())
+                .toBuilder()
+                .category(builtIn ? BuiltinToolTaxonomy.categoryOf(tool) : ToolCategory.DYNAMIC)
+                .builtIn(builtIn)
+                .build();
     }
 
-    private void writeToolResultTrace(AgentTraceSession traceSession, String parentEventId, ToolCall toolCall,
-            ToolResult result, long durationMs, Throwable error) {
-        if (traceSession == null) {
-            return;
+    private ToolSurfaceAugmentor effectiveAugmentor() {
+        if (augmentor == null) {
+            augmentor = ToolSurfaceAugmentor.defaultAugmentor();
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("tool_name", toolCall.getName()); //$NON-NLS-1$
-        payload.put("call_id", toolCall.getId()); //$NON-NLS-1$
-        payload.put("duration_ms", Long.valueOf(durationMs)); //$NON-NLS-1$
-        if (result != null) {
-            payload.put("success", Boolean.valueOf(result.isSuccess())); //$NON-NLS-1$
-            payload.put("result_type", result.getType().name()); //$NON-NLS-1$
-            payload.put("content", result.getContent()); //$NON-NLS-1$
-            payload.put("error_message", result.getErrorMessage()); //$NON-NLS-1$
+        return augmentor;
+    }
+
+    private ToolExecutionService executionService() {
+        if (executionService == null) {
+            executionService = new ToolExecutionService(this);
         }
-        if (error != null) {
-            payload.put("exception_type", error.getClass().getSimpleName()); //$NON-NLS-1$
-            payload.put("exception_message", error.getMessage()); //$NON-NLS-1$
+        return executionService;
+    }
+
+    private ProviderContextResolver providerContextResolver() {
+        if (providerContextResolver == null) {
+            providerContextResolver = new ProviderContextResolver();
         }
-        traceSession.writeToolEvent(TraceEventType.TOOL_RESULT, parentEventId, payload);
+        return providerContextResolver;
+    }
+
+    private ToolArgumentParser argumentParser() {
+        if (argumentParser == null) {
+            argumentParser = new ToolArgumentParser();
+        }
+        return argumentParser;
     }
 
     /**
@@ -394,181 +387,7 @@ public class ToolRegistry {
      * which is critical for SEARCH/REPLACE edit blocks.</p>
      */
     private Map<String, Object> parseArguments(String json) {
-        if (json == null || json.isEmpty() || "{}".equals(json)) { //$NON-NLS-1$
-            return Collections.emptyMap();
-        }
-
-        try {
-            JsonElement element = JsonParser.parseString(json);
-            if (!element.isJsonObject()) {
-                LOG.warn("Tool arguments is not a JSON object: %s", json); //$NON-NLS-1$
-                return Collections.emptyMap();
-            }
-
-            JsonObject obj = element.getAsJsonObject();
-            Map<String, Object> result = new HashMap<>();
-
-            for (String key : obj.keySet()) {
-                JsonElement value = obj.get(key);
-                result.put(key, convertJsonElement(value));
-            }
-
-            return result;
-
-        } catch (JsonSyntaxException e) {
-            // Truncate large JSON for logging
-            String truncatedJson = json.length() > 200 ? json.substring(0, 200) + "..." : json; //$NON-NLS-1$
-            LOG.warn("Failed to parse JSON arguments: %s, error: %s", truncatedJson, e.getMessage()); //$NON-NLS-1$
-            // Fall back to simple parsing for backwards compatibility
-            return parseSimpleJson(json);
-        }
+        return argumentParser().parseArguments(json);
     }
 
-    /**
-     * Converts a JsonElement to a Java object.
-     */
-    private Object convertJsonElement(JsonElement element) {
-        if (element == null || element.isJsonNull()) {
-            return null;
-        }
-        if (element.isJsonPrimitive()) {
-            var primitive = element.getAsJsonPrimitive();
-            if (primitive.isBoolean()) {
-                return primitive.getAsBoolean();
-            } else if (primitive.isNumber()) {
-                // Preserve integer vs double distinction, handling large values
-                double d = primitive.getAsDouble();
-                if (d == Math.floor(d) && !Double.isInfinite(d)) {
-                    // Check if fits in int range
-                    if (d >= Integer.MIN_VALUE && d <= Integer.MAX_VALUE) {
-                        return (int) d;
-                    }
-                    // Use long for larger integers
-                    return primitive.getAsLong();
-                }
-                return d;
-            } else {
-                return primitive.getAsString();
-            }
-        }
-        if (element.isJsonArray()) {
-            var array = element.getAsJsonArray();
-            List<Object> list = new ArrayList<>();
-            for (JsonElement item : array) {
-                list.add(convertJsonElement(item));
-            }
-            return list;
-        }
-        if (element.isJsonObject()) {
-            var obj = element.getAsJsonObject();
-            Map<String, Object> map = new HashMap<>();
-            for (String key : obj.keySet()) {
-                map.put(key, convertJsonElement(obj.get(key)));
-            }
-            return map;
-        }
-        return element.toString();
-    }
-
-    /**
-     * Simple JSON parser for tool arguments (fallback).
-     * Handles basic key-value pairs when Gson parsing fails.
-     */
-    private Map<String, Object> parseSimpleJson(String json) {
-        Map<String, Object> result = new HashMap<>();
-        json = json.trim();
-        if (json.startsWith("{") && json.endsWith("}")) { //$NON-NLS-1$ //$NON-NLS-2$
-            json = json.substring(1, json.length() - 1).trim();
-        }
-
-        if (json.isEmpty()) {
-            return result;
-        }
-
-        // Split by commas not inside quotes
-        int depth = 0;
-        boolean inString = false;
-        StringBuilder current = new StringBuilder();
-        List<String> pairs = new ArrayList<>();
-
-        for (int i = 0; i < json.length(); i++) {
-            char c = json.charAt(i);
-            if (c == '"' && (i == 0 || json.charAt(i - 1) != '\\')) {
-                inString = !inString;
-            }
-            if (!inString) {
-                if (c == '{' || c == '[') depth++;
-                if (c == '}' || c == ']') depth--;
-                if (c == ',' && depth == 0) {
-                    pairs.add(current.toString().trim());
-                    current = new StringBuilder();
-                    continue;
-                }
-            }
-            current.append(c);
-        }
-        if (current.length() > 0) {
-            pairs.add(current.toString().trim());
-        }
-
-        for (String pair : pairs) {
-            int colonIndex = findFirstColonOutsideQuotes(pair);
-            if (colonIndex > 0) {
-                String key = pair.substring(0, colonIndex).trim();
-                String value = pair.substring(colonIndex + 1).trim();
-
-                // Remove quotes from key
-                if (key.startsWith("\"") && key.endsWith("\"")) { //$NON-NLS-1$ //$NON-NLS-2$
-                    key = key.substring(1, key.length() - 1);
-                }
-
-                // Parse value
-                if (value.startsWith("\"") && value.endsWith("\"")) { //$NON-NLS-1$ //$NON-NLS-2$
-                    // Unescape the string value
-                    String unescaped = value.substring(1, value.length() - 1);
-                    unescaped = unescaped.replace("\\n", "\n") //$NON-NLS-1$ //$NON-NLS-2$
-                            .replace("\\r", "\r") //$NON-NLS-1$ //$NON-NLS-2$
-                            .replace("\\t", "\t") //$NON-NLS-1$ //$NON-NLS-2$
-                            .replace("\\\"", "\"") //$NON-NLS-1$ //$NON-NLS-2$
-                            .replace("\\\\", "\\"); //$NON-NLS-1$ //$NON-NLS-2$
-                    result.put(key, unescaped);
-                } else if ("true".equals(value)) { //$NON-NLS-1$
-                    result.put(key, Boolean.TRUE);
-                } else if ("false".equals(value)) { //$NON-NLS-1$
-                    result.put(key, Boolean.FALSE);
-                } else if ("null".equals(value)) { //$NON-NLS-1$
-                    result.put(key, null);
-                } else {
-                    try {
-                        if (value.contains(".")) { //$NON-NLS-1$
-                            result.put(key, Double.parseDouble(value));
-                        } else {
-                            result.put(key, Integer.parseInt(value));
-                        }
-                    } catch (NumberFormatException e) {
-                        result.put(key, value);
-                    }
-                }
-            }
-        }
-
-        return result;
-    }
-
-    /**
-     * Finds the first colon that is not inside a quoted string.
-     */
-    private int findFirstColonOutsideQuotes(String str) {
-        boolean inString = false;
-        for (int i = 0; i < str.length(); i++) {
-            char c = str.charAt(i);
-            if (c == '"' && (i == 0 || str.charAt(i - 1) != '\\')) {
-                inString = !inString;
-            }
-            if (c == ':' && !inString) {
-                return i;
-            }
-        }
-        return -1;
-    }
 }

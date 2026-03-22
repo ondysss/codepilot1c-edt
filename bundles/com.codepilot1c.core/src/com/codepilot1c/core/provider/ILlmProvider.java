@@ -51,6 +51,15 @@ public interface ILlmProvider {
     boolean supportsStreaming();
 
     /**
+     * Returns declared provider-specific runtime capabilities.
+     *
+     * @return provider capabilities, never {@code null}
+     */
+    default ProviderCapabilities getCapabilities() {
+        return ProviderCapabilities.none();
+    }
+
+    /**
      * Sends a request and returns a future with the complete response.
      *
      * @param request the request to send

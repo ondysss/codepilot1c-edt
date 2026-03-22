@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,10 +25,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
-import org.eclipse.core.runtime.ILog;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
+import org.osgi.framework.Bundle;
 
 import com.codepilot1c.core.agent.events.AgentCompletedEvent;
 import com.codepilot1c.core.agent.events.AgentEvent;
@@ -40,6 +41,9 @@ import com.codepilot1c.core.agent.events.ToolCallEvent;
 import com.codepilot1c.core.agent.events.ToolResultEvent;
 import com.codepilot1c.core.agent.graph.ToolGraphRouter;
 import com.codepilot1c.core.agent.graph.ToolGraphToolFilter;
+import com.codepilot1c.core.agent.profiles.AgentProfile;
+import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.agent.prompts.SystemPromptAssembler;
 import com.codepilot1c.core.evaluation.trace.AgentTraceSession;
 import com.codepilot1c.core.evaluation.trace.TraceEventType;
 import com.codepilot1c.core.evaluation.trace.TracingLlmProvider;
@@ -50,11 +54,12 @@ import com.codepilot1c.core.model.LlmStreamChunk;
 import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.ILlmProvider;
-import com.codepilot1c.core.settings.PromptTemplateService;
 import com.codepilot1c.core.tools.ITool;
+import com.codepilot1c.core.tools.ToolContextGate;
 import com.codepilot1c.core.tools.ToolLogger;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
+import com.codepilot1c.core.tools.surface.ToolSurfaceContext;
 
 /**
  * Реализация agentic loop для автоматического выполнения задач.
@@ -86,7 +91,6 @@ public class AgentRunner implements IAgentRunner {
     private static final String PLUGIN_ID = "com.codepilot1c.core";
     private static final String PROP_PROMPT_TELEMETRY_ENABLED =
             "codepilot1c.prompt.telemetry.enabled"; //$NON-NLS-1$
-    private static final ILog LOG = Platform.getLog(AgentRunner.class);
 
     private final ILlmProvider provider;
     private final ToolRegistry toolRegistry;
@@ -110,6 +114,7 @@ public class AgentRunner implements IAgentRunner {
     private List<LlmMessage> conversationHistory = new ArrayList<>();
 
     private ToolGraphRouter toolGraphRouter;
+    private final ToolContextGate contextGate = new ToolContextGate();
     private volatile ILlmProvider executionProvider;
     private volatile AgentTraceSession traceSession;
     private volatile String agentStartedTraceEventId;
@@ -581,18 +586,33 @@ public class AgentRunner implements IAgentRunner {
         ToolGraphToolFilter graphFilter = toolGraphRouter != null
                 ? toolGraphRouter.buildToolFilter()
                 : ToolGraphToolFilter.allowAll();
+        AgentProfile profile = resolveProfile(config);
+        ToolSurfaceContext surfaceContext = toolRegistry.createRuntimeSurfaceContext(profile);
+        Set<String> profileAllowed = profile.getAllowedTools();
+        Set<String> contextExcluded = contextGate.computeExcludedTools();
+        int totalCount = 0;
 
         for (ITool tool : toolRegistry.getAllTools()) {
-            if (config.isToolAllowed(tool.getName())) {
-                if (!graphFilter.allows(tool.getName())) {
-                    continue;
-                }
-                tools.add(ToolDefinition.builder()
-                        .name(tool.getName())
-                        .description(tool.getDescription())
-                        .parametersSchema(tool.getParameterSchema())
-                        .build());
+            totalCount++;
+            String name = tool.getName();
+            if (!profileAllowed.isEmpty() && !profileAllowed.contains(name)) {
+                continue;
             }
+            if (contextExcluded.contains(name)) {
+                continue;
+            }
+            if (!config.isToolAllowed(name)) {
+                continue;
+            }
+            if (!graphFilter.allows(name)) {
+                continue;
+            }
+            tools.add(toolRegistry.getToolDefinition(tool, surfaceContext));
+        }
+        if (totalCount != tools.size()) {
+            log(new Status(IStatus.INFO, PLUGIN_ID,
+                    String.format("Tool surface: %d total -> %d after filtering (profile=%s)", //$NON-NLS-1$
+                            totalCount, tools.size(), profile.getId())));
         }
 
         List<LlmMessage> messagesCopy;
@@ -608,19 +628,28 @@ public class AgentRunner implements IAgentRunner {
                 .build();
     }
 
+    private AgentProfile resolveProfile(AgentConfig config) {
+        try {
+            if (config != null && config.getProfileName() != null && !config.getProfileName().isBlank()) {
+                return AgentProfileRegistry.getInstance()
+                        .getProfile(config.getProfileName())
+                        .orElseGet(ToolSurfaceContext::defaultProfile);
+            }
+            return AgentProfileRegistry.getInstance().getDefaultProfile();
+        } catch (Throwable e) {
+            return ToolSurfaceContext.defaultProfile();
+        }
+    }
+
     /**
      * Строит системный промпт.
      */
     private String buildSystemPrompt(AgentConfig config) {
-        StringBuilder sb = new StringBuilder();
-        if (!systemPrompt.isEmpty()) {
-            sb.append(systemPrompt);
-        }
-        if (config.getSystemPromptAddition() != null) {
-            if (sb.length() > 0) sb.append("\n\n");
-            sb.append(config.getSystemPromptAddition());
-        }
-        return PromptTemplateService.getInstance().applySystemPrompt(sb.toString());
+        return SystemPromptAssembler.getInstance().assemble(
+                systemPrompt,
+                config.getSystemPromptAddition(),
+                config.getProfileName(),
+                config.getRequestedSkills());
     }
 
     /**
@@ -740,11 +769,11 @@ public class AgentRunner implements IAgentRunner {
     // --- Logging ---
 
     private void logError(String message, Throwable error) {
-        LOG.log(new Status(IStatus.ERROR, PLUGIN_ID, message, error));
+        log(new Status(IStatus.ERROR, PLUGIN_ID, message, error));
     }
 
     private void logWarning(String message, Throwable error) {
-        LOG.log(new Status(IStatus.WARNING, PLUGIN_ID, message, error));
+        log(new Status(IStatus.WARNING, PLUGIN_ID, message, error));
     }
 
     private void logPromptTelemetry(
@@ -796,7 +825,18 @@ public class AgentRunner implements IAgentRunner {
                 Integer.valueOf(systemChars),
                 Integer.valueOf(userChars),
                 errorType);
-        LOG.log(new Status(IStatus.INFO, PLUGIN_ID, message));
+        log(new Status(IStatus.INFO, PLUGIN_ID, message));
+    }
+
+    private static void log(IStatus status) {
+        try {
+            Bundle bundle = Platform.getBundle(PLUGIN_ID);
+            if (bundle != null) {
+                Platform.getLog(bundle).log(status);
+            }
+        } catch (RuntimeException ignored) {
+            // Plain JUnit execution can run without an initialized OSGi bundle.
+        }
     }
 
     private boolean isPromptTelemetryEnabled() {

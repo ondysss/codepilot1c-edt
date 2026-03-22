@@ -35,6 +35,8 @@ import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderException;
+import com.codepilot1c.core.provider.ProviderCapabilities;
+import com.codepilot1c.core.provider.ProviderUtils;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -51,6 +53,7 @@ import com.google.gson.JsonParser;
 public class DynamicLlmProvider implements ILlmProvider {
 
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(DynamicLlmProvider.class);
+    private static final String HEADER_CODEPILOT_PROMPT_CACHE = "X-CodePilot-Prompt-Cache"; //$NON-NLS-1$
     private static final int OUTBOUND_TOOL_RESULT_CHAR_LIMIT = 50_000;
     private static final int OUTBOUND_TOOL_RESULT_HEAD_CHARS = 30_000;
     private static final int OUTBOUND_TOOL_RESULT_TAIL_CHARS = 15_000;
@@ -62,6 +65,7 @@ public class DynamicLlmProvider implements ILlmProvider {
     private final LlmProviderConfig config;
     private final OpenAiModelCompatibilityPolicy openAiCompatibilityPolicy;
     private final OpenAiStreamingToolCallParser streamingToolCallParser;
+    private final QwenFunctionCallingTransport qwenTransport;
     private final ProviderHttpTransport httpTransport;
     private final Gson gson;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
@@ -74,7 +78,20 @@ public class DynamicLlmProvider implements ILlmProvider {
     public DynamicLlmProvider(LlmProviderConfig config) {
         this.config = config;
         this.openAiCompatibilityPolicy = new OpenAiModelCompatibilityPolicy();
-        this.streamingToolCallParser = new OpenAiStreamingToolCallParser();
+        this.gson = new Gson();
+
+        // Select parser based on provider capabilities:
+        // Qwen backend gets enhanced parser with DashScope quirk handling
+        ProviderCapabilities caps = ProviderUtils.capabilitiesFor(config);
+        if (caps.isQwenNative()) {
+            this.streamingToolCallParser = new QwenStreamingToolCallParser();
+            this.qwenTransport = new QwenFunctionCallingTransport(gson);
+            LOG.info("Qwen transport activated: family=%s", caps.getResolvedModelFamily()); //$NON-NLS-1$
+        } else {
+            this.streamingToolCallParser = new OpenAiStreamingToolCallParser();
+            this.qwenTransport = null;
+        }
+
         HttpClient client = HttpClient.newBuilder()
                 // vLLM/uvicorn deployments are commonly exposed over plain HTTP and can fail
                 // with Java HttpClient HTTP/2 (h2c) by not parsing the request body.
@@ -83,7 +100,6 @@ public class DynamicLlmProvider implements ILlmProvider {
                 .connectTimeout(Duration.ofSeconds(30))
                 .build();
         this.httpTransport = new ProviderHttpTransport(client);
-        this.gson = new Gson();
     }
 
     @Override
@@ -104,6 +120,11 @@ public class DynamicLlmProvider implements ILlmProvider {
     @Override
     public boolean supportsStreaming() {
         return config.isStreamingEnabled();
+    }
+
+    @Override
+    public ProviderCapabilities getCapabilities() {
+        return ProviderUtils.capabilitiesFor(config);
     }
 
     /**
@@ -148,7 +169,10 @@ public class DynamicLlmProvider implements ILlmProvider {
         currentLlmRequest = request;
         streamingToolCallParser.clear();
         ProviderExecutionPlan executionPlan = buildExecutionPlan(request, true);
-        OpenAiStreamingSession openAiSession = config.getType() == ProviderType.OPENAI_COMPATIBLE
+        // CODEPILOT_BACKEND is wire-compatible with OpenAI — use OpenAiStreamingSession for both
+        boolean useOpenAiStreaming = config.getType() == ProviderType.OPENAI_COMPATIBLE
+                || config.getType() == ProviderType.CODEPILOT_BACKEND;
+        OpenAiStreamingSession openAiSession = useOpenAiStreaming
                 ? new OpenAiStreamingSession(correlationId, request.hasTools(), streamingToolCallParser)
                 : null;
         ProviderStreamProcessingSummary summary = openAiSession != null
@@ -197,6 +221,26 @@ public class DynamicLlmProvider implements ILlmProvider {
                 }
             });
 
+            if (!cancelled.get() && openAiSession != null) {
+                String completionFinishReason = openAiSession.completePendingToolCalls(consumer);
+                if (completionFinishReason != null) {
+                    streamFinishReason[0] = completionFinishReason;
+                }
+                // Qwen finish_reason override: DashScope may report "stop" when tool calls are pending
+                if (streamingToolCallParser instanceof QwenStreamingToolCallParser) {
+                    QwenStreamingToolCallParser qwenParser = (QwenStreamingToolCallParser) streamingToolCallParser;
+                    if (qwenParser.shouldOverrideFinishReason(streamFinishReason[0])) {
+                        streamFinishReason[0] = LlmResponse.FINISH_REASON_TOOL_USE;
+                    }
+                }
+            }
+
+            if (!cancelled.get() && summary.hasTerminalError()) {
+                logStreamSummary(summary, openAiSession);
+                LOG.warn("[%s] Structured stream error: %s", correlationId, summary.getTerminalErrorMessage()); //$NON-NLS-1$
+                return;
+            }
+
             if (!cancelled.get() && summary.shouldFallbackToNonStreaming()) {
                 LOG.warn("[%s] Falling back to non-streaming response handling: parseFailures=%d, opaqueChunks=%d", //$NON-NLS-1$
                         correlationId, summary.getParseFailures().get(), summary.getOpaqueChunks().get());
@@ -243,7 +287,9 @@ public class DynamicLlmProvider implements ILlmProvider {
             }
 
             try {
-                if (config.getType() == ProviderType.OPENAI_COMPATIBLE && openAiSession != null) {
+                // CODEPILOT_BACKEND is wire-compatible with OpenAI — route through same session
+                if ((config.getType() == ProviderType.OPENAI_COMPATIBLE
+                        || config.getType() == ProviderType.CODEPILOT_BACKEND) && openAiSession != null) {
                     return openAiSession.processLine(line, consumer);
                 }
                 // Some providers send heartbeat chunks like "null". Ignore non-object payloads.
@@ -410,6 +456,10 @@ public class DynamicLlmProvider implements ILlmProvider {
             LOG.warn("No API key configured!"); //$NON-NLS-1$
         }
 
+        if (ProviderUtils.supportsPromptCacheHeaders(config)) {
+            builder.header(HEADER_CODEPILOT_PROMPT_CACHE, "prefer"); //$NON-NLS-1$
+        }
+
         // Add custom headers
         config.getCustomHeaders().forEach((key, value) -> {
             LOG.info("Custom header: %s = %s", key, value); //$NON-NLS-1$
@@ -480,10 +530,13 @@ public class DynamicLlmProvider implements ILlmProvider {
     }
 
     private ProviderExecutionPlan buildExecutionPlan(LlmRequest request, boolean requestedStreaming) {
-        if (config.getType() != ProviderType.OPENAI_COMPATIBLE) {
-            return ProviderExecutionPlan.streaming(requestedStreaming && config.isStreamingEnabled());
+        // Both OPENAI_COMPATIBLE and CODEPILOT_BACKEND use the same compatibility policy
+        // since CODEPILOT_BACKEND is wire-compatible with OpenAI
+        if (config.getType() == ProviderType.OPENAI_COMPATIBLE
+                || config.getType() == ProviderType.CODEPILOT_BACKEND) {
+            return openAiCompatibilityPolicy.plan(config, request, requestedStreaming);
         }
-        return openAiCompatibilityPolicy.plan(config, request, requestedStreaming);
+        return ProviderExecutionPlan.streaming(requestedStreaming && config.isStreamingEnabled());
     }
 
     private void replayResponseAsStream(LlmRequest request, Consumer<LlmStreamChunk> consumer,
@@ -529,6 +582,14 @@ public class DynamicLlmProvider implements ILlmProvider {
                 return buildAnthropicRequestBody(request, executionPlan.isStreaming());
             case OLLAMA:
                 return buildOllamaRequestBody(request, executionPlan.isStreaming());
+            case CODEPILOT_BACKEND:
+                // Route through Qwen transport if available (CodePilot Account with Qwen model)
+                if (qwenTransport != null) {
+                    ProviderCapabilities caps = getCapabilities();
+                    return qwenTransport.buildRequestBody(request, executionPlan, config, caps);
+                }
+                // Fall through to standard OpenAI path if not Qwen native
+                return buildOpenAiRequestBody(request, executionPlan);
             case OPENAI_COMPATIBLE:
             default:
                 return buildOpenAiRequestBody(request, executionPlan);
@@ -795,6 +856,8 @@ public class DynamicLlmProvider implements ILlmProvider {
 
         String finishReason = choice.has("finish_reason") && !choice.get("finish_reason").isJsonNull() ? //$NON-NLS-1$ //$NON-NLS-2$
                 normalizeFinishReason(choice.get("finish_reason").getAsString()) : LlmResponse.FINISH_REASON_STOP; //$NON-NLS-1$
+        String responseModel = getString(json, "model"); //$NON-NLS-1$
+        LlmResponse.Usage usage = parseUsage(json);
 
         // Parse tool calls if present
         List<ToolCall> toolCalls = null;
@@ -831,11 +894,48 @@ public class DynamicLlmProvider implements ILlmProvider {
             }
         }
 
+        // Qwen content fallback: if no structured tool_calls were found but content
+        // contains <tool_call> XML, extract tool calls from the content.
+        // This is a safety net for when XML priming causes the model to emit
+        // tool calls as text instead of using the structured API.
+        if ((toolCalls == null || toolCalls.isEmpty())
+                && getCapabilities().isQwenNative()
+                && QwenContentToolCallParser.hasToolCallMarkers(content)) {
+            List<ToolCall> fallbackCalls = QwenContentToolCallParser.extractFromContent(content);
+            if (!fallbackCalls.isEmpty()) {
+                LOG.info("Qwen fallback: extracted %d tool call(s) from content XML", fallbackCalls.size()); //$NON-NLS-1$
+                toolCalls = fallbackCalls;
+                finishReason = LlmResponse.FINISH_REASON_TOOL_USE;
+                // Strip <tool_call> blocks from content to avoid showing raw XML to user
+                content = QwenContentToolCallParser.stripToolCallBlocks(content);
+            }
+        }
+
         LOG.debug("Response parsed: finishReason=%s, hasContent=%b, toolCalls=%d", //$NON-NLS-1$
                 finishReason, content != null && !content.isEmpty(),
                 toolCalls != null ? toolCalls.size() : 0);
 
-        return new LlmResponse(content, config.getModel(), null, finishReason, toolCalls);
+        return new LlmResponse(content, resolveRequestedModel(), responseModel, usage, finishReason, toolCalls);
+    }
+
+    private String resolveRequestedModel() {
+        if (currentLlmRequest != null && currentLlmRequest.getModel() != null && !currentLlmRequest.getModel().isBlank()) {
+            return currentLlmRequest.getModel();
+        }
+        return config.getModel();
+    }
+
+    private LlmResponse.Usage parseUsage(JsonObject json) {
+        JsonObject usageJson = getObject(json, "usage"); //$NON-NLS-1$
+        if (usageJson == null) {
+            return null;
+        }
+        int promptTokens = getInt(usageJson, "prompt_tokens", 0); //$NON-NLS-1$
+        int completionTokens = getInt(usageJson, "completion_tokens", 0); //$NON-NLS-1$
+        int totalTokens = getInt(usageJson, "total_tokens", 0); //$NON-NLS-1$
+        JsonObject promptDetails = getObject(usageJson, "prompt_tokens_details"); //$NON-NLS-1$
+        int cachedPromptTokens = promptDetails != null ? getInt(promptDetails, "cached_tokens", 0) : 0; //$NON-NLS-1$
+        return new LlmResponse.Usage(promptTokens, cachedPromptTokens, completionTokens, totalTokens);
     }
 
     /**
@@ -886,7 +986,7 @@ public class DynamicLlmProvider implements ILlmProvider {
         String stopReason = json.has("stop_reason") ? //$NON-NLS-1$
                 json.get("stop_reason").getAsString() : "end_turn"; //$NON-NLS-1$ //$NON-NLS-2$
 
-        return new LlmResponse(sb.toString(), config.getModel(), null, stopReason);
+        return new LlmResponse(sb.toString(), resolveRequestedModel(), config.getModel(), null, stopReason, null);
     }
 
     /**
@@ -897,7 +997,8 @@ public class DynamicLlmProvider implements ILlmProvider {
         String content = message.get("content").getAsString(); //$NON-NLS-1$
 
         boolean done = json.has("done") && json.get("done").getAsBoolean(); //$NON-NLS-1$ //$NON-NLS-2$
-        return new LlmResponse(content, config.getModel(), null, done ? "stop" : "length"); //$NON-NLS-1$ //$NON-NLS-2$
+        return new LlmResponse(content, resolveRequestedModel(), config.getModel(), null,
+                done ? "stop" : "length", null); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     /**
@@ -985,5 +1086,13 @@ public class DynamicLlmProvider implements ILlmProvider {
         }
         JsonElement element = object.get(propertyName);
         return element.isJsonPrimitive() ? element.getAsString() : null;
+    }
+
+    private int getInt(JsonObject object, String propertyName, int defaultValue) {
+        if (object == null || propertyName == null || !object.has(propertyName) || object.get(propertyName).isJsonNull()) {
+            return defaultValue;
+        }
+        JsonElement element = object.get(propertyName);
+        return element.isJsonPrimitive() ? element.getAsInt() : defaultValue;
     }
 }

@@ -52,10 +52,11 @@ public final class AgentPromptTemplates {
         sb.append("- EDT внешние объекты: external_list_projects, external_list_objects, external_get_details, external_create_report, external_create_processing\n"); //$NON-NLS-1$
         sb.append("- EDT type provider: edt_field_type_candidates (допустимые типы для поля метаданных)\n"); //$NON-NLS-1$
         sb.append("- EDT-метаданные: inspect_platform_reference, edt_validate_request, create_metadata, create_form, apply_form_recipe, extension_create_project, extension_adopt_object, extension_set_property_state, inspect_form_layout, add_metadata_child, ensure_module_artifact, update_metadata, mutate_form_model, delete_metadata, edt_trace_export, author_yaxunit_tests\n"); //$NON-NLS-1$
-        sb.append("- EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body\n"); //$NON-NLS-1$
+        sb.append("- EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, bsl_module_context, bsl_module_exports\n"); //$NON-NLS-1$
         sb.append("- Диагностика метаданных: edt_metadata_smoke (регрессионный smoke-прогон), edt_extension_smoke (e2e smoke для расширений), edt_external_smoke (e2e smoke для внешних объектов)\n"); //$NON-NLS-1$
         sb.append("- EDT runtime: edt_update_infobase (обновление связанной инфобазы проекта), edt_launch_app (запуск приложения по RuntimeClient launch config), import_project_from_infobase (standalone export + import нового EDT проекта)\n"); //$NON-NLS-1$
         sb.append("- Анализ ошибок tools: analyze_tool_error (разбор error_code/message/log_path и рекомендации по восстановлению)\n"); //$NON-NLS-1$
+        sb.append("- Подагенты: task (делегирование в auto/explore/plan/code/metadata/qa/dcs/extension/recovery/orchestrator; доступно только с CodePilot backend)\n"); //$NON-NLS-1$
         sb.append("- QA: qa_init_config (создание начального qa-config), qa_explain_config (объяснение effective QA-конфига), qa_status (проверка окружения), qa_migrate_config (миграция legacy qa-config), qa_prepare_form_context (ensure+inspect формы для QA), qa_plan_scenario (планирование сценария), qa_compile_feature (компиляция feature), qa_validate_feature (проверка feature), qa_run (запуск VA E2E), qa_steps_search (debug-поиск legacy шагов)\n\n"); //$NON-NLS-1$
 
         sb.append("## QA workflow\n"); //$NON-NLS-1$
@@ -80,6 +81,8 @@ public final class AgentPromptTemplates {
         sb.append("4. Если запрос неоднозначен (может быть и BSL-тип, и метаданные), вызывай оба инструмента и сверяй результат.\n"); //$NON-NLS-1$
         sb.append("5. Если inspect_platform_reference вернул ошибку EDT_SERVICE_UNAVAILABLE/TYPE_NOT_FOUND, "); //$NON-NLS-1$
         sb.append("не подменяй ответ \"общими знаниями\": верни ошибку инструмента и что нужно проверить в EDT runtime.\n\n"); //$NON-NLS-1$
+        sb.append("## Делегирование подагенту\n"); //$NON-NLS-1$
+        sb.append("Если задача распадается на независимую подзадачу, можешь вызвать task с кратким description и profile=auto либо явным domain profile.\n\n"); //$NON-NLS-1$
 
         if (metadataRulesEnabled) {
             sb.append("## Политика изменения метаданных (обязательно)\n"); //$NON-NLS-1$
@@ -130,10 +133,11 @@ public final class AgentPromptTemplates {
         sb.append("3. После выполнения всегда проверяй diagnostics (get_diagnostics).\n\n"); //$NON-NLS-1$
 
         sb.append("## Human-in-the-loop: неоднозначные методы BSL\n"); //$NON-NLS-1$
-        sb.append("1. Когда нужно найти конкретную процедуру/функцию, сначала вызови bsl_list_methods для модуля и отфильтруй по имени.\n"); //$NON-NLS-1$
-        sb.append("2. Если bsl_get_method_body вернул AMBIGUOUS_METHOD и candidates[], покажи список кандидатов (имя, kind, start_line) и попроси пользователя выбрать start_line.\n"); //$NON-NLS-1$
-        sb.append("3. После выбора повтори bsl_get_method_body с start_line.\n"); //$NON-NLS-1$
-        sb.append("4. Если METHOD_NOT_FOUND, уточни имя/модуль у пользователя.\n\n"); //$NON-NLS-1$
+        sb.append("1. Когда нужен общий контекст модуля, сначала вызови bsl_module_context; когда нужны только export-методы, предпочитай bsl_module_exports.\n"); //$NON-NLS-1$
+        sb.append("2. Когда нужно найти конкретную процедуру/функцию, сначала вызови bsl_list_methods для модуля и отфильтруй по имени.\n"); //$NON-NLS-1$
+        sb.append("3. Если bsl_get_method_body вернул AMBIGUOUS_METHOD и candidates[], покажи список кандидатов (имя, kind, start_line) и попроси пользователя выбрать start_line.\n"); //$NON-NLS-1$
+        sb.append("4. После выбора повтори bsl_get_method_body с start_line.\n"); //$NON-NLS-1$
+        sb.append("5. Если METHOD_NOT_FOUND, уточни имя/модуль у пользователя.\n\n"); //$NON-NLS-1$
 
         sb.append("## Формат финального ответа\n"); //$NON-NLS-1$
         sb.append("1. Кратко: что сделано.\n"); //$NON-NLS-1$
@@ -175,7 +179,8 @@ public final class AgentPromptTemplates {
         sb.append("для объектов конфигурации — edt_metadata_details.\n"); //$NON-NLS-1$
         sb.append("6. Если inspect_platform_reference вернул EDT_SERVICE_UNAVAILABLE/TYPE_NOT_FOUND, "); //$NON-NLS-1$
         sb.append("не заменяй результат справкой \"из памяти\".\n"); //$NON-NLS-1$
-        sb.append("7. Если инструмент вернул ошибку, можешь разобрать ее через analyze_tool_error.\n\n"); //$NON-NLS-1$
+        sb.append("7. Если инструмент вернул ошибку, можешь разобрать ее через analyze_tool_error.\n"); //$NON-NLS-1$
+        sb.append("8. Для изолированной дополнительной подзадачи можешь использовать task(profile=auto|explore|plan|code|metadata|qa|dcs|extension|recovery).\n\n"); //$NON-NLS-1$
 
         sb.append("## Шаблон ответа\n"); //$NON-NLS-1$
         sb.append("## Задача\n[Краткое описание]\n\n"); //$NON-NLS-1$
@@ -188,7 +193,7 @@ public final class AgentPromptTemplates {
         sb.append("get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index,\n"); //$NON-NLS-1$
         sb.append("dcs_get_summary, dcs_list_nodes,\n"); //$NON-NLS-1$
         sb.append("extension_list_projects, extension_list_objects, external_list_projects, external_list_objects, external_get_details,\n"); //$NON-NLS-1$
-        sb.append("inspect_form_layout, analyze_tool_error, bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, inspect_platform_reference.\n"); //$NON-NLS-1$
+        sb.append("inspect_form_layout, analyze_tool_error, bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, bsl_module_context, bsl_module_exports, inspect_platform_reference, task.\n"); //$NON-NLS-1$
 
         return PromptQualityAssurance.verify(
                 "plan", //$NON-NLS-1$
@@ -216,7 +221,8 @@ public final class AgentPromptTemplates {
         sb.append("6. Если inspect_platform_reference вернул EDT_SERVICE_UNAVAILABLE/TYPE_NOT_FOUND, "); //$NON-NLS-1$
         sb.append("фиксируй ошибку инструмента, не пиши справку \"из общих знаний\".\n"); //$NON-NLS-1$
         sb.append("7. При необходимости разбери ошибку инструмента через analyze_tool_error.\n"); //$NON-NLS-1$
-        sb.append("8. Не предлагай изменения, если пользователь не просил реализацию.\n\n"); //$NON-NLS-1$
+        sb.append("8. Для изолированного дополнительного исследования можешь делегировать подзадачу через task(profile=auto|explore|plan|code|metadata|qa|dcs|extension|recovery).\n"); //$NON-NLS-1$
+        sb.append("9. Не предлагай изменения, если пользователь не просил реализацию.\n\n"); //$NON-NLS-1$
 
         sb.append("## Формат ответа\n"); //$NON-NLS-1$
         sb.append("- Короткий вывод (1-3 пункта).\n"); //$NON-NLS-1$
@@ -228,7 +234,7 @@ public final class AgentPromptTemplates {
         sb.append("get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index,\n"); //$NON-NLS-1$
         sb.append("dcs_get_summary, dcs_list_nodes,\n"); //$NON-NLS-1$
         sb.append("extension_list_projects, extension_list_objects, external_list_projects, external_list_objects, external_get_details,\n"); //$NON-NLS-1$
-        sb.append("inspect_form_layout, analyze_tool_error, bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, inspect_platform_reference.\n"); //$NON-NLS-1$
+        sb.append("inspect_form_layout, analyze_tool_error, bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, bsl_module_context, bsl_module_exports, inspect_platform_reference, task.\n"); //$NON-NLS-1$
 
         return PromptQualityAssurance.verify(
                 "explore", //$NON-NLS-1$
@@ -238,6 +244,7 @@ public final class AgentPromptTemplates {
 
     public static String buildSubagentPrompt(String profileName, String description, boolean readOnly) {
         StringBuilder sb = new StringBuilder();
+        sb.append("## Роль\n"); //$NON-NLS-1$
         sb.append("Ты подагент для специализированной подзадачи.\n\n"); //$NON-NLS-1$
         sb.append("## Контекст\n"); //$NON-NLS-1$
         sb.append("- Профиль: ").append(profileName).append('\n'); //$NON-NLS-1$
@@ -261,7 +268,43 @@ public final class AgentPromptTemplates {
         return PromptQualityAssurance.verify(
                 "subagent", //$NON-NLS-1$
                 sb.toString(),
-                List.of("## Контекст", "## Контракт выполнения", "## Формат результата")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                List.of("## Роль", "## Контекст", "## Контракт выполнения", "## Формат результата")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+    }
+
+    public static String buildOrchestratorPrompt() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("## Роль\n"); //$NON-NLS-1$
+        sb.append("Ты оркестратор задач 1С:Предприятие. Сам решаешь только лёгкий анализ и координируешь профильных подагентов.\n\n"); //$NON-NLS-1$
+        sb.append("## Цель\n"); //$NON-NLS-1$
+        sb.append("Понять запрос, выбрать domain profile, делегировать подзадачи и собрать финальный результат без лишних действий.\n\n"); //$NON-NLS-1$
+        sb.append("## Операционный контракт\n"); //$NON-NLS-1$
+        sb.append("1. Сначала определи, задача single-domain или cross-domain.\n"); //$NON-NLS-1$
+        sb.append("2. Если single-domain и домен ясен, делегируй сразу профильному подагенту.\n"); //$NON-NLS-1$
+        sb.append("3. Если задача cross-domain, разбей её на 2-3 подзадачи и делегируй последовательно.\n"); //$NON-NLS-1$
+        sb.append("4. Сам напрямую не редактируй проект и не вызывай domain-specific mutation tools.\n"); //$NON-NLS-1$
+        sb.append("5. Для делегирования предпочитай delegate_to_agent; task используй как fallback для нестандартной подзадачи.\n"); //$NON-NLS-1$
+        sb.append("6. После делегирования собери общий ответ: что сделано, кем, что проверено, что осталось.\n\n"); //$NON-NLS-1$
+        sb.append("## Доступные инструменты\n"); //$NON-NLS-1$
+        sb.append("- Контекст: read_file, list_files, glob, grep\n"); //$NON-NLS-1$
+        sb.append("- Анализ ошибок: analyze_tool_error\n"); //$NON-NLS-1$
+        sb.append("- Делегирование: delegate_to_agent(agentType=auto|code|metadata|qa|dcs|extension|recovery|plan|explore|orchestrator, task, context), task(prompt, profile=auto|...)\n"); //$NON-NLS-1$
+        sb.append("- Skills: skill\n\n"); //$NON-NLS-1$
+        sb.append("## Маршрутизация\n"); //$NON-NLS-1$
+        sb.append("1. Код BSL, процедуры, функции, модули -> code.\n"); //$NON-NLS-1$
+        sb.append("2. Метаданные, формы, реквизиты, объекты конфигурации -> metadata.\n"); //$NON-NLS-1$
+        sb.append("3. Тесты, Vanessa, YAxUnit, feature/scenario -> qa.\n"); //$NON-NLS-1$
+        sb.append("4. СКД, наборы данных, компоновка -> dcs.\n"); //$NON-NLS-1$
+        sb.append("5. Расширения и внешние объекты -> extension.\n"); //$NON-NLS-1$
+        sb.append("6. Runtime/smoke/recovery/diagnostics -> recovery.\n"); //$NON-NLS-1$
+        sb.append("7. Чистый анализ или план без изменений -> plan/explore.\n\n"); //$NON-NLS-1$
+        sb.append("## Формат финального ответа\n"); //$NON-NLS-1$
+        sb.append("1. Кратко сформулируй итог.\n"); //$NON-NLS-1$
+        sb.append("2. Перечисли выполненные подзадачи и выбранные профили.\n"); //$NON-NLS-1$
+        sb.append("3. Укажи проверки и оставшиеся риски.\n"); //$NON-NLS-1$
+        return PromptQualityAssurance.verify(
+                "orchestrator", //$NON-NLS-1$
+                sb.toString(),
+                List.of("## Роль", "## Цель", "## Операционный контракт", "## Формат финального ответа")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
     }
 
     /**
@@ -269,6 +312,7 @@ public final class AgentPromptTemplates {
      */
     public static void runStartupChecks() {
         buildBuildPrompt();
+        buildOrchestratorPrompt();
         buildPlanPrompt();
         buildExplorePrompt();
         buildSubagentPrompt("startup", "qa-check", true); //$NON-NLS-1$ //$NON-NLS-2$

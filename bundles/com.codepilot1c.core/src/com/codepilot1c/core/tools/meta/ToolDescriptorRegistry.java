@@ -6,6 +6,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 import com.codepilot1c.core.logging.VibeLogger;
+import com.codepilot1c.core.tools.ITool;
+import com.codepilot1c.core.tools.ToolRegistry;
 
 /**
  * Registry of tool metadata used by routing logic.
@@ -17,9 +19,10 @@ public final class ToolDescriptorRegistry {
     private static ToolDescriptorRegistry instance;
 
     private final Map<String, ToolDescriptor> descriptors = new HashMap<>();
+    private boolean bootstrapAttempted;
+    private boolean bootstrapping;
 
     private ToolDescriptorRegistry() {
-        registerDefaults();
     }
 
     public static synchronized ToolDescriptorRegistry getInstance() {
@@ -36,10 +39,32 @@ public final class ToolDescriptorRegistry {
         descriptors.put(descriptor.getName(), descriptor);
     }
 
+    public void registerTool(ITool tool) {
+        if (tool == null || tool.getName() == null || tool.getName().isBlank()) {
+            return;
+        }
+        ToolDescriptor existing = descriptors.get(tool.getName());
+        ToolCategory runtimeCategory = resolveCategory(tool.getCategory());
+        ToolDescriptor.Builder builder = ToolDescriptor.builder(tool.getName())
+                .category(resolveMergedCategory(existing, runtimeCategory))
+                .mutating(tool.isMutating())
+                .requiresValidationToken(tool.requiresValidationToken());
+        if (existing != null) {
+            for (String tag : existing.getTags()) {
+                builder.tag(tag);
+            }
+        }
+        for (String tag : tool.getTags()) {
+            builder.tag(tag);
+        }
+        register(builder.build());
+    }
+
     public ToolDescriptor get(String name) {
         if (name == null) {
             return null;
         }
+        ensureInitialized();
         return descriptors.get(name);
     }
 
@@ -56,116 +81,54 @@ public final class ToolDescriptorRegistry {
     }
 
     public Collection<ToolDescriptor> getAll() {
+        ensureInitialized();
         return Collections.unmodifiableCollection(descriptors.values());
     }
 
-    private void registerDefaults() {
-        // File tools
-        register(ToolDescriptor.builder("read_file").category(ToolCategory.FILES).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("list_files").category(ToolCategory.FILES).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("edit_file").category(ToolCategory.FILES).mutating(true).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("write_file").category(ToolCategory.FILES).mutating(true).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("grep").category(ToolCategory.FILES).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("glob").category(ToolCategory.FILES).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("workspace_import_project").category(ToolCategory.WORKSPACE)
-                .mutating(true).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("git_inspect").category(ToolCategory.GIT).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("git_mutate").category(ToolCategory.GIT)
-                .mutating(true).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("git_clone_and_import_project").category(ToolCategory.GIT)
-                .mutating(true).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("import_project_from_infobase").category(ToolCategory.WORKSPACE)
-                .mutating(true).build()); //$NON-NLS-1$
-
-        // BSL tools
-        register(ToolDescriptor.builder("bsl_symbol_at_position").category(ToolCategory.BSL).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("bsl_type_at_position").category(ToolCategory.BSL).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("bsl_scope_members").category(ToolCategory.BSL).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("bsl_list_methods").category(ToolCategory.BSL).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("bsl_get_method_body").category(ToolCategory.BSL).build()); //$NON-NLS-1$
-
-        // Metadata inspection
-        register(ToolDescriptor.builder("edt_metadata_details").category(ToolCategory.METADATA).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("scan_metadata_index").category(ToolCategory.METADATA).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("edt_field_type_candidates").category(ToolCategory.METADATA).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("inspect_platform_reference").category(ToolCategory.METADATA).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("edt_find_references").category(ToolCategory.BSL).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("edt_content_assist").category(ToolCategory.BSL).build()); //$NON-NLS-1$
-
-        // Diagnostics
-        register(ToolDescriptor.builder("get_diagnostics").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("edt_trace_export").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("edt_metadata_smoke").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("edt_extension_smoke").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("edt_external_smoke").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("qa_init_config").category(ToolCategory.FILES).mutating(true).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("qa_explain_config").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("qa_status").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("qa_migrate_config").category(ToolCategory.FILES).mutating(true).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("analyze_tool_error").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("edt_update_infobase").category(ToolCategory.DIAGNOSTICS).mutating(true).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("edt_launch_app").category(ToolCategory.DIAGNOSTICS).mutating(true).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("qa_run").category(ToolCategory.DIAGNOSTICS).mutating(true).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("qa_prepare_form_context").category(ToolCategory.FORMS).mutating(true).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("qa_plan_scenario").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("qa_compile_feature").category(ToolCategory.FILES).mutating(true).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("qa_validate_feature").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("qa_steps_search").category(ToolCategory.DIAGNOSTICS).build()); //$NON-NLS-1$
-
-        // Validation
-        register(ToolDescriptor.builder("edt_validate_request")
-                .category(ToolCategory.METADATA)
-                .build()); //$NON-NLS-1$
-
-        register(ToolDescriptor.builder("author_yaxunit_tests")
-                .category(ToolCategory.METADATA)
-                .mutating(true)
-                .tag("yaxunit")
-                .build()); //$NON-NLS-1$
-
-        // Metadata mutation tools
-        registerMutation("create_metadata", ToolCategory.METADATA); //$NON-NLS-1$
-        registerMutation("create_form", ToolCategory.FORMS); //$NON-NLS-1$
-        registerMutation("apply_form_recipe", ToolCategory.FORMS); //$NON-NLS-1$
-        registerMutation("add_metadata_child", ToolCategory.METADATA); //$NON-NLS-1$
-        registerMutation("update_metadata", ToolCategory.METADATA); //$NON-NLS-1$
-        registerMutation("mutate_form_model", ToolCategory.FORMS); //$NON-NLS-1$
-        registerMutation("delete_metadata", ToolCategory.METADATA); //$NON-NLS-1$
-
-        // Forms
-        register(ToolDescriptor.builder("inspect_form_layout").category(ToolCategory.FORMS).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("ensure_module_artifact").category(ToolCategory.METADATA).build()); //$NON-NLS-1$
-
-        // Extension tools
-        registerMutation("extension_create_project", ToolCategory.EXTENSION); //$NON-NLS-1$
-        registerMutation("extension_adopt_object", ToolCategory.EXTENSION); //$NON-NLS-1$
-        registerMutation("extension_set_property_state", ToolCategory.EXTENSION); //$NON-NLS-1$
-        register(ToolDescriptor.builder("extension_list_projects").category(ToolCategory.EXTENSION).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("extension_list_objects").category(ToolCategory.EXTENSION).build()); //$NON-NLS-1$
-
-        // External tools
-        registerMutation("external_create_report", ToolCategory.EXTERNAL); //$NON-NLS-1$
-        registerMutation("external_create_processing", ToolCategory.EXTERNAL); //$NON-NLS-1$
-        register(ToolDescriptor.builder("external_list_projects").category(ToolCategory.EXTERNAL).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("external_list_objects").category(ToolCategory.EXTERNAL).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("external_get_details").category(ToolCategory.EXTERNAL).build()); //$NON-NLS-1$
-
-        // DCS tools
-        registerMutation("dcs_create_main_schema", ToolCategory.DCS); //$NON-NLS-1$
-        registerMutation("dcs_upsert_query_dataset", ToolCategory.DCS); //$NON-NLS-1$
-        registerMutation("dcs_upsert_parameter", ToolCategory.DCS); //$NON-NLS-1$
-        registerMutation("dcs_upsert_calculated_field", ToolCategory.DCS); //$NON-NLS-1$
-        register(ToolDescriptor.builder("dcs_get_summary").category(ToolCategory.DCS).build()); //$NON-NLS-1$
-        register(ToolDescriptor.builder("dcs_list_nodes").category(ToolCategory.DCS).build()); //$NON-NLS-1$
-
-        LOG.debug("ToolDescriptorRegistry initialized with %d descriptors", descriptors.size()); //$NON-NLS-1$
+    private ToolCategory resolveCategory(String rawCategory) {
+        if (rawCategory == null || rawCategory.isBlank()) {
+            return ToolCategory.OTHER;
+        }
+        return switch (rawCategory.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "file", "files" -> ToolCategory.FILES; //$NON-NLS-1$ //$NON-NLS-2$
+            case "bsl" -> ToolCategory.BSL; //$NON-NLS-1$
+            case "metadata" -> ToolCategory.METADATA; //$NON-NLS-1$
+            case "forms", "form" -> ToolCategory.FORMS; //$NON-NLS-1$ //$NON-NLS-2$
+            case "external" -> ToolCategory.EXTERNAL; //$NON-NLS-1$
+            case "dcs" -> ToolCategory.DCS; //$NON-NLS-1$
+            case "diagnostics", "diagnostic" -> ToolCategory.DIAGNOSTICS; //$NON-NLS-1$ //$NON-NLS-2$
+            case "extension", "extensions" -> ToolCategory.EXTENSION; //$NON-NLS-1$ //$NON-NLS-2$
+            case "workspace" -> ToolCategory.WORKSPACE; //$NON-NLS-1$
+            case "git" -> ToolCategory.GIT; //$NON-NLS-1$
+            case "mcp", "mcp_generic" -> ToolCategory.MCP_GENERIC; //$NON-NLS-1$ //$NON-NLS-2$
+            default -> ToolCategory.OTHER;
+        };
     }
 
-    private void registerMutation(String name, ToolCategory category) {
-        register(ToolDescriptor.builder(name)
-                .category(category)
-                .mutating(true)
-                .requiresValidationToken(true)
-                .build());
+    private ToolCategory resolveMergedCategory(ToolDescriptor existing, ToolCategory runtimeCategory) {
+        if (existing != null && existing.getCategory() != ToolCategory.OTHER) {
+            return existing.getCategory();
+        }
+        return runtimeCategory != null ? runtimeCategory : ToolCategory.OTHER;
+    }
+
+    private synchronized void ensureInitialized() {
+        if (bootstrapAttempted || bootstrapping) {
+            return;
+        }
+        bootstrapping = true;
+        try {
+            ToolRegistry registry = ToolRegistry.getInstance();
+            for (ITool tool : registry.getAllTools()) {
+                registerTool(tool);
+            }
+            LOG.debug("ToolDescriptorRegistry bootstrapped from ToolRegistry with %d descriptors", //$NON-NLS-1$
+                    Integer.valueOf(descriptors.size()));
+        } catch (RuntimeException e) {
+            LOG.warn("ToolDescriptorRegistry bootstrap from ToolRegistry failed: %s", e.getMessage()); //$NON-NLS-1$
+        } finally {
+            bootstrapAttempted = true;
+            bootstrapping = false;
+        }
     }
 }

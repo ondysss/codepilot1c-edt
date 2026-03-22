@@ -20,6 +20,10 @@ final class ProviderStreamProcessingSummary {
     private final AtomicInteger reasoningChunks = new AtomicInteger();
     private final AtomicInteger toolCallFragments = new AtomicInteger();
     private final AtomicInteger completedToolCalls = new AtomicInteger();
+    private final AtomicInteger repairedToolCalls = new AtomicInteger();
+    private final AtomicInteger truncatedToolCalls = new AtomicInteger();
+    private final AtomicInteger errorChunks = new AtomicInteger();
+    private volatile String terminalErrorMessage;
 
     ProviderStreamProcessingSummary(String correlationId, boolean requestHasTools) {
         this.correlationId = correlationId;
@@ -62,6 +66,31 @@ final class ProviderStreamProcessingSummary {
         return completedToolCalls;
     }
 
+    AtomicInteger getRepairedToolCalls() {
+        return repairedToolCalls;
+    }
+
+    AtomicInteger getTruncatedToolCalls() {
+        return truncatedToolCalls;
+    }
+
+    AtomicInteger getErrorChunks() {
+        return errorChunks;
+    }
+
+    void markTerminalError(String errorMessage) {
+        terminalErrorMessage = errorMessage;
+        errorChunks.incrementAndGet();
+    }
+
+    boolean hasTerminalError() {
+        return terminalErrorMessage != null && !terminalErrorMessage.isBlank();
+    }
+
+    String getTerminalErrorMessage() {
+        return terminalErrorMessage;
+    }
+
     boolean hasMeaningfulOutput() {
         return contentChunks.get() > 0 || reasoningChunks.get() > 0 || completedToolCalls.get() > 0;
     }
@@ -71,6 +100,7 @@ final class ProviderStreamProcessingSummary {
             return false;
         }
         return parseFailures.get() >= FALLBACK_PARSE_FAILURE_THRESHOLD
-                || opaqueChunks.get() >= FALLBACK_OPAQUE_CHUNK_THRESHOLD;
+                || opaqueChunks.get() >= FALLBACK_OPAQUE_CHUNK_THRESHOLD
+                || truncatedToolCalls.get() > 0;
     }
 }

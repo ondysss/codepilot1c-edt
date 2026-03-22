@@ -28,9 +28,13 @@ import com.codepilot1c.core.agent.events.ToolCallEvent;
 import com.codepilot1c.core.agent.events.ToolResultEvent;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.agent.profiles.BuildAgentProfile;
+import com.codepilot1c.core.agent.profiles.OrchestratorProfile;
+import com.codepilot1c.core.agent.profiles.ProfileRouter;
 import com.codepilot1c.core.agent.langgraph.LangGraphStudioService;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
+import com.codepilot1c.core.provider.ProviderUtils;
 import com.codepilot1c.core.remote.AgentSessionController;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.codepilot1c.ui.dialogs.ToolConfirmationDialog;
@@ -56,6 +60,7 @@ public class AgentViewAdapter implements IAgentEventListener {
 
     private final Display display;
     private final AgentSessionController sessionController;
+    private final ProfileRouter profileRouter;
     private StringBuilder streamingContent;
     private String currentStreamingMessageId;
     private boolean graphMessageSent;
@@ -74,6 +79,7 @@ public class AgentViewAdapter implements IAgentEventListener {
     public AgentViewAdapter(Display display) {
         this.display = Objects.requireNonNull(display, "display");
         this.sessionController = AgentSessionController.getInstance();
+        this.profileRouter = new ProfileRouter();
         this.sessionController.addAgentListener(this);
     }
 
@@ -109,7 +115,7 @@ public class AgentViewAdapter implements IAgentEventListener {
      * Запускает агента с заданным промптом и профилем.
      *
      * @param prompt пользовательский запрос
-     * @param profileId ID профиля (build, plan, explore)
+     * @param profileId ID профиля (build/code/metadata/qa/dcs/extension/recovery/plan/explore/orchestrator)
      * @return Future с результатом
      */
     public CompletableFuture<AgentResult> run(String prompt, String profileId) {
@@ -119,9 +125,11 @@ public class AgentViewAdapter implements IAgentEventListener {
                     new IllegalStateException("LLM провайдер не настроен"));
         }
 
+        String effectiveProfileId = resolveProfileId(prompt, profileId, provider);
+
         // Get profile
         AgentProfile profile = AgentProfileRegistry.getInstance()
-                .getProfile(profileId)
+                .getProfile(effectiveProfileId)
                 .orElse(AgentProfileRegistry.getInstance().getDefaultProfile());
 
         // Create config from profile
@@ -140,6 +148,19 @@ public class AgentViewAdapter implements IAgentEventListener {
                                 AgentState.ERROR, error.getMessage()));
                     }
                 });
+    }
+
+    private String resolveProfileId(String prompt, String requestedProfileId, ILlmProvider provider) {
+        String normalized = profileRouter.normalizeProfileId(requestedProfileId);
+        if (!BuildAgentProfile.ID.equals(normalized) && !normalized.isBlank()) {
+            return normalized;
+        }
+
+        String routed = profileRouter.resolveRequestedProfile(prompt, normalized);
+        if (OrchestratorProfile.ID.equals(routed) && !ProviderUtils.isCodePilotBackend(provider)) {
+            return BuildAgentProfile.ID;
+        }
+        return routed;
     }
 
     /**

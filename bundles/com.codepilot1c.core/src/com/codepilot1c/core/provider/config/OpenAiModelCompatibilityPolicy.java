@@ -3,6 +3,7 @@ package com.codepilot1c.core.provider.config;
 import java.util.Locale;
 
 import com.codepilot1c.core.model.LlmRequest;
+import com.codepilot1c.core.provider.ProviderUtils;
 import com.google.gson.JsonObject;
 
 /**
@@ -17,6 +18,29 @@ final class OpenAiModelCompatibilityPolicy {
         boolean streaming = requestedStreaming && config.isStreamingEnabled();
         JsonObject overrides = new JsonObject();
         String model = resolveModelName(config, request).toLowerCase(Locale.ROOT);
+
+        if (ProviderUtils.supportsBackendOptimizations(config)) {
+            overrides.addProperty("parallel_tool_calls", false); //$NON-NLS-1$
+
+            // Qwen-specific execution plan adjustments
+            if (model.startsWith("qwen")) { //$NON-NLS-1$
+                overrides.addProperty("temperature", 0.3); //$NON-NLS-1$
+                if (request.hasTools()) {
+                    overrides.addProperty("enable_thinking", false); //$NON-NLS-1$
+                    if (hasLargeToolResult(request) || estimateRequestChars(request) > LARGE_REQUEST_ESTIMATE_CHARS) {
+                        return ProviderExecutionPlan.of(false, overrides,
+                                "Qwen backend: large tool result -> non-stream for stability"); //$NON-NLS-1$
+                    }
+                    return ProviderExecutionPlan.of(streaming, overrides,
+                            "Qwen backend: temperature=0.3, enable_thinking=false, parallel_tool_calls=false"); //$NON-NLS-1$
+                }
+                return ProviderExecutionPlan.of(streaming, overrides,
+                        "Qwen backend: temperature=0.3"); //$NON-NLS-1$
+            }
+
+            return ProviderExecutionPlan.of(streaming, overrides,
+                    "codepilot backend uses explicit backend execution plan"); //$NON-NLS-1$
+        }
 
         if (request.hasTools()) {
             if (model.contains("glm-5")) { //$NON-NLS-1$

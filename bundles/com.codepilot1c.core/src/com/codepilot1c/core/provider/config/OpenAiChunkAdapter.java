@@ -20,14 +20,15 @@ final class OpenAiChunkAdapter {
     }
 
     OpenAiStreamChunkData adapt(JsonObject json) {
+        String errorMessage = extractErrorMessage(json);
         JsonArray choices = getArray(json, "choices"); //$NON-NLS-1$
         if (choices == null || choices.size() == 0) {
-            return OpenAiStreamChunkData.of(null, null, null, 0, List.of(), true, false);
+            return OpenAiStreamChunkData.of(null, null, null, errorMessage, 0, 0, 0, List.of(), true, false);
         }
 
         JsonObject choice = getObject(choices.get(0));
         if (choice == null) {
-            return OpenAiStreamChunkData.of(null, null, null, 0, List.of(), true, false);
+            return OpenAiStreamChunkData.of(null, null, null, errorMessage, 0, 0, 0, List.of(), true, false);
         }
 
         JsonObject delta = getObject(choice, "delta"); //$NON-NLS-1$
@@ -49,29 +50,39 @@ final class OpenAiChunkAdapter {
         }
 
         List<ToolCall> completedToolCalls = List.of();
+        int repairedToolCalls = 0;
+        int truncatedToolCalls = 0;
         if (finishReason != null && toolCallParser.hasPendingToolCalls()) {
-            completedToolCalls = toolCallParser.drainCompletedToolCalls();
+            OpenAiStreamingToolCallParser.DrainResult drainResult = toolCallParser.drainCompletedToolCalls();
+            completedToolCalls = drainResult.toolCalls();
+            repairedToolCalls = drainResult.repairedCount();
+            truncatedToolCalls = drainResult.truncatedCount();
             if (!completedToolCalls.isEmpty() && !LlmResponse.FINISH_REASON_TOOL_USE.equals(finishReason)) {
                 finishReason = LlmResponse.FINISH_REASON_TOOL_USE;
             }
         }
 
-        boolean metadataOnly = isMetadataOnly(choice, content, reasoning, toolCallFragments, finishReason, source);
+        if ("error".equals(finishReason) && (errorMessage == null || errorMessage.isBlank())) { //$NON-NLS-1$
+            errorMessage = "OpenAI-compatible stream returned finish_reason=error"; //$NON-NLS-1$
+        }
+
+        boolean metadataOnly = isMetadataOnly(choice, content, reasoning, toolCallFragments, finishReason, source, errorMessage);
         boolean opaque = !metadataOnly
                 && content == null
                 && reasoning == null
                 && toolCallFragments == 0
                 && completedToolCalls.isEmpty()
+                && errorMessage == null
                 && finishReason == null
                 && source == null;
 
-        return OpenAiStreamChunkData.of(content, reasoning, finishReason, toolCallFragments,
-                completedToolCalls, metadataOnly, opaque);
+        return OpenAiStreamChunkData.of(content, reasoning, finishReason, errorMessage, toolCallFragments,
+                repairedToolCalls, truncatedToolCalls, completedToolCalls, metadataOnly, opaque);
     }
 
     private boolean isMetadataOnly(JsonObject choice, String content, String reasoning,
-            int toolCallFragments, String finishReason, JsonObject source) {
-        if (content != null || reasoning != null || toolCallFragments > 0 || finishReason != null) {
+            int toolCallFragments, String finishReason, JsonObject source, String errorMessage) {
+        if (content != null || reasoning != null || toolCallFragments > 0 || finishReason != null || errorMessage != null) {
             return false;
         }
         if (source == null) {
@@ -81,6 +92,19 @@ final class OpenAiChunkAdapter {
             return true;
         }
         return source.has("role") || source.has("annotations"); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private String extractErrorMessage(JsonObject json) {
+        JsonObject error = getObject(json, "error"); //$NON-NLS-1$
+        if (error == null) {
+            return null;
+        }
+        String message = getString(error, "message"); //$NON-NLS-1$
+        if (message != null && !message.isBlank()) {
+            return message;
+        }
+        String type = getString(error, "type"); //$NON-NLS-1$
+        return type != null && !type.isBlank() ? type : "OpenAI-compatible stream error"; //$NON-NLS-1$
     }
 
     private String normalizeFinishReason(String finishReason) {

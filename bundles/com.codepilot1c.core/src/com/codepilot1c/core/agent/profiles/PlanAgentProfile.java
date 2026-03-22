@@ -71,7 +71,11 @@ public class PlanAgentProfile implements AgentProfile {
             "bsl_scope_members",
             "bsl_list_methods",
             "bsl_get_method_body",
-            "inspect_platform_reference"
+            "bsl_module_context",
+            "bsl_module_exports",
+            "inspect_platform_reference",
+            "skill",
+            "task"
     ));
 
     @Override
@@ -123,7 +127,11 @@ public class PlanAgentProfile implements AgentProfile {
                 PermissionRule.allow("bsl_scope_members").forAllResources(),
                 PermissionRule.allow("bsl_list_methods").forAllResources(),
                 PermissionRule.allow("bsl_get_method_body").forAllResources(),
-                PermissionRule.allow("inspect_platform_reference").forAllResources()
+                PermissionRule.allow("bsl_module_context").forAllResources(),
+                PermissionRule.allow("bsl_module_exports").forAllResources(),
+                PermissionRule.allow("inspect_platform_reference").forAllResources(),
+                PermissionRule.allow("skill").forAllResources(),
+                PermissionRule.allow("task").forAllResources()
         );
     }
 

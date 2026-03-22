@@ -45,7 +45,7 @@ import com.codepilot1c.ui.chat.AgentViewAdapter;
  * через AgentRunner с поддержкой:</p>
  * <ul>
  *   <li>Автоматического выполнения инструментов</li>
- *   <li>Разных профилей (build, plan, explore)</li>
+ *   <li>Разных профилей (build, orchestrator, code, metadata, qa, dcs, extension, recovery, plan, explore)</li>
  *   <li>Отображения прогресса выполнения</li>
  *   <li>Ограничения количества шагов</li>
  * </ul>
@@ -401,7 +401,7 @@ public class AgentView extends ViewPart {
      * Программный запуск агента с указанным промптом.
      *
      * @param prompt задача для агента
-     * @param profileId ID профиля (build, plan, explore)
+     * @param profileId ID профиля (build/orchestrator/code/metadata/qa/dcs/extension/recovery/plan/explore)
      * @return Future с результатом
      */
     public CompletableFuture<AgentResult> runProgrammatic(String prompt, String profileId) {

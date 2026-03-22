@@ -82,6 +82,8 @@ public class BuildAgentProfile implements AgentProfile {
             "bsl_scope_members",
             "bsl_list_methods",
             "bsl_get_method_body",
+            "bsl_module_context",
+            "bsl_module_exports",
             "edt_validate_request",
             "create_metadata",
             "create_form",
@@ -109,7 +111,9 @@ public class BuildAgentProfile implements AgentProfile {
             "qa_plan_scenario",
             "qa_compile_feature",
             "qa_validate_feature",
-            "qa_steps_search"
+            "qa_steps_search",
+            "skill",
+            "task"
     ));
 
     @Override
@@ -163,6 +167,8 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("bsl_scope_members").forAllResources(),
                 PermissionRule.allow("bsl_list_methods").forAllResources(),
                 PermissionRule.allow("bsl_get_method_body").forAllResources(),
+                PermissionRule.allow("bsl_module_context").forAllResources(),
+                PermissionRule.allow("bsl_module_exports").forAllResources(),
                 PermissionRule.allow("edt_validate_request").forAllResources(),
                 PermissionRule.allow("edt_trace_export").forAllResources(),
                 PermissionRule.allow("edt_metadata_smoke").forAllResources(),
@@ -180,6 +186,8 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("qa_plan_scenario").forAllResources(),
                 PermissionRule.allow("qa_validate_feature").forAllResources(),
                 PermissionRule.allow("qa_steps_search").forAllResources(),
+                PermissionRule.allow("skill").forAllResources(),
+                PermissionRule.allow("task").forAllResources(),
 
                 // Write tools - ask
                 PermissionRule.ask("edit_file")

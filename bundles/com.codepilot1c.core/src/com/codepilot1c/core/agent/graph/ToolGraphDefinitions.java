@@ -33,30 +33,43 @@ final class ToolGraphDefinitions {
     }
 
     static ToolGraph createBslGraph() {
-        Set<String> allowed = Set.of(
+        Set<String> inspectTools = Set.of(
                 "read_file", "list_files", "edit_file", "write_file", "grep", "glob", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$
                 "bsl_symbol_at_position", "bsl_type_at_position", "bsl_scope_members", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                "bsl_list_methods", "bsl_get_method_body", //$NON-NLS-1$ //$NON-NLS-2$
+                "bsl_list_methods", "bsl_get_method_body", "bsl_module_context", "bsl_module_exports", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                 "edt_find_references", "edt_content_assist", //$NON-NLS-1$ //$NON-NLS-2$
                 "edt_metadata_details", "scan_metadata_index", "inspect_platform_reference", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                "ensure_module_artifact", "get_diagnostics" //$NON-NLS-1$ //$NON-NLS-2$
+                "get_diagnostics" //$NON-NLS-1$
         );
 
-        ToolNode node = ToolNode.builder("bsl_main") //$NON-NLS-1$
-                .allowTools(allowed)
+        ToolNode inspect = ToolNode.builder("bsl_inspect") //$NON-NLS-1$
+                .allowTools(inspectTools)
+                .allowTool("edt_validate_request") //$NON-NLS-1$
+                .maxVisits(20)
+                .build();
+
+        ToolNode validated = ToolNode.builder("bsl_validated") //$NON-NLS-1$
+                .allowTools(inspectTools)
+                .allowTool("ensure_module_artifact") //$NON-NLS-1$
+                .allowTool("edt_validate_request") //$NON-NLS-1$
                 .maxVisits(20)
                 .build();
 
         Map<String, ToolNode> nodes = new HashMap<>();
-        nodes.put(node.getId(), node);
+        nodes.put(inspect.getId(), inspect);
+        nodes.put(validated.getId(), validated);
 
         return new ToolGraph(
                 ToolGraphRegistry.BSL_GRAPH_ID,
                 "BSL", //$NON-NLS-1$
                 "1", //$NON-NLS-1$
-                node.getId(),
+                inspect.getId(),
                 nodes,
-                List.of(new ToolEdge(node.getId(), node.getId(), EdgePredicates.always(), 0))
+                List.of(new ToolEdge(inspect.getId(), validated.getId(),
+                        EdgePredicates.and(
+                                EdgePredicates.toolNameIs("edt_validate_request"), //$NON-NLS-1$
+                                EdgePredicates.success()),
+                        10))
         );
     }
 
@@ -84,6 +97,17 @@ final class ToolGraphDefinitions {
                 .maxVisits(10)
                 .build();
 
+        ToolNode moduleEdit = ToolNode.builder("metadata_module_edit") //$NON-NLS-1$
+                .allowTools(inspectTools)
+                .allowTool("read_file") //$NON-NLS-1$
+                .allowTool("edit_file") //$NON-NLS-1$
+                .allowTool("write_file") //$NON-NLS-1$
+                .allowTool("grep") //$NON-NLS-1$
+                .allowTool("glob") //$NON-NLS-1$
+                .allowTool("get_diagnostics") //$NON-NLS-1$
+                .maxVisits(10)
+                .build();
+
         ToolNode diagnostics = ToolNode.builder("metadata_diagnostics") //$NON-NLS-1$
                 .allowTools(diagTools)
                 .allowTools(inspectTools)
@@ -93,12 +117,18 @@ final class ToolGraphDefinitions {
         Map<String, ToolNode> nodes = new HashMap<>();
         nodes.put(inspect.getId(), inspect);
         nodes.put(mutate.getId(), mutate);
+        nodes.put(moduleEdit.getId(), moduleEdit);
         nodes.put(diagnostics.getId(), diagnostics);
 
         List<ToolEdge> edges = List.of(
                 new ToolEdge(inspect.getId(), mutate.getId(),
                         EdgePredicates.and(
                                 EdgePredicates.toolNameIs("edt_validate_request"), //$NON-NLS-1$
+                                EdgePredicates.success()),
+                        10),
+                new ToolEdge(mutate.getId(), moduleEdit.getId(),
+                        EdgePredicates.and(
+                                EdgePredicates.toolNameIs("ensure_module_artifact"), //$NON-NLS-1$
                                 EdgePredicates.success()),
                         10),
                 new ToolEdge(mutate.getId(), diagnostics.getId(),

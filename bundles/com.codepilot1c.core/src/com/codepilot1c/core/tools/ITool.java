@@ -7,7 +7,9 @@
  */
 package com.codepilot1c.core.tools;
 
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -63,5 +65,50 @@ public interface ITool {
      */
     default boolean isDestructive() {
         return false;
+    }
+
+    /**
+     * Returns the category of this tool for surface grouping.
+     *
+     * @return category string (e.g., "file", "bsl", "metadata", "dcs", "qa", "git")
+     */
+    default String getCategory() {
+        return "general"; //$NON-NLS-1$
+    }
+
+    /**
+     * Returns an optional explicit public surface category for contributor guidance.
+     *
+     * @return explicit surface category id, or blank to infer from other metadata
+     */
+    default String getSurfaceCategory() {
+        return ""; //$NON-NLS-1$
+    }
+
+    /**
+     * Returns whether this tool mutates project state (files, metadata, git).
+     *
+     * @return true if the tool can change state
+     */
+    default boolean isMutating() {
+        return isDestructive();
+    }
+
+    /**
+     * Returns whether this tool requires a validation token for EDT mutations.
+     *
+     * @return true if a validation token is needed
+     */
+    default boolean requiresValidationToken() {
+        return false;
+    }
+
+    /**
+     * Returns tags for tool classification and filtering.
+     *
+     * @return set of tag strings (e.g., "read-only", "edt", "workspace")
+     */
+    default Set<String> getTags() {
+        return Collections.emptySet();
     }
 }

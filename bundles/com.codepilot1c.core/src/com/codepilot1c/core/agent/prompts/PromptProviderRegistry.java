@@ -12,6 +12,8 @@ import org.eclipse.core.runtime.IExtensionRegistry;
 import org.eclipse.core.runtime.Platform;
 
 import com.codepilot1c.core.logging.VibeLogger;
+import com.codepilot1c.core.provider.ProviderSelectionGate;
+import com.codepilot1c.core.settings.PromptTemplateService;
 
 /**
  * Loads an optional {@link IPromptProvider} from an extension point and
@@ -41,18 +43,23 @@ public final class PromptProviderRegistry {
     }
 
     public String getSystemPromptAddition(String profileId, String defaultText) {
+        return getSystemPromptAddition(profileId, defaultText, ProviderSelectionGate.isCodePilotSelectedInUi());
+    }
+
+    public String getSystemPromptAddition(String profileId, String defaultText, boolean backendSelectedInUi) {
         IPromptProvider p = getProvider();
+        String effective = defaultText;
         if (p != null) {
             try {
                 String override = p.getSystemPromptAddition(profileId);
                 if (override != null && !override.isEmpty()) {
-                    return override;
+                    effective = override;
                 }
             } catch (Exception e) {
                 LOG.warn("PromptProvider failed for profileId=%s: %s", profileId, e.getMessage()); //$NON-NLS-1$
             }
         }
-        return defaultText;
+        return PromptTemplateService.getInstance().applyFilesystemSystemPromptOverride(effective, backendSelectedInUi);
     }
 
     private IPromptProvider getProvider() {
@@ -94,4 +101,3 @@ public final class PromptProviderRegistry {
         return null;
     }
 }
-

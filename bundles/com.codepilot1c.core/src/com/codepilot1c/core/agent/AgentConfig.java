@@ -43,6 +43,7 @@ public class AgentConfig {
     private final boolean streamingEnabled;
     private final String systemPromptAddition;
     private final String profileName;
+    private final Set<String> requestedSkills;
     private final boolean toolGraphEnabled;
     private final com.codepilot1c.core.agent.graph.ToolGraphPolicy toolGraphPolicy;
 
@@ -55,6 +56,7 @@ public class AgentConfig {
         this.streamingEnabled = builder.streamingEnabled;
         this.systemPromptAddition = builder.systemPromptAddition;
         this.profileName = builder.profileName;
+        this.requestedSkills = Collections.unmodifiableSet(new HashSet<>(builder.requestedSkills));
         this.toolGraphEnabled = builder.toolGraphEnabled;
         this.toolGraphPolicy = builder.toolGraphPolicy;
     }
@@ -153,6 +155,15 @@ public class AgentConfig {
     }
 
     /**
+     * Skill names that should be loaded into assembled system prompt context.
+     *
+     * @return requested skill names
+     */
+    public Set<String> getRequestedSkills() {
+        return requestedSkills;
+    }
+
+    /**
      * Whether tool graph routing is enabled.
      *
      * @return true if enabled
@@ -193,6 +204,7 @@ public class AgentConfig {
                 ", timeoutMs=" + timeoutMs +
                 ", streaming=" + streamingEnabled +
                 ", profile=" + profileName +
+                ", requestedSkills=" + requestedSkills +
                 ", toolGraph=" + toolGraphEnabled +
                 ", toolGraphPolicy=" + toolGraphPolicy +
                 '}';
@@ -210,6 +222,7 @@ public class AgentConfig {
         private boolean streamingEnabled = true;
         private String systemPromptAddition;
         private String profileName;
+        private Set<String> requestedSkills = new HashSet<>();
         private boolean toolGraphEnabled = true;
         private com.codepilot1c.core.agent.graph.ToolGraphPolicy toolGraphPolicy =
                 com.codepilot1c.core.agent.graph.ToolGraphPolicy.ADVISORY;
@@ -233,6 +246,7 @@ public class AgentConfig {
                 this.streamingEnabled = config.streamingEnabled;
                 this.systemPromptAddition = config.systemPromptAddition;
                 this.profileName = config.profileName;
+                this.requestedSkills = new HashSet<>(config.requestedSkills);
                 this.toolGraphEnabled = config.toolGraphEnabled;
                 this.toolGraphPolicy = config.toolGraphPolicy;
             }
@@ -348,6 +362,37 @@ public class AgentConfig {
          */
         public Builder systemPromptAddition(String addition) {
             this.systemPromptAddition = addition;
+            return this;
+        }
+
+        /**
+         * Requests a skill body to be injected into assembled prompt context.
+         *
+         * @param skillName skill name
+         * @return this builder
+         */
+        public Builder addRequestedSkill(String skillName) {
+            if (skillName != null && !skillName.isBlank()) {
+                this.requestedSkills.add(skillName.trim());
+            }
+            return this;
+        }
+
+        /**
+         * Replaces requested skills.
+         *
+         * @param skillNames requested skills
+         * @return this builder
+         */
+        public Builder requestedSkills(Set<String> skillNames) {
+            this.requestedSkills.clear();
+            if (skillNames != null) {
+                skillNames.stream()
+                        .filter(Objects::nonNull)
+                        .map(String::trim)
+                        .filter(name -> !name.isEmpty())
+                        .forEach(this.requestedSkills::add);
+            }
             return this;
         }
 
