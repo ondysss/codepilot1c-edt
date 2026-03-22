@@ -24,12 +24,14 @@ import com.codepilot1c.core.edt.metadata.AddMetadataChildRequest;
 import com.codepilot1c.core.edt.metadata.CreateMetadataRequest;
 import com.codepilot1c.core.edt.metadata.DeleteMetadataRequest;
 import com.codepilot1c.core.edt.metadata.EdtMetadataGateway;
+import com.codepilot1c.core.edt.metadata.EnsureModuleArtifactRequest;
 import com.codepilot1c.core.edt.metadata.MetadataChildKind;
 import com.codepilot1c.core.edt.metadata.MetadataKind;
 import com.codepilot1c.core.edt.metadata.MetadataOperationCode;
 import com.codepilot1c.core.edt.metadata.MetadataOperationException;
 import com.codepilot1c.core.edt.metadata.MetadataProjectReadinessChecker;
 import com.codepilot1c.core.edt.metadata.MetadataNameValidator;
+import com.codepilot1c.core.edt.metadata.ModuleArtifactKind;
 import com.codepilot1c.core.edt.metadata.UpdateMetadataRequest;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
@@ -555,6 +557,45 @@ public class MetadataRequestValidationService {
         return payload;
     }
 
+    public Map<String, Object> normalizeEnsureModuleArtifactPayload(
+            String projectName,
+            String objectFqn,
+            String moduleKindValue,
+            Boolean createIfMissing,
+            String initialContent
+    ) {
+        ModuleArtifactTarget target = normalizeModuleArtifactTarget(objectFqn, moduleKindValue);
+        EnsureModuleArtifactRequest request = new EnsureModuleArtifactRequest(
+                projectName,
+                target.objectFqn(),
+                target.moduleKind(),
+                createIfMissing == null ? true : createIfMissing.booleanValue(),
+                initialContent);
+        request.validate();
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("project", projectName); //$NON-NLS-1$
+        payload.put("object_fqn", target.objectFqn()); //$NON-NLS-1$
+        payload.put("module_kind", target.moduleKind().name()); //$NON-NLS-1$
+        payload.put("create_if_missing", Boolean.valueOf(request.createIfMissing())); //$NON-NLS-1$
+        if (initialContent != null && !initialContent.isBlank()) {
+            payload.put("initial_content", initialContent); //$NON-NLS-1$
+        }
+        return payload;
+    }
+
+    Map<String, Object> normalizeEnsureModuleArtifactPayload(
+            String projectName,
+            Map<String, Object> rawPayload
+    ) {
+        return normalizeEnsureModuleArtifactPayload(
+                projectName,
+                asString(firstValue(rawPayload, "object_fqn", "objectFqn")), //$NON-NLS-1$ //$NON-NLS-2$
+                asOptionalString(firstValue(rawPayload, "module_kind", "moduleType", "moduleKind")), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                asOptionalBoolean(firstValue(rawPayload, "create_if_missing", "createIfMissing")), //$NON-NLS-1$ //$NON-NLS-2$
+                asOptionalString(firstValue(rawPayload, "initial_content", "initialContent"))); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
     public Map<String, Object> normalizeDeletePayload(
             String projectName,
             String targetFqn,
@@ -998,6 +1039,13 @@ public class MetadataRequestValidationService {
                 checks.add("Операция update_metadata валидирована по обязательным полям."); //$NON-NLS-1$
                 yield payload;
             }
+            case ENSURE_MODULE_ARTIFACT -> {
+                Map<String, Object> payload = normalizeEnsureModuleArtifactPayload(
+                        coalesceProject(request.projectName(), request.payload()),
+                        request.payload());
+                checks.add("Операция ensure_module_artifact валидирована по проекту, FQN и типу модуля."); //$NON-NLS-1$
+                yield payload;
+            }
             case DELETE_METADATA -> {
                 Object recursiveObj = request.payload().get("recursive"); //$NON-NLS-1$
                 boolean recursive = recursiveObj instanceof Boolean b ? b.booleanValue() : Boolean.parseBoolean(String.valueOf(recursiveObj));
@@ -1047,6 +1095,63 @@ public class MetadataRequestValidationService {
                     "payload.project must match project", false); //$NON-NLS-1$
         }
         return topLevelProject;
+    }
+
+    private Object firstValue(Map<String, Object> payload, String... keys) {
+        for (String key : keys) {
+            if (payload.containsKey(key)) {
+                return payload.get(key);
+            }
+        }
+        return null;
+    }
+
+    private ModuleArtifactTarget normalizeModuleArtifactTarget(String objectFqn, String moduleKindValue) {
+        String normalizedObjectFqn = objectFqn == null ? null : objectFqn.trim().replace('/', '.'); //$NON-NLS-1$
+        String effectiveModuleKind = moduleKindValue;
+        if (normalizedObjectFqn != null) {
+            ModuleSuffixMatch suffixMatch = ModuleSuffixMatch.match(normalizedObjectFqn);
+            if (suffixMatch != null) {
+                normalizedObjectFqn = suffixMatch.strip(normalizedObjectFqn);
+                if (effectiveModuleKind == null || effectiveModuleKind.isBlank()) {
+                    effectiveModuleKind = suffixMatch.moduleKindValue;
+                }
+            }
+        }
+        return new ModuleArtifactTarget(
+                normalizedObjectFqn,
+                ModuleArtifactKind.fromString(effectiveModuleKind));
+    }
+
+    private record ModuleArtifactTarget(String objectFqn, ModuleArtifactKind moduleKind) {
+    }
+
+    private enum ModuleSuffixMatch {
+        OBJECT(".ObjectModule", "object"), //$NON-NLS-1$ //$NON-NLS-2$
+        MANAGER(".ManagerModule", "manager"), //$NON-NLS-1$ //$NON-NLS-2$
+        MODULE(".FormModule", "module"), //$NON-NLS-1$ //$NON-NLS-2$
+        GENERIC_MODULE(".Module", "module"); //$NON-NLS-1$ //$NON-NLS-2$
+
+        private final String suffix;
+        private final String moduleKindValue;
+
+        ModuleSuffixMatch(String suffix, String moduleKindValue) {
+            this.suffix = suffix;
+            this.moduleKindValue = moduleKindValue;
+        }
+
+        static ModuleSuffixMatch match(String value) {
+            for (ModuleSuffixMatch candidate : values()) {
+                if (value.endsWith(candidate.suffix)) {
+                    return candidate;
+                }
+            }
+            return null;
+        }
+
+        String strip(String value) {
+            return value.substring(0, value.length() - suffix.length());
+        }
     }
 
     private String asString(Object value) {

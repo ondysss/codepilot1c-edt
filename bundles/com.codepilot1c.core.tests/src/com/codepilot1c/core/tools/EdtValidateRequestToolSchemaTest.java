@@ -4,6 +4,8 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
+import com.codepilot1c.core.tools.metadata.EdtValidateRequestTool;
+
 public class EdtValidateRequestToolSchemaTest {
 
     @Test

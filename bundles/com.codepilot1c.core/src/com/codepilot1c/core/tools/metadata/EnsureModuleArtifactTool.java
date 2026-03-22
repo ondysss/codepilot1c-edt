@@ -101,11 +101,12 @@ public class EnsureModuleArtifactTool extends AbstractTool {
                     LogSanitizer.truncate(LogSanitizer.redactSecrets(String.valueOf(parameters)), 4000));
             try {
                 String projectName = getString(parameters, "project"); //$NON-NLS-1$
-                String objectFqn = getString(parameters, "object_fqn"); //$NON-NLS-1$
-                ModuleArtifactKind moduleKind = ModuleArtifactKind.fromString(getString(parameters, "module_kind")); //$NON-NLS-1$
-                boolean createIfMissing = !Boolean.FALSE.equals(parameters.get("create_if_missing")); //$NON-NLS-1$
-                String initialContent = getString(parameters, "initial_content"); //$NON-NLS-1$
-                String validationToken = getString(parameters, "validation_token"); //$NON-NLS-1$
+                String objectFqn = getString(parameters, "object_fqn", "objectFqn"); //$NON-NLS-1$ //$NON-NLS-2$
+                ModuleArtifactKind moduleKind = ModuleArtifactKind.fromString(
+                        getString(parameters, "module_kind", "moduleType", "moduleKind")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                boolean createIfMissing = getBoolean(parameters, true, "create_if_missing", "createIfMissing"); //$NON-NLS-1$ //$NON-NLS-2$
+                String initialContent = getString(parameters, "initial_content", "initialContent"); //$NON-NLS-1$ //$NON-NLS-2$
+                String validationToken = getString(parameters, "validation_token", "validationToken"); //$NON-NLS-1$ //$NON-NLS-2$
 
                 Map<String, Object> normalizedPayload = validationService.normalizeEnsureModuleArtifactPayload(
                         projectName,
@@ -145,8 +146,29 @@ public class EnsureModuleArtifactTool extends AbstractTool {
         });
     }
 
-    private String getString(Map<String, Object> parameters, String key) {
-        Object value = parameters.get(key);
-        return value == null ? null : String.valueOf(value);
+    private String getString(Map<String, Object> parameters, String... keys) {
+        for (String key : keys) {
+            Object value = parameters.get(key);
+            if (value != null) {
+                return String.valueOf(value);
+            }
+        }
+        return null;
+    }
+
+    private boolean getBoolean(Map<String, Object> parameters, boolean defaultValue, String... keys) {
+        for (String key : keys) {
+            Object value = parameters.get(key);
+            if (value instanceof Boolean bool) {
+                return bool.booleanValue();
+            }
+            if (value instanceof String stringValue) {
+                return Boolean.parseBoolean(stringValue);
+            }
+            if (value != null) {
+                return defaultValue;
+            }
+        }
+        return defaultValue;
     }
 }
