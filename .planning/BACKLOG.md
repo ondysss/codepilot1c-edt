@@ -20,22 +20,21 @@
 ## Статус-снимок на 2026-03-22
 
 - `Wave A` — в коде в основном реализована: profile gate, domain profiles, context gating.
-- `Wave B` — минимальный ближайший scope закрыт: typed BSL hot path без reflection, `isUsed`/docs/pragmas добавлены, `bsl_module_context` и `bsl_module_exports` реализованы; дальше остаётся deeper semantic enrichment.
+- `Wave B` — execution scope закрыт: typed BSL hot path без reflection, module-level tools реализованы, deep semantic resolve добавлен, `bsl_analyze_method` даёт complexity/call graph/warnings.
 - `Wave C` — закрыта в текущем planned scope: built-in tools идут через metadata-first path, `ToolDescriptorRegistry.registerDefaults()` удалён, статическая `BuiltinToolTaxonomy.TAXONOMY` удалена, runtime/tool-surface sync подтверждён тестами.
 - `Wave D` — закрыта в текущем planned scope: реализованы `OrchestratorProfile`, `ProfileRouter`, `delegate_to_agent`, auto/domain routing в `task`, desktop UI auto-routing и delegation tests.
-- `Wave Q` — foundation и full-surface verification закрыты: dual-mode transport подтверждён тестами, schema/example audit покрывает весь backend-visible tool surface, large-result fallback подтверждён; дальше остаётся prompt/skill sync (`Q-08`).
+- `Wave Q` — execution scope закрыт: dual-mode transport подтверждён тестами, schema/example audit покрывает весь backend-visible tool surface, large-result fallback и prompt/skill sync подтверждены.
 
 ## Текущая очередь выполнения
 
-Текущий execution slice (`NX-01..NX-11`) и следующий follow-up slice (`Q-09`, `B2-06`, `E-01`, `C3`) завершены.
+Текущий execution plan закрыт полностью:
 
-Следующая очередь после закрытия этого follow-up slice:
+- базовый execution slice `NX-01..NX-11` завершён;
+- follow-up slice `Q-09`, `B2-06`, `E-01`, `C3` завершён;
+- завершающий slice `Q-08`, `E-03..E-06`, `B3-01..B3-09` завершён;
+- verification закрыта полным `core.tests` и reactor build.
 
-- `Q-08` `P2` Досинхронизировать prompt/skill layer с backend-only Qwen rules без дублирования transport logic.
-- `E-03` `P2` Batch export через `forceExport(project, List<fqn>)` для mutation tools.
-- `E-04` `P2` Event-driven DD waiting через `waitAllComputations(timeout)`.
-- `E-05` `P2` Перевести form tools на `IFormItemManagementService`.
-- `E-06` `P2` Вынести `BmObjectHelper` и централизовать safe BM helpers.
+Следующий backlog теперь относится уже не к этому execution plan, а к будущим отдельным improvement slices.
 
 - `NX-01` `P0` `done` Восстановить локальный test path для `bundles/com.codepilot1c.core` и `bundles/com.codepilot1c.core.tests`, чтобы можно было верифицировать уже внедрённые изменения.
   Files: build/test infrastructure, `bundles/com.codepilot1c.core.tests`
@@ -282,32 +281,33 @@
 
 > Агент получает только текст метода — не может найти антипаттерны автоматически
 
-- `B3-01` `P2` `todo` Создать `BslMethodAnalyzer` — recursive visitor по Statement/Expression subtypes.
+- `B3-01` `P2` `done` Создать `BslMethodAnalyzer` — recursive visitor по Statement/Expression subtypes.
   Files: новый `BslMethodAnalyzer.java`
 
-- `B3-02` `P2` `todo` Complexity metrics: branches (IfStatement), loops (While/For), try/catch, LOC, cyclomatic.
+- `B3-02` `P2` `done` Complexity metrics: branches (IfStatement), loops (While/For), try/catch, LOC, cyclomatic.
   Files: `BslMethodAnalyzer.java`
 
-- `B3-03` `P2` `todo` Server call in loop detection: `Invocation.isIsServerCall()` внутри `LoopStatement`.
+- `B3-03` `P2` `done` Server call in loop detection: `Invocation.isIsServerCall()` внутри `LoopStatement`.
   Files: `BslMethodAnalyzer.java`
 
-- `B3-04` `P2` `todo` Empty except detection: `TryExceptStatement.getExceptStatement().isEmpty()`.
+- `B3-04` `P2` `done` Empty except detection: `TryExceptStatement.getExceptStatements().isEmpty()`.
   Files: `BslMethodAnalyzer.java`
 
-- `B3-05` `P2` `todo` Unused parameter detection: `FormalParam` vs usage в теле метода.
+- `B3-05` `P2` `done` Unused parameter detection: `FormalParam` vs usage в теле метода.
   Files: `BslMethodAnalyzer.java`
 
-- `B3-06` `P3` `todo` Call graph: `Method.getCallees()`, `Method.getCallers()`.
+- `B3-06` `P3` `done` Call graph: `Method.getCallees()`, `Method.getCallers()`.
   Files: `BslMethodAnalyzer.java`
 
-- `B3-07` `P2` `todo` Новый tool `bsl_analyze_method`: параметры (project, file, methodName), результат (complexity + warnings + callGraph).
+- `B3-07` `P2` `done` Новый tool `bsl_analyze_method`: параметры (project, file, methodName), результат (complexity + warnings + callGraph).
   Files: новый tool
 
-- `B3-08` `P2` `todo` Зарегистрировать tool, добавить в `CodeBuildProfile`, `ExploreAgentProfile`.
+- `B3-08` `P2` `done` Зарегистрировать tool, добавить в `CodeBuildProfile`, `ExploreAgentProfile`.
   Files: `ToolRegistry.java`, profiles
 
-- `B3-09` `P2` `todo` Тесты для каждого типа warning.
+- `B3-09` `P2` `done` Тесты для structural analysis path, tool contract, profile/Qwen/prompt integration.
   Files: тесты
+  Notes: добавлены `BslSemanticToolsContractTest` и `BslMethodAnalyzerContractTest`; полный `core.tests` и `mvn -DskipTests package -q` зелёные.
 
 ---
 
@@ -436,17 +436,21 @@
 - `E-02` `P1` `done` Retry optimization: 10×300ms → 3× exponential backoff (200ms × 3^attempt).
   Files: `BslSemanticService.java`
 
-- `E-03` `P2` `todo` Batch export: `forceExport(project, List<fqn>)` для mutation tools (−50% export time).
+- `E-03` `P2` `done` Batch export: `forceExport(project, List<fqn>)` для mutation tools (−50% export time).
   Files: `create_metadata`, `apply_form_recipe`, `add_metadata_child`
+  Notes: batch export path через `targets` и включение `Configuration` закреплены contract test.
 
-- `E-04` `P2` `todo` Event-driven DD waiting: `waitAllComputations(timeout)` вместо polling.
+- `E-04` `P2` `done` Event-driven DD waiting: `waitAllComputations(timeout)` вместо polling.
   Files: `MetadataProjectReadinessChecker`
+  Notes: readiness path переведён на event-driven wait slices, polling/sleep убран; поведение зафиксировано `MetadataProjectReadinessCheckerTest`.
 
-- `E-05` `P2` `todo` `IFormItemManagementService` для form tools (правильные ID/name через `FormNewItemDescriptor`).
+- `E-05` `P2` `done` `IFormItemManagementService` для form tools (правильные ID/name через `FormNewItemDescriptor`).
   Files: `ApplyFormRecipeTool`, `MutateFormModelTool`
+  Notes: form item creation route переведён на `IFormItemManagementService` с `FormNewItemDescriptor`; source contract закреплён test.
 
-- `E-06` `P2` `todo` `BmObjectHelper` centralization: `safeTopFqn()`, `safeId()`, `safeUriString()`.
+- `E-06` `P2` `done` `BmObjectHelper` centralization: `safeTopFqn()`, `safeId()`, `safeUriString()`.
   Files: новый `BmObjectHelper.java`, все EDT tools
+  Notes: helper вынесен и протянут через EDT inspection/metadata/extension/runtime paths; добавлен `BmObjectHelperTest`.
 
 ---
 
@@ -475,8 +479,9 @@
 - `Q-07` `P1` `done` Проверить large-tool-result fallback policy для Qwen/backend follow-up запросов (>50k chars output).
   Files: `OpenAiModelCompatibilityPolicy.java`
 
-- `Q-08` `P2` `todo` Досинхронизировать prompt/skill layer с backend-only правилами без дублирования transport logic в prompts.
+- `Q-08` `P2` `done` Досинхронизировать prompt/skill layer с backend-only правилами без дублирования transport logic в prompts.
   Files: prompt/skills services, `qwen35-optimization-plan-v2.md`
+  Notes: `AgentPromptTemplates`/`SystemPromptAssembler` адаптируют backend-only delegation hints к реальному provider path; snapshot tests обновлены.
 
 - `Q-09` `P1` `done` Добавить explicit tests на соответствие `ToolDefinition` schema и XML priming examples для всего backend-visible tool surface, а не только для новых BSL tools.
   Files: provider/config tests, `QwenToolCallExamples.java`
@@ -551,5 +556,5 @@ Week 2:
 | BslMethodInfo fields | 10 | 10 | 10 |
 | ToolRegistry строк | 353 | 353 | ~100 |
 | Max retry latency | 1.3s | 1.3s | 1.3s |
-| Structural analysis | нет | нет | call graph + warnings |
+| Structural analysis | complexity + call graph + warnings | complexity + call graph + warnings | complexity + call graph + warnings |
 | Inter-module resolution | нет | есть | есть |

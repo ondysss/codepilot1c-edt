@@ -1,7 +1,7 @@
 # План следующих шагов по CodePilot1C
 
 **Дата:** 2026-03-22
-**Статус:** Фазы 1-6 завершены
+**Статус:** execution plan закрыт
 **Основание:** актуализированные `.planning/BACKLOG.md`, `.planning/REFACTORING-ROADMAP.md`, `.planning/qwen35-optimization-plan-v2.md`
 
 ---
@@ -23,6 +23,7 @@
 - Фаза 4 закрыта в минимально необходимом scope: dual-mode Qwen transport подтверждён targeted tests, example coverage для новых BSL tools добавлен, large-result fallback проверен.
 - Фаза 5 закрыта: ручные `ToolDescriptorRegistry.registerDefaults()` и `BuiltinToolTaxonomy.TAXONOMY` удалены, а metadata-first tool surface подтверждён targeted tests и full `core.tests`.
 - Фаза 6 закрыта: реализованы `OrchestratorProfile`, `ProfileRouter`, `delegate_to_agent`, auto/domain routing в `task`, desktop UI auto-routing и delegation contract tests.
+- Фаза 7 закрыта: выполнены `Q-08`, `E-03..E-06` и `Wave B3` (`bsl_analyze_method`, structural warnings, call graph, prompt/Qwen/profile sync).
 - Верификация execution slice завершена: `mvn -pl bundles/com.codepilot1c.core.tests -am test -q` и `mvn -DskipTests package -q` проходят.
 
 ---
@@ -282,22 +283,22 @@
 
 ---
 
-## Следующий scope вне этого плана
+## Итоговое закрытие follow-up scope
 
-Этот follow-up scope закрыт:
+Закрыты:
 
 1. `Q-09`: full-surface Qwen example/schema audit.
 2. `B2-06`: deep semantic resolve в `bsl_symbol_at_position`.
 3. `E-01`: read-only BM tasks для inspection tools.
 4. `C3`: package reorg `tools/*`.
+5. `Q-08`: prompt/skill sync с backend-only Qwen rules.
+6. `E-03`: batch export для mutation tools.
+7. `E-04`: event-driven DD waiting.
+8. `E-05`: `IFormItemManagementService` для form tools.
+9. `E-06`: `BmObjectHelper` centralization.
+10. `B3-01..B3-09`: structural analysis и `bsl_analyze_method`.
 
-Следующий scope после его завершения:
-
-1. `Q-08`: prompt/skill sync с backend-only Qwen rules.
-2. `E-03`: batch export для mutation tools.
-3. `E-04`: event-driven DD waiting.
-4. `E-05`: `IFormItemManagementService` для form tools.
-5. `E-06`: `BmObjectHelper` centralization.
+Текущий execution plan больше не имеет незакрытых пунктов. Следующие шаги должны оформляться уже как новый отдельный planning slice.
 
 ---
 
@@ -306,5 +307,5 @@
 После каждой завершённой фазы:
 
 1. обновить статус соответствующих items в `.planning/BACKLOG.md`;
-2. если завершена значимая verification, сократить residual todo до конкретных gaps;
-3. не переводить `Wave D` в `in_progress`, пока не закрыты фазы 1-4.
+2. зафиксировать зелёный targeted/full test path и reactor build;
+3. открывать следующий planning slice только для нового scope, а не для уже закрытого execution plan.
