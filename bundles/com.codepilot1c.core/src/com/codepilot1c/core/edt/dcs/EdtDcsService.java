@@ -1,12 +1,12 @@
 package com.codepilot1c.core.edt.dcs;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
 import org.eclipse.core.resources.IProject;
-import org.eclipse.emf.common.util.TreeIterator;
 import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.util.EcoreUtil;
 
@@ -165,11 +165,12 @@ public class EdtDcsService {
         gateway.ensureMutationRuntimeAvailable();
 
         IProject project = resolveProject(request.normalizedProjectName());
+        Configuration configuration = gateway.getConfigurationProvider().getConfiguration(project);
         Holder<DcsCreateMainSchemaResult> holder = new Holder<>();
         executeWrite(project, transaction -> {
             MdObject owner = resolveOwnerInTransaction(
                     transaction,
-                    request.normalizedProjectName(),
+                    configuration,
                     request.normalizedOwnerFqn());
             OwnerTemplates templates = resolveOwnerTemplates(owner);
             if (templates == null) {
@@ -235,11 +236,12 @@ public class EdtDcsService {
         gateway.ensureMutationRuntimeAvailable();
 
         IProject project = resolveProject(request.normalizedProjectName());
+        Configuration configuration = gateway.getConfigurationProvider().getConfiguration(project);
         Holder<DcsUpsertQueryDatasetResult> holder = new Holder<>();
         executeWrite(project, transaction -> {
             MdObject owner = resolveOwnerInTransaction(
                     transaction,
-                    request.normalizedProjectName(),
+                    configuration,
                     request.normalizedOwnerFqn());
             DataCompositionSchema schema = requireSchema(owner, request.normalizedOwnerFqn());
 
@@ -290,11 +292,12 @@ public class EdtDcsService {
         gateway.ensureMutationRuntimeAvailable();
 
         IProject project = resolveProject(request.normalizedProjectName());
+        Configuration configuration = gateway.getConfigurationProvider().getConfiguration(project);
         Holder<DcsUpsertParameterResult> holder = new Holder<>();
         executeWrite(project, transaction -> {
             MdObject owner = resolveOwnerInTransaction(
                     transaction,
-                    request.normalizedProjectName(),
+                    configuration,
                     request.normalizedOwnerFqn());
             DataCompositionSchema schema = requireSchema(owner, request.normalizedOwnerFqn());
 
@@ -349,11 +352,12 @@ public class EdtDcsService {
         gateway.ensureMutationRuntimeAvailable();
 
         IProject project = resolveProject(request.normalizedProjectName());
+        Configuration configuration = gateway.getConfigurationProvider().getConfiguration(project);
         Holder<DcsUpsertCalculatedFieldResult> holder = new Holder<>();
         executeWrite(project, transaction -> {
             MdObject owner = resolveOwnerInTransaction(
                     transaction,
-                    request.normalizedProjectName(),
+                    configuration,
                     request.normalizedOwnerFqn());
             DataCompositionSchema schema = requireSchema(owner, request.normalizedOwnerFqn());
 
@@ -404,10 +408,25 @@ public class EdtDcsService {
 
     private MdObject resolveOwnerInTransaction(
             IBmPlatformTransaction transaction,
-            String projectName,
+            Configuration configuration,
             String ownerFqn
     ) {
-        MdObject owner = resolveOwner(projectName, ownerFqn);
+        // First try to resolve within the transaction context (reliable for new objects)
+        if (configuration != null) {
+            try {
+                Configuration txConfiguration = transaction.toTransactionObject(configuration);
+                if (txConfiguration != null) {
+                    MdObject txOwner = findInConfiguration(txConfiguration, ownerFqn);
+                    if (txOwner != null) {
+                        return txOwner;
+                    }
+                }
+            } catch (RuntimeException e) {
+                // Fall through to non-transaction resolution
+            }
+        }
+        // Fallback: resolve outside transaction and map
+        MdObject owner = resolveOwner(configuration, ownerFqn);
         MdObject txOwner = castMdObject(transaction.toTransactionObject(owner));
         if (txOwner == null) {
             txOwner = resolveOwnerByUri(transaction, owner);
@@ -442,7 +461,28 @@ public class EdtDcsService {
 
     private MdObject resolveOwner(String projectName, String ownerFqn) {
         IProject project = resolveProject(projectName);
+        Configuration configuration = gateway.getConfigurationProvider().getConfiguration(project);
+        return resolveOwner(project, configuration, ownerFqn);
+    }
 
+    private MdObject resolveOwner(Configuration configuration, String ownerFqn) {
+        if (configuration == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.METADATA_NOT_FOUND,
+                    "Configuration is unavailable",
+                    false); //$NON-NLS-1$
+        }
+        MdObject object = findInConfiguration(configuration, ownerFqn);
+        if (object == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.METADATA_NOT_FOUND,
+                    "Owner object not found: " + ownerFqn,
+                    false); //$NON-NLS-1$
+        }
+        return object;
+    }
+
+    private MdObject resolveOwner(IProject project, Configuration configuration, String ownerFqn) {
         IExternalObjectProject externalProject = asExternalProject(project);
         if (externalProject != null) {
             MdObject external = findInExternalProject(externalProject, ownerFqn);
@@ -451,11 +491,10 @@ public class EdtDcsService {
             }
         }
 
-        Configuration configuration = gateway.getConfigurationProvider().getConfiguration(project);
         if (configuration == null) {
             throw new MetadataOperationException(
                     MetadataOperationCode.METADATA_NOT_FOUND,
-                    "Configuration is unavailable for project: " + projectName,
+                    "Configuration is unavailable",
                     false); //$NON-NLS-1$
         }
         MdObject object = findInConfiguration(configuration, ownerFqn);
@@ -495,16 +534,20 @@ public class EdtDcsService {
     }
 
     private MdObject findInConfiguration(Configuration configuration, String ownerFqn) {
-        String normalizedRef = normalize(ownerFqn);
-        TreeIterator<EObject> it = configuration.eAllContents();
-        while (it.hasNext()) {
-            EObject next = it.next();
-            if (!(next instanceof MdObject mdObject)) {
-                continue;
-            }
-            String shortRef = mdObject.eClass().getName() + "." + safe(mdObject.getName()); //$NON-NLS-1$
-            if (normalize(shortRef).equals(normalizedRef) || normalize(mdObject.getName()).equals(normalizedRef)) {
-                return mdObject;
+        String[] parts = ownerFqn != null ? ownerFqn.split("\\.") : new String[0]; //$NON-NLS-1$
+        if (parts.length < 2) {
+            return null;
+        }
+        String type = parts[0].trim().toLowerCase(Locale.ROOT);
+        String name = parts[1].trim();
+        List<? extends MdObject> topLevel = switch (type) {
+            case "report", "отчет", "отчёт" -> configuration.getReports(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "dataprocessor", "обработка" -> configuration.getDataProcessors(); //$NON-NLS-1$ //$NON-NLS-2$
+            default -> Collections.emptyList();
+        };
+        for (MdObject object : topLevel) {
+            if (name.equalsIgnoreCase(object.getName())) {
+                return object;
             }
         }
         return null;
