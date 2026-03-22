@@ -255,58 +255,9 @@ public class BslSemanticService {
         ModuleContext context = resolveModuleContext(request.getProjectName(), request.getFilePath());
         LineIndex lineIndex = new LineIndex(context.text());
         List<ResolvedMethod> methods = collectMethods(context.module(), context.text(), lineIndex);
-
-        String kindFilter = request.normalizedKind();
-        String nameFilter = request.normalizedName();
-        List<ResolvedMethod> matches = new ArrayList<>();
-        for (ResolvedMethod method : methods) {
-            if (!"any".equals(kindFilter) && !kindFilter.equals(method.kind())) { //$NON-NLS-1$
-                continue;
-            }
-            if (!normalize(method.name()).equals(nameFilter)) {
-                continue;
-            }
-            matches.add(method);
-        }
-
-        Integer startLineFilter = request.getStartLine();
-        if (startLineFilter != null) {
-            List<ResolvedMethod> filtered = new ArrayList<>();
-            for (ResolvedMethod method : matches) {
-                if (method.startLine() == startLineFilter.intValue()) {
-                    filtered.add(method);
-                }
-            }
-            matches = filtered;
-        }
-
-        if (matches.isEmpty()) {
-            throw new EdtAstException(EdtAstErrorCode.METHOD_NOT_FOUND,
-                    "Method not found: " + request.getName(), false); //$NON-NLS-1$
-        }
-
-        if (matches.size() > 1) {
-            ResolvedMethod preferred = selectPreferredMethod(matches);
-            if (preferred != null) {
-                matches = List.of(preferred);
-            } else {
-                List<BslMethodCandidate> candidates = new ArrayList<>();
-                for (ResolvedMethod method : matches) {
-                    candidates.add(new BslMethodCandidate(
-                            method.name(),
-                            method.kind(),
-                            method.startLine(),
-                            method.endLine()));
-                }
-                throw new BslMethodLookupException(
-                        EdtAstErrorCode.AMBIGUOUS_METHOD,
-                        "Ambiguous method name: " + request.getName(), //$NON-NLS-1$
-                        true,
-                        candidates);
-            }
-        }
-
-        ResolvedMethod method = matches.get(0);
+        ResolvedMethod method = resolveSingleMethod(
+                findMatchingMethods(methods, request.normalizedName(), request.normalizedKind(), request.getStartLine()),
+                request.getName());
         int startLine = method.startLine();
         int endLine = method.endLine();
         int startOffset = method.startOffset();
@@ -331,6 +282,40 @@ public class BslSemanticService {
                 startLine,
                 endLine,
                 text);
+    }
+
+    public BslMethodAnalysisResult analyzeMethod(BslMethodAnalysisRequest request) {
+        request.validate();
+        return executeRead(request.getProjectName(), () -> doAnalyzeMethod(request));
+    }
+
+    BslMethodAnalysisResult doAnalyzeMethod(BslMethodAnalysisRequest request) {
+        ModuleContext context = resolveModuleContext(request.getProjectName(), request.getFilePath());
+        LineIndex lineIndex = new LineIndex(context.text());
+        List<ResolvedMethod> methods = collectMethods(context.module(), context.text(), lineIndex);
+        ResolvedMethod method = resolveSingleMethod(
+                findMatchingMethods(methods, request.normalizedMethodName(), request.normalizedKind(), request.getStartLine()),
+                request.getMethodName());
+
+        BslMethodAnalyzer.AnalysisSnapshot analysis =
+                new BslMethodAnalyzer().analyze(method.model(), method.startLine(), method.endLine());
+        return new BslMethodAnalysisResult(
+                request.getProjectName(),
+                request.getFilePath(),
+                method.name(),
+                method.kind(),
+                method.startLine(),
+                method.endLine(),
+                analysis.loc(),
+                analysis.cyclomatic(),
+                analysis.branches(),
+                analysis.loops(),
+                analysis.tryExcepts(),
+                analysis.unusedParams(),
+                analysis.serverCallsInLoops(),
+                analysis.callees(),
+                analysis.callers(),
+                analysis.warnings());
     }
 
     public BslModuleContextResult getModuleContext(BslModuleRequest request) {
@@ -932,6 +917,7 @@ public class BslSemanticService {
             String doc = extractDocumentation(text, startOffset);
 
             result.add(new ResolvedMethod(
+                    method,
                     name,
                     kind,
                     startLine,
@@ -1131,7 +1117,56 @@ public class BslSemanticService {
         return candidate;
     }
 
+    private List<ResolvedMethod> findMatchingMethods(
+            List<ResolvedMethod> methods,
+            String normalizedName,
+            String normalizedKind,
+            Integer startLine) {
+        List<ResolvedMethod> matches = new ArrayList<>();
+        for (ResolvedMethod method : methods) {
+            if (!"any".equals(normalizedKind) && !normalizedKind.equals(method.kind())) { //$NON-NLS-1$
+                continue;
+            }
+            if (!normalize(method.name()).equals(normalizedName)) {
+                continue;
+            }
+            if (startLine != null && method.startLine() != startLine.intValue()) {
+                continue;
+            }
+            matches.add(method);
+        }
+        return matches;
+    }
+
+    private ResolvedMethod resolveSingleMethod(List<ResolvedMethod> matches, String requestedName) {
+        if (matches.isEmpty()) {
+            throw new EdtAstException(EdtAstErrorCode.METHOD_NOT_FOUND,
+                    "Method not found: " + requestedName, false); //$NON-NLS-1$
+        }
+        if (matches.size() == 1) {
+            return matches.get(0);
+        }
+        ResolvedMethod preferred = selectPreferredMethod(matches);
+        if (preferred != null) {
+            return preferred;
+        }
+        List<BslMethodCandidate> candidates = new ArrayList<>();
+        for (ResolvedMethod method : matches) {
+            candidates.add(new BslMethodCandidate(
+                    method.name(),
+                    method.kind(),
+                    method.startLine(),
+                    method.endLine()));
+        }
+        throw new BslMethodLookupException(
+                EdtAstErrorCode.AMBIGUOUS_METHOD,
+                "Ambiguous method name: " + requestedName, //$NON-NLS-1$
+                true,
+                candidates);
+    }
+
     private record ResolvedMethod(
+            Method model,
             String name,
             String kind,
             int startLine,

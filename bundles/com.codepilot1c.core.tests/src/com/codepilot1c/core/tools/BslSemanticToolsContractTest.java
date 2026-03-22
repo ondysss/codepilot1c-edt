@@ -10,6 +10,8 @@ import java.util.Map;
 import org.junit.Test;
 
 import com.codepilot1c.core.edt.ast.EdtAstErrorCode;
+import com.codepilot1c.core.edt.lang.BslMethodAnalysisRequest;
+import com.codepilot1c.core.edt.lang.BslMethodAnalysisResult;
 import com.codepilot1c.core.edt.lang.BslMethodBodyResult;
 import com.codepilot1c.core.edt.lang.BslMethodCandidate;
 import com.codepilot1c.core.edt.lang.BslMethodInfo;
@@ -25,6 +27,13 @@ import com.codepilot1c.core.edt.lang.BslScopeMembersResult;
 import com.codepilot1c.core.edt.lang.BslSemanticService;
 import com.codepilot1c.core.edt.lang.BslSymbolResult;
 import com.codepilot1c.core.edt.lang.BslTypeResult;
+import com.codepilot1c.core.tools.bsl.BslAnalyzeMethodTool;
+import com.codepilot1c.core.tools.bsl.BslGetMethodBodyTool;
+import com.codepilot1c.core.tools.bsl.BslListMethodsTool;
+import com.codepilot1c.core.tools.bsl.BslModuleContextTool;
+import com.codepilot1c.core.tools.bsl.BslModuleExportsTool;
+import com.codepilot1c.core.tools.bsl.BslSymbolAtPositionTool;
+import com.codepilot1c.core.tools.bsl.BslTypeAtPositionTool;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -135,6 +144,40 @@ public class BslSemanticToolsContractTest {
         assertEquals("ПровестиЗаказ", exportsJson.getAsJsonArray("items").get(0).getAsJsonObject().get("name").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
+    @Test
+    public void analyzeMethodReturnsStructuredMetricsAndWarnings() {
+        FakeBslSemanticService service = new FakeBslSemanticService();
+        service.methodAnalysisResult = new BslMethodAnalysisResult(
+                "DemoConfiguration", //$NON-NLS-1$
+                "CommonModules/Orders/Module.bsl", //$NON-NLS-1$
+                "ПровестиЗаказ", //$NON-NLS-1$
+                "procedure", //$NON-NLS-1$
+                10,
+                30,
+                21,
+                4,
+                1,
+                1,
+                1,
+                List.of("Ссылка"), //$NON-NLS-1$
+                List.of(new BslMethodAnalysisResult.CallSite("ВыполнитьНаСервере", 18)), //$NON-NLS-1$
+                List.of(new BslMethodAnalysisResult.MethodRef("Проверить", "procedure", 40, 48)), //$NON-NLS-1$ //$NON-NLS-2$
+                List.of(new BslMethodAnalysisResult.MethodRef("ПровестиДокумент", "procedure", 80, 92)), //$NON-NLS-1$ //$NON-NLS-2$
+                List.of(new BslMethodAnalysisResult.WarningItem("SERVER_CALL_IN_LOOP", "Server call inside loop", 18))); //$NON-NLS-1$ //$NON-NLS-2$
+
+        ToolResult result = new BslAnalyzeMethodTool(service).execute(Map.of(
+                "projectName", "DemoConfiguration", //$NON-NLS-1$ //$NON-NLS-2$
+                "filePath", "CommonModules/Orders/Module.bsl", //$NON-NLS-1$ //$NON-NLS-2$
+                "methodName", "ПровестиЗаказ" //$NON-NLS-1$ //$NON-NLS-2$
+        )).join();
+
+        JsonObject json = JsonParser.parseString(result.getContent()).getAsJsonObject();
+        assertTrue(result.isSuccess());
+        assertEquals(4, json.get("cyclomatic").getAsInt()); //$NON-NLS-1$
+        assertEquals("Ссылка", json.getAsJsonArray("unusedParams").get(0).getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals("SERVER_CALL_IN_LOOP", json.getAsJsonArray("warnings").get(0).getAsJsonObject().get("code").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+    }
+
     private static BslMethodInfo sampleMethod(boolean used) {
         return new BslMethodInfo(
                 "ПровестиЗаказ", //$NON-NLS-1$
@@ -157,6 +200,7 @@ public class BslSemanticToolsContractTest {
         private BslScopeMembersResult scopeResult;
         private BslModuleMethodsResult methodsResult;
         private BslMethodBodyResult methodBodyResult;
+        private BslMethodAnalysisResult methodAnalysisResult;
         private BslModuleContextResult moduleContextResult;
         private BslModuleExportsResult moduleExportsResult;
 
@@ -183,6 +227,11 @@ public class BslSemanticToolsContractTest {
         @Override
         public BslMethodBodyResult getMethodBody(com.codepilot1c.core.edt.lang.BslMethodBodyRequest request) {
             return returnOrThrow(methodBodyResult);
+        }
+
+        @Override
+        public BslMethodAnalysisResult analyzeMethod(BslMethodAnalysisRequest request) {
+            return returnOrThrow(methodAnalysisResult);
         }
 
         @Override

@@ -43,7 +43,7 @@ public class BslListMethodsTool extends AbstractTool {
         this(new BslSemanticService());
     }
 
-    BslListMethodsTool(BslSemanticService service) {
+    public BslListMethodsTool(BslSemanticService service) {
         this.service = service;
     }
 

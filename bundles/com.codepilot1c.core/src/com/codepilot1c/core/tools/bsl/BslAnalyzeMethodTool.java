@@ -1,24 +1,25 @@
 package com.codepilot1c.core.tools.bsl;
-import com.codepilot1c.core.tools.ToolResult;
-import com.codepilot1c.core.tools.ToolParameters;
-import com.codepilot1c.core.tools.ToolMeta;
-import com.codepilot1c.core.tools.AbstractTool;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import com.codepilot1c.core.edt.ast.EdtAstException;
-import com.codepilot1c.core.edt.lang.BslPositionRequest;
+import com.codepilot1c.core.edt.lang.BslMethodAnalysisRequest;
+import com.codepilot1c.core.edt.lang.BslMethodAnalysisResult;
+import com.codepilot1c.core.edt.lang.BslMethodLookupException;
 import com.codepilot1c.core.edt.lang.BslSemanticService;
-import com.codepilot1c.core.edt.lang.BslSymbolResult;
+import com.codepilot1c.core.tools.AbstractTool;
+import com.codepilot1c.core.tools.ToolMeta;
+import com.codepilot1c.core.tools.ToolParameters;
+import com.codepilot1c.core.tools.ToolResult;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 
 /**
- * Returns BSL symbol details at source position.
+ * Performs structural analysis for one BSL method.
  */
-@ToolMeta(name = "bsl_symbol_at_position", category = "bsl", tags = {"read-only", "workspace", "edt"})
-public class BslSymbolAtPositionTool extends AbstractTool {
+@ToolMeta(name = "bsl_analyze_method", category = "bsl", tags = {"read-only", "workspace", "edt"})
+public class BslAnalyzeMethodTool extends AbstractTool {
 
     private static final Gson GSON = new Gson();
 
@@ -28,26 +29,27 @@ public class BslSymbolAtPositionTool extends AbstractTool {
               "properties": {
                 "projectName": {"type": "string", "description": "EDT project name"},
                 "filePath": {"type": "string", "description": "Path relative to src/, for example CommonModules/MyModule/Module.bsl"},
-                "line": {"type": "integer", "description": "1-based line"},
-                "column": {"type": "integer", "description": "1-based column"}
+                "methodName": {"type": "string", "description": "Procedure/function name"},
+                "kind": {"type": "string", "enum": ["any", "procedure", "function"], "description": "Filter by method kind"},
+                "start_line": {"type": "integer", "description": "Disambiguation: method start line from candidates"}
               },
-              "required": ["projectName", "filePath", "line", "column"]
+              "required": ["projectName", "filePath", "methodName"]
             }
             """; //$NON-NLS-1$
 
     private final BslSemanticService service;
 
-    public BslSymbolAtPositionTool() {
+    public BslAnalyzeMethodTool() {
         this(new BslSemanticService());
     }
 
-    public BslSymbolAtPositionTool(BslSemanticService service) {
+    public BslAnalyzeMethodTool(BslSemanticService service) {
         this.service = service;
     }
 
     @Override
     public String getDescription() {
-        return "Resolve BSL semantic symbol at source position (kind/name/region/container)."; //$NON-NLS-1$
+        return "Analyze one BSL method for complexity, call graph, unused params, and risky flow patterns."; //$NON-NLS-1$
     }
 
     @Override
@@ -60,9 +62,9 @@ public class BslSymbolAtPositionTool extends AbstractTool {
         return CompletableFuture.supplyAsync(() -> {
             Map<String, Object> parameters = params.getRaw();
             try {
-                BslPositionRequest request = BslPositionRequest.fromParameters(parameters);
-                BslSymbolResult result = service.getSymbolAtPosition(request);
-                return ToolResult.success(GSON.toJson(result));
+                BslMethodAnalysisRequest request = BslMethodAnalysisRequest.fromParameters(parameters);
+                BslMethodAnalysisResult result = service.analyzeMethod(request);
+                return ToolResult.success(GSON.toJson(result), ToolResult.ToolResultType.SEARCH_RESULTS);
             } catch (EdtAstException e) {
                 return ToolResult.failure(toErrorJson(e));
             } catch (Exception e) {
@@ -77,6 +79,9 @@ public class BslSymbolAtPositionTool extends AbstractTool {
         obj.addProperty("error", e.getCode().name()); //$NON-NLS-1$
         obj.addProperty("message", e.getMessage()); //$NON-NLS-1$
         obj.addProperty("recoverable", e.isRecoverable()); //$NON-NLS-1$
+        if (e instanceof BslMethodLookupException lookup) {
+            obj.add("candidates", GSON.toJsonTree(lookup.getCandidates())); //$NON-NLS-1$
+        }
         return GSON.toJson(obj);
     }
 

@@ -17,6 +17,7 @@ import com._1c.g5.v8.bm.core.IBmObject;
 import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
 import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
+import com.codepilot1c.core.edt.BmObjectHelper;
 
 /**
  * Metadata inspection service using EDT configuration model and EMF reflection.
@@ -227,22 +228,8 @@ public class EdtMetadataInspectorService {
         if (!(object instanceof IBmObject bmObject)) {
             return null;
         }
-        try {
-            if (bmObject.bmIsTransient()) {
-                return null;
-            }
-            IBmObject top = bmObject;
-            if (!top.bmIsTop()) {
-                top = top.bmGetTopObject();
-            }
-            if (top == null || top.bmIsTransient() || !top.bmIsTop()) {
-                return null;
-            }
-            String fqn = top.bmGetFqn();
-            return (fqn == null || fqn.isBlank()) ? null : fqn;
-        } catch (RuntimeException e) {
-            return null;
-        }
+        String fqn = BmObjectHelper.safeTopFqn(bmObject);
+        return fqn.isBlank() ? null : fqn;
     }
 
     private boolean isStringMapContainment(EReference reference) {

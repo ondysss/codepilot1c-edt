@@ -36,7 +36,7 @@ final class ToolGraphDefinitions {
         Set<String> inspectTools = Set.of(
                 "read_file", "list_files", "edit_file", "write_file", "grep", "glob", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$
                 "bsl_symbol_at_position", "bsl_type_at_position", "bsl_scope_members", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                "bsl_list_methods", "bsl_get_method_body", "bsl_module_context", "bsl_module_exports", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                "bsl_list_methods", "bsl_get_method_body", "bsl_analyze_method", "bsl_module_context", "bsl_module_exports", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
                 "edt_find_references", "edt_content_assist", //$NON-NLS-1$ //$NON-NLS-2$
                 "edt_metadata_details", "scan_metadata_index", "inspect_platform_reference", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                 "get_diagnostics" //$NON-NLS-1$

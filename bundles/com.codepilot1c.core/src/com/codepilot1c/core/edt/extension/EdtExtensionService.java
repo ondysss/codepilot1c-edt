@@ -28,6 +28,7 @@ import com._1c.g5.v8.dt.metadata.mdclass.MdClassFactory;
 import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
 import com._1c.g5.v8.dt.metadata.mdclass.extension.type.MdPropertyState;
 import com._1c.g5.v8.dt.platform.version.Version;
+import com.codepilot1c.core.edt.BmObjectHelper;
 import com.codepilot1c.core.edt.metadata.EdtMetadataGateway;
 import com.codepilot1c.core.edt.metadata.MetadataOperationCode;
 import com.codepilot1c.core.edt.metadata.MetadataOperationException;
@@ -745,15 +746,9 @@ public class EdtExtensionService {
 
     private String safeFqn(EObject object, String kind, String name) {
         if (object instanceof IBmObject bmObject) {
-            try {
-                if (!bmObject.bmIsTransient() && bmObject.bmIsTop()) {
-                    String fqn = bmObject.bmGetFqn();
-                    if (fqn != null && !fqn.isBlank()) {
-                        return fqn;
-                    }
-                }
-            } catch (RuntimeException e) {
-                // Detached BM object may throw on bmGetFqn(); fallback below.
+            String fqn = BmObjectHelper.safeTopFqn(bmObject);
+            if (!fqn.isBlank()) {
+                return fqn;
             }
         }
         return kind + "." + name; //$NON-NLS-1$

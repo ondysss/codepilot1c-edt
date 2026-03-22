@@ -42,7 +42,7 @@ public class BslModuleExportsTool extends AbstractTool {
         this(new BslSemanticService());
     }
 
-    BslModuleExportsTool(BslSemanticService service) {
+    public BslModuleExportsTool(BslSemanticService service) {
         this.service = service;
     }
 

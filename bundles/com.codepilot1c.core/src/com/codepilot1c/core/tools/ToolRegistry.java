@@ -113,6 +113,7 @@ public class ToolRegistry {
         register(new BslScopeMembersTool());
         register(new BslListMethodsTool());
         register(new BslGetMethodBodyTool());
+        register(new BslAnalyzeMethodTool());
         register(new BslModuleContextTool());
         register(new BslModuleExportsTool());
         register(new EdtValidateRequestTool());

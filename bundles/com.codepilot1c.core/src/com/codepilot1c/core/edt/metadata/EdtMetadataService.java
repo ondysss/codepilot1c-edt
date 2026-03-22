@@ -78,6 +78,8 @@ import com._1c.g5.v8.dt.form.model.FormItem;
 import com._1c.g5.v8.dt.form.model.FormItemContainer;
 import com._1c.g5.v8.dt.form.model.Titled;
 import com._1c.g5.v8.dt.form.model.Visible;
+import com._1c.g5.v8.dt.form.service.item.FormNewItemDescriptor;
+import com._1c.g5.v8.dt.form.service.item.IFormItemManagementService;
 import com._1c.g5.v8.dt.mcore.DateQualifiers;
 import com._1c.g5.v8.dt.mcore.DateFractions;
 import com._1c.g5.v8.dt.mcore.McoreFactory;
@@ -113,6 +115,7 @@ import com.codepilot1c.core.edt.forms.InspectFormLayoutRequest;
 import com.codepilot1c.core.edt.forms.InspectFormLayoutResult;
 import com.codepilot1c.core.edt.forms.UpdateFormModelRequest;
 import com.codepilot1c.core.edt.forms.UpdateFormModelResult;
+import com.codepilot1c.core.edt.BmObjectHelper;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
 import org.osgi.framework.Bundle;
@@ -745,6 +748,7 @@ public class EdtMetadataService {
 
     private List<String> applyFormModelOperations(Form formModel, List<Map<String, Object>> operations) {
         List<String> summaries = new ArrayList<>();
+        IFormItemManagementService itemManagementService = resolveOptionalFormItemManagementService();
         int operationIndex = 1;
         for (Map<String, Object> operation : operations) {
             String rawOp = asString(operation.get("op")); //$NON-NLS-1$
@@ -768,24 +772,25 @@ public class EdtMetadataService {
                                 MetadataOperationCode.INVALID_METADATA_NAME,
                                 "Invalid group name: " + name, false); //$NON-NLS-1$
                     }
-                    FormGroup group = FormFactory.eINSTANCE.createFormGroup();
-                    group.setId(nextFormItemId(formModel));
-                    group.setName(name);
-                    applyTitleValue(group, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
                     Map<String, Object> set = asMap(operation.get("set")); //$NON-NLS-1$
-                    if (!set.isEmpty()) {
-                        applyFormPropertySet(group, set);
+                    ManagedFormGroupType groupType = resolveRequestedGroupType(operation, set);
+                    Integer index = asOptionalInteger(operation.get("index"), "index"); //$NON-NLS-1$ //$NON-NLS-2$
+                    FormGroup group = addGroupItem(
+                            formModel,
+                            parentContainer,
+                            operation,
+                            name,
+                            groupType,
+                            index,
+                            itemManagementService);
+                    Map<String, Object> effectiveSet = stripMapKeysIgnoreCase(set, "name", "title", "group_type"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    if (!effectiveSet.isEmpty()) {
+                        applyFormPropertySet(group, effectiveSet);
                     }
-                    applyDefaultVisibility(group, set);
-                    if (hasMapKeyIgnoreCase(operation, "group_type")) { //$NON-NLS-1$
-                        applySimpleFeatureValue(group, "type", getMapValueIgnoreCase(operation, "group_type")); //$NON-NLS-1$ //$NON-NLS-2$
-                    } else if (!hasMapKeyIgnoreCase(set, "type")) { //$NON-NLS-1$
-                        // Safe default for managed form groups in external reports/processings.
-                        applySimpleFeatureValue(group, "type", "USUAL_GROUP"); //$NON-NLS-1$ //$NON-NLS-2$
-                    }
+                    applyDefaultVisibility(group, effectiveSet);
                     ensureFormGroupExtInfo(group);
-                    insertItemIntoContainer(parentContainer, group, asOptionalInteger(operation.get("index"), "index")); //$NON-NLS-1$ //$NON-NLS-2$
-                    summaries.add("add_group[" + operationIndex + "]: name=" + name + ", id=" + group.getId()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    summaries.add("add_group[" + operationIndex + "]: name=" + group.getName() + ", id=" //$NON-NLS-1$ //$NON-NLS-2$
+                            + safeItemId(group)); //$NON-NLS-1$
                 }
                 case "addfield", "createfield" -> {
                     FormItemContainer parentContainer = resolveTargetContainer(formModel, operation);
@@ -795,16 +800,22 @@ public class EdtMetadataService {
                                 MetadataOperationCode.INVALID_METADATA_NAME,
                                 "Invalid field name: " + name, false); //$NON-NLS-1$
                     }
-                    FormField field = FormFactory.eINSTANCE.createFormField();
-                    field.setId(nextFormItemId(formModel));
-                    field.setName(name);
                     Map<String, Object> set = extractAddFieldSet(operation);
-                    if (!set.isEmpty()) {
-                        applyFormPropertySet(field, set);
+                    Integer index = asOptionalInteger(operation.get("index"), "index"); //$NON-NLS-1$ //$NON-NLS-2$
+                    FormField field = addFieldItem(
+                            formModel,
+                            parentContainer,
+                            operation,
+                            name,
+                            index,
+                            itemManagementService);
+                    Map<String, Object> effectiveSet = stripMapKeysIgnoreCase(set, "name", "title"); //$NON-NLS-1$ //$NON-NLS-2$
+                    if (!effectiveSet.isEmpty()) {
+                        applyFormPropertySet(field, effectiveSet);
                     }
-                    applyDefaultVisibility(field, set);
-                    insertItemIntoContainer(parentContainer, field, asOptionalInteger(operation.get("index"), "index")); //$NON-NLS-1$ //$NON-NLS-2$
-                    summaries.add("add_field[" + operationIndex + "]: name=" + name + ", id=" + field.getId()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    applyDefaultVisibility(field, effectiveSet);
+                    summaries.add("add_field[" + operationIndex + "]: name=" + field.getName() + ", id=" //$NON-NLS-1$ //$NON-NLS-2$
+                            + safeItemId(field)); //$NON-NLS-1$
                 }
                 case "setitemprops", "setitem", "updateitem", "set" -> {
                     FormItem item = resolveRequiredItem(formModel, operation);
@@ -887,6 +898,137 @@ public class EdtMetadataService {
             set.put("type", fieldType); //$NON-NLS-1$
         }
         return set;
+    }
+
+    private IFormItemManagementService resolveOptionalFormItemManagementService() {
+        try {
+            Bundle formBundle = requireBundle(FORM_BUNDLE_ID);
+            Object injector = resolveFormInjector(formBundle);
+            return (IFormItemManagementService) resolveInjectorService(injector, IFormItemManagementService.class);
+        } catch (MetadataOperationException | ReflectiveOperationException e) {
+            LOG.warn("IFormItemManagementService unavailable, using legacy form item creation path: %s", //$NON-NLS-1$
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    private FormGroup addGroupItem(
+            Form formModel,
+            FormItemContainer parentContainer,
+            Map<String, Object> operation,
+            String name,
+            ManagedFormGroupType groupType,
+            Integer index,
+            IFormItemManagementService itemManagementService) {
+        FormNewItemDescriptor descriptor = buildFormNewItemDescriptor(operation, name);
+        if (itemManagementService != null) {
+            if (index != null && index.intValue() >= 0 && index.intValue() <= parentContainer.getItems().size()) {
+                return itemManagementService.addGroup(parentContainer, index.intValue(), groupType, formModel, descriptor);
+            }
+            return itemManagementService.addGroup(parentContainer, groupType, formModel, descriptor);
+        }
+        FormGroup group = FormFactory.eINSTANCE.createFormGroup();
+        group.setId(nextFormItemId(formModel));
+        group.setName(name);
+        applyTitleValue(group, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
+        applySimpleFeatureValue(group, "type", groupType.name()); //$NON-NLS-1$
+        insertItemIntoContainer(parentContainer, group, index);
+        return group;
+    }
+
+    private FormField addFieldItem(
+            Form formModel,
+            FormItemContainer parentContainer,
+            Map<String, Object> operation,
+            String name,
+            Integer index,
+            IFormItemManagementService itemManagementService) {
+        FormNewItemDescriptor descriptor = buildFormNewItemDescriptor(operation, name);
+        if (itemManagementService != null) {
+            if (index != null && index.intValue() >= 0 && index.intValue() <= parentContainer.getItems().size()) {
+                return itemManagementService.addField(parentContainer, index.intValue(), formModel, descriptor);
+            }
+            return itemManagementService.addField(parentContainer, formModel, descriptor);
+        }
+        FormField field = FormFactory.eINSTANCE.createFormField();
+        field.setId(nextFormItemId(formModel));
+        field.setName(name);
+        applyTitleValue(field, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
+        insertItemIntoContainer(parentContainer, field, index);
+        return field;
+    }
+
+    private FormNewItemDescriptor buildFormNewItemDescriptor(Map<String, Object> operation, String name) {
+        return new FormNewItemDescriptor(name, extractTitleMap(getMapValueIgnoreCase(operation, "title")), false); //$NON-NLS-1$
+    }
+
+    private Map<String, String> extractTitleMap(Object value) {
+        if (value == null) {
+            return Map.of();
+        }
+        Map<String, String> titles = new LinkedHashMap<>();
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) {
+                    continue;
+                }
+                String language = String.valueOf(entry.getKey()).trim();
+                String title = String.valueOf(entry.getValue()).trim();
+                if (!language.isBlank() && !title.isBlank()) {
+                    titles.put(language, title);
+                }
+            }
+            return titles;
+        }
+        String title = asString(value);
+        if (title != null && !title.isBlank()) {
+            titles.put(RU_LANGUAGE, title);
+        }
+        return titles;
+    }
+
+    private ManagedFormGroupType resolveRequestedGroupType(Map<String, Object> operation, Map<String, Object> set) {
+        Object rawType = hasMapKeyIgnoreCase(operation, "group_type") //$NON-NLS-1$
+                ? getMapValueIgnoreCase(operation, "group_type") //$NON-NLS-1$
+                : getMapValueIgnoreCase(set, "type"); //$NON-NLS-1$
+        if (rawType instanceof ManagedFormGroupType groupType) {
+            return groupType;
+        }
+        if (rawType != null) {
+            String normalized = String.valueOf(rawType).trim().toUpperCase(Locale.ROOT);
+            try {
+                return ManagedFormGroupType.valueOf(normalized);
+            } catch (IllegalArgumentException e) {
+                LOG.warn("Unknown managed form group type '%s', using USUAL_GROUP", rawType); //$NON-NLS-1$
+            }
+        }
+        return ManagedFormGroupType.USUAL_GROUP;
+    }
+
+    private Map<String, Object> stripMapKeysIgnoreCase(Map<String, Object> source, String... keysToRemove) {
+        if (source == null || source.isEmpty()) {
+            return Map.of();
+        }
+        Set<String> normalizedKeys = new HashSet<>();
+        for (String key : keysToRemove) {
+            if (key != null && !key.isBlank()) {
+                normalizedKeys.add(normalizeToken(key));
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            String key = entry.getKey();
+            if (key == null || normalizedKeys.contains(normalizeToken(key))) {
+                continue;
+            }
+            result.put(key, entry.getValue());
+        }
+        return result;
+    }
+
+    private int safeItemId(Object item) {
+        Integer id = BmObjectHelper.safeId(item);
+        return id != null ? id.intValue() : 0;
     }
 
     private void applyDefaultVisibility(EObject target, Map<String, Object> set) {
@@ -3399,7 +3541,7 @@ public class EdtMetadataService {
             if (object == null) {
                 return null;
             }
-            URI uri = object.eResource() != null ? object.eResource().getURI() : null;
+            URI uri = BmObjectHelper.safeUri(object);
             return new ModuleTarget(
                     object.eClass().getName(),
                     toProjectRelativePath(project, uri),
@@ -3416,7 +3558,7 @@ public class EdtMetadataService {
             if (resolved == null) {
                 return null;
             }
-            URI uri = resolved.eResource() != null ? resolved.eResource().getURI() : null;
+            URI uri = BmObjectHelper.safeUri(resolved);
             return new ModuleTarget(
                     resolved.eClass().getName(),
                     toProjectRelativePath(project, uri),
@@ -3763,10 +3905,11 @@ public class EdtMetadataService {
         IExternalObjectProject externalProject = tryResolveExternalProject(project);
         if (externalProject != null) {
             MdObject owner = resolveExternalByFqn(externalProject, ownerFqn);
-            if (owner == null || owner.eResource() == null) {
+            URI ownerUri = BmObjectHelper.safeUri(owner);
+            if (owner == null || ownerUri == null) {
                 return null;
             }
-            String resourcePath = toProjectRelativePath(project, owner.eResource().getURI());
+            String resourcePath = toProjectRelativePath(project, ownerUri);
             if (isUsableMetadataResourcePath(resourcePath) && resourcePath.toLowerCase(Locale.ROOT).endsWith(".mdo")) { //$NON-NLS-1$
                 return resourcePath;
             }
@@ -3783,10 +3926,11 @@ public class EdtMetadataService {
                 return null;
             }
             MdObject owner = resolveByFqn(txConfiguration, ownerFqn);
-            if (owner == null || owner.eResource() == null) {
+            URI ownerUri = BmObjectHelper.safeUri(owner);
+            if (owner == null || ownerUri == null) {
                 return null;
             }
-            return toProjectRelativePath(project, owner.eResource().getURI());
+            return toProjectRelativePath(project, ownerUri);
         });
     }
 
@@ -6715,25 +6859,7 @@ public class EdtMetadataService {
     }
 
     private String resolveTopObjectFqn(IBmObject object) {
-        if (object == null) {
-            return ""; //$NON-NLS-1$
-        }
-        try {
-            if (object.bmIsTransient()) {
-                return ""; //$NON-NLS-1$
-            }
-            IBmObject topObject = object;
-            if (!topObject.bmIsTop()) {
-                topObject = topObject.bmGetTopObject();
-            }
-            if (topObject == null || topObject.bmIsTransient() || !topObject.bmIsTop()) {
-                return ""; //$NON-NLS-1$
-            }
-            String fqn = topObject.bmGetFqn();
-            return fqn != null ? fqn : ""; //$NON-NLS-1$
-        } catch (RuntimeException e) {
-            return ""; //$NON-NLS-1$
-        }
+        return BmObjectHelper.safeTopFqn(object);
     }
 
     private record IncomingReferences(int total, List<String> samples) {

@@ -45,6 +45,7 @@ public class CodeBuildProfile implements AgentProfile {
             "bsl_scope_members",
             "bsl_list_methods",
             "bsl_get_method_body",
+            "bsl_analyze_method",
             "bsl_module_context",
             "bsl_module_exports",
             // EDT code tools
@@ -94,6 +95,7 @@ public class CodeBuildProfile implements AgentProfile {
                 PermissionRule.allow("bsl_scope_members").forAllResources(),
                 PermissionRule.allow("bsl_list_methods").forAllResources(),
                 PermissionRule.allow("bsl_get_method_body").forAllResources(),
+                PermissionRule.allow("bsl_analyze_method").forAllResources(),
                 PermissionRule.allow("bsl_module_context").forAllResources(),
                 PermissionRule.allow("bsl_module_exports").forAllResources(),
                 PermissionRule.allow("edt_content_assist").forAllResources(),

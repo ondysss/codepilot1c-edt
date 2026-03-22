@@ -41,7 +41,7 @@ public class BslTypeAtPositionTool extends AbstractTool {
         this(new BslSemanticService());
     }
 
-    BslTypeAtPositionTool(BslSemanticService service) {
+    public BslTypeAtPositionTool(BslSemanticService service) {
         this.service = service;
     }
 

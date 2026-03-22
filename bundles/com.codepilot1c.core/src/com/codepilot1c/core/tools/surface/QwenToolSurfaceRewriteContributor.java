@@ -58,6 +58,7 @@ public final class QwenToolSurfaceRewriteContributor implements ToolSurfaceContr
             case "bsl_scope_members" -> "List members available in scope at a BSL position. Use it when you need semantic completion candidates or visible API surface."; //$NON-NLS-1$
             case "bsl_list_methods" -> "List methods for a platform type or EDT-resolved semantic type. Prefer it over manual platform-doc scanning when you already know the target type."; //$NON-NLS-1$
             case "bsl_get_method_body" -> "Read the body of a resolved BSL method or procedure declaration when the EDT semantic layer can locate it."; //$NON-NLS-1$
+            case "bsl_analyze_method" -> "Analyze one BSL method for complexity, call graph, unused parameters, and risky flow patterns."; //$NON-NLS-1$
             case "bsl_module_context" -> "Read module-level BSL context: module type, owner, default pragmas, and method counts."; //$NON-NLS-1$
             case "bsl_module_exports" -> "List exported procedures and functions of one BSL module with signatures and line ranges."; //$NON-NLS-1$
             case "edt_validate_request" -> "Validate a pending metadata, form, extension, external-object, DCS, or module-artifact mutation and issue a one-time validation_token. Call it immediately before the mutating tool and pass the validated payload unchanged."; //$NON-NLS-1$

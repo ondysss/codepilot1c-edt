@@ -27,12 +27,12 @@ public class PromptSnapshotTest {
                 backend=false
                 build_has_code_md=false
                 build_has_skill_section=false
-                build_has_task=true
-                orchestrator_has_delegate=true
+                build_has_task=false
+                orchestrator_has_delegate=false
                 plan_has_goal=true
-                plan_has_task=true
+                plan_has_task=false
                 explore_has_output=true
-                explore_has_task=true
+                explore_has_task=false
                 subagent_has_role=true
                 """, snapshotFor(false));
 

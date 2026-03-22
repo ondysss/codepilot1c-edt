@@ -33,6 +33,7 @@ import com._1c.g5.v8.dt.core.platform.IBmModelManager;
 import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
 import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
+import com.codepilot1c.core.edt.BmObjectHelper;
 
 /**
  * Reference search service using EDT BM and Xtext reference finder.
@@ -167,26 +168,7 @@ public class EdtReferenceService {
         }
 
         private String resolveTopFqn(IBmObject object) {
-            if (object == null) {
-                return ""; //$NON-NLS-1$
-            }
-            try {
-                if (object.bmIsTransient()) {
-                    return ""; //$NON-NLS-1$
-                }
-                IBmObject top = object;
-                if (!top.bmIsTop()) {
-                    top = top.bmGetTopObject();
-                }
-                if (top == null || top.bmIsTransient() || !top.bmIsTop()) {
-                    return ""; //$NON-NLS-1$
-                }
-                String fqn = top.bmGetFqn();
-                return fqn != null ? fqn : ""; //$NON-NLS-1$
-            } catch (RuntimeException e) {
-                // Detached BM object may throw on bmGetFqn()/bmGetTopObject(); use empty fallback.
-                return ""; //$NON-NLS-1$
-            }
+            return BmObjectHelper.safeTopFqn(object);
         }
 
         private void collectBslReferences() {

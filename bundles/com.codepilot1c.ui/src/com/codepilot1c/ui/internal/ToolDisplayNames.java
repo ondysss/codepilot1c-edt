@@ -58,6 +58,7 @@ public final class ToolDisplayNames {
             case "bsl_symbol_at_position" -> "BSL символ по позиции"; //$NON-NLS-1$ //$NON-NLS-2$
             case "bsl_type_at_position" -> "BSL тип по позиции"; //$NON-NLS-1$ //$NON-NLS-2$
             case "bsl_scope_members" -> "BSL элементы области"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "bsl_analyze_method" -> "BSL анализ метода"; //$NON-NLS-1$ //$NON-NLS-2$
             case "edt_validate_request" -> "Валидация запроса EDT"; //$NON-NLS-1$ //$NON-NLS-2$
             case "create_metadata" -> "Создание метаданных EDT"; //$NON-NLS-1$ //$NON-NLS-2$
             case "create_form" -> "Создание формы EDT"; //$NON-NLS-1$ //$NON-NLS-2$

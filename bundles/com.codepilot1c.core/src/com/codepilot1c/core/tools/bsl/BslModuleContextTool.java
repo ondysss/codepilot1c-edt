@@ -39,7 +39,7 @@ public class BslModuleContextTool extends AbstractTool {
         this(new BslSemanticService());
     }
 
-    BslModuleContextTool(BslSemanticService service) {
+    public BslModuleContextTool(BslSemanticService service) {
         this.service = service;
     }
 

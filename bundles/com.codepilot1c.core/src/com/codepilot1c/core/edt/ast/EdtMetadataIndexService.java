@@ -19,6 +19,7 @@ import com._1c.g5.v8.bm.core.IBmObject;
 import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
 import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
+import com.codepilot1c.core.edt.BmObjectHelper;
 
 /**
  * Scans top-level metadata objects from EDT configuration.
@@ -495,21 +496,9 @@ public class EdtMetadataIndexService {
 
     private String safeFqn(EObject object, String kind, String name) {
         if (object instanceof IBmObject bmObject) {
-            try {
-                if (!bmObject.bmIsTransient()) {
-                    IBmObject top = bmObject;
-                    if (!top.bmIsTop()) {
-                        top = top.bmGetTopObject();
-                    }
-                    if (top != null && !top.bmIsTransient() && top.bmIsTop()) {
-                        String fqn = top.bmGetFqn();
-                        if (fqn != null && !fqn.isBlank()) {
-                            return fqn;
-                        }
-                    }
-                }
-            } catch (RuntimeException e) {
-                // Detached BM object may throw on bmGetFqn()/bmGetTopObject(); fallback below.
+            String fqn = BmObjectHelper.safeTopFqn(bmObject);
+            if (!fqn.isBlank()) {
+                return fqn;
             }
         }
         return kind + "." + name; //$NON-NLS-1$

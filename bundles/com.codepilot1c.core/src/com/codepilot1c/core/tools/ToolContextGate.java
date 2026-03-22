@@ -55,7 +55,7 @@ public class ToolContextGate {
             "scan_metadata_index", "edt_metadata_smoke", "edt_validate_request", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             "edt_field_type_candidates", "inspect_platform_reference", //$NON-NLS-1$ //$NON-NLS-2$
             "bsl_symbol_at_position", "bsl_type_at_position", "bsl_scope_members", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            "bsl_list_methods", "bsl_get_method_body", "bsl_module_context", "bsl_module_exports", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            "bsl_list_methods", "bsl_get_method_body", "bsl_analyze_method", "bsl_module_context", "bsl_module_exports", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
             "create_metadata", "update_metadata", "update_metadata_properties", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             "delete_metadata", "delete_metadata_object", "add_metadata_child", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             "create_form", "apply_form_recipe", "inspect_form_layout", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$

@@ -44,7 +44,7 @@ public class BslGetMethodBodyTool extends AbstractTool {
         this(new BslSemanticService());
     }
 
-    BslGetMethodBodyTool(BslSemanticService service) {
+    public BslGetMethodBodyTool(BslSemanticService service) {
         this.service = service;
     }
 

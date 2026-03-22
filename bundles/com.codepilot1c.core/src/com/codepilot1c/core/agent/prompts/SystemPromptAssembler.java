@@ -67,10 +67,12 @@ public final class SystemPromptAssembler {
         List<InstructionContextService.InstructionLayer> codeLayers =
                 instructionContextService.loadCodeLayers(backendSelectedInUi);
         List<SkillDefinition> skills = loadRequestedSkills(requestedSkills, backendSelectedInUi);
+        String effectiveBasePrompt = AgentPromptTemplates.adaptForBackend(basePrompt, backendSelectedInUi);
+        String effectivePromptAddition = AgentPromptTemplates.adaptForBackend(promptAddition, backendSelectedInUi);
 
         StringBuilder prompt = new StringBuilder();
-        appendDistinct(prompt, basePrompt);
-        appendDistinct(prompt, promptAddition);
+        appendDistinct(prompt, effectiveBasePrompt);
+        appendDistinct(prompt, effectivePromptAddition);
         appendInstructionLayers(prompt, "AGENTS.md", agentsLayers); //$NON-NLS-1$
         appendInstructionLayers(prompt, "Code.md", codeLayers); //$NON-NLS-1$
         appendSkills(prompt, skills);

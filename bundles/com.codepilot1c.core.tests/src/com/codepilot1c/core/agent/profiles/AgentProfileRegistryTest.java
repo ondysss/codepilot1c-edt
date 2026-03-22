@@ -25,6 +25,7 @@ public class AgentProfileRegistryTest {
         assertTrue("Explore must include glob", tools.contains("glob")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("Explore must include grep", tools.contains("grep")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("Explore must include bsl_list_methods", tools.contains("bsl_list_methods")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue("Explore must include bsl_analyze_method", tools.contains("bsl_analyze_method")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("Explore must include bsl_module_context", tools.contains("bsl_module_context")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("Explore must include bsl_module_exports", tools.contains("bsl_module_exports")); //$NON-NLS-1$ //$NON-NLS-2$
 

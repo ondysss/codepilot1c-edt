@@ -240,6 +240,11 @@ final class QwenToolCallExamples {
                     new String[]{"projectName", "filePath", "name"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                     new String[]{"DemoConfiguration", "CommonModules/Orders/Module.bsl", "ПровестиЗаказ"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         }
+        if ("bsl_analyze_method".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"projectName", "filePath", "methodName"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    new String[]{"DemoConfiguration", "CommonModules/Orders/Module.bsl", "ПровестиЗаказ"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        }
         if ("bsl_module_context".equals(name)) { //$NON-NLS-1$
             return new ExampleParams(
                     new String[]{"projectName", "filePath"}, //$NON-NLS-1$ //$NON-NLS-2$
