@@ -269,6 +269,42 @@ public class DynamicLlmProviderStreamingTest {
     }
 
     @Test
+    public void qwenStreamingXmlContentFallbackProducesToolCallChunk() throws Exception {
+        String streamBody = ""
+                + "data: {\"choices\":[{\"delta\":{\"content\":\"<tool_call>\\n<function=git_inspect>\\n\"},\"finish_reason\":null}]}\n"
+                + "data: {\"choices\":[{\"delta\":{\"content\":\"<parameter=operation>status</parameter>\\n</function>\\n</tool_call>\"},\"finish_reason\":\"stop\"}]}\n"
+                + "data: [DONE]\n";
+
+        HttpServer server = startServer(new DualModeHandler(streamBody, nonStreamingTextResponse("unused"))); //$NON-NLS-1$
+        try {
+            DynamicLlmProvider provider = createProvider(server, "qwen3-coder-next", ProviderType.CODEPILOT_BACKEND); //$NON-NLS-1$
+            List<LlmStreamChunk> chunks = new ArrayList<>();
+
+            provider.streamComplete(createToolRequest(), chunks::add);
+
+            LlmStreamChunk toolChunk = findToolChunk(chunks);
+            assertNotNull(toolChunk);
+            assertEquals(1, toolChunk.getToolCalls().size());
+            assertEquals("git_inspect", toolChunk.getToolCalls().get(0).getName()); //$NON-NLS-1$
+            assertEquals("{\"operation\":\"status\"}", toolChunk.getToolCalls().get(0).getArguments()); //$NON-NLS-1$
+
+            StringBuilder content = new StringBuilder();
+            for (LlmStreamChunk chunk : chunks) {
+                if (chunk.getContent() != null) {
+                    content.append(chunk.getContent());
+                }
+            }
+            assertFalse(content.toString().contains("<tool_call>")); //$NON-NLS-1$
+
+            LlmStreamChunk completeChunk = chunks.get(chunks.size() - 1);
+            assertTrue(completeChunk.isComplete());
+            assertEquals(LlmResponse.FINISH_REASON_TOOL_USE, completeChunk.getFinishReason());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     public void kimiLargeToolResultFollowUpUsesNonStreamingPlan() throws Exception {
         RecordingDualModeHandler handler = new RecordingDualModeHandler("data: [DONE]\n", nonStreamingTextResponse("ok")); //$NON-NLS-1$ //$NON-NLS-2$
         HttpServer server = startServer(handler);

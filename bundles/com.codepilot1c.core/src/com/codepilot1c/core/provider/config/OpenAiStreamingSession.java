@@ -16,12 +16,23 @@ final class OpenAiStreamingSession {
     private final OpenAiChunkAdapter chunkAdapter;
     private final OpenAiStreamingToolCallParser toolCallParser;
     private final ProviderStreamProcessingSummary summary;
+    private final boolean qwenContentFallbackEnabled;
+    private final boolean delayContentStreaming;
+    private final StringBuilder bufferedContent = new StringBuilder();
 
     OpenAiStreamingSession(String correlationId, boolean requestHasTools,
             OpenAiStreamingToolCallParser toolCallParser) {
+        this(correlationId, requestHasTools, toolCallParser, false);
+    }
+
+    OpenAiStreamingSession(String correlationId, boolean requestHasTools,
+            OpenAiStreamingToolCallParser toolCallParser,
+            boolean qwenContentFallbackEnabled) {
         this.toolCallParser = toolCallParser;
         this.summary = new ProviderStreamProcessingSummary(correlationId, requestHasTools);
         this.chunkAdapter = new OpenAiChunkAdapter(toolCallParser);
+        this.qwenContentFallbackEnabled = qwenContentFallbackEnabled;
+        this.delayContentStreaming = qwenContentFallbackEnabled && requestHasTools;
     }
 
     ProviderStreamProcessingSummary getSummary() {
@@ -53,7 +64,11 @@ final class OpenAiStreamingSession {
 
             if (chunkData.getContent() != null && !chunkData.getContent().isEmpty()) {
                 summary.getContentChunks().incrementAndGet();
-                consumer.accept(LlmStreamChunk.content(chunkData.getContent()));
+                if (delayContentStreaming) {
+                    bufferedContent.append(chunkData.getContent());
+                } else {
+                    consumer.accept(LlmStreamChunk.content(chunkData.getContent()));
+                }
             }
 
             if (chunkData.getReasoning() != null && !chunkData.getReasoning().isEmpty()) {
@@ -97,22 +112,68 @@ final class OpenAiStreamingSession {
     }
 
     String completePendingToolCalls(Consumer<LlmStreamChunk> consumer) {
+        boolean emittedToolUse = false;
         if (!toolCallParser.hasPendingToolCalls()) {
+        } else {
+            OpenAiStreamingToolCallParser.DrainResult drainResult = toolCallParser.drainCompletedToolCalls();
+            if (drainResult.repairedCount() > 0) {
+                summary.getRepairedToolCalls().addAndGet(drainResult.repairedCount());
+            }
+            if (drainResult.truncatedCount() > 0) {
+                summary.getTruncatedToolCalls().addAndGet(drainResult.truncatedCount());
+            }
+            if (!drainResult.toolCalls().isEmpty()) {
+                summary.getCompletedToolCalls().addAndGet(drainResult.toolCalls().size());
+                consumer.accept(LlmStreamChunk.toolCalls(drainResult.toolCalls()));
+                emittedToolUse = true;
+            }
+        }
+
+        String delayedContent = flushBufferedContent(consumer, emittedToolUse);
+        if (!emittedToolUse && qwenContentFallbackEnabled
+                && QwenContentToolCallParser.hasToolCallMarkers(delayedContent)) {
+            java.util.List<com.codepilot1c.core.model.ToolCall> fallbackCalls =
+                    QwenContentToolCallParser.extractFromContent(delayedContent);
+            if (!fallbackCalls.isEmpty()) {
+                summary.getCompletedToolCalls().addAndGet(fallbackCalls.size());
+                String stripped = QwenContentToolCallParser.stripToolCallBlocks(delayedContent);
+                if (stripped != null && !stripped.isBlank()) {
+                    consumer.accept(LlmStreamChunk.content(stripped));
+                }
+                consumer.accept(LlmStreamChunk.toolCalls(fallbackCalls));
+                return com.codepilot1c.core.model.LlmResponse.FINISH_REASON_TOOL_USE;
+            }
+        }
+
+        if (delayedContent != null && !delayedContent.isBlank()) {
+            String flushedContent = delayedContent;
+            if (qwenContentFallbackEnabled && QwenContentToolCallParser.hasToolCallMarkers(flushedContent)) {
+                flushedContent = QwenContentToolCallParser.stripToolCallBlocks(flushedContent);
+            }
+            if (flushedContent != null && !flushedContent.isBlank()) {
+                consumer.accept(LlmStreamChunk.content(flushedContent));
+            }
+        }
+        return emittedToolUse ? com.codepilot1c.core.model.LlmResponse.FINISH_REASON_TOOL_USE : null;
+    }
+
+    private String flushBufferedContent(Consumer<LlmStreamChunk> consumer, boolean emittedToolUse) {
+        if (!delayContentStreaming || bufferedContent.length() == 0) {
             return null;
         }
-        OpenAiStreamingToolCallParser.DrainResult drainResult = toolCallParser.drainCompletedToolCalls();
-        if (drainResult.repairedCount() > 0) {
-            summary.getRepairedToolCalls().addAndGet(drainResult.repairedCount());
+        String delayedContent = bufferedContent.toString();
+        bufferedContent.setLength(0);
+        if (emittedToolUse && delayedContent != null && !delayedContent.isBlank()) {
+            String stripped = delayedContent;
+            if (qwenContentFallbackEnabled && QwenContentToolCallParser.hasToolCallMarkers(stripped)) {
+                stripped = QwenContentToolCallParser.stripToolCallBlocks(stripped);
+            }
+            if (stripped != null && !stripped.isBlank()) {
+                consumer.accept(LlmStreamChunk.content(stripped));
+            }
+            return null;
         }
-        if (drainResult.truncatedCount() > 0) {
-            summary.getTruncatedToolCalls().addAndGet(drainResult.truncatedCount());
-        }
-        if (!drainResult.toolCalls().isEmpty()) {
-            summary.getCompletedToolCalls().addAndGet(drainResult.toolCalls().size());
-            consumer.accept(LlmStreamChunk.toolCalls(drainResult.toolCalls()));
-            return com.codepilot1c.core.model.LlmResponse.FINISH_REASON_TOOL_USE;
-        }
-        return null;
+        return delayedContent;
     }
 
     void logSummary(VibeLogger.CategoryLogger log) {

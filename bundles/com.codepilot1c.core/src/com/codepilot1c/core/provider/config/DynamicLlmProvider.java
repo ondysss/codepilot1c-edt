@@ -173,7 +173,11 @@ public class DynamicLlmProvider implements ILlmProvider {
         boolean useOpenAiStreaming = config.getType() == ProviderType.OPENAI_COMPATIBLE
                 || config.getType() == ProviderType.CODEPILOT_BACKEND;
         OpenAiStreamingSession openAiSession = useOpenAiStreaming
-                ? new OpenAiStreamingSession(correlationId, request.hasTools(), streamingToolCallParser)
+                ? new OpenAiStreamingSession(
+                        correlationId,
+                        request.hasTools(),
+                        streamingToolCallParser,
+                        getCapabilities().isQwenNative() && request.hasTools())
                 : null;
         ProviderStreamProcessingSummary summary = openAiSession != null
                 ? openAiSession.getSummary()
