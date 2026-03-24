@@ -32,6 +32,7 @@ public final class ProviderCapabilities {
     private final boolean resolvedModel;
     private final String resolvedModelFamily;
     private final float defaultTemperature;
+    private final boolean nativeDeferredToolLoading;
 
     private ProviderCapabilities(Builder builder) {
         this.codePilotBackend = builder.codePilotBackend;
@@ -40,6 +41,7 @@ public final class ProviderCapabilities {
         this.resolvedModel = builder.resolvedModel;
         this.resolvedModelFamily = builder.resolvedModelFamily;
         this.defaultTemperature = builder.defaultTemperature;
+        this.nativeDeferredToolLoading = builder.nativeDeferredToolLoading;
     }
 
     public static ProviderCapabilities none() {
@@ -95,6 +97,25 @@ public final class ProviderCapabilities {
     }
 
     /**
+     * Returns {@code true} if the provider supports native deferred tool loading
+     * (e.g., Anthropic's tool_choice with deferred loading). When {@code false},
+     * the agent runner uses {@code discover_tools} meta-tool to reduce the
+     * initial tool surface for OpenAI-compatible providers.
+     */
+    public boolean supportsNativeDeferredToolLoading() {
+        return nativeDeferredToolLoading;
+    }
+
+    /**
+     * Returns {@code true} if deferred tool loading via {@code discover_tools}
+     * should be activated. This is the case when the provider does NOT support
+     * native deferred loading AND is using a CodePilot backend (Qwen models).
+     */
+    public boolean shouldUseDeferredLoading() {
+        return codePilotBackend && !nativeDeferredToolLoading;
+    }
+
+    /**
      * Resolves the model family from a model name string.
      *
      * @param model the model name (e.g. "qwen3-coder", "qwen2.5-vl")
@@ -127,6 +148,7 @@ public final class ProviderCapabilities {
         private boolean resolvedModel;
         private String resolvedModelFamily = FAMILY_UNKNOWN;
         private float defaultTemperature = -1f; // -1 means "use request default"
+        private boolean nativeDeferredToolLoading;
 
         public Builder codePilotBackend(boolean codePilotBackend) {
             this.codePilotBackend = codePilotBackend;
@@ -155,6 +177,11 @@ public final class ProviderCapabilities {
 
         public Builder defaultTemperature(float defaultTemperature) {
             this.defaultTemperature = defaultTemperature;
+            return this;
+        }
+
+        public Builder nativeDeferredToolLoading(boolean nativeDeferredToolLoading) {
+            this.nativeDeferredToolLoading = nativeDeferredToolLoading;
             return this;
         }
 

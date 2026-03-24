@@ -42,6 +42,7 @@ import com.codepilot1c.core.tools.surface.BuiltinToolTaxonomy;
 import com.codepilot1c.core.tools.surface.ToolCategory;
 import com.codepilot1c.core.tools.surface.ToolSurfaceAugmentor;
 import com.codepilot1c.core.tools.surface.ToolSurfaceContext;
+import com.codepilot1c.core.tools.meta.DiscoverToolsTool;
 import com.codepilot1c.core.tools.meta.ToolDescriptorRegistry;
 import com.codepilot1c.core.tools.workspace.*;
 
@@ -146,6 +147,7 @@ public class ToolRegistry {
         register(new SkillTool());
         register(new DelegateToAgentTool(this));
         register(new TaskTool(this));
+        register(new DiscoverToolsTool(this));
 
         // Extra tools may be contributed by an overlay (e.g. Pro) via extension point.
         loadToolsFromExtensionPoint();

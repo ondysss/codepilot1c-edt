@@ -59,6 +59,10 @@ import com.codepilot1c.core.tools.ToolContextGate;
 import com.codepilot1c.core.tools.ToolLogger;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
+import com.codepilot1c.core.tools.meta.DiscoverToolsTool;
+import com.codepilot1c.core.tools.surface.BuiltinToolTaxonomy;
+import com.codepilot1c.core.tools.surface.DeferredToolSession;
+import com.codepilot1c.core.tools.surface.ToolCategory;
 import com.codepilot1c.core.tools.surface.ToolSurfaceContext;
 
 /**
@@ -116,6 +120,7 @@ public class AgentRunner implements IAgentRunner {
     private ToolGraphRouter toolGraphRouter;
     private final ToolContextGate contextGate = new ToolContextGate();
     private volatile ILlmProvider executionProvider;
+    private final DeferredToolSession deferredToolSession = new DeferredToolSession();
     private volatile AgentTraceSession traceSession;
     private volatile String agentStartedTraceEventId;
     private final Map<Integer, String> stepTraceEventIds = new ConcurrentHashMap<>();
@@ -249,6 +254,23 @@ public class AgentRunner implements IAgentRunner {
         agentStartedTraceEventId = null;
         stepTraceEventIds.clear();
         toolTraceEventIds.clear();
+        initializeDeferredToolSession();
+    }
+
+    private void initializeDeferredToolSession() {
+        deferredToolSession.reset();
+        try {
+            boolean shouldDefer = provider.getCapabilities().shouldUseDeferredLoading();
+            deferredToolSession.setDeferredLoadingActive(shouldDefer);
+            // Wire the session into DiscoverToolsTool so it can mark categories
+            ITool discoverTool = toolRegistry.getTool("discover_tools"); //$NON-NLS-1$
+            if (discoverTool instanceof DiscoverToolsTool dtt) {
+                dtt.setSession(deferredToolSession);
+            }
+        } catch (RuntimeException e) {
+            // Fall back to non-deferred mode on error
+            deferredToolSession.setDeferredLoadingActive(false);
+        }
     }
 
     private void initializeTraceSession(AgentConfig config, String prompt, String appliedSystemPrompt) {
@@ -591,12 +613,17 @@ public class AgentRunner implements IAgentRunner {
         Set<String> profileAllowed = profile.getAllowedTools();
         Set<String> contextExcluded = contextGate.computeExcludedTools();
         int totalCount = 0;
+        int deferredCount = 0;
 
         for (ITool tool : toolRegistry.getAllTools()) {
             totalCount++;
             String name = tool.getName();
             if (!profileAllowed.isEmpty() && !profileAllowed.contains(name)) {
-                continue;
+                // Always allow discover_tools when deferred loading is active
+                if (!(deferredToolSession.isDeferredLoadingActive()
+                        && "discover_tools".equals(name))) { //$NON-NLS-1$
+                    continue;
+                }
             }
             if (contextExcluded.contains(name)) {
                 continue;
@@ -607,12 +634,23 @@ public class AgentRunner implements IAgentRunner {
             if (!graphFilter.allows(name)) {
                 continue;
             }
+            // Deferred tool loading: skip non-core tools until discovered
+            if (deferredToolSession.isDeferredLoadingActive()) {
+                ToolCategory category = BuiltinToolTaxonomy.categoryOf(tool);
+                if (!deferredToolSession.shouldIncludeTool(name, category)) {
+                    deferredCount++;
+                    continue;
+                }
+            }
             tools.add(toolRegistry.getToolDefinition(tool, surfaceContext));
         }
         if (totalCount != tools.size()) {
-            log(new Status(IStatus.INFO, PLUGIN_ID,
-                    String.format("Tool surface: %d total -> %d after filtering (profile=%s)", //$NON-NLS-1$
-                            totalCount, tools.size(), profile.getId())));
+            String msg = deferredCount > 0
+                    ? String.format("Tool surface: %d total -> %d visible (%d deferred, profile=%s)", //$NON-NLS-1$
+                            totalCount, tools.size(), deferredCount, profile.getId())
+                    : String.format("Tool surface: %d total -> %d after filtering (profile=%s)", //$NON-NLS-1$
+                            totalCount, tools.size(), profile.getId());
+            log(new Status(IStatus.INFO, PLUGIN_ID, msg));
         }
 
         List<LlmMessage> messagesCopy;
