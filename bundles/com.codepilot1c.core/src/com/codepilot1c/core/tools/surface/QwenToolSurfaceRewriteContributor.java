@@ -70,40 +70,23 @@ public final class QwenToolSurfaceRewriteContributor implements ToolSurfaceContr
             case "delete_metadata" -> "Delete a metadata object through EDT BM APIs with an explicit validation_token. Use recursive or force only when the request truly requires it."; //$NON-NLS-1$
             case "apply_form_recipe" -> "Apply a higher-level managed-form recipe that can create or locate a form, upsert attributes, and mutate layout. Prefer it over low-level mutate_form_model when the intended change fits the recipe flow."; //$NON-NLS-1$
             case "inspect_form_layout" -> "Inspect managed-form structure headlessly through EDT BM APIs. Use it before form mutations to locate element ids, data paths, and layout nodes."; //$NON-NLS-1$
-            case "extension_list_projects" -> "List EDT extension projects, optionally filtered by base project. Use it before extension mutations to resolve the correct project scope."; //$NON-NLS-1$
-            case "extension_list_objects" -> "List metadata objects inside an EDT extension project with filters and pagination. Use it before adopt or property-state mutations."; //$NON-NLS-1$
-            case "extension_create_project" -> "Create a new EDT configuration extension project for a base project using the validated extension flow."; //$NON-NLS-1$
-            case "extension_adopt_object" -> "Adopt a base-configuration object into an EDT extension project. List or inspect extension state first so the project scope and source object are explicit."; //$NON-NLS-1$
-            case "extension_set_property_state" -> "Set the extension state of a specific adopted property in an EDT extension project. Use it only after the target object and property are explicitly identified."; //$NON-NLS-1$
-            case "external_list_projects" -> "List external-report or external-processing projects for a base EDT project. Use it to discover project scope before object inspection or creation."; //$NON-NLS-1$
-            case "external_list_objects" -> "List external reports and processors for a base EDT project with filters and pagination. Use it before detailed inspection or mutation."; //$NON-NLS-1$
-            case "external_get_details" -> "Read detailed structure for one external report or processor inside project scope. Use it before form or metadata changes in external objects."; //$NON-NLS-1$
-            case "external_create_report" -> "Create an EDT external-object project with a root ExternalReport object using the validated mutation flow."; //$NON-NLS-1$
-            case "external_create_processing" -> "Create an EDT external-object project with a root ExternalDataProcessor object using the validated mutation flow."; //$NON-NLS-1$
-            case "dcs_get_summary" -> "Read a compact DCS summary for a report or external report owner. Use it before any DCS mutation to confirm the current schema state."; //$NON-NLS-1$
-            case "dcs_list_nodes" -> "List DCS nodes such as datasets, parameters, calculated fields, or variants with filters and pagination. Use it to locate stable node identities before mutation."; //$NON-NLS-1$
-            case "dcs_create_main_schema" -> "Create and bind the main DCS schema for an owner object through the validated DCS flow."; //$NON-NLS-1$
-            case "dcs_upsert_query_dataset" -> "Create or update a query dataset in the owner DCS schema through the validated DCS mutation flow."; //$NON-NLS-1$
-            case "dcs_upsert_parameter" -> "Create or update a DCS parameter in the owner schema through the validated DCS mutation flow."; //$NON-NLS-1$
-            case "dcs_upsert_calculated_field" -> "Create or update a calculated field in the owner DCS schema through the validated DCS mutation flow."; //$NON-NLS-1$
-            case "qa_init_config" -> "Create or refresh the QA configuration scaffold for a project or feature workspace. Use it at the beginning of the QA pipeline."; //$NON-NLS-1$
-            case "qa_explain_config" -> "Explain the effective QA configuration and how it was resolved. Use it to debug QA routing or config inheritance before running scenarios."; //$NON-NLS-1$
-            case "qa_status" -> "Inspect the QA environment, effective configuration, and runtime readiness for the selected project or feature."; //$NON-NLS-1$
-            case "qa_migrate_config" -> "Migrate an older QA configuration to the current format. Use it before compilation or execution when config drift is suspected."; //$NON-NLS-1$
+            // QA tools (still registered individually)
             case "qa_prepare_form_context" -> "Prepare structured QA context for a managed form, including any required pre-validation or form creation steps."; //$NON-NLS-1$
             case "qa_plan_scenario" -> "Generate a QA scenario plan from the prepared context and requested intent. Use it before compiling or running a feature."; //$NON-NLS-1$
-            case "qa_compile_feature" -> "Compile a QA scenario into runnable feature assets. Use it after planning and before validation or execution."; //$NON-NLS-1$
             case "qa_validate_feature" -> "Validate generated QA feature assets and surface actionable defects before execution."; //$NON-NLS-1$
             case "qa_run" -> "Run the prepared QA scenario and return machine-readable execution results. Use it only after config, context, and feature validation are complete."; //$NON-NLS-1$
-            case "qa_steps_search" -> "Search available QA step definitions and examples. Treat it as fallback support for authoring, not as a substitute for the normal QA pipeline."; //$NON-NLS-1$
             case "author_yaxunit_tests" -> "Generate or update YAxUnit tests for a metadata object or module in a validated QA-oriented authoring flow."; //$NON-NLS-1$
-            case "edt_metadata_smoke" -> "Run metadata smoke verification for an EDT project and report concrete export, sync, or diagnostics failures."; //$NON-NLS-1$
-            case "edt_trace_export" -> "Collect detailed EDT export and synchronization traces for diagnostics and recovery workflows. Use it when mutation/export results are ambiguous or failing."; //$NON-NLS-1$
+            // Smoke tools (still registered individually, gated by ToolContextGate)
             case "edt_extension_smoke" -> "Run smoke verification focused on EDT extension workflows and report the exact failing stage."; //$NON-NLS-1$
             case "edt_external_smoke" -> "Run smoke verification focused on EDT external-object workflows and report the exact failing stage."; //$NON-NLS-1$
-            case "analyze_tool_error" -> "Parse a structured tool failure, classify likely causes, and suggest the next recovery or verification step."; //$NON-NLS-1$
-            case "edt_update_infobase" -> "Update the infobase associated with an EDT project through EDT runtime services. Use dry_run first when association or runtime availability is uncertain."; //$NON-NLS-1$
-            case "edt_launch_app" -> "Launch an EDT project's application through resolved runtime configuration. Use dry_run when you need to verify the command, runtime, or infobase wiring first."; //$NON-NLS-1$
+            // Composite tools
+            case "dcs_manage" -> "Manage DCS schemas: get_summary, list_nodes, create_schema, upsert_dataset, upsert_param, upsert_field. Use command parameter."; //$NON-NLS-1$
+            case "extension_manage" -> "Manage EDT extensions: list_projects, list_objects, create, adopt, set_state. Use command parameter."; //$NON-NLS-1$
+            case "external_manage" -> "Manage EDT external objects: list_projects, list_objects, details, create_report, create_processing. Use command parameter."; //$NON-NLS-1$
+            case "edt_diagnostics" -> "EDT diagnostics: metadata_smoke, trace_export, analyze_error, update_infobase, launch_app. Use command parameter."; //$NON-NLS-1$
+            case "qa_inspect" -> "Inspect QA state: explain_config, status, steps_search. Use command parameter."; //$NON-NLS-1$
+            case "qa_generate" -> "Generate QA assets: init_config, migrate_config, compile_feature. Use command parameter."; //$NON-NLS-1$
+            case "discover_tools" -> "Discover domain tools by category. Use before calling domain-specific tools."; //$NON-NLS-1$
             default -> null;
         };
     }
