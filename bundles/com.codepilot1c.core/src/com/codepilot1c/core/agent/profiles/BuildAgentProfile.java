@@ -86,16 +86,12 @@ public class BuildAgentProfile implements AgentProfile {
             "update_metadata_properties",
             "delete_metadata_object",
             "edt_diagnostics",
-            "qa_init_config",
-            "qa_explain_config",
-            "qa_status",
-            "qa_migrate_config",
+            "qa_inspect",
+            "qa_generate",
             "qa_run",
             "qa_prepare_form_context",
             "qa_plan_scenario",
-            "qa_compile_feature",
             "qa_validate_feature",
-            "qa_steps_search",
             "skill",
             "task"
     ));
@@ -153,18 +149,13 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("edt_validate_request").forAllResources(),
                 PermissionRule.allow("edt_diagnostics").forAllResources(),
                 PermissionRule.allow("inspect_form_layout").forAllResources(),
-                PermissionRule.ask("qa_init_config")
-                        .withDescription("Создание начального qa-config.json")
-                        .forAllResources(),
-                PermissionRule.allow("qa_explain_config").forAllResources(),
-                PermissionRule.allow("qa_status").forAllResources(),
-                PermissionRule.ask("qa_migrate_config")
-                        .withDescription("Миграция и нормализация qa-config.json")
+                PermissionRule.allow("qa_inspect").forAllResources(),
+                PermissionRule.ask("qa_generate")
+                        .withDescription("QA генерация: init/migrate config, compile feature")
                         .forAllResources(),
                 PermissionRule.allow("qa_run").forAllResources(),
                 PermissionRule.allow("qa_plan_scenario").forAllResources(),
                 PermissionRule.allow("qa_validate_feature").forAllResources(),
-                PermissionRule.allow("qa_steps_search").forAllResources(),
                 PermissionRule.allow("skill").forAllResources(),
                 PermissionRule.allow("task").forAllResources(),
 
@@ -228,9 +219,6 @@ public class BuildAgentProfile implements AgentProfile {
                         .forAllResources(),
                 PermissionRule.ask("delete_metadata_object")
                         .withDescription("Удаление объектов метаданных EDT")
-                        .forAllResources(),
-                PermissionRule.ask("qa_compile_feature")
-                        .withDescription("Компиляция structured QA плана в feature файл")
                         .forAllResources(),
                 PermissionRule.ask("qa_prepare_form_context")
                         .withDescription("Подготовка QA контекста формы с автосозданием default формы при отсутствии")

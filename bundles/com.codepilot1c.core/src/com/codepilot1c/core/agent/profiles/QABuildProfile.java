@@ -34,17 +34,13 @@ public class QABuildProfile implements AgentProfile {
             "glob",
             "grep",
             "list_files",
-            // QA tools
-            "qa_init_config",
-            "qa_explain_config",
-            "qa_status",
-            "qa_migrate_config",
+            // QA composite tools
+            "qa_inspect",
+            "qa_generate",
             "qa_run",
             "qa_prepare_form_context",
             "qa_plan_scenario",
-            "qa_compile_feature",
             "qa_validate_feature",
-            "qa_steps_search",
             // YAxUnit
             "author_yaxunit_tests",
             // Smoke & validation (edt_diagnostics dispatches: metadata_smoke, analyze_error)
@@ -83,9 +79,7 @@ public class QABuildProfile implements AgentProfile {
                 PermissionRule.allow("glob").forAllResources(),
                 PermissionRule.allow("grep").forAllResources(),
                 PermissionRule.allow("list_files").forAllResources(),
-                PermissionRule.allow("qa_explain_config").forAllResources(),
-                PermissionRule.allow("qa_status").forAllResources(),
-                PermissionRule.allow("qa_steps_search").forAllResources(),
+                PermissionRule.allow("qa_inspect").forAllResources(),
                 PermissionRule.allow("qa_validate_feature").forAllResources(),
                 PermissionRule.allow("edt_diagnostics").forAllResources(),
                 PermissionRule.allow("get_diagnostics").forAllResources(),
@@ -98,11 +92,8 @@ public class QABuildProfile implements AgentProfile {
                 PermissionRule.ask("write_file")
                         .withDescription("Создание файлов")
                         .forAllResources(),
-                PermissionRule.ask("qa_init_config")
-                        .withDescription("Создание начального qa-config.json")
-                        .forAllResources(),
-                PermissionRule.ask("qa_migrate_config")
-                        .withDescription("Миграция и нормализация qa-config.json")
+                PermissionRule.ask("qa_generate")
+                        .withDescription("QA генерация: init/migrate config, compile feature")
                         .forAllResources(),
                 PermissionRule.ask("qa_run")
                         .withDescription("Запуск QA-сценариев")
@@ -112,9 +103,6 @@ public class QABuildProfile implements AgentProfile {
                         .forAllResources(),
                 PermissionRule.ask("qa_plan_scenario")
                         .withDescription("Планирование QA-сценария")
-                        .forAllResources(),
-                PermissionRule.ask("qa_compile_feature")
-                        .withDescription("Компиляция structured QA плана в feature файл")
                         .forAllResources(),
                 PermissionRule.ask("author_yaxunit_tests")
                         .withDescription("Генерация/обновление автотестов YAxUnit")

@@ -133,18 +133,16 @@ public class ToolRegistry {
         register(new DcsManageTool());
         register(new ExternalManageTool());
         register(new EdtExternalSmokeTool());
-        register(new QaInitConfigTool());
-        register(new QaExplainConfigTool());
-        register(new QaStatusTool());
-        register(new QaMigrateConfigTool());
+        // QaInspectTool dispatches: qa_explain_config, qa_status, qa_steps_search
+        register(new QaInspectTool());
+        // QaGenerateTool dispatches: qa_init_config, qa_migrate_config, qa_compile_feature
+        register(new QaGenerateTool());
         // AnalyzeToolErrorTool, EdtUpdateInfobaseTool, EdtLaunchAppTool
         // are now dispatched through EdtDiagnosticsTool
         register(new QaRunTool());
         register(new QaPrepareFormContextTool());
         register(new QaPlanScenarioTool());
-        register(new QaCompileFeatureTool());
         register(new QaValidateFeatureTool());
-        register(new QaStepsSearchTool());
         register(new SkillTool());
         register(new DelegateToAgentTool(this));
         register(new TaskTool(this));

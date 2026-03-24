@@ -43,9 +43,9 @@ public class ToolContextGate {
             "external_manage"); //$NON-NLS-1$
 
     private static final Set<String> QA_TOOLS_EXCLUDING_INIT = Set.of(
-            "qa_explain_config", "qa_status", "qa_migrate_config", "qa_run", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
-            "qa_prepare_form_context", "qa_plan_scenario", "qa_compile_feature", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            "qa_validate_feature", "qa_steps_search", "author_yaxunit_tests"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            "qa_inspect", "qa_generate", "qa_run", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            "qa_prepare_form_context", "qa_plan_scenario", //$NON-NLS-1$ //$NON-NLS-2$
+            "qa_validate_feature", "author_yaxunit_tests"); //$NON-NLS-1$ //$NON-NLS-2$
 
     private static final Set<String> EDT_PROJECT_TOOLS = Set.of(
             "edt_content_assist", "edt_find_references", "edt_metadata_details", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
