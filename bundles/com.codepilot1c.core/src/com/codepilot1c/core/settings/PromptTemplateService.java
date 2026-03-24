@@ -7,16 +7,18 @@
  */
 package com.codepilot1c.core.settings;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 
-import org.eclipse.core.runtime.ILog;
 import org.eclipse.core.runtime.IStatus;
-import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.preferences.IEclipsePreferences;
 import org.eclipse.core.runtime.preferences.InstanceScope;
 
+import com.codepilot1c.core.agent.prompts.WorkspacePromptSourceResolver;
 import com.codepilot1c.core.internal.VibeCorePlugin;
 
 /**
@@ -24,10 +26,15 @@ import com.codepilot1c.core.internal.VibeCorePlugin;
  */
 public final class PromptTemplateService {
 
-    private static final ILog LOG = Platform.getLog(PromptTemplateService.class);
     private static PromptTemplateService instance;
+    private final WorkspacePromptSourceResolver sourceResolver;
 
     private PromptTemplateService() {
+        this(new WorkspacePromptSourceResolver());
+    }
+
+    PromptTemplateService(WorkspacePromptSourceResolver sourceResolver) {
+        this.sourceResolver = sourceResolver;
     }
 
     /**
@@ -66,6 +73,18 @@ public final class PromptTemplateService {
         }
 
         return sb.toString();
+    }
+
+    public String applyFilesystemSystemPromptOverride(String basePrompt, boolean backendSelectedInUi) {
+        String effective = basePrompt != null ? basePrompt : ""; //$NON-NLS-1$
+        for (Path candidate : sourceResolver.systemPromptOverrideCandidates(backendSelectedInUi)) {
+            PromptFile promptFile = loadPromptFile(candidate);
+            if (promptFile == null || promptFile.content().isBlank()) {
+                continue;
+            }
+            effective = applyMode(effective, promptFile);
+        }
+        return effective;
     }
 
     /**
@@ -170,7 +189,70 @@ public final class PromptTemplateService {
         return value == null || value.trim().isEmpty();
     }
 
+    private PromptFile loadPromptFile(Path candidate) {
+        if (candidate == null || !Files.isRegularFile(candidate)) {
+            return null;
+        }
+        try {
+            String raw = Files.readString(candidate, StandardCharsets.UTF_8).strip();
+            if (raw.isEmpty()) {
+                return null;
+            }
+            String mode = "append"; //$NON-NLS-1$
+            String body = raw;
+            if (body.startsWith("---")) { //$NON-NLS-1$
+                int secondFence = body.indexOf("\n---", 3); //$NON-NLS-1$
+                if (secondFence > 0) {
+                    String header = body.substring(3, secondFence).strip();
+                    body = body.substring(secondFence + 4).strip();
+                    for (String line : header.split("\\R")) { //$NON-NLS-1$
+                        int separator = line.indexOf(':');
+                        if (separator <= 0) {
+                            continue;
+                        }
+                        String key = line.substring(0, separator).trim();
+                        String value = line.substring(separator + 1).trim();
+                        if ("mode".equalsIgnoreCase(key) && !value.isBlank()) { //$NON-NLS-1$
+                            mode = value.toLowerCase();
+                        }
+                    }
+                }
+            }
+            return new PromptFile(mode, body);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String applyMode(String current, PromptFile promptFile) {
+        String content = promptFile.content().strip();
+        String base = current != null ? current.strip() : ""; //$NON-NLS-1$
+        return switch (promptFile.mode()) {
+            case "prepend" -> join(content, base); //$NON-NLS-1$
+            case "replace" -> content; //$NON-NLS-1$
+            case "append" -> join(base, content); //$NON-NLS-1$
+            default -> join(base, content);
+        };
+    }
+
+    private String join(String left, String right) {
+        if (isBlank(left)) {
+            return right != null ? right : ""; //$NON-NLS-1$
+        }
+        if (isBlank(right)) {
+            return left;
+        }
+        return left.strip() + "\n\n" + right.strip(); //$NON-NLS-1$
+    }
+
     private void logWarning(String message) {
-        LOG.log(new Status(IStatus.WARNING, VibeCorePlugin.PLUGIN_ID, message));
+        try {
+            VibeCorePlugin.logWarn(message);
+        } catch (RuntimeException e) {
+            System.err.println(new Status(IStatus.WARNING, VibeCorePlugin.PLUGIN_ID, message).getMessage());
+        }
+    }
+
+    private record PromptFile(String mode, String content) {
     }
 }

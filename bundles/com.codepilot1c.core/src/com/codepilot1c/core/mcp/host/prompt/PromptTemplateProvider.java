@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import com.codepilot1c.core.agent.prompts.AgentPromptTemplates;
+import com.codepilot1c.core.agent.prompts.SystemPromptAssembler;
 import com.codepilot1c.core.mcp.model.McpContent;
 import com.codepilot1c.core.mcp.model.McpPrompt;
 import com.codepilot1c.core.mcp.model.McpPromptResult;
@@ -23,26 +24,27 @@ public class PromptTemplateProvider implements IMcpPromptProvider {
 
     @Override
     public Optional<McpPromptResult> getPrompt(String name, Map<String, Object> arguments) {
-        String text;
+        String baseText;
         switch (name) {
             case "build": //$NON-NLS-1$
-                text = AgentPromptTemplates.buildBuildPrompt();
+                baseText = AgentPromptTemplates.buildBuildPrompt();
                 break;
             case "plan": //$NON-NLS-1$
-                text = AgentPromptTemplates.buildPlanPrompt();
+                baseText = AgentPromptTemplates.buildPlanPrompt();
                 break;
             case "explore": //$NON-NLS-1$
-                text = AgentPromptTemplates.buildExplorePrompt();
+                baseText = AgentPromptTemplates.buildExplorePrompt();
                 break;
             case "subagent": //$NON-NLS-1$
                 String profile = stringArg(arguments, "profile", "mcp"); //$NON-NLS-1$ //$NON-NLS-2$
                 String description = stringArg(arguments, "description", "MCP prompt request"); //$NON-NLS-1$ //$NON-NLS-2$
                 boolean readOnly = Boolean.parseBoolean(stringArg(arguments, "readOnly", "true")); //$NON-NLS-1$ //$NON-NLS-2$
-                text = AgentPromptTemplates.buildSubagentPrompt(profile, description, readOnly);
+                baseText = AgentPromptTemplates.buildSubagentPrompt(profile, description, readOnly);
                 break;
             default:
                 return Optional.empty();
         }
+        String text = SystemPromptAssembler.getInstance().assemble(baseText, null, name, List.of());
 
         McpPromptResult result = new McpPromptResult();
         result.setDescription("CodePilot prompt template: " + name); //$NON-NLS-1$

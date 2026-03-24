@@ -34,6 +34,7 @@ import org.eclipse.ui.part.ViewPart;
 
 import com.codepilot1c.core.diff.CodeDiffUtils;
 import com.codepilot1c.core.logging.VibeLogger;
+import com.codepilot1c.core.agent.prompts.SystemPromptAssembler;
 import com.codepilot1c.core.model.LlmMessage;
 import com.codepilot1c.core.model.LlmConversationSanitizer;
 import com.codepilot1c.core.model.LlmRequest;
@@ -43,7 +44,6 @@ import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
-import com.codepilot1c.core.settings.PromptTemplateService;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
@@ -1490,7 +1490,11 @@ public class ChatView extends ViewPart {
             это контекст из активного редактора. Учитывайте его при ответе.
             """); //$NON-NLS-1$
 
-        return PromptTemplateService.getInstance().applySystemPrompt(prompt.toString());
+        return SystemPromptAssembler.getInstance().assemble(
+                prompt.toString(),
+                null,
+                "chat", //$NON-NLS-1$
+                List.of());
     }
 
     private void appendToolsSection(StringBuilder prompt) {
