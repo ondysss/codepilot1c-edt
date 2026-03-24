@@ -58,9 +58,9 @@ public final class LlmConversationSanitizer {
                 continue;
             }
 
-            if (message.getRole() != LlmMessage.Role.TOOL) {
-                sanitized.add(message);
-            }
+            // Preserve standalone tool results. Some providers rely on them even when
+            // history does not include the originating assistant tool-call envelope.
+            sanitized.add(message);
             index++;
         }
 

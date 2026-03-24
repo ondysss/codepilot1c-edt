@@ -155,6 +155,7 @@ public class TracingLlmProvider implements ILlmProvider {
         }
         out.put("status", "OK"); //$NON-NLS-1$ //$NON-NLS-2$
         out.put("model", response.getModel()); //$NON-NLS-1$
+        out.put("resolved_model", response.getResolvedModel()); //$NON-NLS-1$
         out.put("content", response.getContent()); //$NON-NLS-1$
         out.put("finish_reason", response.getFinishReason()); //$NON-NLS-1$
         out.put("tool_calls", serializeToolCalls(response.getToolCalls())); //$NON-NLS-1$

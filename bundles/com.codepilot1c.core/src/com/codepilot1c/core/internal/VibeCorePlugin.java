@@ -466,7 +466,7 @@ public class VibeCorePlugin extends Plugin {
         LlmProviderConfig config = new LlmProviderConfig(
                 "backend", //$NON-NLS-1$
                 "CodePilot Account", //$NON-NLS-1$
-                ProviderType.OPENAI_COMPATIBLE,
+                ProviderType.CODEPILOT_BACKEND,
                 BackendConfig.LITELLM_BASE_URL,
                 apiKey,
                 "auto", //$NON-NLS-1$
