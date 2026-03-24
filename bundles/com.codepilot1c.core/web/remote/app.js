@@ -12,7 +12,7 @@
     ideSnapshot: null,
     profiles: [],
     commands: [],
-    notices: [],
+    agent: {},
   };
 
   const labels = {
@@ -104,6 +104,10 @@
       controller: "Управление",
       sessionId: "Идентификатор сессии",
       readOnly: "Только чтение",
+      profileName: "Профиль",
+      activeProject: "Активный проект",
+      dirty: "Есть несохраненные изменения",
+      commands: "Команды",
     },
     cards: {
       workbench: "Рабочая среда",
@@ -155,6 +159,8 @@
     releaseController: document.getElementById("release-controller"),
     logout: document.getElementById("logout"),
     sessionBadges: document.getElementById("session-badges"),
+    controllerSummary: document.getElementById("controller-summary"),
+    railIdeSummary: document.getElementById("rail-ide-summary"),
     promptInput: document.getElementById("prompt-input"),
     profileSelect: document.getElementById("profile-select"),
     agentStart: document.getElementById("agent-start"),
@@ -165,6 +171,12 @@
     toolEvents: document.getElementById("tool-events"),
     ideSnapshot: document.getElementById("ide-snapshot"),
     snapshotRefresh: document.getElementById("snapshot-refresh"),
+    metricState: document.getElementById("metric-state"),
+    metricProfile: document.getElementById("metric-profile"),
+    metricEvents: document.getElementById("metric-events"),
+    metricCommands: document.getElementById("metric-commands"),
+    statusProgress: document.getElementById("status-progress"),
+    nextStep: document.getElementById("next-step"),
     commandForm: document.getElementById("command-form"),
     commandInput: document.getElementById("command-input"),
     commandList: document.getElementById("command-list"),
@@ -184,6 +196,7 @@
     applyGeneratedCode: document.getElementById("apply-generated-code"),
     applyReplaceSelection: document.getElementById("apply-replace-selection"),
     editorResults: document.getElementById("editor-results"),
+    quickPrompts: document.querySelectorAll(".quick-prompt, .suggestion-prompt"),
   };
 
   function init() {
@@ -192,6 +205,14 @@
   }
 
   function bindActions() {
+    els.quickPrompts.forEach((button) => {
+      button.addEventListener("click", () => {
+        const prompt = button.getAttribute("data-prompt") || "";
+        els.promptInput.value = prompt;
+        els.promptInput.focus();
+      });
+    });
+
     els.loginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       els.loginError.textContent = "";
@@ -353,7 +374,7 @@
       return;
     }
 
-    const payload = result.payload;
+    const payload = result.payload || {};
     state.clientId = payload.clientId || "";
     state.sessionId = payload.sessionId || "";
     state.controller = !!payload.controller;
@@ -362,12 +383,11 @@
     state.ideSnapshot = payload.ideSnapshot || null;
     state.profiles = payload.profiles || [];
     state.commands = (payload.ideSnapshot && payload.ideSnapshot.commands) || [];
+    state.agent = payload.agent || {};
+
     hydrateProfiles();
     renderShell(true);
-    renderBadges(payload.agent || {});
-    renderPendingConfirmation();
-    renderIdeSnapshot();
-    renderCommands();
+    renderAll();
     openEvents();
   }
 
@@ -381,6 +401,8 @@
     state.commands = result.payload.commands || [];
     renderIdeSnapshot();
     renderCommands();
+    renderRailSummary();
+    renderStatusCard();
     notify("Снимок IDE обновлен.", "ok");
   }
 
@@ -422,18 +444,65 @@
       state.pendingConfirmation = {};
     } else if (remoteEvent.type === "lease_changed") {
       state.controllerClientId = remoteEvent.payload.controllerClientId || "";
-      state.controller = state.controllerClientId && state.controllerClientId === state.clientId;
+      state.controller = !!state.controllerClientId && state.controllerClientId === state.clientId;
     } else if (remoteEvent.type === "session_reset") {
       state.sessionId = remoteEvent.sessionId || state.sessionId;
     }
 
-    renderTimeline();
-    renderToolEvents();
-    renderPendingConfirmation();
-    renderBadges();
+    applyEventToAgent(remoteEvent);
+    renderAll();
+  }
+
+  function applyEventToAgent(remoteEvent) {
+    const payload = remoteEvent.payload || {};
+    const nextAgent = Object.assign({}, state.agent);
+
+    if (payload.profileId) {
+      nextAgent.profileId = payload.profileId;
+    }
+    if (payload.profileName) {
+      nextAgent.profileName = payload.profileName;
+    }
+    if (payload.state) {
+      nextAgent.state = payload.state;
+    }
+    if (payload.finalResponse) {
+      nextAgent.finalResponse = payload.finalResponse;
+    }
+    if (payload.finishReason) {
+      nextAgent.finishReason = payload.finishReason;
+    }
+
+    switch (remoteEvent.type) {
+      case "agent_start_requested":
+      case "agent_input_requested":
+      case "agent_started":
+        nextAgent.state = "RUNNING";
+        break;
+      case "tool_call":
+        nextAgent.state = "WAITING_TOOL";
+        break;
+      case "confirmation_required":
+        nextAgent.state = "WAITING_CONFIRMATION";
+        break;
+      case "confirmation_resolved":
+        nextAgent.state = "RUNNING";
+        break;
+      case "agent_completed":
+        nextAgent.state = payload.state || "COMPLETED";
+        break;
+      case "agent_stop_requested":
+        nextAgent.state = "CANCELLED";
+        break;
+      default:
+        break;
+    }
+
+    state.agent = nextAgent;
   }
 
   function hydrateProfiles() {
+    const selected = els.profileSelect.value;
     els.profileSelect.innerHTML = "";
     state.profiles.forEach((profile) => {
       const option = document.createElement("option");
@@ -443,6 +512,10 @@
         .trim();
       els.profileSelect.appendChild(option);
     });
+
+    if (selected) {
+      els.profileSelect.value = selected;
+    }
   }
 
   function renderShell(authenticated) {
@@ -456,49 +529,115 @@
     state.sessionId = "";
     state.controller = false;
     state.controllerClientId = "";
+    state.lastSequence = 0;
     state.pendingConfirmation = {};
     state.ideSnapshot = null;
     state.profiles = [];
     state.commands = [];
+    state.timeline = [];
+    state.toolEvents = [];
+    state.agent = {};
     renderShell(false);
+    renderAll();
+  }
+
+  function renderAll() {
     renderBadges();
-    renderPendingConfirmation();
+    renderControllerSummary();
+    renderRailSummary();
+    renderStatusCard();
     renderTimeline();
     renderToolEvents();
+    renderPendingConfirmation();
     renderIdeSnapshot();
     renderCommands();
   }
 
-  function renderBadges(agent) {
-    const effectiveAgent = agent || {};
+  function renderBadges() {
     els.sessionBadges.innerHTML = "";
-    addBadge(effectiveAgent.state ? "Состояние: " + localizeState(effectiveAgent.state) : "Не подключено", "ok");
+    addBadge(state.agent.state ? "Состояние: " + localizeState(state.agent.state) : "Не подключено", state.agent.state ? "ok" : "");
     addBadge("Сессия: " + (state.sessionId || "н/д"));
     addBadge(state.controller ? "Управление" : "Только чтение", state.controller ? "ok" : "warn");
-    addBadge("Захват: " + (state.controllerClientId || "свободно"));
+    addBadge("Клиент: " + shortId(state.controllerClientId || "свободно"));
   }
 
-  function addBadge(label, extraClass) {
-    const span = document.createElement("span");
-    span.className = ["badge", extraClass || ""].join(" ").trim();
-    span.textContent = label;
-    els.sessionBadges.appendChild(span);
+  function renderControllerSummary() {
+    if (!state.clientId) {
+      els.controllerSummary.textContent = "Браузер пока не авторизован.";
+      return;
+    }
+
+    if (state.controller) {
+      els.controllerSummary.textContent = "Управление закреплено за этим браузером. Все mutating-команды доступны после проверки политики и подтверждений.";
+      return;
+    }
+
+    if (state.controllerClientId) {
+      els.controllerSummary.textContent = "Сейчас управление удерживает другой клиент: " + state.controllerClientId + ". Этот интерфейс работает в режиме только чтение.";
+      return;
+    }
+
+    els.controllerSummary.textContent = "Контроллер свободен. Захватите управление, чтобы запускать команды и менять IDE.";
+  }
+
+  function renderRailSummary() {
+    if (!state.ideSnapshot) {
+      els.railIdeSummary.textContent = "Снимок IDE пока недоступен.";
+      return;
+    }
+
+    const workbench = state.ideSnapshot.workbench || {};
+    const editor = state.ideSnapshot.editor || {};
+    const diagnostics = Array.isArray(state.ideSnapshot.diagnostics) ? state.ideSnapshot.diagnostics : [];
+    const openViews = Array.isArray(state.ideSnapshot.openViews) ? state.ideSnapshot.openViews : [];
+
+    const lines = [
+      workbench.activeProject ? "Проект: " + workbench.activeProject : "",
+      workbench.activePartTitle ? "Активная часть: " + workbench.activePartTitle : "",
+      editor.filePath ? "Файл: " + editor.filePath : "",
+      "Диагностика: " + diagnostics.length,
+      "Представления: " + openViews.length,
+    ].filter(Boolean);
+
+    els.railIdeSummary.innerHTML = lines.length ? lines.map((line) => "<div>" + escapeHtml(line) + "</div>").join("") : "Снимок IDE пуст.";
+  }
+
+  function renderStatusCard() {
+    const profileLabel = getActiveProfileLabel();
+    const agentState = state.agent.state || "IDLE";
+    const nextStep = describeNextStep();
+
+    els.metricState.textContent = localizeState(agentState);
+    els.metricProfile.textContent = profileLabel;
+    els.metricEvents.textContent = String(state.timeline.length);
+    els.metricCommands.textContent = String(state.commands.length);
+    els.statusProgress.style.width = progressByState(agentState) + "%";
+    els.nextStep.textContent = nextStep;
   }
 
   function renderTimeline() {
     if (!state.timeline.length) {
-      els.timeline.innerHTML = '<div class="event empty">Событий пока нет.</div>';
+      els.timeline.innerHTML =
+        '<article class="message system"><div class="message-card"><div class="message-meta"><span class="message-role">Система</span><span class="message-time">сейчас</span></div><h3 class="message-title">Событий пока нет</h3><p class="message-summary">Откройте сессию, захватите управление или отправьте новый запрос агенту.</p></div></article>';
       return;
     }
+
     els.timeline.innerHTML = "";
     state.timeline.forEach((item) => {
-      const node = document.createElement("article");
-      node.className = "event";
-      node.innerHTML =
-        "<header><span class=\"event-type\">" + escapeHtml(localizeEventType(item.type)) + "</span><span class=\"muted\">" +
-        escapeHtml(formatTime(item.timestamp)) + " · #" + escapeHtml(String(item.sequence || "")) +
-        "</span></header><pre>" + escapeHtml(prettyLocalized(item.payload || {})) + "</pre>";
-      els.timeline.appendChild(node);
+      const presentation = presentEvent(item);
+      const article = document.createElement("article");
+      article.className = "message " + presentation.role;
+      article.innerHTML =
+        '<div class="message-card">' +
+          '<div class="message-meta">' +
+            '<span class="message-role">' + escapeHtml(presentation.roleLabel) + "</span>" +
+            '<span class="message-time">' + escapeHtml(formatTime(item.timestamp)) + " · #" + escapeHtml(String(item.sequence || "")) + "</span>" +
+          "</div>" +
+          '<h3 class="message-title">' + escapeHtml(presentation.title) + "</h3>" +
+          '<p class="message-summary">' + escapeHtml(presentation.summary) + "</p>" +
+          (presentation.details ? '<details class="message-details"><summary>Подробности события</summary><pre>' + escapeHtml(presentation.details) + "</pre></details>" : "") +
+        "</div>";
+      els.timeline.appendChild(article);
     });
   }
 
@@ -507,14 +646,18 @@
       els.toolEvents.innerHTML = '<div class="tool-event empty">Активность инструментов пока не зафиксирована.</div>';
       return;
     }
+
     els.toolEvents.innerHTML = "";
     state.toolEvents.forEach((item) => {
       const node = document.createElement("article");
       node.className = "tool-event";
       node.innerHTML =
-        "<header><strong>" + escapeHtml(localizeEventType(item.type)) + "</strong><span class=\"muted\">" +
-        escapeHtml(formatTime(item.timestamp)) + "</span></header><pre>" +
-        escapeHtml(prettyLocalized(item.payload || {})) + "</pre>";
+        '<div class="tool-head">' +
+          '<span class="tool-name">' + escapeHtml(localizeEventType(item.type)) + "</span>" +
+          '<span class="message-time">' + escapeHtml(formatTime(item.timestamp)) + "</span>" +
+        "</div>" +
+        '<p class="tool-summary">' + escapeHtml(summarizeEvent(item)) + "</p>" +
+        '<details class="tool-details"><summary>Payload</summary><pre>' + escapeHtml(prettyLocalized(item.payload || {})) + "</pre></details>";
       els.toolEvents.appendChild(node);
     });
   }
@@ -530,7 +673,9 @@
 
     els.pendingConfirmation.className = "confirmation";
     els.pendingConfirmation.innerHTML =
-      "<strong>Ожидает подтверждения</strong><pre>" + escapeHtml(prettyLocalized(pending)) + "</pre>";
+      '<h4 class="confirmation-title">Нужно подтвердить действие</h4>' +
+      '<p class="message-summary">' + escapeHtml(summarizePayload(pending)) + "</p>" +
+      "<pre>" + escapeHtml(prettyLocalized(pending)) + "</pre>";
 
     const actions = document.createElement("div");
     actions.className = "confirmation-actions";
@@ -562,13 +707,15 @@
       els.ideSnapshot.innerHTML = '<div class="snapshot-card empty">Снимок пока недоступен.</div>';
       return;
     }
+
     const snapshot = state.ideSnapshot;
     const cards = [
-      card(labels.cards.workbench, snapshot.workbench || {}),
-      card(labels.cards.editor, snapshot.editor || {}),
-      card(labels.cards.diagnostics, snapshot.diagnostics || []),
-      card(labels.cards.openViews, snapshot.openViews || []),
+      card(labels.cards.workbench, workbenchSummary(snapshot.workbench || {}), snapshot.workbench || {}),
+      card(labels.cards.editor, editorSummary(snapshot.editor || {}), snapshot.editor || {}),
+      card(labels.cards.diagnostics, diagnosticsSummary(snapshot.diagnostics || []), snapshot.diagnostics || []),
+      card(labels.cards.openViews, viewsSummary(snapshot.openViews || []), snapshot.openViews || []),
     ];
+
     els.ideSnapshot.innerHTML = "";
     cards.forEach((node) => els.ideSnapshot.appendChild(node));
   }
@@ -583,10 +730,13 @@
     });
   }
 
-  function card(title, payload) {
+  function card(title, summary, payload) {
     const node = document.createElement("article");
     node.className = "snapshot-card";
-    node.innerHTML = "<strong>" + escapeHtml(title) + "</strong><pre>" + escapeHtml(prettyLocalized(payload)) + "</pre>";
+    node.innerHTML =
+      "<strong>" + escapeHtml(title) + "</strong>" +
+      '<div class="snapshot-meta">' + escapeHtml(summary) + "</div>" +
+      "<pre>" + escapeHtml(prettyLocalized(payload)) + "</pre>";
     return node;
   }
 
@@ -679,8 +829,8 @@
     return labels.eventTypes[type] || type || "";
   }
 
-  function localizeState(state) {
-    return labels.states[state] || state || "";
+  function localizeState(agentState) {
+    return labels.states[agentState] || agentState || "";
   }
 
   function localizeKey(key) {
@@ -727,6 +877,263 @@
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;");
+  }
+
+  function addBadge(label, extraClass) {
+    const span = document.createElement("span");
+    span.className = ["badge", extraClass || ""].join(" ").trim();
+    span.textContent = label;
+    els.sessionBadges.appendChild(span);
+  }
+
+  function shortId(value) {
+    if (!value || value.length <= 16) {
+      return value;
+    }
+    return value.slice(0, 8) + "…" + value.slice(-4);
+  }
+
+  function getActiveProfileLabel() {
+    if (state.agent.profileName) {
+      return state.agent.profileName;
+    }
+    if (state.agent.profileId) {
+      const match = state.profiles.find((profile) => profile.id === state.agent.profileId);
+      return match ? (match.name || match.id || "н/д") : state.agent.profileId;
+    }
+    const selected = els.profileSelect.value;
+    if (!selected) {
+      return "н/д";
+    }
+    const match = state.profiles.find((profile) => profile.id === selected);
+    return match ? (match.name || match.id || "н/д") : selected;
+  }
+
+  function progressByState(agentState) {
+    switch (agentState) {
+      case "RUNNING":
+        return 64;
+      case "WAITING_TOOL":
+        return 72;
+      case "WAITING_CONFIRMATION":
+        return 84;
+      case "COMPLETED":
+        return 100;
+      case "ERROR":
+      case "CANCELLED":
+        return 100;
+      default:
+        return 16;
+    }
+  }
+
+  function describeNextStep() {
+    const pending = state.pendingConfirmation || {};
+    if (pending.confirmationId) {
+      return "Ожидается решение по подтверждению: " + summarizePayload(pending);
+    }
+
+    const interestingEvent = state.timeline.find((item) => item.type === "tool_call" || item.type === "tool_result" || item.type === "agent_completed");
+    if (interestingEvent) {
+      return summarizeEvent(interestingEvent);
+    }
+
+    if (state.agent.finalResponse) {
+      return clipText(state.agent.finalResponse, 180);
+    }
+
+    return "Запустите новую сессию или продолжите текущую, чтобы получить следующий шаг от агента.";
+  }
+
+  function presentEvent(item) {
+    const role = eventRole(item.type);
+    return {
+      role: role,
+      roleLabel: roleLabel(role),
+      title: localizeEventType(item.type),
+      summary: summarizeEvent(item),
+      details: detailsForEvent(item),
+    };
+  }
+
+  function eventRole(type) {
+    if (type === "agent_start_requested" || type === "agent_input_requested") {
+      return "user";
+    }
+    if (type === "stream_chunk" || type === "stream_complete" || type === "agent_completed") {
+      return "assistant";
+    }
+    return "system";
+  }
+
+  function roleLabel(role) {
+    switch (role) {
+      case "user":
+        return "Вы";
+      case "assistant":
+        return "AI-ассистент";
+      default:
+        return "Система";
+    }
+  }
+
+  function summarizeEvent(item) {
+    const payload = item.payload || {};
+
+    switch (item.type) {
+      case "session_reset":
+        return "Сессия агента синхронизирована заново. Можно безопасно продолжать работу.";
+      case "lease_changed":
+        return state.controller
+          ? "Управление закреплено за текущим браузером."
+          : "Управление переключено на клиента " + (payload.controllerClientId || "без идентификатора") + ".";
+      case "agent_start_requested":
+      case "agent_input_requested":
+        return clipText(payload.prompt || payload.message || "Запрос отправлен агенту.", 220);
+      case "agent_started":
+        return "Агент запущен" + (payload.profileName ? " в профиле " + payload.profileName : "") + ".";
+      case "agent_step":
+        return payload.message || payload.summary || "Агент выполнил следующий шаг.";
+      case "tool_call":
+        return "Инструмент " + (payload.toolName || "без имени") + " запущен" + (payload.scope ? " в области " + payload.scope : "") + ".";
+      case "tool_result":
+        return payload.success === false
+          ? "Инструмент " + (payload.toolName || "без имени") + " завершился с ошибкой."
+          : "Инструмент " + (payload.toolName || "без имени") + " завершён успешно.";
+      case "stream_chunk":
+        return clipText(payload.content || payload.chunk || payload.text || "Агент продолжает потоковый ответ.", 260);
+      case "stream_complete":
+        return "Потоковый ответ полностью получен.";
+      case "confirmation_required":
+        return summarizePayload(payload);
+      case "confirmation_resolved":
+        return payload.approved === false ? "Подтверждение отклонено." : "Подтверждение принято.";
+      case "remote_action_result":
+        return payload.message || "Удаленное действие выполнено.";
+      case "agent_completed":
+        return clipText(payload.finalResponse || payload.message || "Агент завершил задачу.", 260);
+      case "agent_stop_requested":
+        return "Отправлена команда на остановку агента.";
+      case "ide_open_file":
+        return "Открыт файл " + (payload.path || payload.filePath || "без пути") + ".";
+      case "ide_reveal_range":
+        return "Показан диапазон " + lineRangeLabel(payload) + ".";
+      case "ide_get_selection":
+        return clipText(payload.selectedText || "Получено текущее выделение редактора.", 220);
+      case "ide_show_view":
+        return "Открыто представление " + (payload.viewId || payload.name || "без идентификатора") + ".";
+      case "ide_activate_part":
+        return "Активирована часть IDE " + (payload.partId || payload.name || "без идентификатора") + ".";
+      default:
+        return summarizePayload(payload);
+    }
+  }
+
+  function summarizePayload(payload) {
+    if (!payload || typeof payload !== "object") {
+      return String(payload || "");
+    }
+
+    const direct = [
+      payload.message,
+      payload.description,
+      payload.finalResponse,
+      payload.content,
+      payload.selectedText,
+    ].find((value) => typeof value === "string" && value.trim());
+    if (direct) {
+      return clipText(direct, 240);
+    }
+
+    if (payload.toolName) {
+      return "Инструмент: " + payload.toolName + ".";
+    }
+    if (payload.commandId) {
+      return "Команда: " + payload.commandId + ".";
+    }
+    if (payload.path || payload.filePath) {
+      return "Путь: " + (payload.path || payload.filePath) + ".";
+    }
+    if (payload.confirmationId) {
+      return "Подтверждение " + payload.confirmationId + " ожидает решения.";
+    }
+
+    return "Доступны структурированные подробности payload.";
+  }
+
+  function detailsForEvent(item) {
+    const payload = item.payload || {};
+
+    if (item.type === "stream_chunk") {
+      const keys = Object.keys(payload);
+      if (keys.length === 1 && (keys[0] === "content" || keys[0] === "chunk" || keys[0] === "text")) {
+        return "";
+      }
+    }
+
+    if (!Object.keys(payload).length) {
+      return "";
+    }
+
+    return prettyLocalized(payload);
+  }
+
+  function lineRangeLabel(payload) {
+    const startLine = payload.startLine || "?";
+    const startColumn = payload.startColumn || "?";
+    const endLine = payload.endLine || "?";
+    const endColumn = payload.endColumn || "?";
+    return startLine + ":" + startColumn + " → " + endLine + ":" + endColumn;
+  }
+
+  function workbenchSummary(workbench) {
+    const lines = [
+      workbench.activeProject ? "Проект: " + workbench.activeProject : "",
+      workbench.activePartTitle ? "Активная часть: " + workbench.activePartTitle : "",
+      workbench.workspaceRoot ? "Workspace: " + workbench.workspaceRoot : "",
+    ].filter(Boolean);
+    return lines.join(" • ") || "Снимок рабочей среды получен.";
+  }
+
+  function editorSummary(editor) {
+    const lines = [
+      editor.filePath ? "Файл: " + editor.filePath : "",
+      typeof editor.dirty === "boolean" ? "Несохраненные изменения: " + (editor.dirty ? "да" : "нет") : "",
+      editor.selectedText ? "Выделение: " + clipText(editor.selectedText, 72) : "",
+    ].filter(Boolean);
+    return lines.join(" • ") || "Редактор не активен или не дал подробностей.";
+  }
+
+  function diagnosticsSummary(diagnostics) {
+    if (!Array.isArray(diagnostics) || !diagnostics.length) {
+      return "Ошибок и предупреждений не обнаружено.";
+    }
+
+    const sample = diagnostics
+      .slice(0, 3)
+      .map((item) => (item.severity || "info") + ": " + (item.message || "без текста"))
+      .join(" • ");
+    return "Всего: " + diagnostics.length + ". " + sample;
+  }
+
+  function viewsSummary(openViews) {
+    if (!Array.isArray(openViews) || !openViews.length) {
+      return "Открытых представлений нет.";
+    }
+
+    const sample = openViews
+      .slice(0, 4)
+      .map((item) => item.title || item.id || "view")
+      .join(" • ");
+    return "Открыто: " + openViews.length + ". " + sample;
+  }
+
+  function clipText(value, limit) {
+    const text = String(value || "").trim();
+    if (text.length <= limit) {
+      return text;
+    }
+    return text.slice(0, limit - 1).trimEnd() + "…";
   }
 
   init();

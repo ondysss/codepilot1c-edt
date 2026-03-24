@@ -8,30 +8,33 @@
 </head>
 <body>
   <div class="shell">
-    <header class="topbar">
-      <div>
-        <p class="eyebrow">CodePilot1C</p>
-        <h1>Удаленный помощник</h1>
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">FINAL / A+B HYBRID</p>
+        <h1>Web Companion for 1C EDT</h1>
+        <p class="hero-subtitle">
+          Единый удаленный центр для сессии агента, управления IDE и команд Eclipse.
+        </p>
       </div>
-      <div class="topbar-actions">
-        <button id="claim-controller" class="secondary">Захватить управление</button>
+      <div class="hero-actions">
+        <button id="claim-controller" class="secondary">Захватить</button>
         <button id="release-controller" class="secondary">Освободить</button>
         <button id="refresh-bootstrap" class="secondary">Обновить</button>
         <button id="logout" class="danger">Выйти</button>
       </div>
     </header>
 
-    <section id="login-card" class="card auth-card">
+    <section id="login-card" class="card login-card">
       <div>
-        <p class="eyebrow">Доступ</p>
+        <p class="eyebrow">ДОСТУП</p>
         <h2>Подключить браузер к EDT</h2>
-        <p class="muted">
+        <p class="copy-muted">
           Вставьте статический bearer-токен, настроенный для встроенного MCP host.
           Сервер обменяет его на короткоживущую HttpOnly cookie для <code>/remote/api</code>.
         </p>
       </div>
-      <form id="login-form" class="stack">
-        <label class="stack">
+      <form id="login-form" class="stack login-form">
+        <label class="stack field-label">
           <span>Bearer-токен</span>
           <textarea id="token-input" rows="4" placeholder="cp_..."></textarea>
         </label>
@@ -40,126 +43,216 @@
       <p id="login-error" class="error"></p>
     </section>
 
-    <main id="app" class="app hidden">
-      <section class="card panel session-panel">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">Лента сессии</p>
-            <h2>Сессия агента</h2>
-          </div>
-          <div id="session-badges" class="badges"></div>
+    <main id="app" class="companion hidden">
+      <aside class="card rail">
+        <div class="rail-head">
+          <p class="eyebrow">ЛЕНТА СЕССИИ</p>
+          <h2>Сессия агента</h2>
         </div>
 
-        <form id="agent-form" class="stack">
-          <label class="stack">
-            <span>Запрос</span>
-            <textarea id="prompt-input" rows="5" placeholder="Опишите задачу для агента..."></textarea>
-          </label>
-          <div class="row">
-            <label class="stack grow">
-              <span>Профиль</span>
-              <select id="profile-select"></select>
-            </label>
-            <div class="row">
-              <button type="button" id="agent-start">Новая сессия</button>
-              <button type="button" id="agent-input" class="secondary">Продолжить</button>
-              <button type="button" id="agent-stop" class="danger">Остановить</button>
-            </div>
+        <section class="rail-card">
+          <p class="section-label">Режим</p>
+          <div id="session-badges" class="badge-stack"></div>
+          <p id="controller-summary" class="rail-note"></p>
+        </section>
+
+        <section class="rail-card">
+          <p class="section-label">Разделы</p>
+          <div class="nav-list">
+            <span class="nav-pill active">Лента сессии</span>
+            <span class="nav-pill">Инструменты</span>
+            <span class="nav-pill">Снимок IDE</span>
+            <span class="nav-pill">Команды</span>
           </div>
-        </form>
+        </section>
+
+        <section class="rail-card">
+          <p class="section-label">Быстрые команды</p>
+          <div class="chip-list">
+            <button type="button" class="chip quick-prompt" data-prompt="/diagnose">/diagnose</button>
+            <button type="button" class="chip quick-prompt" data-prompt="/retry">/retry</button>
+            <button type="button" class="chip quick-prompt" data-prompt="/summarize">/summarize</button>
+          </div>
+        </section>
+
+        <section class="rail-card">
+          <p class="section-label">Состояние IDE</p>
+          <div id="rail-ide-summary" class="rail-summary"></div>
+        </section>
+      </aside>
+
+      <section class="card chat">
+        <div class="chat-head">
+          <div>
+            <p class="eyebrow">ЧАТ С AI-АССИСТЕНТОМ</p>
+            <h2>Центральная сессия</h2>
+          </div>
+          <p class="chat-subtitle">Финальный режим: кратко, точно, по делу.</p>
+        </div>
 
         <div id="timeline" class="timeline"></div>
-      </section>
 
-      <section class="card panel tools-panel">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">Поток инструментов</p>
-            <h2>Вызовы и подтверждения</h2>
+        <div class="composer-zone">
+          <div class="chip-list prompt-list">
+            <button type="button" class="chip suggestion-prompt" data-prompt="Сформулируй ответ короче и оставь только ключевые действия.">Сформулируй короче</button>
+            <button type="button" class="chip suggestion-prompt" data-prompt="Добавь пошаговый план внедрения и порядок проверки.">Добавь шаги внедрения</button>
+            <button type="button" class="chip suggestion-prompt" data-prompt="Покажи основные риски, регрессии и что проверить вручную.">Показать риски</button>
           </div>
+
+          <form id="agent-form" class="composer">
+            <label class="stack field-label">
+              <span>Запрос</span>
+              <textarea id="prompt-input" rows="5" placeholder="Введите задачу для агента или выберите подсказку выше…"></textarea>
+            </label>
+            <div class="composer-footer">
+              <label class="stack field-label profile-field">
+                <span>Профиль</span>
+                <select id="profile-select"></select>
+              </label>
+              <div class="composer-actions">
+                <button type="button" id="agent-start">Новая сессия</button>
+                <button type="button" id="agent-input" class="secondary">Продолжить</button>
+                <button type="button" id="agent-stop" class="danger">Стоп</button>
+              </div>
+            </div>
+          </form>
         </div>
-        <div id="pending-confirmation" class="confirmation empty">Нет ожидающих подтверждений.</div>
-        <div id="tool-events" class="tool-events"></div>
       </section>
 
-      <section class="card panel ide-panel">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">Снимок IDE</p>
-            <h2>Состояние workbench</h2>
+      <aside class="card ops">
+        <section class="ops-card status-card">
+          <div class="ops-card-head">
+            <div>
+              <p class="eyebrow">ОПЕРАЦИОННЫЙ ЦЕНТР</p>
+              <h2>Сводка выполнения</h2>
+            </div>
+            <button id="snapshot-refresh" class="secondary">Обновить IDE</button>
           </div>
-          <button id="snapshot-refresh" class="secondary">Обновить снимок</button>
-        </div>
-        <div id="ide-snapshot" class="snapshot-grid"></div>
-      </section>
 
-      <section class="card panel command-panel">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">Палитра команд</p>
-            <h2>Команды Eclipse</h2>
+          <div class="metric-grid">
+            <article class="metric">
+              <span>Статус</span>
+              <strong id="metric-state">Ожидание</strong>
+            </article>
+            <article class="metric">
+              <span>Профиль</span>
+              <strong id="metric-profile">н/д</strong>
+            </article>
+            <article class="metric">
+              <span>События</span>
+              <strong id="metric-events">0</strong>
+            </article>
+            <article class="metric">
+              <span>Команды</span>
+              <strong id="metric-commands">0</strong>
+            </article>
           </div>
-        </div>
-        <form id="command-form" class="stack">
-          <label class="stack">
-            <span>Идентификатор команды</span>
-            <input id="command-input" list="command-list" placeholder="org.eclipse.ui.navigate.next">
-            <datalist id="command-list"></datalist>
-          </label>
-          <label class="stack">
-            <span>Параметры (JSON)</span>
-            <textarea id="command-params" rows="4" placeholder='{"key":"value"}'></textarea>
-          </label>
-          <button type="submit">Выполнить команду</button>
-        </form>
-        <div id="command-results" class="results"></div>
-      </section>
 
-      <section class="card panel editor-panel">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">Действия редактора</p>
-            <h2>Открыть, показать, применить</h2>
+          <div class="progress-track">
+            <div id="status-progress" class="progress-fill"></div>
           </div>
-        </div>
-        <form id="editor-open-form" class="stack">
-          <label class="stack">
-            <span>Путь к файлу</span>
-            <input id="editor-path" placeholder="/Project/src/CommonModules/Module.bsl">
-          </label>
-          <div class="row">
-            <button type="submit">Открыть файл</button>
-            <button type="button" id="editor-selection" class="secondary">Получить выделение</button>
-          </div>
-        </form>
 
-        <form id="editor-reveal-form" class="stack compact-form">
-          <div class="grid-5">
-            <input id="reveal-start-line" type="number" min="1" placeholder="Нач. строка">
-            <input id="reveal-start-column" type="number" min="1" placeholder="Нач. столбец">
-            <input id="reveal-end-line" type="number" min="1" placeholder="Кон. строка">
-            <input id="reveal-end-column" type="number" min="1" placeholder="Кон. столбец">
-            <button type="submit" class="secondary">Показать диапазон</button>
-          </div>
-        </form>
+          <div id="next-step" class="next-step"></div>
+        </section>
 
-        <form id="editor-text-form" class="stack">
-          <label class="stack">
-            <span>Текст / Сгенерированный ответ</span>
-            <textarea id="editor-text" rows="7" placeholder="Текст для вставки, замены или применения..."></textarea>
-          </label>
-          <div class="row">
-            <button type="button" id="replace-selection" class="secondary">Заменить выделение</button>
-            <button type="button" id="insert-at-cursor" class="secondary">Вставить в курсор</button>
-            <button type="button" id="apply-generated-code">Применить сгенерированный код</button>
+        <section class="ops-card">
+          <div class="ops-card-head">
+            <div>
+              <p class="eyebrow">ПОДТВЕРЖДЕНИЯ</p>
+              <h3>Ожидающие действия</h3>
+            </div>
           </div>
-          <label class="inline-check">
-            <input id="apply-replace-selection" type="checkbox">
-            <span>Заменить текущее выделение при применении сгенерированного кода</span>
-          </label>
-        </form>
-        <div id="editor-results" class="results"></div>
-      </section>
+          <div id="pending-confirmation" class="confirmation empty">Нет ожидающих подтверждений.</div>
+        </section>
+
+        <section class="ops-card">
+          <div class="ops-card-head">
+            <div>
+              <p class="eyebrow">ИНСТРУМЕНТЫ</p>
+              <h3>Операционный поток</h3>
+            </div>
+          </div>
+          <div id="tool-events" class="tool-events"></div>
+        </section>
+
+        <section class="ops-card">
+          <div class="ops-card-head">
+            <div>
+              <p class="eyebrow">СНИМОК IDE</p>
+              <h3>Рабочая среда и редактор</h3>
+            </div>
+          </div>
+          <div id="ide-snapshot" class="snapshot-grid"></div>
+        </section>
+
+        <section class="ops-card">
+          <div class="ops-card-head">
+            <div>
+              <p class="eyebrow">КОМАНДЫ ECLIPSE</p>
+              <h3>Палитра команд</h3>
+            </div>
+          </div>
+          <form id="command-form" class="stack">
+            <label class="stack field-label">
+              <span>Идентификатор команды</span>
+              <input id="command-input" list="command-list" placeholder="org.eclipse.ui.navigate.next">
+              <datalist id="command-list"></datalist>
+            </label>
+            <label class="stack field-label">
+              <span>Параметры (JSON)</span>
+              <textarea id="command-params" rows="4" placeholder='{"key":"value"}'></textarea>
+            </label>
+            <button type="submit">Выполнить команду</button>
+          </form>
+          <div id="command-results" class="results"></div>
+        </section>
+
+        <section class="ops-card">
+          <div class="ops-card-head">
+            <div>
+              <p class="eyebrow">УПРАВЛЕНИЕ РЕДАКТОРОМ</p>
+              <h3>Открыть, показать, применить</h3>
+            </div>
+          </div>
+          <form id="editor-open-form" class="stack">
+            <label class="stack field-label">
+              <span>Путь к файлу</span>
+              <input id="editor-path" placeholder="/Project/src/CommonModules/Module.bsl">
+            </label>
+            <div class="row">
+              <button type="submit">Открыть файл</button>
+              <button type="button" id="editor-selection" class="secondary">Получить выделение</button>
+            </div>
+          </form>
+
+          <form id="editor-reveal-form" class="stack compact-form">
+            <div class="grid-5">
+              <input id="reveal-start-line" type="number" min="1" placeholder="Нач. строка">
+              <input id="reveal-start-column" type="number" min="1" placeholder="Нач. столбец">
+              <input id="reveal-end-line" type="number" min="1" placeholder="Кон. строка">
+              <input id="reveal-end-column" type="number" min="1" placeholder="Кон. столбец">
+              <button type="submit" class="secondary">Показать диапазон</button>
+            </div>
+          </form>
+
+          <form id="editor-text-form" class="stack">
+            <label class="stack field-label">
+              <span>Текст / Сгенерированный ответ</span>
+              <textarea id="editor-text" rows="7" placeholder="Текст для вставки, замены или применения..."></textarea>
+            </label>
+            <div class="row wrap-actions">
+              <button type="button" id="replace-selection" class="secondary">Заменить выделение</button>
+              <button type="button" id="insert-at-cursor" class="secondary">Вставить в курсор</button>
+              <button type="button" id="apply-generated-code">Применить код</button>
+            </div>
+            <label class="inline-check">
+              <input id="apply-replace-selection" type="checkbox">
+              <span>Заменить текущее выделение при применении сгенерированного кода</span>
+            </label>
+          </form>
+          <div id="editor-results" class="results"></div>
+        </section>
+      </aside>
     </main>
 
     <section id="notice-bar" class="notice-bar"></section>
