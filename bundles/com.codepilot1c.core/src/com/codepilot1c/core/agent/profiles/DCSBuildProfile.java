@@ -34,13 +34,8 @@ public class DCSBuildProfile implements AgentProfile {
             "glob",
             "grep",
             "list_files",
-            // DCS tools
-            "dcs_get_summary",
-            "dcs_list_nodes",
-            "dcs_create_main_schema",
-            "dcs_upsert_query_dataset",
-            "dcs_upsert_parameter",
-            "dcs_upsert_calculated_field",
+            // DCS composite tool
+            "dcs_manage",
             // Context
             "scan_metadata_index",
             "edt_metadata_details",
@@ -80,8 +75,7 @@ public class DCSBuildProfile implements AgentProfile {
                 PermissionRule.allow("glob").forAllResources(),
                 PermissionRule.allow("grep").forAllResources(),
                 PermissionRule.allow("list_files").forAllResources(),
-                PermissionRule.allow("dcs_get_summary").forAllResources(),
-                PermissionRule.allow("dcs_list_nodes").forAllResources(),
+                PermissionRule.allow("dcs_manage").forAllResources(),
                 PermissionRule.allow("scan_metadata_index").forAllResources(),
                 PermissionRule.allow("edt_metadata_details").forAllResources(),
                 PermissionRule.allow("get_diagnostics").forAllResources(),
@@ -95,17 +89,8 @@ public class DCSBuildProfile implements AgentProfile {
                 PermissionRule.ask("write_file")
                         .withDescription("Создание файлов")
                         .forAllResources(),
-                PermissionRule.ask("dcs_create_main_schema")
-                        .withDescription("Создание основной схемы СКД")
-                        .forAllResources(),
-                PermissionRule.ask("dcs_upsert_query_dataset")
-                        .withDescription("Создание/изменение набора данных запроса СКД")
-                        .forAllResources(),
-                PermissionRule.ask("dcs_upsert_parameter")
-                        .withDescription("Создание/изменение параметра СКД")
-                        .forAllResources(),
-                PermissionRule.ask("dcs_upsert_calculated_field")
-                        .withDescription("Создание/изменение вычисляемого поля СКД")
+                PermissionRule.ask("dcs_manage")
+                        .withDescription("Управление схемами компоновки данных")
                         .forAllResources()
         );
     }

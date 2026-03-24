@@ -53,12 +53,7 @@ public class MetadataBuildProfile implements AgentProfile {
             "mutate_form_model",
             "edt_field_type_candidates",
             // DCS
-            "dcs_get_summary",
-            "dcs_list_nodes",
-            "dcs_create_main_schema",
-            "dcs_upsert_query_dataset",
-            "dcs_upsert_parameter",
-            "dcs_upsert_calculated_field",
+            "dcs_manage",
             // Module artifact (for creating modules on new objects)
             "ensure_module_artifact",
             // Validation
@@ -104,8 +99,7 @@ public class MetadataBuildProfile implements AgentProfile {
                 PermissionRule.allow("edt_metadata_smoke").forAllResources(),
                 PermissionRule.allow("inspect_form_layout").forAllResources(),
                 PermissionRule.allow("edt_field_type_candidates").forAllResources(),
-                PermissionRule.allow("dcs_get_summary").forAllResources(),
-                PermissionRule.allow("dcs_list_nodes").forAllResources(),
+                PermissionRule.allow("dcs_manage").forAllResources(),
                 PermissionRule.allow("edt_validate_request").forAllResources(),
                 PermissionRule.allow("get_diagnostics").forAllResources(),
                 PermissionRule.allow("analyze_tool_error").forAllResources(),
@@ -145,17 +139,8 @@ public class MetadataBuildProfile implements AgentProfile {
                 PermissionRule.ask("mutate_form_model")
                         .withDescription("Обновление модели управляемых форм EDT")
                         .forAllResources(),
-                PermissionRule.ask("dcs_create_main_schema")
-                        .withDescription("Создание основной схемы СКД")
-                        .forAllResources(),
-                PermissionRule.ask("dcs_upsert_query_dataset")
-                        .withDescription("Создание/изменение набора данных запроса СКД")
-                        .forAllResources(),
-                PermissionRule.ask("dcs_upsert_parameter")
-                        .withDescription("Создание/изменение параметра СКД")
-                        .forAllResources(),
-                PermissionRule.ask("dcs_upsert_calculated_field")
-                        .withDescription("Создание/изменение вычисляемого поля СКД")
+                PermissionRule.ask("dcs_manage")
+                        .withDescription("Управление схемами компоновки данных")
                         .forAllResources(),
                 PermissionRule.ask("ensure_module_artifact")
                         .withDescription("Создание/подготовка файлов модулей EDT")

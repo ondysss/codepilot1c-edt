@@ -34,16 +34,13 @@ public class ToolContextGate {
     private static final long CACHE_TTL_MS = 5 * 60 * 1000L; // 5 minutes
 
     private static final Set<String> DCS_TOOLS = Set.of(
-            "dcs_get_summary", "dcs_list_nodes", "dcs_create_main_schema", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            "dcs_upsert_query_dataset", "dcs_upsert_parameter", "dcs_upsert_calculated_field"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            "dcs_manage"); //$NON-NLS-1$
 
     private static final Set<String> EXTENSION_TOOLS = Set.of(
-            "extension_list_projects", "extension_list_objects", "extension_create_project", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            "extension_adopt_object", "extension_set_property_state", "edt_extension_smoke"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            "extension_manage"); //$NON-NLS-1$
 
     private static final Set<String> EXTERNAL_TOOLS = Set.of(
-            "external_list_projects", "external_list_objects", "external_get_details", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            "external_create_report", "external_create_processing", "edt_external_smoke"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            "external_manage"); //$NON-NLS-1$
 
     private static final Set<String> QA_TOOLS_EXCLUDING_INIT = Set.of(
             "qa_explain_config", "qa_status", "qa_migrate_config", "qa_run", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$

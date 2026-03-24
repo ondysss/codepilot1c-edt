@@ -34,19 +34,11 @@ public class ExtensionBuildProfile implements AgentProfile {
             "glob",
             "grep",
             "list_files",
-            // Extension tools
-            "extension_list_projects",
-            "extension_list_objects",
-            "extension_create_project",
-            "extension_adopt_object",
-            "extension_set_property_state",
+            // Extension composite tool + smoke
+            "extension_manage",
             "edt_extension_smoke",
-            // External reports/processors
-            "external_list_projects",
-            "external_list_objects",
-            "external_get_details",
-            "external_create_report",
-            "external_create_processing",
+            // External composite tool + smoke
+            "external_manage",
             "edt_external_smoke",
             // Context
             "scan_metadata_index",
@@ -87,12 +79,9 @@ public class ExtensionBuildProfile implements AgentProfile {
                 PermissionRule.allow("glob").forAllResources(),
                 PermissionRule.allow("grep").forAllResources(),
                 PermissionRule.allow("list_files").forAllResources(),
-                PermissionRule.allow("extension_list_projects").forAllResources(),
-                PermissionRule.allow("extension_list_objects").forAllResources(),
+                PermissionRule.allow("extension_manage").forAllResources(),
                 PermissionRule.allow("edt_extension_smoke").forAllResources(),
-                PermissionRule.allow("external_list_projects").forAllResources(),
-                PermissionRule.allow("external_list_objects").forAllResources(),
-                PermissionRule.allow("external_get_details").forAllResources(),
+                PermissionRule.allow("external_manage").forAllResources(),
                 PermissionRule.allow("edt_external_smoke").forAllResources(),
                 PermissionRule.allow("scan_metadata_index").forAllResources(),
                 PermissionRule.allow("edt_metadata_details").forAllResources(),
@@ -107,20 +96,11 @@ public class ExtensionBuildProfile implements AgentProfile {
                 PermissionRule.ask("write_file")
                         .withDescription("Создание файлов")
                         .forAllResources(),
-                PermissionRule.ask("extension_create_project")
-                        .withDescription("Создание проекта расширения EDT")
+                PermissionRule.ask("extension_manage")
+                        .withDescription("Управление расширениями конфигурации")
                         .forAllResources(),
-                PermissionRule.ask("extension_adopt_object")
-                        .withDescription("Добавление объекта основной конфигурации в расширение")
-                        .forAllResources(),
-                PermissionRule.ask("extension_set_property_state")
-                        .withDescription("Установка состояния свойства объекта расширения")
-                        .forAllResources(),
-                PermissionRule.ask("external_create_report")
-                        .withDescription("Создание проекта внешнего отчёта")
-                        .forAllResources(),
-                PermissionRule.ask("external_create_processing")
-                        .withDescription("Создание проекта внешней обработки")
+                PermissionRule.ask("external_manage")
+                        .withDescription("Управление внешними обработками и отчётами")
                         .forAllResources()
         );
     }
