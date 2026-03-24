@@ -84,7 +84,7 @@ final class ToolGraphDefinitions {
                 "create_metadata", "add_metadata_child", "update_metadata", "delete_metadata", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                 "author_yaxunit_tests" //$NON-NLS-1$
         );
-        Set<String> diagTools = Set.of("get_diagnostics", "edt_trace_export"); //$NON-NLS-1$ //$NON-NLS-2$
+        Set<String> diagTools = Set.of("get_diagnostics", "edt_diagnostics"); //$NON-NLS-1$ //$NON-NLS-2$
 
         ToolNode inspect = ToolNode.builder("metadata_inspect") //$NON-NLS-1$
                 .allowTools(inspectTools)

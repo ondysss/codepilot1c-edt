@@ -260,6 +260,42 @@ final class QwenToolCallExamples {
                     new String[]{"description", "prompt", "profile"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                     new String[]{"metadata task", "Create catalog Items and add list form", "metadata"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         }
+        // Composite tools
+        if ("dcs_manage".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"command", "project", "owner_fqn"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    new String[]{"get_summary", "DemoConfiguration", "Report.SalesReport"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        }
+        if ("extension_manage".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"command", "project"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"list_objects", "ExtensionDemo"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if ("external_manage".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"command", "project"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"list_objects", "ExternalProcessing"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if ("edt_diagnostics".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"command", "project"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"metadata_smoke", "DemoConfiguration"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if ("qa_inspect".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"command", "project"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"status", "DemoConfiguration"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if ("qa_generate".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"command", "project"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"init_config", "DemoConfiguration"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if ("discover_tools".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"category"}, //$NON-NLS-1$
+                    new String[]{"metadata"}); //$NON-NLS-1$
+        }
         return null;
     }
 
