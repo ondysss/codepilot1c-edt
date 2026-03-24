@@ -55,7 +55,7 @@ public class CodeBuildProfile implements AgentProfile {
             "inspect_platform_reference",
             "ensure_module_artifact",
             // Meta
-            "analyze_tool_error",
+            "edt_diagnostics",
             "skill",
             "task"
     ));
@@ -102,7 +102,7 @@ public class CodeBuildProfile implements AgentProfile {
                 PermissionRule.allow("edt_find_references").forAllResources(),
                 PermissionRule.allow("get_diagnostics").forAllResources(),
                 PermissionRule.allow("inspect_platform_reference").forAllResources(),
-                PermissionRule.allow("analyze_tool_error").forAllResources(),
+                PermissionRule.allow("edt_diagnostics").forAllResources(),
                 PermissionRule.allow("skill").forAllResources(),
                 PermissionRule.allow("task").forAllResources(),
                 // Write tools - ask

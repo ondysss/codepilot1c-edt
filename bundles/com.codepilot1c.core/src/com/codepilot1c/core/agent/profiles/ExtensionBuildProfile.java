@@ -45,7 +45,7 @@ public class ExtensionBuildProfile implements AgentProfile {
             "edt_metadata_details",
             "get_diagnostics",
             // Meta
-            "analyze_tool_error",
+            "edt_diagnostics",
             "skill",
             "task"
     ));
@@ -86,7 +86,7 @@ public class ExtensionBuildProfile implements AgentProfile {
                 PermissionRule.allow("scan_metadata_index").forAllResources(),
                 PermissionRule.allow("edt_metadata_details").forAllResources(),
                 PermissionRule.allow("get_diagnostics").forAllResources(),
-                PermissionRule.allow("analyze_tool_error").forAllResources(),
+                PermissionRule.allow("edt_diagnostics").forAllResources(),
                 PermissionRule.allow("skill").forAllResources(),
                 PermissionRule.allow("task").forAllResources(),
                 // Write tools - ask

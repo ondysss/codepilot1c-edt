@@ -45,7 +45,7 @@ public class MetadataBuildProfile implements AgentProfile {
             "add_metadata_child",
             "edt_metadata_details",
             "scan_metadata_index",
-            "edt_metadata_smoke",
+            "edt_diagnostics",
             // Forms
             "create_form",
             "apply_form_recipe",
@@ -60,7 +60,6 @@ public class MetadataBuildProfile implements AgentProfile {
             "edt_validate_request",
             "get_diagnostics",
             // Meta
-            "analyze_tool_error",
             "skill",
             "task"
     ));
@@ -96,13 +95,12 @@ public class MetadataBuildProfile implements AgentProfile {
                 PermissionRule.allow("list_files").forAllResources(),
                 PermissionRule.allow("edt_metadata_details").forAllResources(),
                 PermissionRule.allow("scan_metadata_index").forAllResources(),
-                PermissionRule.allow("edt_metadata_smoke").forAllResources(),
+                PermissionRule.allow("edt_diagnostics").forAllResources(),
                 PermissionRule.allow("inspect_form_layout").forAllResources(),
                 PermissionRule.allow("edt_field_type_candidates").forAllResources(),
                 PermissionRule.allow("dcs_manage").forAllResources(),
                 PermissionRule.allow("edt_validate_request").forAllResources(),
                 PermissionRule.allow("get_diagnostics").forAllResources(),
-                PermissionRule.allow("analyze_tool_error").forAllResources(),
                 PermissionRule.allow("skill").forAllResources(),
                 PermissionRule.allow("task").forAllResources(),
                 // Write tools - ask

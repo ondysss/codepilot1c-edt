@@ -85,15 +85,11 @@ public class BuildAgentProfile implements AgentProfile {
             "author_yaxunit_tests",
             "update_metadata_properties",
             "delete_metadata_object",
-            "edt_trace_export",
-            "edt_metadata_smoke",
+            "edt_diagnostics",
             "qa_init_config",
             "qa_explain_config",
             "qa_status",
             "qa_migrate_config",
-            "analyze_tool_error",
-            "edt_update_infobase",
-            "edt_launch_app",
             "qa_run",
             "qa_prepare_form_context",
             "qa_plan_scenario",
@@ -155,8 +151,7 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("bsl_module_context").forAllResources(),
                 PermissionRule.allow("bsl_module_exports").forAllResources(),
                 PermissionRule.allow("edt_validate_request").forAllResources(),
-                PermissionRule.allow("edt_trace_export").forAllResources(),
-                PermissionRule.allow("edt_metadata_smoke").forAllResources(),
+                PermissionRule.allow("edt_diagnostics").forAllResources(),
                 PermissionRule.allow("inspect_form_layout").forAllResources(),
                 PermissionRule.ask("qa_init_config")
                         .withDescription("Создание начального qa-config.json")
@@ -166,7 +161,6 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.ask("qa_migrate_config")
                         .withDescription("Миграция и нормализация qa-config.json")
                         .forAllResources(),
-                PermissionRule.allow("analyze_tool_error").forAllResources(),
                 PermissionRule.allow("qa_run").forAllResources(),
                 PermissionRule.allow("qa_plan_scenario").forAllResources(),
                 PermissionRule.allow("qa_validate_feature").forAllResources(),
@@ -241,11 +235,8 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.ask("qa_prepare_form_context")
                         .withDescription("Подготовка QA контекста формы с автосозданием default формы при отсутствии")
                         .forAllResources(),
-                PermissionRule.ask("edt_update_infobase")
-                        .withDescription("Обновление инфобазы EDT проекта")
-                        .forAllResources(),
-                PermissionRule.ask("edt_launch_app")
-                        .withDescription("Запуск приложения EDT проекта")
+                PermissionRule.ask("edt_diagnostics")
+                        .withDescription("EDT диагностика: smoke, trace, анализ ошибок, обновление ИБ, запуск")
                         .forAllResources()
 		        );
 	    }

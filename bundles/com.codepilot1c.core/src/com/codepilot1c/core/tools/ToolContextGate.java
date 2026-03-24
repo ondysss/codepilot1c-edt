@@ -49,7 +49,7 @@ public class ToolContextGate {
 
     private static final Set<String> EDT_PROJECT_TOOLS = Set.of(
             "edt_content_assist", "edt_find_references", "edt_metadata_details", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            "scan_metadata_index", "edt_metadata_smoke", "edt_validate_request", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            "scan_metadata_index", "edt_diagnostics", "edt_validate_request", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             "edt_field_type_candidates", "inspect_platform_reference", //$NON-NLS-1$ //$NON-NLS-2$
             "bsl_symbol_at_position", "bsl_type_at_position", "bsl_scope_members", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             "bsl_list_methods", "bsl_get_method_body", "bsl_analyze_method", "bsl_module_context", "bsl_module_exports", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
@@ -57,10 +57,9 @@ public class ToolContextGate {
             "delete_metadata", "delete_metadata_object", "add_metadata_child", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             "create_form", "apply_form_recipe", "inspect_form_layout", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             "mutate_form_model", "ensure_module_artifact", //$NON-NLS-1$ //$NON-NLS-2$
-            "get_diagnostics", "edt_trace_export", //$NON-NLS-1$ //$NON-NLS-2$
+            "get_diagnostics", //$NON-NLS-1$
             "workspace_import_project", "import_project_from_infobase", //$NON-NLS-1$ //$NON-NLS-2$
-            "git_clone_and_import_project", //$NON-NLS-1$
-            "edt_update_infobase", "edt_launch_app"); //$NON-NLS-1$ //$NON-NLS-2$
+            "git_clone_and_import_project"); //$NON-NLS-1$
 
     // Cache
     private volatile Set<String> cachedExcluded;

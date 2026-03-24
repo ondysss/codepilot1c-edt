@@ -33,13 +33,10 @@ public class RecoveryProfile implements AgentProfile {
             "glob",
             "grep",
             "list_files",
-            // Diagnostics
+            // Diagnostics (edt_diagnostics dispatches: metadata_smoke, trace_export, analyze_error)
             "get_diagnostics",
-            "edt_metadata_smoke",
-            "edt_trace_export",
+            "edt_diagnostics",
             "edt_validate_request",
-            // Recovery context
-            "analyze_tool_error",
             "inspect_platform_reference",
             // Meta
             "skill",
@@ -76,10 +73,8 @@ public class RecoveryProfile implements AgentProfile {
                 PermissionRule.allow("grep").forAllResources(),
                 PermissionRule.allow("list_files").forAllResources(),
                 PermissionRule.allow("get_diagnostics").forAllResources(),
-                PermissionRule.allow("edt_metadata_smoke").forAllResources(),
-                PermissionRule.allow("edt_trace_export").forAllResources(),
+                PermissionRule.allow("edt_diagnostics").forAllResources(),
                 PermissionRule.allow("edt_validate_request").forAllResources(),
-                PermissionRule.allow("analyze_tool_error").forAllResources(),
                 PermissionRule.allow("inspect_platform_reference").forAllResources(),
                 PermissionRule.allow("skill").forAllResources(),
                 PermissionRule.allow("task").forAllResources(),

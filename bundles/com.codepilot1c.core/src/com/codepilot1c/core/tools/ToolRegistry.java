@@ -127,8 +127,7 @@ public class ToolRegistry {
         register(new MutateFormModelTool());
         register(new DeleteMetadataTool());
         register(new YaxunitAuthoringTool());
-        register(new EdtMetadataSmokeTool());
-        register(new EdtTraceExportTool());
+        register(new EdtDiagnosticsTool());
         register(new ExtensionManageTool());
         register(new EdtExtensionSmokeTool());
         register(new DcsManageTool());
@@ -138,9 +137,8 @@ public class ToolRegistry {
         register(new QaExplainConfigTool());
         register(new QaStatusTool());
         register(new QaMigrateConfigTool());
-        register(new AnalyzeToolErrorTool());
-        register(new EdtUpdateInfobaseTool());
-        register(new EdtLaunchAppTool());
+        // AnalyzeToolErrorTool, EdtUpdateInfobaseTool, EdtLaunchAppTool
+        // are now dispatched through EdtDiagnosticsTool
         register(new QaRunTool());
         register(new QaPrepareFormContextTool());
         register(new QaPlanScenarioTool());
