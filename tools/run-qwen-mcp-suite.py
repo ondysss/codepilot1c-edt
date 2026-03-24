@@ -64,6 +64,14 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def parse_json_or_text(raw: bytes) -> Any:
+    text = raw.decode("utf-8", "replace")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"raw_text": text}
+
+
 def run_subprocess(
     cmd: list[str],
     cwd: Path,
@@ -134,11 +142,11 @@ def preflight_mcp(config: QwenMcpConfig, output_path: Path) -> None:
         with urllib.request.urlopen(request, timeout=30) as response:
             wrapper["http_status"] = response.getcode()
             wrapper["response_headers"] = dict(response.headers.items())
-            wrapper["body"] = json.loads(response.read().decode("utf-8", "replace"))
+            wrapper["body"] = parse_json_or_text(response.read())
     except urllib.error.HTTPError as exc:
         wrapper["http_status"] = exc.code
         wrapper["response_headers"] = dict(exc.headers.items()) if exc.headers else {}
-        wrapper["body"] = json.loads(exc.read().decode("utf-8", "replace"))
+        wrapper["body"] = parse_json_or_text(exc.read())
         write_json(output_path, wrapper)
         raise RuntimeError(f"MCP initialize returned HTTP {exc.code}") from exc
     except Exception as exc:  # noqa: BLE001
@@ -657,6 +665,109 @@ def evaluate_assertions(scenario: dict[str, Any], parsed: dict[str, Any]) -> dic
     }
 
 
+def extract_failure_metrics(parsed: dict[str, Any], evaluation: dict[str, Any]) -> dict[str, Any]:
+    metrics = {
+        "wrong_tool": 0,
+        "invalid_args": 0,
+        "missed_validation_token": 0,
+        "missed_diagnostics": 0,
+        "qa_gate": 0,
+        "other": 0,
+        "details": [],
+    }
+
+    for check in evaluation.get("checks") or []:
+        if check.get("passed"):
+            continue
+        name = str(check.get("name") or "")
+        details = str(check.get("details") or "")
+        if name.startswith("required_tool:") or name.startswith("forbidden_tool:") or name == "allowed_tool_set" or name == "ordered_subsequence":
+            metrics["wrong_tool"] += 1
+            metrics["details"].append({"category": "wrong_tool", "name": name, "details": details})
+        elif name == "validation_flow":
+            observed = check.get("observed") or []
+            count = len(observed) if isinstance(observed, list) and observed else 1
+            metrics["missed_validation_token"] += count
+            metrics["details"].append(
+                {"category": "missed_validation_token", "name": name, "details": details, "observed": observed}
+            )
+        elif name in {"post_mutation_diagnostics", "diagnostics_error_count_must_decrease"}:
+            metrics["missed_diagnostics"] += 1
+            metrics["details"].append({"category": "missed_diagnostics", "name": name, "details": details})
+        elif name in {"qa_status_before_qa_run", "qa_run_after_error_status"}:
+            metrics["qa_gate"] += 1
+            metrics["details"].append({"category": "qa_gate", "name": name, "details": details})
+        else:
+            metrics["other"] += 1
+            metrics["details"].append({"category": "other", "name": name, "details": details})
+
+    for result in (parsed.get("results") or {}).values():
+        error_blob = deep_text(result.get("error")).lower()
+        output = result.get("output")
+        output_error_blob = ""
+        if isinstance(output, dict):
+            output_error_blob = " ".join(
+                deep_text(output.get(key)).lower()
+                for key in ["error", "error_message", "message", "details"]
+                if output.get(key)
+            )
+        combined = f"{error_blob} {output_error_blob}".strip()
+        if not combined:
+            continue
+        if any(token in combined for token in [
+            "invalid arguments",
+            "invalid argument",
+            "validation error",
+            "schema",
+            "required property",
+            "unexpected property",
+            "json schema",
+        ]):
+            metrics["invalid_args"] += 1
+            metrics["details"].append(
+                {
+                    "category": "invalid_args",
+                    "name": result.get("tool_name") or "tool_result",
+                    "details": (result.get("error") or result.get("output") or "")[:500],
+                }
+            )
+
+    return metrics
+
+
+def aggregate_metrics(scenario_results: list[dict[str, Any]]) -> dict[str, Any]:
+    aggregate = {
+        "scenarios_total": len(scenario_results),
+        "scenarios_passed": 0,
+        "scenarios_failed": 0,
+        "wrong_tool": 0,
+        "invalid_args": 0,
+        "missed_validation_token": 0,
+        "missed_diagnostics": 0,
+        "qa_gate": 0,
+        "other": 0,
+        "scenario_breakdown": [],
+    }
+
+    for result in scenario_results:
+        if result.get("passed"):
+            aggregate["scenarios_passed"] += 1
+        else:
+            aggregate["scenarios_failed"] += 1
+        scenario_metrics = result.get("failure_metrics") or {}
+        breakdown = {"scenario_id": result.get("scenario_id"), "passed": bool(result.get("passed"))}
+        for key in ["wrong_tool", "invalid_args", "missed_validation_token", "missed_diagnostics", "qa_gate", "other"]:
+            value = int(scenario_metrics.get(key) or 0)
+            aggregate[key] += value
+            breakdown[key] = value
+        breakdown["details"] = scenario_metrics.get("details") or []
+        aggregate["scenario_breakdown"].append(breakdown)
+
+    total = aggregate["scenarios_total"] or 1
+    aggregate["pass_rate"] = round(aggregate["scenarios_passed"] / total, 4)
+    return aggregate
+
+
 def build_qwen_command(
     qwen_bin: str,
     prompt: str,
@@ -731,6 +842,47 @@ def write_markdown_summary(path: Path, suite: dict[str, Any], scenario_results: 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def write_metrics_report(path: Path, suite: dict[str, Any], metrics: dict[str, Any]) -> None:
+    lines = [
+        f"# {suite.get('title', suite.get('suite_id', 'Qwen Suite'))} Metrics",
+        "",
+        f"- suite_id: `{suite.get('suite_id', '')}`",
+        f"- generated_at: `{utc_now()}`",
+        f"- scenarios_total: `{metrics.get('scenarios_total', 0)}`",
+        f"- scenarios_passed: `{metrics.get('scenarios_passed', 0)}`",
+        f"- scenarios_failed: `{metrics.get('scenarios_failed', 0)}`",
+        f"- pass_rate: `{metrics.get('pass_rate', 0)}`",
+        "",
+        "## Failure Metrics",
+        "",
+        f"- wrong_tool: `{metrics.get('wrong_tool', 0)}`",
+        f"- invalid_args: `{metrics.get('invalid_args', 0)}`",
+        f"- missed_validation_token: `{metrics.get('missed_validation_token', 0)}`",
+        f"- missed_diagnostics: `{metrics.get('missed_diagnostics', 0)}`",
+        f"- qa_gate: `{metrics.get('qa_gate', 0)}`",
+        f"- other: `{metrics.get('other', 0)}`",
+        "",
+        "## Scenario Breakdown",
+        "",
+        "| Scenario | Pass | wrong_tool | invalid_args | missed_validation_token | missed_diagnostics | qa_gate | other |",
+        "|---|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for breakdown in metrics.get("scenario_breakdown", []):
+        lines.append(
+            "| `{scenario_id}` | {passed} | {wrong_tool} | {invalid_args} | {missed_validation_token} | {missed_diagnostics} | {qa_gate} | {other} |".format(
+                scenario_id=breakdown.get("scenario_id", ""),
+                passed="PASS" if breakdown.get("passed") else "FAIL",
+                wrong_tool=breakdown.get("wrong_tool", 0),
+                invalid_args=breakdown.get("invalid_args", 0),
+                missed_validation_token=breakdown.get("missed_validation_token", 0),
+                missed_diagnostics=breakdown.get("missed_diagnostics", 0),
+                qa_gate=breakdown.get("qa_gate", 0),
+                other=breakdown.get("other", 0),
+            )
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Qwen MCP evaluation suite")
     parser.add_argument("--suite", default=str(DEFAULT_SUITE), help="Path to suite JSON")
@@ -760,6 +912,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-seconds", type=int,
                         default=int(os.environ.get("QWEN_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS))),
                         help="Per-scenario qwen process timeout")
+    parser.add_argument("--skip-preflight", action="store_true",
+                        help="Skip manual MCP initialize probe and let qwen validate connectivity")
     parser.add_argument("--keep-going", action="store_true", help="Continue after scenario failure")
     parser.add_argument("--dry-run", action="store_true", help="Do not execute qwen, only materialize commands")
     parser.add_argument("--debug", action="store_true", help="Enable qwen --debug")
@@ -793,7 +947,7 @@ def main() -> int:
     suite, scenarios = load_suite(suite_path, selected_ids if selected_ids else None)
     write_json(run_dir / "suite.json", suite)
 
-    if not args.dry_run:
+    if not args.dry_run and not args.skip_preflight:
         preflight_mcp(mcp_config, run_dir / "mcp-preflight.json")
 
     scenario_results: list[dict[str, Any]] = []
@@ -838,6 +992,7 @@ def main() -> int:
         if args.dry_run:
             scenario_result["passed"] = True
             scenario_result["evaluation"] = {"passed": True, "checks": [], "tool_names": []}
+            scenario_result["failure_metrics"] = extract_failure_metrics({}, scenario_result["evaluation"])
             scenario_result["dry_run"] = True
             write_json(scenario_dir / "result.json", scenario_result)
             scenario_results.append(scenario_result)
@@ -871,8 +1026,10 @@ def main() -> int:
         write_json(scenario_dir / "parsed-chat.json", parsed)
 
         evaluation = evaluate_assertions(scenario, parsed)
+        failure_metrics = extract_failure_metrics(parsed, evaluation)
         passed = exit_code == 0 and evaluation["passed"]
         scenario_result["evaluation"] = evaluation
+        scenario_result["failure_metrics"] = failure_metrics
         scenario_result["passed"] = passed
         if parsed.get("final_json") is not None:
             scenario_result["model_final_json"] = parsed["final_json"]
@@ -886,6 +1043,7 @@ def main() -> int:
             if not args.keep_going:
                 break
 
+    metrics = aggregate_metrics(scenario_results)
     summary_payload = {
         "suite_id": suite.get("suite_id"),
         "title": suite.get("title"),
@@ -893,10 +1051,13 @@ def main() -> int:
         "started_at": utc_now(),
         "workdir": str(workdir),
         "results": scenario_results,
+        "metrics": metrics,
         "passed": overall_passed,
     }
     write_json(run_dir / "summary.json", summary_payload)
+    write_json(run_dir / "metrics.json", metrics)
     write_markdown_summary(run_dir / "summary.md", suite, scenario_results)
+    write_metrics_report(run_dir / "metrics.md", suite, metrics)
 
     print(f"Run directory: {run_dir}")
     print(f"Overall result: {'PASS' if overall_passed else 'FAIL'}")

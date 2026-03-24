@@ -7,6 +7,8 @@
 .claude/
 .runs/
 tools/__pycache__/
+.planning/local/
+.planning/qwen35-optimization-*.md
 
 # IDE / OS
 .idea/
