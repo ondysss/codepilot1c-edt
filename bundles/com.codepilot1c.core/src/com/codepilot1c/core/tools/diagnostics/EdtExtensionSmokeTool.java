@@ -21,6 +21,7 @@ import org.eclipse.emf.ecore.EStructuralFeature;
 import com._1c.g5.v8.bm.core.IBmObject;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
 import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
+import com.codepilot1c.core.edt.BmObjectHelper;
 import com.codepilot1c.core.edt.extension.EdtExtensionService;
 import com.codepilot1c.core.edt.extension.ExtensionAdoptObjectRequest;
 import com.codepilot1c.core.edt.extension.ExtensionAdoptObjectResult;
@@ -348,15 +349,9 @@ public class EdtExtensionSmokeTool extends AbstractTool {
 
     private String safeFqn(Object object, String kind, String name) {
         if (object instanceof IBmObject bmObject) {
-            try {
-                if (!bmObject.bmIsTransient() && bmObject.bmIsTop()) {
-                    String fqn = bmObject.bmGetFqn();
-                    if (fqn != null && !fqn.isBlank()) {
-                        return fqn;
-                    }
-                }
-            } catch (RuntimeException e) {
-                // Some detached BM objects may fail on bmGetFqn(); fallback below.
+            String fqn = BmObjectHelper.safeTopFqn(bmObject);
+            if (!fqn.isBlank()) {
+                return fqn;
             }
         }
         return kind + "." + name; //$NON-NLS-1$

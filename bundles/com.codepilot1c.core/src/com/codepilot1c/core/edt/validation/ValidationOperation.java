@@ -22,6 +22,7 @@ public enum ValidationOperation {
     DCS_UPSERT_PARAMETER("dcs_upsert_parameter"), //$NON-NLS-1$
     DCS_UPSERT_CALCULATED_FIELD("dcs_upsert_calculated_field"), //$NON-NLS-1$
     ADD_METADATA_CHILD("add_metadata_child"), //$NON-NLS-1$
+    ENSURE_MODULE_ARTIFACT("ensure_module_artifact"), //$NON-NLS-1$
     UPDATE_METADATA("update_metadata"), //$NON-NLS-1$
     DELETE_METADATA("delete_metadata"), //$NON-NLS-1$
     MUTATE_FORM_MODEL("mutate_form_model"); //$NON-NLS-1$
