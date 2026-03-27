@@ -26,11 +26,11 @@ public class BslModuleExportsTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "projectName": {"type": "string", "description": "EDT project name"},
-                "filePath": {"type": "string", "description": "Path relative to src/, for example CommonModules/MyModule/Module.bsl"},
-                "name_contains": {"type": "string", "description": "Filter by export name substring"},
-                "limit": {"type": "integer", "description": "Max items (default 100)"},
-                "offset": {"type": "integer", "description": "Pagination offset"}
+                "projectName": {"type": "string", "description": "EDT project containing the BSL module"},
+                "filePath": {"type": "string", "description": "Path to the module relative to src/, for example CommonModules/MyModule/Module.bsl"},
+                "name_contains": {"type": "string", "description": "Optional substring filter for exported procedure/function names"},
+                "limit": {"type": "integer", "description": "Maximum exported members to return (default 100)"},
+                "offset": {"type": "integer", "description": "Pagination offset for large export lists"}
               },
               "required": ["projectName", "filePath"]
             }
@@ -48,7 +48,7 @@ public class BslModuleExportsTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "List exported BSL procedures/functions for one module with signatures and line ranges."; //$NON-NLS-1$
+        return "Перечисляет только экспортные процедуры и функции одного BSL-модуля."; //$NON-NLS-1$
     }
 
     @Override
@@ -63,7 +63,8 @@ public class BslModuleExportsTool extends AbstractTool {
             try {
                 BslModuleMethodsRequest request = BslModuleMethodsRequest.fromParameters(parameters);
                 BslModuleExportsResult result = service.getModuleExports(request);
-                return ToolResult.success(GSON.toJson(result), ToolResult.ToolResultType.SEARCH_RESULTS);
+                JsonObject structured = GSON.toJsonTree(result).getAsJsonObject();
+                return ToolResult.success(GSON.toJson(result), ToolResult.ToolResultType.SEARCH_RESULTS, structured);
             } catch (EdtAstException e) {
                 return ToolResult.failure(toErrorJson(e));
             } catch (Exception e) {

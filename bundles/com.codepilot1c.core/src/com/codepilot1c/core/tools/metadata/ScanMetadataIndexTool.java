@@ -26,12 +26,12 @@ public class ScanMetadataIndexTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "projectName": {"type": "string", "description": "EDT project name"},
-                "scope": {"type": "string", "description": "Metadata scope filter: all/catalogs/documents/commonModules/..."},
-                "nameContains": {"type": "string", "description": "Case-insensitive object name filter"},
-                "limit": {"type": "integer", "description": "Maximum result size (1..1000, default 200)"},
-                "language": {"type": "string", "description": "Synonym language (ru/en/...)"},
-                "includeModules": {"type": "boolean", "description": "Reserved for future filtering (compat parameter)"}
+                "projectName": {"type": "string", "description": "EDT project whose configuration should be scanned"},
+                "scope": {"type": "string", "description": "High-level metadata scope filter such as all, catalogs, documents, commonModules"},
+                "nameContains": {"type": "string", "description": "Case-insensitive object name filter for broad discovery"},
+                "limit": {"type": "integer", "description": "Maximum number of index entries to return (1..1000, default 200)"},
+                "language": {"type": "string", "description": "Preferred synonym language for display values (ru, en, ...)"},
+                "includeModules": {"type": "boolean", "description": "Compatibility flag; does not replace detailed module inspection"}
               },
               "required": ["projectName"]
             }
@@ -39,7 +39,7 @@ public class ScanMetadataIndexTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Collects top-level metadata index from EDT configuration with scope and name filters."; //$NON-NLS-1$
+        return "Возвращает индекс верхнеуровневых объектов метаданных EDT по проекту с широкими фильтрами."; //$NON-NLS-1$
     }
 
     @Override
@@ -54,7 +54,8 @@ public class ScanMetadataIndexTool extends AbstractTool {
             try {
                 MetadataIndexRequest request = MetadataIndexRequest.fromParameters(parameters);
                 MetadataIndexResult result = EdtAstServices.getInstance().scanMetadataIndex(request);
-                return ToolResult.success(GSON.toJson(result), ToolResult.ToolResultType.SEARCH_RESULTS);
+                JsonObject structured = GSON.toJsonTree(result).getAsJsonObject();
+                return ToolResult.success(GSON.toJson(result), ToolResult.ToolResultType.SEARCH_RESULTS, structured);
             } catch (EdtAstException e) {
                 return ToolResult.failure(toErrorJson(e));
             } catch (Exception e) {

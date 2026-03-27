@@ -13,6 +13,9 @@ import com.codepilot1c.core.edt.ast.MarkdownRenderer;
 import com.codepilot1c.core.edt.ast.MetadataDetailsRequest;
 import com.codepilot1c.core.edt.ast.MetadataDetailsResult;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+
 /**
  * Internal EDT AST metadata-inspection tool.
  */
@@ -27,10 +30,10 @@ public class EdtMetadataDetailsTool extends AbstractTool {
                 "objectFqns": {
                   "type": "array",
                   "items": {"type": "string"},
-                  "description": "Metadata object FQNs"
+                  "description": "Metadata object FQNs to inspect semantically through EDT, not raw file paths."
                 },
-                "full": {"type": "boolean", "description": "Extended details"},
-                "language": {"type": "string", "description": "Preferred language code"}
+                "full": {"type": "boolean", "description": "Request extended semantic details for the selected metadata objects."},
+                "language": {"type": "string", "description": "Preferred language code for rendered details."}
               },
               "required": ["projectName", "objectFqns"]
             }
@@ -40,7 +43,7 @@ public class EdtMetadataDetailsTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Возвращает структуру объектов метаданных конфигурации (не справку по встроенным типам языка)."; //$NON-NLS-1$
+        return "Читает структурированные сведения об объекте метаданных EDT: свойства, детей, формы и модули."; //$NON-NLS-1$
     }
 
     @Override
@@ -55,7 +58,8 @@ public class EdtMetadataDetailsTool extends AbstractTool {
             try {
                 MetadataDetailsRequest request = MetadataDetailsRequest.fromParameters(parameters);
                 MetadataDetailsResult result = EdtAstServices.getInstance().getMetadataDetails(request);
-                return ToolResult.success(markdownRenderer.renderMetadata(result), ToolResult.ToolResultType.CODE);
+                JsonObject structured = new Gson().toJsonTree(result).getAsJsonObject();
+                return ToolResult.success(markdownRenderer.renderMetadata(result), ToolResult.ToolResultType.CODE, structured);
             } catch (EdtAstException e) {
                 return ToolResult.failure(e.getCode().name() + ": " + e.getMessage()); //$NON-NLS-1$
             } catch (Exception e) {

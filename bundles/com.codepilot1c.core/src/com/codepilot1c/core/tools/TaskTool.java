@@ -29,6 +29,8 @@ import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
 import com.codepilot1c.core.provider.ProviderUtils;
 
+import com.google.gson.JsonObject;
+
 /**
  * Инструмент для запуска подагентов.
  *
@@ -111,8 +113,7 @@ public class TaskTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Запускает подагента для выполнения сложной задачи. " +
-               "Используйте для делегирования в domain-профили или через auto routing.";
+        return "Запускает подагента для многошаговой задачи через профиль или auto routing. Для явного выбора домена предпочитай delegate_to_agent."; //$NON-NLS-1$
     }
 
     @Override
@@ -227,7 +228,13 @@ public class TaskTool extends AbstractTool {
                 ", шагов: " + result.getStepsExecuted());
 
         if (result.isSuccess()) {
-            return ToolResult.success(sb.toString(), ToolResult.ToolResultType.TEXT);
+            JsonObject structured = new JsonObject();
+            structured.addProperty("profile", profileId); //$NON-NLS-1$
+            structured.addProperty("status", result.getFinalState().name()); //$NON-NLS-1$
+            structured.addProperty("steps", result.getStepsExecuted()); //$NON-NLS-1$
+            structured.addProperty("tool_calls", result.getToolCallsExecuted()); //$NON-NLS-1$
+            structured.addProperty("execution_time_ms", result.getExecutionTimeMs()); //$NON-NLS-1$
+            return ToolResult.success(sb.toString(), ToolResult.ToolResultType.TEXT, structured);
         } else {
             return ToolResult.failure(sb.toString());
         }

@@ -26,12 +26,12 @@ public class BslListMethodsTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "projectName": {"type": "string", "description": "EDT project name"},
-                "filePath": {"type": "string", "description": "Path relative to src/, for example CommonModules/MyModule/Module.bsl"},
-                "name_contains": {"type": "string", "description": "Filter by method name substring"},
-                "kind": {"type": "string", "enum": ["any", "procedure", "function"], "description": "Filter by method kind"},
-                "limit": {"type": "integer", "description": "Max items (default 100)"},
-                "offset": {"type": "integer", "description": "Pagination offset"}
+                "projectName": {"type": "string", "description": "EDT project containing the BSL module"},
+                "filePath": {"type": "string", "description": "Path to the module relative to src/, for example CommonModules/MyModule/Module.bsl"},
+                "name_contains": {"type": "string", "description": "Optional substring filter when you only know part of the method name"},
+                "kind": {"type": "string", "enum": ["any", "procedure", "function"], "description": "Optional filter by procedure/function kind"},
+                "limit": {"type": "integer", "description": "Maximum methods to return when using this as a module index (default 100)"},
+                "offset": {"type": "integer", "description": "Pagination offset for large modules"}
               },
               "required": ["projectName", "filePath"]
             }
@@ -49,7 +49,7 @@ public class BslListMethodsTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "List procedures/functions in a BSL module with line ranges and parameters."; //$NON-NLS-1$
+        return "Перечисляет процедуры и функции одного BSL-модуля с сигнатурами и диапазонами строк."; //$NON-NLS-1$
     }
 
     @Override
@@ -64,7 +64,8 @@ public class BslListMethodsTool extends AbstractTool {
             try {
                 BslModuleMethodsRequest request = BslModuleMethodsRequest.fromParameters(parameters);
                 BslModuleMethodsResult result = service.listMethods(request);
-                return ToolResult.success(GSON.toJson(result), ToolResult.ToolResultType.SEARCH_RESULTS);
+                JsonObject structured = GSON.toJsonTree(result).getAsJsonObject();
+                return ToolResult.success(GSON.toJson(result), ToolResult.ToolResultType.SEARCH_RESULTS, structured);
             } catch (EdtAstException e) {
                 return ToolResult.failure(toErrorJson(e));
             } catch (Exception e) {

@@ -26,8 +26,8 @@ public class BslModuleContextTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "projectName": {"type": "string", "description": "EDT project name"},
-                "filePath": {"type": "string", "description": "Path relative to src/, for example CommonModules/MyModule/Module.bsl"}
+                "projectName": {"type": "string", "description": "EDT project containing the BSL module"},
+                "filePath": {"type": "string", "description": "Path to the module relative to src/, for example CommonModules/MyModule/Module.bsl"}
               },
               "required": ["projectName", "filePath"]
             }
@@ -45,7 +45,7 @@ public class BslModuleContextTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Return BSL module type, owner, default pragmas, and method counts for one module."; //$NON-NLS-1$
+        return "Возвращает контекст BSL-модуля: владелец, вид модуля, прагмы и число методов."; //$NON-NLS-1$
     }
 
     @Override
@@ -60,7 +60,8 @@ public class BslModuleContextTool extends AbstractTool {
             try {
                 BslModuleRequest request = BslModuleRequest.fromParameters(parameters);
                 BslModuleContextResult result = service.getModuleContext(request);
-                return ToolResult.success(GSON.toJson(result), ToolResult.ToolResultType.SEARCH_RESULTS);
+                JsonObject structured = GSON.toJsonTree(result).getAsJsonObject();
+                return ToolResult.success(GSON.toJson(result), ToolResult.ToolResultType.SEARCH_RESULTS, structured);
             } catch (EdtAstException e) {
                 return ToolResult.failure(toErrorJson(e));
             } catch (Exception e) {
