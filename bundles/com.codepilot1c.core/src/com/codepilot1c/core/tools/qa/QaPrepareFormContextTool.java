@@ -47,7 +47,7 @@ public class QaPrepareFormContextTool extends AbstractTool {
               "properties": {
                 "project": {
                   "type": "string",
-                  "description": "Имя проекта EDT"
+                  "description": "Имя EDT проекта с объектом, форма которого нужна для QA"
                 },
                 "owner_fqn": {
                   "type": "string",
@@ -64,7 +64,7 @@ public class QaPrepareFormContextTool extends AbstractTool {
                 },
                 "auto_create": {
                   "type": "boolean",
-                  "description": "Если inspect вернул FORM/METADATA_NOT_FOUND, создать default форму автоматически"
+                  "description": "Если форма не найдена, создать default форму автоматически специально для QA контекста"
                 },
                 "set_as_default": {
                   "type": "boolean",
@@ -101,14 +101,14 @@ public class QaPrepareFormContextTool extends AbstractTool {
         this(new EdtFormService(), new MetadataRequestValidationService());
     }
 
-    QaPrepareFormContextTool(EdtFormService formService, MetadataRequestValidationService validationService) {
+    public QaPrepareFormContextTool(EdtFormService formService, MetadataRequestValidationService validationService) {
         this.formService = formService;
         this.validationService = validationService;
     }
 
     @Override
     public String getDescription() {
-        return "Для QA гарантирует существование формы (при необходимости создает default форму) и возвращает inspect_form_layout."; //$NON-NLS-1$
+        return "Готовит form context для QA: при необходимости создает default form и возвращает ее inspected layout. Используй перед qa_plan_scenario или qa_generate, когда сценарий зависит от формы. Не заменяет обычные form design tools create_form, mutate_form_model, apply_form_recipe."; //$NON-NLS-1$
     }
 
     @Override

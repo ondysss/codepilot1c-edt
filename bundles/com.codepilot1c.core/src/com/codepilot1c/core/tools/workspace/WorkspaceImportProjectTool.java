@@ -31,7 +31,7 @@ public class WorkspaceImportProjectTool extends AbstractTool {
               "properties": {
                 "path": {
                   "type": "string",
-                  "description": "Абсолютный или относительный путь к директории проекта с файлом .project"
+                  "description": "Путь к уже существующей директории Eclipse or EDT project с файлом .project"
                 },
                 "open": {
                   "type": "boolean",
@@ -52,13 +52,13 @@ public class WorkspaceImportProjectTool extends AbstractTool {
         this(new WorkspaceProjectImportService());
     }
 
-    WorkspaceImportProjectTool(WorkspaceProjectImportService importService) {
+    public WorkspaceImportProjectTool(WorkspaceProjectImportService importService) {
         this.importService = importService;
     }
 
     @Override
     public String getDescription() {
-        return "Импортирует существующий Eclipse/EDT проект в текущий workspace."; //$NON-NLS-1$
+        return "Импортирует уже существующий локальный Eclipse or EDT project в текущий workspace. Используй, когда проект уже лежит на диске. Не клонирует git и не создает проект из инфобазы; для этого есть git_clone_and_import_project и import_project_from_infobase."; //$NON-NLS-1$
     }
 
     @Override

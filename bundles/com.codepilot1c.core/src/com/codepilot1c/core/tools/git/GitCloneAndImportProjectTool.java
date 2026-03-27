@@ -31,11 +31,11 @@ public class GitCloneAndImportProjectTool extends AbstractTool {
               "properties": {
                 "remote_url": {
                   "type": "string",
-                  "description": "URL или локальный путь git-репозитория для clone"
+                  "description": "URL или локальный путь git-репозитория, который нужно сначала клонировать"
                 },
                 "repo_path": {
                   "type": "string",
-                  "description": "Целевая директория clone"
+                  "description": "Целевая директория для локального clone"
                 },
                 "branch": {
                   "type": "string",
@@ -65,14 +65,14 @@ public class GitCloneAndImportProjectTool extends AbstractTool {
         this(new GitService(), new WorkspaceProjectImportService());
     }
 
-    GitCloneAndImportProjectTool(GitService gitService, WorkspaceProjectImportService importService) {
+    public GitCloneAndImportProjectTool(GitService gitService, WorkspaceProjectImportService importService) {
         this.gitService = gitService;
         this.importService = importService;
     }
 
     @Override
     public String getDescription() {
-        return "Клонирует git-репозиторий и импортирует Eclipse/EDT проект из него в workspace."; //$NON-NLS-1$
+        return "Клонирует git-репозиторий и сразу импортирует лежащий в нем Eclipse or EDT project в workspace. Используй, когда исходная точка еще не находится локально. Если репозиторий уже клонирован, предпочитай workspace_import_project."; //$NON-NLS-1$
     }
 
     @Override

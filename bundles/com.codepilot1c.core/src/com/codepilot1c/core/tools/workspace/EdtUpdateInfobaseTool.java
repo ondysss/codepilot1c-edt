@@ -63,7 +63,7 @@ public class EdtUpdateInfobaseTool extends AbstractTool {
         this(new EdtProjectResolver(), new EdtRuntimeService());
     }
 
-    EdtUpdateInfobaseTool(EdtProjectResolver projectResolver, EdtRuntimeService runtimeService) {
+    public EdtUpdateInfobaseTool(EdtProjectResolver projectResolver, EdtRuntimeService runtimeService) {
         this.projectResolver = projectResolver;
         this.runtimeService = runtimeService;
     }

@@ -30,11 +30,11 @@ public class ImportProjectFromInfobaseTool extends AbstractTool {
               "properties": {
                 "source_project_name": {
                   "type": "string",
-                  "description": "Исходный EDT проект, через который резолвятся связанная инфобаза и доступ"
+                  "description": "Исходный EDT проект, через который резолвятся связанная инфобаза, runtime и доступ"
                 },
                 "target_project_name": {
                   "type": "string",
-                  "description": "Имя нового EDT проекта, который будет создан импортом"
+                  "description": "Имя нового EDT проекта, который будет создан импортом из инфобазы"
                 },
                 "project_path": {
                   "type": "string",
@@ -87,13 +87,13 @@ public class ImportProjectFromInfobaseTool extends AbstractTool {
         this(new EdtProjectImportService());
     }
 
-    ImportProjectFromInfobaseTool(EdtProjectImportService importService) {
+    public ImportProjectFromInfobaseTool(EdtProjectImportService importService) {
         this.importService = importService;
     }
 
     @Override
     public String getDescription() {
-        return "Создает standalone server, выгружает конфигурацию из связанной инфобазы и импортирует ее в новый EDT проект."; //$NON-NLS-1$
+        return "Создает новый EDT project из связанной инфобазы: поднимает standalone server, выгружает конфигурацию и выполняет import. Используй, когда источник истины сейчас в базе, а не в локальном проекте или git-репозитории."; //$NON-NLS-1$
     }
 
     @Override

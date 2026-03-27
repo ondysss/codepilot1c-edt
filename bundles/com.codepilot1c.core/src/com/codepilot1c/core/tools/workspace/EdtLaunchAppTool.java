@@ -43,7 +43,7 @@ import com.google.gson.JsonObject;
         tags = {"workspace", "edt"})
 public class EdtLaunchAppTool extends AbstractTool {
 
-    interface ProcessStarter {
+    public interface ProcessStarter {
         Process start(ProcessBuilder processBuilder) throws IOException;
     }
 
@@ -91,7 +91,7 @@ public class EdtLaunchAppTool extends AbstractTool {
                 ProcessBuilder::start, EdtLaunchProcessRegistry.getInstance());
     }
 
-    EdtLaunchAppTool(EdtProjectResolver projectResolver, EdtLaunchContextBuilder contextBuilder,
+    public EdtLaunchAppTool(EdtProjectResolver projectResolver, EdtLaunchContextBuilder contextBuilder,
             EdtRuntimeService runtimeService, ProcessStarter processStarter,
             EdtLaunchProcessRegistry processRegistry) {
         this.projectResolver = projectResolver;

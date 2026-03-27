@@ -9,6 +9,7 @@ import java.util.Map;
 
 import org.junit.Test;
 
+import com.codepilot1c.core.tools.workspace.EdtUpdateInfobaseTool;
 import com._1c.g5.v8.dt.platform.services.model.InfobaseReference;
 import com.codepilot1c.core.edt.runtime.EdtProjectResolver;
 import com.codepilot1c.core.edt.runtime.EdtRuntimeService;

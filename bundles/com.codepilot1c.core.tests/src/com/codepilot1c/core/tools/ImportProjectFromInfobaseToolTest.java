@@ -9,6 +9,7 @@ import java.util.Map;
 
 import org.junit.Test;
 
+import com.codepilot1c.core.tools.workspace.ImportProjectFromInfobaseTool;
 import com.codepilot1c.core.diagnostics.DiagnosticsService.DiagnosticsSummary;
 import com.codepilot1c.core.edt.imports.EdtProjectImportService;
 import com.codepilot1c.core.edt.imports.ImportProjectFromInfobaseRequest;

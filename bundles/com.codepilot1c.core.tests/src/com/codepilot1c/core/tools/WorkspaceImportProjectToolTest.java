@@ -8,6 +8,7 @@ import java.util.Map;
 
 import org.junit.Test;
 
+import com.codepilot1c.core.tools.workspace.WorkspaceImportProjectTool;
 import com.codepilot1c.core.workspace.WorkspaceImportErrorCode;
 import com.codepilot1c.core.workspace.WorkspaceImportException;
 import com.codepilot1c.core.workspace.WorkspaceProjectImportResult;
