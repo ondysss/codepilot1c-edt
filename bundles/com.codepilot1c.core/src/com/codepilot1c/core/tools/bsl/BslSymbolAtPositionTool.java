@@ -26,10 +26,10 @@ public class BslSymbolAtPositionTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "projectName": {"type": "string", "description": "EDT project name"},
-                "filePath": {"type": "string", "description": "Path relative to src/, for example CommonModules/MyModule/Module.bsl"},
-                "line": {"type": "integer", "description": "1-based line"},
-                "column": {"type": "integer", "description": "1-based column"}
+                "projectName": {"type": "string", "description": "EDT project containing the BSL module"},
+                "filePath": {"type": "string", "description": "Path to the module relative to src/, for example CommonModules/MyModule/Module.bsl"},
+                "line": {"type": "integer", "description": "1-based line of the symbol reference"},
+                "column": {"type": "integer", "description": "1-based column of the symbol reference"}
               },
               "required": ["projectName", "filePath", "line", "column"]
             }
@@ -47,7 +47,7 @@ public class BslSymbolAtPositionTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Resolve BSL semantic symbol at source position (kind/name/region/container)."; //$NON-NLS-1$
+        return "Определяет семантический BSL-символ в указанной позиции: вид, имя и владелец."; //$NON-NLS-1$
     }
 
     @Override

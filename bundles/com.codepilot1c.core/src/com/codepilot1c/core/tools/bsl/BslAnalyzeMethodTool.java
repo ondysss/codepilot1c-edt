@@ -27,11 +27,11 @@ public class BslAnalyzeMethodTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "projectName": {"type": "string", "description": "EDT project name"},
-                "filePath": {"type": "string", "description": "Path relative to src/, for example CommonModules/MyModule/Module.bsl"},
-                "methodName": {"type": "string", "description": "Procedure/function name"},
-                "kind": {"type": "string", "enum": ["any", "procedure", "function"], "description": "Filter by method kind"},
-                "start_line": {"type": "integer", "description": "Disambiguation: method start line from candidates"}
+                "projectName": {"type": "string", "description": "EDT project containing the BSL module"},
+                "filePath": {"type": "string", "description": "Path to the module relative to src/, for example CommonModules/MyModule/Module.bsl"},
+                "methodName": {"type": "string", "description": "Exact procedure/function name to analyze semantically"},
+                "kind": {"type": "string", "enum": ["any", "procedure", "function"], "description": "Optional method kind filter when the name is ambiguous"},
+                "start_line": {"type": "integer", "description": "Optional exact start line when several methods share the same name"}
               },
               "required": ["projectName", "filePath", "methodName"]
             }
@@ -49,7 +49,7 @@ public class BslAnalyzeMethodTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Analyze one BSL method for complexity, call graph, unused params, and risky flow patterns."; //$NON-NLS-1$
+        return "Анализирует один BSL-метод: сложность, вызовы, неиспользуемые параметры и рискованные ветки."; //$NON-NLS-1$
     }
 
     @Override

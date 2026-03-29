@@ -128,7 +128,7 @@ public class QaInitConfigTool extends AbstractTool {
                         || config.vanessa.params_template.isBlank()) {
                     next.add("При необходимости задайте vanessa.params_template"); //$NON-NLS-1$
                 }
-                next.add("Проверьте effective значения через qa_explain_config или qa_status"); //$NON-NLS-1$
+                next.add("Проверьте effective значения через qa_inspect(command=explain_config) или qa_inspect(command=status)"); //$NON-NLS-1$
                 result.add("next_steps", next); //$NON-NLS-1$
                 return ToolResult.success(new GsonBuilder().setPrettyPrinting().create().toJson(result),
                         ToolResult.ToolResultType.CODE);

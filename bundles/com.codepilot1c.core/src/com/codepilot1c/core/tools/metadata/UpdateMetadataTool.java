@@ -31,19 +31,19 @@ public class UpdateMetadataTool extends AbstractTool {
               "properties": {
                 "project": {
                   "type": "string",
-                  "description": "Имя проекта EDT"
+                  "description": "Имя EDT проекта, содержащего уже существующий metadata object."
                 },
                 "target_fqn": {
                   "type": "string",
-                  "description": "FQN изменяемого объекта"
+                  "description": "FQN already existing metadata object to change. Do not use for new object creation."
                 },
                 "changes": {
                   "type": "object",
-                  "description": "Изменения: {set:{...}, unset:[...], children_ops:[{op,child_fqn,...}]} (без изменения name)"
+                  "description": "Property changes for an existing object: {set:{...}, unset:[...], children_ops:[...]}. Use add_metadata_child for a new child and mutate_form_model for forms."
                 },
                 "validation_token": {
                   "type": "string",
-                  "description": "Одноразовый токен из edt_validate_request"
+                  "description": "Одноразовый токен из edt_validate_request for this exact update request."
                 }
               },
               "required": ["project", "target_fqn", "changes", "validation_token"]
@@ -64,7 +64,7 @@ public class UpdateMetadataTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Изменяет свойства объекта метаданных через EDT BM API."; //$NON-NLS-1$
+        return "Обновляет свойства уже существующего объекта метаданных EDT через BM API."; //$NON-NLS-1$
     }
 
     @Override

@@ -83,8 +83,6 @@ public class BuildAgentProfile implements AgentProfile {
             "mutate_form_model",
             "delete_metadata",
             "author_yaxunit_tests",
-            "update_metadata_properties",
-            "delete_metadata_object",
             "edt_diagnostics",
             "qa_inspect",
             "qa_generate",
@@ -131,9 +129,6 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("edt_find_references").forAllResources(),
                 PermissionRule.allow("edt_metadata_details").forAllResources(),
                 PermissionRule.allow("scan_metadata_index").forAllResources(),
-                PermissionRule.allow("dcs_manage").forAllResources(),
-                PermissionRule.allow("extension_manage").forAllResources(),
-                PermissionRule.allow("external_manage").forAllResources(),
                 PermissionRule.allow("edt_extension_smoke").forAllResources(),
                 PermissionRule.allow("edt_external_smoke").forAllResources(),
                 PermissionRule.allow("edt_field_type_candidates").forAllResources(),
@@ -147,7 +142,6 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("bsl_module_context").forAllResources(),
                 PermissionRule.allow("bsl_module_exports").forAllResources(),
                 PermissionRule.allow("edt_validate_request").forAllResources(),
-                PermissionRule.allow("edt_diagnostics").forAllResources(),
                 PermissionRule.allow("inspect_form_layout").forAllResources(),
                 PermissionRule.allow("qa_inspect").forAllResources(),
                 PermissionRule.ask("qa_generate")
@@ -213,12 +207,6 @@ public class BuildAgentProfile implements AgentProfile {
                         .forAllResources(),
                 PermissionRule.ask("author_yaxunit_tests")
                         .withDescription("Генерация/обновление автотестов YAxUnit")
-                        .forAllResources(),
-                PermissionRule.ask("update_metadata_properties")
-                        .withDescription("Обновление свойств объектов метаданных EDT")
-                        .forAllResources(),
-                PermissionRule.ask("delete_metadata_object")
-                        .withDescription("Удаление объектов метаданных EDT")
                         .forAllResources(),
                 PermissionRule.ask("qa_prepare_form_context")
                         .withDescription("Подготовка QA контекста формы с автосозданием default формы при отсутствии")

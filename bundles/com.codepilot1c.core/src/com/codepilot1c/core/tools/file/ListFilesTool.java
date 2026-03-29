@@ -39,15 +39,15 @@ public class ListFilesTool extends AbstractTool {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Directory path (workspace-relative). Leave empty to list projects."
+                        "description": "Workspace-relative directory path to inspect. Leave empty to list workspace projects."
                     },
                     "pattern": {
                         "type": "string",
-                        "description": "File name pattern to filter (e.g., '*.bsl')"
+                        "description": "Optional file-name filter inside one directory, for example '*.bsl'"
                     },
                     "recursive": {
                         "type": "boolean",
-                        "description": "Whether to list files recursively (default: false)"
+                        "description": "List nested directories recursively when you need a small tree walk (default: false)"
                     }
                 }
             }
@@ -57,8 +57,7 @@ public class ListFilesTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "List files and directories in the workspace. " + //$NON-NLS-1$
-               "Can filter by pattern and list recursively."; //$NON-NLS-1$
+        return "Показывает файлы и папки в каталоге workspace. Используй для обзора структуры проекта."; //$NON-NLS-1$
     }
 
     @Override

@@ -56,11 +56,11 @@ public class GlobTool extends AbstractTool {
                 "properties": {
                     "pattern": {
                         "type": "string",
-                        "description": "Glob pattern (e.g., '**/*.java', 'src/**/*.bsl')"
+                        "description": "Glob pattern for file paths, for example '**/*.bsl' or 'src/**/*.xml'"
                     },
                     "path": {
                         "type": "string",
-                        "description": "Directory to search in (project name or workspace-relative path, default: workspace root)"
+                        "description": "Optional base directory or project name to search inside; defaults to workspace root"
                     },
                     "max_results": {
                         "type": "integer",
@@ -80,8 +80,7 @@ public class GlobTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Находит файлы по glob паттерну. Поддерживает ** для рекурсивного поиска, " +
-               "* для любых символов, ? для одного символа. Пример: **/*.java";
+        return "Находит файлы по path-based glob паттерну. Используй, когда известна форма пути или расширение файла. Не ищет по содержимому: для текста используй grep, а для простой навигации по одной директории list_files."; //$NON-NLS-1$
     }
 
     @Override

@@ -44,7 +44,7 @@ public class ExternalManageTool extends AbstractTool {
               "properties": {
                 "command": {
                   "type": "string",
-                  "description": "Command: list_projects|list_objects|details|create_report|create_processing",
+                  "description": "Command for external reports/processings: list_projects, list_objects, details, create_report, create_processing",
                   "enum": ["list_projects", "list_objects", "details", "create_report", "create_processing"]
                 },
                 "project": {
@@ -97,7 +97,7 @@ public class ExternalManageTool extends AbstractTool {
                 },
                 "validation_token": {
                   "type": "string",
-                  "description": "(mutating commands) One-time token from edt_validate_request"
+                  "description": "(mutating commands) One-time token from edt_validate_request; required for create_report and create_processing"
                 }
               },
               "required": ["command", "project"]
@@ -118,7 +118,7 @@ public class ExternalManageTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Manage external reports/processors: list, details, create."; //$NON-NLS-1$
+        return "Управляет внешними отчётами и обработками: показывает проекты и объекты, читает детали и создаёт новый внешний отчёт или обработку."; //$NON-NLS-1$
     }
 
     @Override

@@ -31,9 +31,13 @@ public class GitMutateTool extends AbstractTool {
                   "type": "string",
                   "enum": ["init", "create", "create_repo", "clone", "remote_add", "remote_set_url", "fetch", "pull", "push", "checkout", "create_branch", "add", "commit"]
                 },
+                "project_name": {
+                  "type": "string",
+                  "description": "Имя EDT проекта; используй для операций над существующим репозиторием"
+                },
                 "repo_path": {
                   "type": "string",
-                  "description": "Путь к локальному git-репозиторию или целевой директории"
+                  "description": "Путь к git-репозиторию или целевой директории; обязателен для init/create/create_repo/clone"
                 },
                 "remote_name": {
                   "type": "string",
@@ -72,7 +76,63 @@ public class GitMutateTool extends AbstractTool {
                   "description": "Сообщение коммита для commit"
                 }
               },
-              "required": ["operation", "repo_path"]
+              "required": ["operation"],
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "operation": { "enum": ["init", "create", "create_repo", "clone"] }
+                    }
+                  },
+                  "then": {
+                    "required": ["operation", "repo_path"]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "operation": { "enum": ["remote_add", "remote_set_url", "fetch", "pull", "push", "checkout", "create_branch", "add", "commit"] }
+                    }
+                  },
+                  "then": {
+                    "anyOf": [
+                      { "required": ["project_name"] },
+                      { "required": ["repo_path"] }
+                    ]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "operation": { "enum": ["clone", "remote_add", "remote_set_url"] }
+                    }
+                  },
+                  "then": {
+                    "required": ["remote_url"]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "operation": { "enum": ["checkout", "create_branch"] }
+                    }
+                  },
+                  "then": {
+                    "required": ["branch"]
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "operation": { "enum": ["commit"] }
+                    }
+                  },
+                  "then": {
+                    "required": ["message"]
+                  }
+                }
+              ]
             }
             """; //$NON-NLS-1$
 
@@ -82,13 +142,13 @@ public class GitMutateTool extends AbstractTool {
         this(new GitService());
     }
 
-    GitMutateTool(GitService gitService) {
+    public GitMutateTool(GitService gitService) {
         this.gitService = gitService;
     }
 
     @Override
     public String getDescription() {
-        return "Выполняет allowlisted мутации git-репозитория: create_repo/init, clone, remote, fetch/pull/push, branch, add, commit."; //$NON-NLS-1$
+        return "Выполняет разрешённые git-изменения. Для существующего EDT проекта передавай project_name, а для init/create/clone обязательно указывай repo_path."; //$NON-NLS-1$
     }
 
     @Override
@@ -113,7 +173,8 @@ public class GitMutateTool extends AbstractTool {
             String opId = LogSanitizer.newId("git-mutate"); //$NON-NLS-1$
             try {
                 GitOperation operation = GitOperation.from(asString(parameters.get("operation"))); //$NON-NLS-1$
-                Path repoPath = Path.of(asString(parameters.get("repo_path"))); //$NON-NLS-1$
+                Path repoPath = asPath(parameters.get("repo_path")); //$NON-NLS-1$
+                validateArguments(operation, repoPath, asString(parameters.get("project_name"))); //$NON-NLS-1$
                 JsonObject result = gitService.mutate(opId, operation, repoPath, parameters);
                 return ToolResult.success(pretty(result), ToolResult.ToolResultType.CONFIRMATION);
             } catch (InvalidPathException | NullPointerException e) {
@@ -124,6 +185,14 @@ public class GitMutateTool extends AbstractTool {
                 return ToolResult.failure(pretty(errorPayload(opId, GitErrorCode.COMMAND_FAILED.name(), e.getMessage())));
             }
         });
+    }
+
+    private static void validateArguments(GitOperation operation, Path repoPath, String projectName) {
+        if ((operation == GitOperation.INIT || operation == GitOperation.CLONE)
+                && repoPath == null) {
+            throw new GitToolException(GitErrorCode.INVALID_ARGUMENT,
+                    "repo_path is required for operation=" + operation.name().toLowerCase()); //$NON-NLS-1$
+        }
     }
 
     private static JsonObject errorPayload(String opId, String code, String message) {
@@ -141,5 +210,10 @@ public class GitMutateTool extends AbstractTool {
 
     private static String asString(Object value) {
         return value == null ? null : String.valueOf(value).trim();
+    }
+
+    private static Path asPath(Object value) {
+        String path = asString(value);
+        return path == null || path.isBlank() ? null : Path.of(path);
     }
 }

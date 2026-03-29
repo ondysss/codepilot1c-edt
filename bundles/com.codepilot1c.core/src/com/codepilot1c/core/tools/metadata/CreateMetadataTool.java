@@ -32,7 +32,7 @@ public class CreateMetadataTool extends AbstractTool {
               "properties": {
                 "project": {
                   "type": "string",
-                  "description": "Имя проекта EDT"
+                  "description": "Имя EDT проекта, в котором создается новый top-level объект."
                 },
                 "kind": {
                   "type": "string",
@@ -86,27 +86,27 @@ public class CreateMetadataTool extends AbstractTool {
                     "Bot",
                     "WebSocketClient"
                   ],
-                  "description": "Тип объекта метаданных"
+                  "description": "Тип нового top-level объекта метаданных. Не используйте для child objects вроде Attribute или Form."
                 },
                 "name": {
                   "type": "string",
-                  "description": "Имя объекта (например, Контрагенты)"
+                  "description": "Имя нового top-level объекта. Не используйте reserved names платформы для конфликтующих сценариев."
                 },
                 "synonym": {
                   "type": "string",
-                  "description": "Синоним объекта"
+                  "description": "Пользовательский синоним объекта."
                 },
                 "comment": {
                   "type": "string",
-                  "description": "Комментарий объекта"
+                  "description": "Комментарий объекта."
                 },
                 "properties": {
                   "type": "object",
-                  "description": "Дополнительные свойства объекта метаданных (устанавливаются по именам полей EDT-модели)"
+                  "description": "Дополнительные свойства нового объекта. Используйте update_metadata, если объект уже существует."
                 },
                 "validation_token": {
                   "type": "string",
-                  "description": "Одноразовый токен из edt_validate_request"
+                  "description": "Одноразовый токен из edt_validate_request. Обязателен для mutation path."
                 }
               },
               "required": ["project", "kind", "name", "validation_token"]
@@ -127,7 +127,7 @@ public class CreateMetadataTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Создает top-level объект метаданных 1С в EDT через BM API."; //$NON-NLS-1$
+        return "Создаёт новый верхнеуровневый объект метаданных 1С в EDT-проекте через BM API."; //$NON-NLS-1$
     }
 
     @Override

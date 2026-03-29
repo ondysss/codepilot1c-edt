@@ -27,12 +27,12 @@ public class BslGetMethodBodyTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "projectName": {"type": "string", "description": "EDT project name"},
-                "filePath": {"type": "string", "description": "Path relative to src/, for example CommonModules/MyModule/Module.bsl"},
-                "name": {"type": "string", "description": "Procedure/function name"},
-                "kind": {"type": "string", "enum": ["any", "procedure", "function"], "description": "Filter by method kind"},
-                "start_line": {"type": "integer", "description": "Disambiguation: method start line from candidates"},
-                "context_lines": {"type": "integer", "description": "Extra lines before/after method"}
+                "projectName": {"type": "string", "description": "EDT project containing the BSL module"},
+                "filePath": {"type": "string", "description": "Path to the module relative to src/, for example CommonModules/MyModule/Module.bsl"},
+                "name": {"type": "string", "description": "Exact procedure/function name to extract; use bsl_list_methods first if unknown"},
+                "kind": {"type": "string", "enum": ["any", "procedure", "function"], "description": "Optional method kind filter when the name is ambiguous"},
+                "start_line": {"type": "integer", "description": "Optional exact start line when several methods share the same name"},
+                "context_lines": {"type": "integer", "description": "Extra lines before and after the method body; not a whole-file read"}
               },
               "required": ["projectName", "filePath", "name"]
             }
@@ -50,7 +50,7 @@ public class BslGetMethodBodyTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Return the BSL procedure/function body by name with exact line range."; //$NON-NLS-1$
+        return "Возвращает тело конкретной процедуры или функции BSL с точным диапазоном строк."; //$NON-NLS-1$
     }
 
     @Override

@@ -121,8 +121,7 @@ public class AgentProfileRegistryTest {
         RecoveryProfile recovery = new RecoveryProfile();
         Set<String> tools = recovery.getAllowedTools();
         assertTrue("Recovery must include get_diagnostics", tools.contains("get_diagnostics")); //$NON-NLS-1$ //$NON-NLS-2$
-        assertTrue("Recovery must include edt_trace_export", tools.contains("edt_trace_export")); //$NON-NLS-1$ //$NON-NLS-2$
-        assertTrue("Recovery must include analyze_tool_error", tools.contains("analyze_tool_error")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue("Recovery must include edt_diagnostics", tools.contains("edt_diagnostics")); //$NON-NLS-1$ //$NON-NLS-2$
         assertFalse("Recovery must not include create_metadata", tools.contains("create_metadata")); //$NON-NLS-1$ //$NON-NLS-2$
         assertFalse("Recovery must not include git_mutate", tools.contains("git_mutate")); //$NON-NLS-1$ //$NON-NLS-2$
     }

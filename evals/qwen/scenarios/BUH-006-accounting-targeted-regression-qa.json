@@ -19,17 +19,17 @@
   "prompt": "После доработки типовой 1С:Бухгалтерии выполни целевую регрессионную проверку: сначала проверь QA окружение, затем запусти только релевантный smoke/regression сценарий, а в ответе сообщи итог теста, путь к junit и что именно этим тестом проверялось.",
   "expected_tool_path": {
     "ordered_subsequence": [
-      "qa_status",
+      "qa_inspect",
       "qa_plan_scenario",
-      "qa_compile_feature",
+      "qa_generate",
       "qa_validate_feature",
       "qa_run"
     ],
     "preferred_followups": [
-      "qa_steps_search"
+      "qa_inspect"
     ],
     "required_rules": [
-      "qa_status must run before qa_run",
+      "qa_inspect(command=status) must run before qa_run",
       "runner must target the changed business flow rather than all tests blindly"
     ]
   },
@@ -40,7 +40,7 @@
     "final_answer": {
       "must_report_targeted_test_scope": true,
       "must_report_junit_path": true,
-      "must_report_qa_status": true
+      "must_report_qa_inspect_status": true
     }
   },
   "artifacts": {

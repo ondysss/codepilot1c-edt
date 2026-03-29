@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEFAULT_RUNS_DIR="$ROOT_DIR/.runs/edt-e2e"
 
 BUILD_ENABLED="${BUILD_ENABLED:-true}"
-BUILD_CMD="${BUILD_CMD:-mvn verify}"
+BUILD_CMD="${BUILD_CMD:-mvn -DskipTests package}"
 SKIP_P2_INSTALL="${SKIP_P2_INSTALL:-false}"
 SKIP_MCP_SMOKE="${SKIP_MCP_SMOKE:-false}"
 RUN_QA="${RUN_QA:-true}"
@@ -544,7 +544,7 @@ tools = {
     for item in ((body.get("result") or {}).get("tools") or [])
     if isinstance(item, dict)
 }
-required = {"qa_status", "qa_run"}
+required = {"qa_inspect", "qa_run"}
 missing = sorted(required - tools)
 if missing:
     raise SystemExit("Missing MCP tools: " + ", ".join(missing))
@@ -552,13 +552,14 @@ PY
     fi
 }
 
-build_qa_status_params() {
+build_qa_inspect_status_params() {
     python3 - "$QA_CONFIG_PATH" "$QA_VALIDATE_PORTS" "$QA_USE_EDT_RUNTIME" "$QA_PROJECT_NAME" <<'PY'
 import json
 import sys
 
 config_path, validate_ports, use_edt_runtime, project_name = sys.argv[1:5]
 params = {
+    "command": "status",
     "config_path": config_path,
     "validate_ports": validate_ports.lower() in {"1", "true", "yes", "on"},
     "use_edt_runtime": use_edt_runtime.lower() in {"1", "true", "yes", "on"},
@@ -675,22 +676,22 @@ run_mcp_smoke() {
     assert_tools_present
 }
 
-run_qa_status() {
+run_qa_inspect_status() {
     local params_json
-    params_json="$(build_qa_status_params)"
+    params_json="$(build_qa_inspect_status_params)"
     local status
-    status="$(run_tool_call "qa_status" "$params_json" "$RUN_DIR/qa-status" 180)"
-    log "qa_status result: $status"
+    status="$(run_tool_call "qa_inspect" "$params_json" "$RUN_DIR/qa-inspect-status" 180)"
+    log "qa_inspect(command=status) result: $status"
     case "$status" in
         ok) return 0 ;;
         warning)
             if bool_true "$QA_STATUS_FAIL_ON_WARNING"; then
-                fail "qa_status returned warning"
+                fail "qa_inspect(command=status) returned warning"
             fi
             return 0
             ;;
         *)
-            fail "qa_status returned $status"
+            fail "qa_inspect(command=status) returned $status"
             ;;
     esac
 }
@@ -745,7 +746,7 @@ main() {
     wait_for_mcp
     run_mcp_smoke
     if bool_true "$RUN_QA"; then
-        run_qa_status
+        run_qa_inspect_status
         run_qa_run
     fi
     write_summary

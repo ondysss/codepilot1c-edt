@@ -40,7 +40,7 @@ public class QaPlanScenarioTool extends AbstractTool {
               "properties": {
                 "goal": {
                   "type": "string",
-                  "description": "Цель сценария или пользовательская задача"
+                  "description": "Цель тестового сценария или пользовательская задача, которую нужно превратить в structured QA plan"
                 },
                 "scenario_title": {
                   "type": "string",
@@ -120,7 +120,7 @@ public class QaPlanScenarioTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Строит структурированный QA scenario plan из цели и контекста, без ручного написания Gherkin."; //$NON-NLS-1$
+        return "Строит structured QA scenario plan из цели и контекста без ручного написания Gherkin. Используй, когда нужно сначала спланировать шаги, а потом передать результат в qa_generate(command=compile_feature). Не запускает тесты."; //$NON-NLS-1$
     }
 
     @Override

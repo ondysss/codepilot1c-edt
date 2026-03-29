@@ -47,15 +47,15 @@ public class GrepTool extends AbstractTool {
                 "properties": {
                     "pattern": {
                         "type": "string",
-                        "description": "Search pattern (text or regex)"
+                        "description": "Plain-text or regex pattern for raw text search across files."
                     },
                     "path": {
                         "type": "string",
-                        "description": "Directory to search in (default: entire workspace)"
+                        "description": "Optional workspace directory scope. Use this to narrow text search, not semantic object scope."
                     },
                     "file_pattern": {
                         "type": "string",
-                        "description": "File name pattern to filter (e.g., '*.bsl')"
+                        "description": "Optional file-name glob such as '*.bsl' or '*.xml'."
                     },
                     "regex": {
                         "type": "boolean",
@@ -78,8 +78,7 @@ public class GrepTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Search for text patterns in files. " + //$NON-NLS-1$
-               "Supports plain text and regex patterns."; //$NON-NLS-1$
+        return "Ищет текст или regex по файлам workspace. Используй для строк, ошибок, обработчиков и литералов."; //$NON-NLS-1$
     }
 
     @Override

@@ -26,14 +26,14 @@ public class BslScopeMembersTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "projectName": {"type": "string", "description": "EDT project name"},
-                "filePath": {"type": "string", "description": "Path relative to src/, for example CommonModules/MyModule/Module.bsl"},
-                "line": {"type": "integer", "description": "1-based line"},
-                "column": {"type": "integer", "description": "1-based column"},
-                "limit": {"type": "integer", "description": "Max scope members (default 50)"},
-                "offset": {"type": "integer", "description": "Pagination offset"},
-                "contains": {"type": "string", "description": "Contains filter for member name"},
-                "language": {"type": "string", "enum": ["ru", "en"], "description": "Preferred language for type/member names"}
+                "projectName": {"type": "string", "description": "EDT project containing the BSL module"},
+                "filePath": {"type": "string", "description": "Path to the module relative to src/, for example CommonModules/MyModule/Module.bsl"},
+                "line": {"type": "integer", "description": "1-based line of the expression or cursor position"},
+                "column": {"type": "integer", "description": "1-based column of the expression or cursor position"},
+                "limit": {"type": "integer", "description": "Maximum scope members to return at this position (default 50)"},
+                "offset": {"type": "integer", "description": "Pagination offset for long member lists"},
+                "contains": {"type": "string", "description": "Optional name filter to narrow large scope member lists"},
+                "language": {"type": "string", "enum": ["ru", "en"], "description": "Preferred language for member and type names"}
               },
               "required": ["projectName", "filePath", "line", "column"]
             }
@@ -51,7 +51,7 @@ public class BslScopeMembersTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Collect available BSL scope members (methods/properties/proposals) at source position."; //$NON-NLS-1$
+        return "Показывает методы, свойства и доступные элементы в текущей области видимости BSL."; //$NON-NLS-1$
     }
 
     @Override

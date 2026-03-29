@@ -48,13 +48,13 @@ public class EdtTraceExportTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "project": {"type": "string", "description": "Имя проекта EDT"},
-                "fqn": {"type": "string", "description": "FQN объекта, например Catalog.Тест"},
-                "kind": {"type": "string", "description": "Тип для проверки Configuration.mdo (если fqn отсутствует)"},
-                "wait_ms": {"type": "integer", "description": "Таймаут ожидания экспорта и сериализации (default=20000)"},
-                "poll_ms": {"type": "integer", "description": "Интервал опроса статуса (default=500)"},
-                "run_force_export": {"type": "boolean", "description": "Запускать forceExport для FQN (default=true)"},
-                "check_configuration_file": {"type": "boolean", "description": "Проверять запись в src/Configuration/Configuration.mdo (default=true)"}
+                "project": {"type": "string", "description": "Имя EDT проекта, где нужно трассировать экспорт"},
+                "fqn": {"type": "string", "description": "FQN конкретного объекта для трассировки export chain; например Catalog.Тест"},
+                "kind": {"type": "string", "description": "Тип метаданных для проверки Configuration.mdo, если конкретный fqn еще неизвестен"},
+                "wait_ms": {"type": "integer", "description": "Таймаут ожидания export и filesystem serialization (default=20000)"},
+                "poll_ms": {"type": "integer", "description": "Интервал опроса derived-data статуса во время трассировки (default=500)"},
+                "run_force_export": {"type": "boolean", "description": "Запустить forceExport перед наблюдением; выключай только для пассивной диагностики"},
+                "check_configuration_file": {"type": "boolean", "description": "Проверять появление записи в src/Configuration/Configuration.mdo во время трассировки"}
               },
               "required": ["project"]
             }
@@ -72,7 +72,7 @@ public class EdtTraceExportTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Диагностика цепочки forceExport -> derived-data -> Configuration.mdo для метаданных EDT."; //$NON-NLS-1$
+        return "Глубокая диагностика EDT export pipeline: forceExport, derived-data и запись в Configuration.mdo. Используй при проблемах асинхронного экспорта, когда metadata_smoke или get_diagnostics уже показали сбой, но причина неясна. Не заменяет обычную пост-проверку после мутаций."; //$NON-NLS-1$
     }
 
     @Override

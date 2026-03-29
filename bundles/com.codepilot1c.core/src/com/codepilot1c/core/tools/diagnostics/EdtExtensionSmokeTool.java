@@ -49,12 +49,12 @@ public class EdtExtensionSmokeTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "project": {"type": "string", "description": "Имя базового EDT проекта"},
-                "extension_project": {"type": "string", "description": "Имя проекта расширения (опционально, иначе авто-генерация)"},
-                "source_object_fqn": {"type": "string", "description": "FQN объекта основной конфигурации для adopt (опционально)"},
-                "property_name": {"type": "string", "description": "Свойство для extension_set_property_state (опционально)"},
-                "state": {"type": "string", "description": "Состояние свойства (по умолчанию CHECKED)"},
-                "cleanup_created": {"type": "boolean", "description": "Удалить созданный проект расширения после smoke (default=true)"}
+                "project": {"type": "string", "description": "Имя базового EDT проекта, на котором проверяется extension runtime"},
+                "extension_project": {"type": "string", "description": "Имя проекта расширения для smoke; если не указано, создается временный проект"},
+                "source_object_fqn": {"type": "string", "description": "FQN объекта основной конфигурации для adopt; если не указан, smoke выберет подходящий top-level объект"},
+                "property_name": {"type": "string", "description": "Свойство для extension_set_property_state; если не указано, smoke подберет подходящее writable property"},
+                "state": {"type": "string", "description": "Состояние свойства при set_property_state; по умолчанию CHECKED"},
+                "cleanup_created": {"type": "boolean", "description": "Удалить временно созданный проект расширения после smoke (default=true)"}
               },
               "required": ["project"]
             }
@@ -76,7 +76,7 @@ public class EdtExtensionSmokeTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Прогоняет smoke-сценарий EDT extension API: create/list/adopt/set_property_state/cleanup."; //$NON-NLS-1$
+        return "Прогоняет end-to-end smoke для EDT extension runtime: create, list, adopt, set_property_state и cleanup. Используй для проверки работоспособности extension API или после изменений в extension tooling. Не используй для обычной разработки расширения; для нее есть extension_manage."; //$NON-NLS-1$
     }
 
     @Override

@@ -31,15 +31,15 @@ public class CreateFormTool extends AbstractTool {
               "properties": {
                 "project": {
                   "type": "string",
-                  "description": "Имя проекта EDT"
+                  "description": "Имя EDT проекта, где уже существует owner object."
                 },
                 "owner_fqn": {
                   "type": "string",
-                  "description": "FQN владельца, например Catalog.Номенклатура"
+                  "description": "FQN existing owner object for the new managed form. Do not use for editing an existing form."
                 },
                 "name": {
                   "type": "string",
-                  "description": "Имя формы"
+                  "description": "Name of the new managed form."
                 },
                 "usage": {
                   "type": "string",
@@ -68,7 +68,7 @@ public class CreateFormTool extends AbstractTool {
                 },
                 "validation_token": {
                   "type": "string",
-                  "description": "Одноразовый токен из edt_validate_request"
+                  "description": "Одноразовый токен из edt_validate_request for this form-creation request."
                 }
               },
               "required": ["project", "owner_fqn", "name", "validation_token"]
@@ -89,7 +89,7 @@ public class CreateFormTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Создает управляемую форму объекта EDT и при необходимости назначает ее как default."; //$NON-NLS-1$
+        return "Создаёт новую управляемую форму для существующего объекта метаданных EDT."; //$NON-NLS-1$
     }
 
     @Override

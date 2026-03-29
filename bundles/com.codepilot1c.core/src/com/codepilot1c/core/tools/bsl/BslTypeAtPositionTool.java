@@ -26,10 +26,10 @@ public class BslTypeAtPositionTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "projectName": {"type": "string", "description": "EDT project name"},
-                "filePath": {"type": "string", "description": "Path relative to src/, for example CommonModules/MyModule/Module.bsl"},
-                "line": {"type": "integer", "description": "1-based line"},
-                "column": {"type": "integer", "description": "1-based column"}
+                "projectName": {"type": "string", "description": "EDT project containing the BSL module"},
+                "filePath": {"type": "string", "description": "Path to the module relative to src/, for example CommonModules/MyModule/Module.bsl"},
+                "line": {"type": "integer", "description": "1-based line of the expression whose type must be resolved"},
+                "column": {"type": "integer", "description": "1-based column of the expression whose type must be resolved"}
               },
               "required": ["projectName", "filePath", "line", "column"]
             }
@@ -47,7 +47,7 @@ public class BslTypeAtPositionTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Infer BSL expression types at source position via EDT language model."; //$NON-NLS-1$
+        return "Определяет выведенный BSL-тип выражения в указанной позиции."; //$NON-NLS-1$
     }
 
     @Override

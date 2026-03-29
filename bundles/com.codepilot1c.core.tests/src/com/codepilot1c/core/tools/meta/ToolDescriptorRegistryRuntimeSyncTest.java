@@ -43,7 +43,7 @@ public class ToolDescriptorRegistryRuntimeSyncTest {
 
         assertEquals(ToolCategory.FILES, registry.getOrDefault("read_file").getCategory()); //$NON-NLS-1$
         assertEquals(ToolCategory.FORMS, registry.getOrDefault("qa_prepare_form_context").getCategory()); //$NON-NLS-1$
-        assertEquals(ToolCategory.DIAGNOSTICS, registry.getOrDefault("edt_launch_app").getCategory()); //$NON-NLS-1$
+        assertEquals(ToolCategory.DIAGNOSTICS, registry.getOrDefault("edt_diagnostics").getCategory()); //$NON-NLS-1$
     }
 
     private static final class RuntimeTool implements ITool {

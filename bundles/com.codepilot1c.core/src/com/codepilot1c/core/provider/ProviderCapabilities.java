@@ -33,6 +33,11 @@ public final class ProviderCapabilities {
     private final String resolvedModelFamily;
     private final float defaultTemperature;
     private final boolean nativeDeferredToolLoading;
+    private final boolean imageInput;
+    private final boolean documentInput;
+    private final boolean attachmentMetadata;
+    private final long maxAttachmentBytes;
+    private final int maxAttachmentsPerMessage;
 
     private ProviderCapabilities(Builder builder) {
         this.codePilotBackend = builder.codePilotBackend;
@@ -42,6 +47,11 @@ public final class ProviderCapabilities {
         this.resolvedModelFamily = builder.resolvedModelFamily;
         this.defaultTemperature = builder.defaultTemperature;
         this.nativeDeferredToolLoading = builder.nativeDeferredToolLoading;
+        this.imageInput = builder.imageInput;
+        this.documentInput = builder.documentInput;
+        this.attachmentMetadata = builder.attachmentMetadata;
+        this.maxAttachmentBytes = builder.maxAttachmentBytes;
+        this.maxAttachmentsPerMessage = builder.maxAttachmentsPerMessage;
     }
 
     public static ProviderCapabilities none() {
@@ -115,6 +125,26 @@ public final class ProviderCapabilities {
         return codePilotBackend && !nativeDeferredToolLoading;
     }
 
+    public boolean supportsImageInput() {
+        return imageInput;
+    }
+
+    public boolean supportsDocumentInput() {
+        return documentInput;
+    }
+
+    public boolean supportsAttachmentMetadata() {
+        return attachmentMetadata;
+    }
+
+    public long getMaxAttachmentBytes() {
+        return maxAttachmentBytes;
+    }
+
+    public int getMaxAttachmentsPerMessage() {
+        return maxAttachmentsPerMessage;
+    }
+
     /**
      * Resolves the model family from a model name string.
      *
@@ -141,6 +171,40 @@ public final class ProviderCapabilities {
         return FAMILY_UNKNOWN;
     }
 
+    /**
+     * Best-effort heuristic for multimodal image input support when the provider
+     * exposes an OpenAI-compatible API but does not publish modality metadata.
+     *
+     * <p>This is intentionally conservative enough to avoid enabling images for
+     * clearly text-only models, while still recognizing the common multimodal
+     * families used behind generic OpenAI-compatible gateways.</p>
+     *
+     * @param model the configured model name
+     * @return {@code true} when the model name strongly suggests vision support
+     */
+    public static boolean inferImageInputFromModel(String model) {
+        if (model == null || model.isBlank()) {
+            return false;
+        }
+        String lower = model.toLowerCase(java.util.Locale.ROOT);
+        if (lower.contains("vision") || lower.contains("vl") || lower.contains("image")) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            return true;
+        }
+        if (lower.startsWith("gpt-4o") || lower.startsWith("gpt-4.1") || lower.startsWith("o4")) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            return true;
+        }
+        if (lower.startsWith("gemini")) { //$NON-NLS-1$
+            return true;
+        }
+        if (lower.startsWith("pixtral") || lower.startsWith("llava")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return true;
+        }
+        if (lower.startsWith("qvq") || FAMILY_QWEN_VL.equals(resolveModelFamily(model))) { //$NON-NLS-1$
+            return true;
+        }
+        return false;
+    }
+
     public static final class Builder {
         private boolean codePilotBackend;
         private boolean backendOptimizations;
@@ -149,6 +213,11 @@ public final class ProviderCapabilities {
         private String resolvedModelFamily = FAMILY_UNKNOWN;
         private float defaultTemperature = -1f; // -1 means "use request default"
         private boolean nativeDeferredToolLoading;
+        private boolean imageInput;
+        private boolean documentInput;
+        private boolean attachmentMetadata;
+        private long maxAttachmentBytes = 10L * 1024L * 1024L;
+        private int maxAttachmentsPerMessage = 5;
 
         public Builder codePilotBackend(boolean codePilotBackend) {
             this.codePilotBackend = codePilotBackend;
@@ -182,6 +251,31 @@ public final class ProviderCapabilities {
 
         public Builder nativeDeferredToolLoading(boolean nativeDeferredToolLoading) {
             this.nativeDeferredToolLoading = nativeDeferredToolLoading;
+            return this;
+        }
+
+        public Builder imageInput(boolean imageInput) {
+            this.imageInput = imageInput;
+            return this;
+        }
+
+        public Builder documentInput(boolean documentInput) {
+            this.documentInput = documentInput;
+            return this;
+        }
+
+        public Builder attachmentMetadata(boolean attachmentMetadata) {
+            this.attachmentMetadata = attachmentMetadata;
+            return this;
+        }
+
+        public Builder maxAttachmentBytes(long maxAttachmentBytes) {
+            this.maxAttachmentBytes = maxAttachmentBytes;
+            return this;
+        }
+
+        public Builder maxAttachmentsPerMessage(int maxAttachmentsPerMessage) {
+            this.maxAttachmentsPerMessage = maxAttachmentsPerMessage;
             return this;
         }
 

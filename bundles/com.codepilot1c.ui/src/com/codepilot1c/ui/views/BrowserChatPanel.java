@@ -449,7 +449,7 @@ public class BrowserChatPanel extends Composite {
         String escapedReasoning = escapeHtml(reasoning)
                 .replace("\n", "<br>"); //$NON-NLS-1$ //$NON-NLS-2$
 
-        return "<details class=\"reasoning-block\" open>" + //$NON-NLS-1$
+        return "<details class=\"reasoning-block\">" + //$NON-NLS-1$
                "<summary>\uD83D\uDCAD Ход рассуждений</summary>" + //$NON-NLS-1$
                "<div class=\"reasoning-content\">" + escapedReasoning + "</div>" + //$NON-NLS-1$ //$NON-NLS-2$
                "</details>"; //$NON-NLS-1$

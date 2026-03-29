@@ -171,14 +171,14 @@ def compose_prompt(scenario: dict[str, Any], server_name: str) -> str:
         2. pass validation_token unchanged to each mutation tool,
         3. call get_diagnostics after mutations.
         If you perform QA:
-        1. call qa_status before qa_run,
+        1. call qa_inspect with command=status before qa_run,
         2. if the scenario depends on an object or list form, call qa_prepare_form_context before planning so the form is inspected and, if missing, created automatically,
-        3. after that, use the structured QA path: qa_plan_scenario -> qa_compile_feature -> qa_validate_feature -> qa_run,
-        4. use qa_steps_search only as a fallback if qa_compile_feature or qa_validate_feature reports unresolved issues,
-        5. do not run qa_run if qa_status returns status=error.
+        3. after that, use the structured QA path: qa_plan_scenario -> qa_generate with command=compile_feature -> qa_validate_feature -> qa_run,
+        4. use qa_inspect with command=steps_search only as a fallback if qa_generate(command=compile_feature) or qa_validate_feature reports unresolved issues,
+        5. do not run qa_run if qa_inspect(command=status) returns status=error.
         For EDT and QA operations, use the exact MCP tool names exposed by the server.
-        Do not call bare local aliases such as scan_metadata_index, get_diagnostics, qa_status, qa_plan_scenario,
-        qa_prepare_form_context, qa_compile_feature, qa_validate_feature, qa_run, or qa_steps_search when the MCP server tool is available.
+        Do not call bare local aliases such as scan_metadata_index, get_diagnostics, qa_inspect, qa_plan_scenario,
+        qa_prepare_form_context, qa_generate, qa_validate_feature, or qa_run when the MCP server tool is available.
         For local filesystem exploration, use list_directory, read_file, glob, or grep_search.
         Do not call bare list_files.
         For local file edits, use edit or write_file with the exact registered tool names.
@@ -192,7 +192,7 @@ def compose_prompt(scenario: dict[str, Any], server_name: str) -> str:
           "target_objects": ["..."],
           "changed_objects": ["..."],
           "diagnostics_status": "...",
-          "qa_status": "...",
+          "qa_inspect_status": "...",
           "junit_path": "...",
           "notes": ["..."]
         }}
@@ -366,6 +366,28 @@ def find_last_result(calls: list[dict[str, Any]], tool_name: str) -> dict[str, A
     return None
 
 
+def find_call_index(calls: list[dict[str, Any]], tool_name: str, command: str | None = None) -> int:
+    for index, call in enumerate(calls):
+        if call.get("tool_name") != tool_name:
+            continue
+        if command is None:
+            return index
+        args = call.get("args") or {}
+        if args.get("command") == command:
+            return index
+    return -1
+
+
+def find_last_result_for_command(calls: list[dict[str, Any]], tool_name: str, command: str) -> dict[str, Any] | None:
+    for call in reversed(calls):
+        if call.get("tool_name") != tool_name:
+            continue
+        args = call.get("args") or {}
+        if args.get("command") == command and call.get("result"):
+            return call["result"]
+    return None
+
+
 def has_later_call(calls: list[dict[str, Any]], after_index: int, tool_name: str) -> bool:
     for index in range(after_index + 1, len(calls)):
         if calls[index].get("tool_name") == tool_name:
@@ -468,15 +490,15 @@ def evaluate_assertions(scenario: dict[str, Any], parsed: dict[str, Any]) -> dic
             }
         )
 
-    if tool_behavior.get("must_call_qa_status_first"):
-        qa_status_index = tool_names.index("qa_status") if "qa_status" in tool_names else -1
+    if tool_behavior.get("must_call_qa_inspect_status_first"):
+        qa_inspect_status_index = find_call_index(mcp_calls, "qa_inspect", "status")
         qa_run_index = tool_names.index("qa_run") if "qa_run" in tool_names else -1
-        passed = qa_status_index != -1 and qa_run_index != -1 and qa_status_index < qa_run_index
+        passed = qa_inspect_status_index != -1 and qa_run_index != -1 and qa_inspect_status_index < qa_run_index
         checks.append(
             {
-                "name": "qa_status_before_qa_run",
+                "name": "qa_inspect_status_before_qa_run",
                 "passed": passed,
-                "details": "qa_status must be called before qa_run",
+                "details": "qa_inspect(command=status) must be called before qa_run",
             }
         )
 
@@ -492,14 +514,14 @@ def evaluate_assertions(scenario: dict[str, Any], parsed: dict[str, Any]) -> dic
             }
         )
 
-    qa_status_result = find_last_result(mcp_calls, "qa_status")
-    if qa_status_result and isinstance(qa_status_result.get("output"), dict):
-        qa_status_value = qa_status_result["output"].get("status")
+    qa_inspect_status_result = find_last_result_for_command(mcp_calls, "qa_inspect", "status")
+    if qa_inspect_status_result and isinstance(qa_inspect_status_result.get("output"), dict):
+        qa_inspect_status_value = qa_inspect_status_result["output"].get("status")
         checks.append(
             {
-                "name": "qa_run_after_error_status",
-                "passed": not (qa_status_value == "error" and "qa_run" in tool_names),
-                "details": "qa_run must not execute after qa_status=status=error",
+                "name": "qa_run_after_error_qa_inspect_status",
+                "passed": not (qa_inspect_status_value == "error" and "qa_run" in tool_names),
+                "details": "qa_run must not execute after qa_inspect(command=status)=error",
             }
         )
 
@@ -614,7 +636,7 @@ def evaluate_assertions(scenario: dict[str, Any], parsed: dict[str, Any]) -> dic
         elif expected_value is True:
             field_map = {
                 "must_report_diagnostics_status": "diagnostics_status",
-                "must_report_qa_status": "qa_status",
+                "must_report_qa_inspect_status": "qa_inspect_status",
                 "must_report_junit_path": "junit_path",
                 "must_list_created_objects": "changed_objects",
                 "must_report_created_catalogs": "changed_objects",
@@ -694,7 +716,7 @@ def extract_failure_metrics(parsed: dict[str, Any], evaluation: dict[str, Any]) 
         elif name in {"post_mutation_diagnostics", "diagnostics_error_count_must_decrease"}:
             metrics["missed_diagnostics"] += 1
             metrics["details"].append({"category": "missed_diagnostics", "name": name, "details": details})
-        elif name in {"qa_status_before_qa_run", "qa_run_after_error_status"}:
+        elif name in {"qa_inspect_status_before_qa_run", "qa_run_after_error_qa_inspect_status"}:
             metrics["qa_gate"] += 1
             metrics["details"].append({"category": "qa_gate", "name": name, "details": details})
         else:

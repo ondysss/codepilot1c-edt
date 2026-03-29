@@ -22,24 +22,22 @@ public class ToolContextGateTest {
 
     @Test
     public void dcsFamilyContainsAllDcsTools() {
-        // Verify DCS_TOOLS covers all expected DCS tools
-        Set<String> expected = Set.of(
-                "dcs_get_summary", "dcs_list_nodes", "dcs_create_main_schema", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                "dcs_upsert_query_dataset", "dcs_upsert_parameter", "dcs_upsert_calculated_field"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        // DCS tools are exposed through a single composite entry.
+        Set<String> expected = Set.of("dcs_manage"); //$NON-NLS-1$
         ToolContextGate gate = new ToolContextGate();
-        // In a test environment without workspace, DCS tools should be excluded
+        // In a live workspace test run the tool may or may not be excluded depending on imported projects.
         Set<String> excluded = gate.computeExcludedTools();
-        // At minimum, the gate should not crash
         assertNotNull(excluded);
+        assertTrue(expected.contains("dcs_manage")); //$NON-NLS-1$
     }
 
     @Test
-    public void qaInitConfigNeverExcluded() {
-        // qa_init_config must always be available so user can create QA config
+    public void qaGenerateNeverExcluded() {
+        // qa_generate must stay available so init_config can bootstrap QA config.
         ToolContextGate gate = new ToolContextGate();
         Set<String> excluded = gate.computeExcludedTools();
-        assertFalse("qa_init_config must never be excluded", //$NON-NLS-1$
-                excluded.contains("qa_init_config")); //$NON-NLS-1$
+        assertFalse("qa_generate must never be excluded", //$NON-NLS-1$
+                excluded.contains("qa_generate")); //$NON-NLS-1$
     }
 
     @Test

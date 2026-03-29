@@ -24,8 +24,8 @@ public class EdtFindReferencesTool extends AbstractTool {
               "type": "object",
               "properties": {
                 "projectName": {"type": "string", "description": "EDT project name"},
-                "objectFqn": {"type": "string", "description": "Object FQN, for example Catalog.Products"},
-                "limit": {"type": "integer", "description": "Max references (default 100)"}
+                "objectFqn": {"type": "string", "description": "Metadata object FQN to resolve semantically, for example Catalog.Products."},
+                "limit": {"type": "integer", "description": "Maximum number of semantic references to return (default 100)."}
               },
               "required": ["projectName", "objectFqn"]
             }
@@ -35,7 +35,7 @@ public class EdtFindReferencesTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Find references for metadata object and return markdown report."; //$NON-NLS-1$
+        return "Находит семантические ссылки на объект метаданных EDT через модель проекта."; //$NON-NLS-1$
     }
 
     @Override

@@ -26,17 +26,21 @@ public class GitInspectTool extends AbstractTool {
     private static final String SCHEMA = """
             {
               "type": "object",
-              "properties": {
-                "operation": {
-                  "type": "string",
-                  "enum": ["status", "branch_list", "remote_list", "log", "diff_summary"]
-                },
-                "repo_path": {
-                  "type": "string",
-                  "description": "Путь к локальному git-репозиторию"
-                },
-                "limit": {
-                  "type": "integer",
+	              "properties": {
+	                "operation": {
+	                  "type": "string",
+	                  "enum": ["status", "branch_list", "remote_list", "log", "diff_summary"]
+	                },
+	                "project_name": {
+	                  "type": "string",
+	                  "description": "Имя EDT проекта; основной способ разрешить git-репозиторий по рабочей области"
+	                },
+	                "repo_path": {
+	                  "type": "string",
+	                  "description": "Абсолютный или относительный путь к git-репозиторию; optional override поверх project_name"
+	                },
+	                "limit": {
+	                  "type": "integer",
                   "description": "Лимит записей для operation=log"
                 },
                 "base_ref": {
@@ -48,9 +52,9 @@ public class GitInspectTool extends AbstractTool {
                   "description": "Целевой ref для operation=diff_summary"
                 }
               },
-              "required": ["operation", "repo_path"]
-            }
-            """; //$NON-NLS-1$
+	              "required": ["operation"]
+	            }
+	            """; //$NON-NLS-1$
 
     private final GitService gitService;
 
@@ -58,13 +62,13 @@ public class GitInspectTool extends AbstractTool {
         this(new GitService());
     }
 
-    GitInspectTool(GitService gitService) {
+    public GitInspectTool(GitService gitService) {
         this.gitService = gitService;
     }
 
     @Override
     public String getDescription() {
-        return "Читает состояние git-репозитория через allowlisted операции."; //$NON-NLS-1$
+        return "Показывает состояние git-репозитория через безопасные read-only операции. Для EDT проекта предпочитай project_name; repo_path используй только как явный override."; //$NON-NLS-1$
     }
 
     @Override
@@ -79,7 +83,7 @@ public class GitInspectTool extends AbstractTool {
             String opId = LogSanitizer.newId("git-inspect"); //$NON-NLS-1$
             try {
                 GitOperation operation = GitOperation.from(asString(parameters.get("operation"))); //$NON-NLS-1$
-                Path repoPath = Path.of(asString(parameters.get("repo_path"))); //$NON-NLS-1$
+                Path repoPath = asPath(parameters.get("repo_path")); //$NON-NLS-1$
                 JsonObject result = gitService.inspect(opId, operation, repoPath, parameters);
                 return ToolResult.success(pretty(result), ToolResult.ToolResultType.SEARCH_RESULTS);
             } catch (InvalidPathException | NullPointerException e) {
@@ -107,5 +111,10 @@ public class GitInspectTool extends AbstractTool {
 
     private static String asString(Object value) {
         return value == null ? null : String.valueOf(value).trim();
+    }
+
+    private static Path asPath(Object value) {
+        String path = asString(value);
+        return path == null || path.isBlank() ? null : Path.of(path);
     }
 }

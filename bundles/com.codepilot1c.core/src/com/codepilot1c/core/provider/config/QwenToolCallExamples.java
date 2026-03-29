@@ -220,6 +220,16 @@ final class QwenToolCallExamples {
     }
 
     private static ExampleParams inferCuratedExampleParams(String name) {
+        if ("git_inspect".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"operation", "project_name"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"status", "DemoConfiguration"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if ("git_mutate".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"operation", "project_name", "remote_name", "remote_url"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                    new String[]{"remote_add", "DemoConfiguration", "origin", "https://example.com/repo.git"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        }
         if ("bsl_symbol_at_position".equals(name) || "bsl_type_at_position".equals(name)) { //$NON-NLS-1$ //$NON-NLS-2$
             return new ExampleParams(
                     new String[]{"projectName", "filePath", "line", "column"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
@@ -278,18 +288,18 @@ final class QwenToolCallExamples {
         }
         if ("edt_diagnostics".equals(name)) { //$NON-NLS-1$
             return new ExampleParams(
-                    new String[]{"command", "project"}, //$NON-NLS-1$ //$NON-NLS-2$
-                    new String[]{"metadata_smoke", "DemoConfiguration"}); //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"command"}, //$NON-NLS-1$
+                    new String[]{"metadata_smoke"}); //$NON-NLS-1$
         }
         if ("qa_inspect".equals(name)) { //$NON-NLS-1$
             return new ExampleParams(
-                    new String[]{"command", "project"}, //$NON-NLS-1$ //$NON-NLS-2$
-                    new String[]{"status", "DemoConfiguration"}); //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"command"}, //$NON-NLS-1$
+                    new String[]{"status"}); //$NON-NLS-1$
         }
         if ("qa_generate".equals(name)) { //$NON-NLS-1$
             return new ExampleParams(
-                    new String[]{"command", "project"}, //$NON-NLS-1$ //$NON-NLS-2$
-                    new String[]{"init_config", "DemoConfiguration"}); //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"command"}, //$NON-NLS-1$
+                    new String[]{"init_config"}); //$NON-NLS-1$
         }
         if ("discover_tools".equals(name)) { //$NON-NLS-1$
             return new ExampleParams(

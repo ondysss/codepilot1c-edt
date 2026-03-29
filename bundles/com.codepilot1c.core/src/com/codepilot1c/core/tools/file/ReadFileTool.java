@@ -49,15 +49,15 @@ public class ReadFileTool extends AbstractTool {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Path to the file (workspace-relative or absolute)"
+                        "description": "Existing workspace file path. Use for literal file text, not for semantic metadata inspection."
                     },
                     "start_line": {
                         "type": "integer",
-                        "description": "Start line number (1-based, optional)"
+                        "description": "Optional 1-based start line for partial reads of large files."
                     },
                     "end_line": {
                         "type": "integer",
-                        "description": "End line number (1-based, optional)"
+                        "description": "Optional 1-based end line. Prefer ranges instead of reading very large files whole."
                     }
                 },
                 "required": ["path"]
@@ -68,7 +68,7 @@ public class ReadFileTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Read the contents of a file. Can read the entire file or a specific line range."; //$NON-NLS-1$
+        return "Читает текст существующего файла workspace, при необходимости по диапазону строк."; //$NON-NLS-1$
     }
 
     @Override

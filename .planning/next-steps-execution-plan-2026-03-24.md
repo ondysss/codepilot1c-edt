@@ -1,7 +1,7 @@
 # План следующих шагов по CodePilot1C — Slice 2
 
 **Дата:** 2026-03-24
-**Статус:** новый execution plan
+**Статус:** Фазы 1–3 завершены, S2-14/S2-15 закрыты. Осталось: Фаза 4 (Web Remote UI) и Фаза 5 (Structured ToolResult)
 **Основание:** предыдущий execution plan (`next-steps-execution-plan-2026-03-22`) закрыт полностью; все waves (A, B, C, D, Q, E) завершены и верифицированы.
 **Источники:** `BACKLOG.md`, `REFACTORING-ROADMAP.md`, `tool-count-optimization-plan.md`, `tool-architecture-refactoring-plan.md`, `qwen35-optimization-plan-v2.md`, текущий working tree diff.
 

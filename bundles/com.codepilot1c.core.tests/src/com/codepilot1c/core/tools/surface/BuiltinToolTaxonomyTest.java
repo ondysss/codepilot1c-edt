@@ -18,9 +18,9 @@ public class BuiltinToolTaxonomyTest {
     public void knownToolNamesResolveToPublicCategories() {
         assertEquals(ToolCategory.FILES_READ_SEARCH, BuiltinToolTaxonomy.categoryOf("read_file")); //$NON-NLS-1$
         assertEquals(ToolCategory.METADATA_MUTATION, BuiltinToolTaxonomy.categoryOf("ensure_module_artifact")); //$NON-NLS-1$
-        assertEquals(ToolCategory.QA, BuiltinToolTaxonomy.categoryOf("qa_status")); //$NON-NLS-1$
+        assertEquals(ToolCategory.QA, BuiltinToolTaxonomy.categoryOf("qa_inspect")); //$NON-NLS-1$
         assertEquals(ToolCategory.EDT_SEMANTIC_READ, BuiltinToolTaxonomy.categoryOf("bsl_module_context")); //$NON-NLS-1$
-        assertEquals(ToolCategory.SMOKE_RUNTIME_RECOVERY, BuiltinToolTaxonomy.categoryOf("edt_launch_app")); //$NON-NLS-1$
+        assertEquals(ToolCategory.SMOKE_RUNTIME_RECOVERY, BuiltinToolTaxonomy.categoryOf("edt_diagnostics")); //$NON-NLS-1$
     }
 
     @Test

@@ -84,7 +84,7 @@ public class QaRunTool extends AbstractTool {
                 "features": {
                   "type": "array",
                   "items": {"type": "string"},
-                  "description": "Список feature файлов или имен"
+                  "description": "Список feature файлов или имен для запуска; используй после qa_validate_feature"
                 },
                 "tags_include": {
                   "type": "array",
@@ -107,7 +107,7 @@ public class QaRunTool extends AbstractTool {
                 },
                 "skip_status_check": {
                   "type": "boolean",
-                  "description": "Пропустить обязательный qa_status перед запуском"
+                  "description": "Пропустить обязательный qa_inspect(command=status) перед запуском; обычно оставляй false"
                 },
                 "dry_run": {
                   "type": "boolean",
@@ -156,7 +156,7 @@ public class QaRunTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Запускает E2E тесты Vanessa Automation через TestManager."; //$NON-NLS-1$
+        return "Запускает E2E тесты Vanessa Automation. Используй только после подготовки QA окружения и валидации feature. Для проверки конфигурации сначала вызывай qa_inspect, для генерации feature qa_generate, а для preflight конкретного feature qa_validate_feature."; //$NON-NLS-1$
     }
 
     @Override

@@ -43,7 +43,7 @@ public class ToolContextGate {
             "external_manage"); //$NON-NLS-1$
 
     private static final Set<String> QA_TOOLS_EXCLUDING_INIT = Set.of(
-            "qa_inspect", "qa_generate", "qa_run", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            "qa_inspect", "qa_run", //$NON-NLS-1$ //$NON-NLS-2$
             "qa_prepare_form_context", "qa_plan_scenario", //$NON-NLS-1$ //$NON-NLS-2$
             "qa_validate_feature", "author_yaxunit_tests"); //$NON-NLS-1$ //$NON-NLS-2$
 
@@ -53,8 +53,8 @@ public class ToolContextGate {
             "edt_field_type_candidates", "inspect_platform_reference", //$NON-NLS-1$ //$NON-NLS-2$
             "bsl_symbol_at_position", "bsl_type_at_position", "bsl_scope_members", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             "bsl_list_methods", "bsl_get_method_body", "bsl_analyze_method", "bsl_module_context", "bsl_module_exports", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
-            "create_metadata", "update_metadata", "update_metadata_properties", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            "delete_metadata", "delete_metadata_object", "add_metadata_child", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            "create_metadata", "update_metadata", //$NON-NLS-1$ //$NON-NLS-2$
+            "delete_metadata", "add_metadata_child", //$NON-NLS-1$ //$NON-NLS-2$
             "create_form", "apply_form_recipe", "inspect_form_layout", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             "mutate_form_model", "ensure_module_artifact", //$NON-NLS-1$ //$NON-NLS-2$
             "get_diagnostics", //$NON-NLS-1$

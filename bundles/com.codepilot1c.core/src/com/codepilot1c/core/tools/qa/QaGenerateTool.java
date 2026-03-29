@@ -38,7 +38,7 @@ public class QaGenerateTool extends AbstractTool {
               "properties": {
                 "command": {
                   "type": "string",
-                  "description": "Command: init_config|migrate_config|compile_feature",
+                  "description": "QA generation command: init_config, migrate_config, or compile_feature",
                   "enum": ["init_config", "migrate_config", "compile_feature"]
                 }
               },
@@ -65,7 +65,7 @@ public class QaGenerateTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "QA generation: init/migrate config, compile feature files."; //$NON-NLS-1$
+        return "Генерирует QA-артефакты: создаёт или мигрирует qa-config и собирает feature-файл из структурированного сценарного плана."; //$NON-NLS-1$
     }
 
     @Override

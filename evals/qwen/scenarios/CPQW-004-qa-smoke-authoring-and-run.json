@@ -20,27 +20,27 @@
   "prompt": "Подготовь и запусти smoke E2E тест для пользовательского сценария создания и проведения документа. Сначала проверь окружение, затем найди или собери корректный feature без несуществующих шагов, после чего запусти тест. В ответе сообщи итоговый статус, путь к junit и краткое резюме падений, если они были.",
   "expected_tool_path": {
     "ordered_subsequence": [
-      "qa_status",
+      "qa_inspect",
       "qa_plan_scenario",
-      "qa_compile_feature",
+      "qa_generate",
       "qa_validate_feature",
       "qa_run"
     ],
     "required_rules": [
-      "qa_status must be called before qa_run",
-      "qa_run must not be started if qa_status returned status=error"
+      "qa_inspect(command=status) must be called before qa_run",
+      "qa_run must not be started if qa_inspect(command=status) returned status=error"
     ]
   },
   "assertions": {
     "tool_behavior": {
-      "must_call_qa_status_first": true
+      "must_call_qa_inspect_status_first": true
     },
     "workspace_state": {
       "must_produce_qa_results_directory": true,
       "must_produce_junit_report": true
     },
     "final_answer": {
-      "must_report_qa_status": true,
+      "must_report_qa_inspect_status": true,
       "must_report_junit_path": true
     }
   },

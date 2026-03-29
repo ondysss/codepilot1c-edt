@@ -1,6 +1,7 @@
 package com.codepilot1c.core.edt.validation;
 
 import java.util.Locale;
+import java.util.Map;
 
 import com.codepilot1c.core.edt.metadata.MetadataOperationCode;
 import com.codepilot1c.core.edt.metadata.MetadataOperationException;
@@ -38,6 +39,10 @@ public enum ValidationOperation {
     }
 
     public static ValidationOperation fromString(String value) {
+        return resolve(value, null);
+    }
+
+    public static ValidationOperation resolve(String value, Map<String, Object> payload) {
         if (value == null || value.isBlank()) {
             throw new MetadataOperationException(
                     MetadataOperationCode.KNOWLEDGE_REQUIRED,
@@ -45,6 +50,15 @@ public enum ValidationOperation {
         }
 
         String normalized = value.toLowerCase(Locale.ROOT).trim();
+        if ("external_manage".equals(normalized)) { //$NON-NLS-1$
+            return resolveExternalManageCommand(payload);
+        }
+        if ("extension_manage".equals(normalized)) { //$NON-NLS-1$
+            return resolveExtensionManageCommand(payload);
+        }
+        if ("dcs_manage".equals(normalized)) { //$NON-NLS-1$
+            return resolveDcsManageCommand(payload);
+        }
         for (ValidationOperation operation : values()) {
             if (operation.toolName.equals(normalized)) {
                 return operation;
@@ -54,5 +68,54 @@ public enum ValidationOperation {
         throw new MetadataOperationException(
                 MetadataOperationCode.KNOWLEDGE_REQUIRED,
                 "Unsupported operation for validation: " + value, false); //$NON-NLS-1$
+    }
+
+    private static ValidationOperation resolveExternalManageCommand(Map<String, Object> payload) {
+        return switch (normalizedCommand(payload, "external_manage")) { //$NON-NLS-1$
+            case "create_report" -> EXTERNAL_CREATE_REPORT; //$NON-NLS-1$
+            case "create_processing" -> EXTERNAL_CREATE_PROCESSING; //$NON-NLS-1$
+            default -> throw unsupportedCompositeCommand("external_manage", payload); //$NON-NLS-1$
+        };
+    }
+
+    private static ValidationOperation resolveExtensionManageCommand(Map<String, Object> payload) {
+        return switch (normalizedCommand(payload, "extension_manage")) { //$NON-NLS-1$
+            case "create" -> EXTENSION_CREATE_PROJECT; //$NON-NLS-1$
+            case "adopt" -> EXTENSION_ADOPT_OBJECT; //$NON-NLS-1$
+            case "set_state" -> EXTENSION_SET_PROPERTY_STATE; //$NON-NLS-1$
+            default -> throw unsupportedCompositeCommand("extension_manage", payload); //$NON-NLS-1$
+        };
+    }
+
+    private static ValidationOperation resolveDcsManageCommand(Map<String, Object> payload) {
+        return switch (normalizedCommand(payload, "dcs_manage")) { //$NON-NLS-1$
+            case "create_schema" -> DCS_CREATE_MAIN_SCHEMA; //$NON-NLS-1$
+            case "upsert_dataset" -> DCS_UPSERT_QUERY_DATASET; //$NON-NLS-1$
+            case "upsert_param" -> DCS_UPSERT_PARAMETER; //$NON-NLS-1$
+            case "upsert_field" -> DCS_UPSERT_CALCULATED_FIELD; //$NON-NLS-1$
+            default -> throw unsupportedCompositeCommand("dcs_manage", payload); //$NON-NLS-1$
+        };
+    }
+
+    private static String normalizedCommand(Map<String, Object> payload, String operation) {
+        if (payload == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.KNOWLEDGE_REQUIRED,
+                    "payload.command is required for " + operation, false); //$NON-NLS-1$
+        }
+        Object commandValue = payload.get("command"); //$NON-NLS-1$
+        if (commandValue == null || String.valueOf(commandValue).isBlank()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.KNOWLEDGE_REQUIRED,
+                    "payload.command is required for " + operation, false); //$NON-NLS-1$
+        }
+        return String.valueOf(commandValue).toLowerCase(Locale.ROOT).trim();
+    }
+
+    private static MetadataOperationException unsupportedCompositeCommand(String operation, Map<String, Object> payload) {
+        Object commandValue = payload == null ? null : payload.get("command"); //$NON-NLS-1$
+        return new MetadataOperationException(
+                MetadataOperationCode.KNOWLEDGE_REQUIRED,
+                "Unsupported command for validation: " + operation + "." + commandValue, false); //$NON-NLS-1$ //$NON-NLS-2$
     }
 }

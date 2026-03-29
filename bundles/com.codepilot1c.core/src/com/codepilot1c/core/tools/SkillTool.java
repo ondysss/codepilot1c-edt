@@ -49,7 +49,7 @@ public final class SkillTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Показывает доступные skills и загружает их инструкции по имени. Используй для lazy skill discovery вместо угадывания skill body."; //$NON-NLS-1$
+        return "Показывает доступные skills и загружает инструкцию выбранного skill по имени. Используй для подключения специализированного workflow."; //$NON-NLS-1$
     }
 
     @Override

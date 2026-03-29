@@ -39,19 +39,19 @@ public class ApplyFormRecipeTool extends AbstractTool {
               "properties": {
                 "project": {
                   "type": "string",
-                  "description": "Имя проекта EDT"
+                  "description": "Имя EDT проекта, where the target form or owner object exists."
                 },
                 "mode": {
                   "type": "string",
-                  "description": "Режим применения рецепта (case-insensitive). Accepted values: create, new, create_only, update, modify, patch, upsert, ensure, apply"
+                  "description": "Recipe application mode. Use recipe flow when the change is a repeatable higher-level form composition."
                 },
                 "form_fqn": {
                   "type": "string",
-                  "description": "FQN формы (если известен)"
+                  "description": "Existing form FQN when the recipe targets a known form."
                 },
                 "owner_fqn": {
                   "type": "string",
-                  "description": "FQN владельца (для создания формы)"
+                  "description": "Owner FQN when the recipe must create or locate a form under an existing metadata object."
                 },
                 "name": {
                   "type": "string",
@@ -104,7 +104,7 @@ public class ApplyFormRecipeTool extends AbstractTool {
                 },
                 "validation_token": {
                   "type": "string",
-                  "description": "Одноразовый токен из edt_validate_request"
+                  "description": "Одноразовый токен из edt_validate_request for this recipe application."
                 }
               },
               "required": ["project", "validation_token"]
@@ -125,7 +125,7 @@ public class ApplyFormRecipeTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Применяет декларативный рецепт управляемой формы: создание (при необходимости), реквизиты и макет."; //$NON-NLS-1$
+        return "Применяет декларативный recipe к управляемой форме: создание, поиск, атрибуты и layout."; //$NON-NLS-1$
     }
 
     @Override

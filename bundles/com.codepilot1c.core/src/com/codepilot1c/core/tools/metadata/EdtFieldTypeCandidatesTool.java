@@ -25,10 +25,10 @@ public class EdtFieldTypeCandidatesTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "project": {"type": "string", "description": "Имя EDT проекта"},
-                "target_fqn": {"type": "string", "description": "FQN объекта метаданных (например Catalog.Контрагенты.Attribute.КПП)"},
-                "field": {"type": "string", "description": "Имя поля (по умолчанию type)"},
-                "limit": {"type": "integer", "description": "Максимум типов в ответе (1..1000, default=200)"}
+                "project": {"type": "string", "description": "Имя EDT проекта с целевым объектом метаданных"},
+                "target_fqn": {"type": "string", "description": "FQN существующего объекта или дочернего элемента, для которого нужно подобрать допустимые EDT-типы"},
+                "field": {"type": "string", "description": "Поле, для которого нужен список допустимых типов; обычно type"},
+                "limit": {"type": "integer", "description": "Максимум кандидатов типов в ответе (1..1000, default=200)"}
               },
               "required": ["project", "target_fqn"]
             }
@@ -46,7 +46,7 @@ public class EdtFieldTypeCandidatesTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Возвращает список допустимых EDT-типов для указанного поля объекта метаданных."; //$NON-NLS-1$
+        return "Возвращает допустимые EDT-типы для поля существующего объекта метаданных. Используй перед add_metadata_child или update_metadata, когда тип неочевиден. Не изменяет модель и не заменяет саму мутацию."; //$NON-NLS-1$
     }
 
     @Override

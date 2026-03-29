@@ -58,7 +58,7 @@ public class DcsManageTool extends AbstractTool {
               "properties": {
                 "command": {
                   "type": "string",
-                  "description": "Command: get_summary|list_nodes|create_schema|upsert_dataset|upsert_param|upsert_field",
+                  "description": "DCS command: get_summary, list_nodes, create_schema, upsert_dataset, upsert_param, or upsert_field",
                   "enum": ["get_summary", "list_nodes", "create_schema", "upsert_dataset", "upsert_param", "upsert_field"]
                 },
                 "project": {
@@ -67,7 +67,7 @@ public class DcsManageTool extends AbstractTool {
                 },
                 "owner_fqn": {
                   "type": "string",
-                  "description": "Owner FQN, e.g. Report.Sales or ExternalReport.MyReport"
+                  "description": "Owner FQN for the report or external report that owns the DCS schema"
                 },
                 "node_kind": {
                   "type": "string",
@@ -147,7 +147,7 @@ public class DcsManageTool extends AbstractTool {
                 },
                 "validation_token": {
                   "type": "string",
-                  "description": "(mutating commands) One-time token from edt_validate_request"
+                  "description": "(mutating commands) One-time token from edt_validate_request; required for create_schema and all upsert commands"
                 }
               },
               "required": ["command", "project", "owner_fqn"]
@@ -168,7 +168,7 @@ public class DcsManageTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Manage DCS schemas: summary, nodes, datasets, parameters, fields."; //$NON-NLS-1$
+        return "Управляет схемой компоновки данных через один tool: читает состояние, создаёт основную схему и обновляет наборы данных, параметры и вычисляемые поля."; //$NON-NLS-1$
     }
 
     @Override

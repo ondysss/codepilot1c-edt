@@ -44,7 +44,7 @@ public class ExtensionManageTool extends AbstractTool {
               "properties": {
                 "command": {
                   "type": "string",
-                  "description": "Command: list_projects|list_objects|create|adopt|set_state",
+                  "description": "Command for extension workflows: list_projects, list_objects, create, adopt, or set_state",
                   "enum": ["list_projects", "list_objects", "create", "adopt", "set_state"]
                 },
                 "project": {
@@ -113,7 +113,7 @@ public class ExtensionManageTool extends AbstractTool {
                 },
                 "validation_token": {
                   "type": "string",
-                  "description": "(mutating commands) One-time token from edt_validate_request"
+                  "description": "(mutating commands) One-time token from edt_validate_request; required for create, adopt, and set_state"
                 }
               },
               "required": ["command"]
@@ -134,7 +134,7 @@ public class ExtensionManageTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Manage EDT extensions: list, create, adopt, set property state."; //$NON-NLS-1$
+        return "Управляет расширениями EDT: показывает проекты и объекты, создаёт расширение, заимствует объект из базы и меняет состояние свойства."; //$NON-NLS-1$
     }
 
     @Override

@@ -28,7 +28,6 @@ public final class OrchestratorProfile implements AgentProfile {
             "list_files", //$NON-NLS-1$
             "glob", //$NON-NLS-1$
             "grep", //$NON-NLS-1$
-            "edt_diagnostics", //$NON-NLS-1$
             "delegate_to_agent", //$NON-NLS-1$
             "task", //$NON-NLS-1$
             "skill")); //$NON-NLS-1$
@@ -60,7 +59,6 @@ public final class OrchestratorProfile implements AgentProfile {
                 PermissionRule.allow("list_files").forAllResources(), //$NON-NLS-1$
                 PermissionRule.allow("glob").forAllResources(), //$NON-NLS-1$
                 PermissionRule.allow("grep").forAllResources(), //$NON-NLS-1$
-                PermissionRule.allow("edt_diagnostics").forAllResources(), //$NON-NLS-1$
                 PermissionRule.allow("delegate_to_agent").forAllResources(), //$NON-NLS-1$
                 PermissionRule.allow("task").forAllResources(), //$NON-NLS-1$
                 PermissionRule.allow("skill").forAllResources()); //$NON-NLS-1$

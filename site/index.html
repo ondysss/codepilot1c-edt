@@ -339,14 +339,10 @@
         <tr><td>scan_metadata_index / edt_metadata_details / edt_field_type_candidates</td><td>Инспекция метаданных и типов</td></tr>
         <tr><td>create_metadata / update_metadata / add_metadata_child / delete_metadata</td><td>Создание и изменение объектов конфигурации</td></tr>
         <tr><td>create_form / inspect_form_layout / apply_form_recipe / mutate_form_model</td><td>Работа с управляемыми формами</td></tr>
-        <tr><td>dcs_get_summary / dcs_list_nodes / dcs_create_main_schema</td><td>Инспекция и создание схемы СКД</td></tr>
-        <tr><td>dcs_upsert_query_dataset / dcs_upsert_parameter / dcs_upsert_calculated_field</td><td>Мутации СКД: наборы данных, параметры, вычисляемые поля</td></tr>
-        <tr><td>extension_list_projects / extension_create_project / extension_adopt_object</td><td>Расширения: поиск, создание, принятие объектов</td></tr>
-        <tr><td>extension_set_property_state</td><td>Управление состояниями свойств в расширениях</td></tr>
-        <tr><td>external_list_projects / external_list_objects / external_get_details</td><td>Внешние отчёты/обработки: поиск и детали</td></tr>
-        <tr><td>external_create_report / external_create_processing</td><td>Создание внешних объектов</td></tr>
-        <tr><td>get_diagnostics / edt_metadata_smoke / edt_extension_smoke / edt_external_smoke</td><td>Диагностика и smoke-прогоны</td></tr>
-        <tr><td>edt_trace_export</td><td>Трассировка экспорта метаданных</td></tr>
+        <tr><td>dcs_manage (get_summary / list_nodes / create_schema / upsert_dataset / upsert_param / upsert_field)</td><td>Инспекция и мутации схемы СКД через composite tool</td></tr>
+        <tr><td>extension_manage (list_projects / list_objects / create / adopt / set_state)</td><td>Расширения: поиск, создание, принятие объектов и изменение состояния</td></tr>
+        <tr><td>external_manage (list_projects / list_objects / details / create_report / create_processing)</td><td>Внешние отчёты/обработки: поиск, детали и создание</td></tr>
+        <tr><td>get_diagnostics / edt_diagnostics (metadata_smoke / trace_export / analyze_error / update_infobase / launch_app) / edt_extension_smoke / edt_external_smoke</td><td>Диагностика, smoke-прогоны и runtime workflow</td></tr>
         <tr><td>mcp_&lt;server&gt;_&lt;tool&gt;</td><td>Динамические инструменты от подключённых MCP-серверов</td></tr>
       </tbody>
     </table>

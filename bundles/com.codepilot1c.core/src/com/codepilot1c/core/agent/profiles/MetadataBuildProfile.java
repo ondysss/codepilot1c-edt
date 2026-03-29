@@ -39,9 +39,7 @@ public class MetadataBuildProfile implements AgentProfile {
             // Metadata CRUD
             "create_metadata",
             "update_metadata",
-            "update_metadata_properties",
             "delete_metadata",
-            "delete_metadata_object",
             "add_metadata_child",
             "edt_metadata_details",
             "scan_metadata_index",
@@ -95,10 +93,8 @@ public class MetadataBuildProfile implements AgentProfile {
                 PermissionRule.allow("list_files").forAllResources(),
                 PermissionRule.allow("edt_metadata_details").forAllResources(),
                 PermissionRule.allow("scan_metadata_index").forAllResources(),
-                PermissionRule.allow("edt_diagnostics").forAllResources(),
                 PermissionRule.allow("inspect_form_layout").forAllResources(),
                 PermissionRule.allow("edt_field_type_candidates").forAllResources(),
-                PermissionRule.allow("dcs_manage").forAllResources(),
                 PermissionRule.allow("edt_validate_request").forAllResources(),
                 PermissionRule.allow("get_diagnostics").forAllResources(),
                 PermissionRule.allow("skill").forAllResources(),
@@ -116,13 +112,7 @@ public class MetadataBuildProfile implements AgentProfile {
                 PermissionRule.ask("update_metadata")
                         .withDescription("Обновление свойств объектов метаданных EDT")
                         .forAllResources(),
-                PermissionRule.ask("update_metadata_properties")
-                        .withDescription("Обновление свойств объектов метаданных EDT")
-                        .forAllResources(),
                 PermissionRule.ask("delete_metadata")
-                        .withDescription("Удаление объектов метаданных EDT")
-                        .forAllResources(),
-                PermissionRule.ask("delete_metadata_object")
                         .withDescription("Удаление объектов метаданных EDT")
                         .forAllResources(),
                 PermissionRule.ask("add_metadata_child")
@@ -139,6 +129,9 @@ public class MetadataBuildProfile implements AgentProfile {
                         .forAllResources(),
                 PermissionRule.ask("dcs_manage")
                         .withDescription("Управление схемами компоновки данных")
+                        .forAllResources(),
+                PermissionRule.ask("edt_diagnostics")
+                        .withDescription("EDT диагностика: smoke, trace, анализ ошибок, обновление ИБ, запуск")
                         .forAllResources(),
                 PermissionRule.ask("ensure_module_artifact")
                         .withDescription("Создание/подготовка файлов модулей EDT")

@@ -4,7 +4,7 @@
 
 ## Актуальные артефакты
 
-- Последний релиз: `v0.1.7.20260318-0747` — <https://github.com/ondysss/codepilot1c-edt/releases/tag/v0.1.7.20260318-0747>
+- Последний релиз: `v0.1.7.20260329-0855` — <https://github.com/ondysss/codepilot1c-edt/releases/tag/v0.1.7.20260329-0855>
 - Update site (GitHub Pages): <https://ondysss.github.io/codepilot1c-edt/>
 - GitHub Packages (Maven, ZIP): <https://github.com/ondysss/codepilot1c-edt/packages/2846572>
 - Telegram-канал: <https://t.me/codepilot1c>
@@ -39,12 +39,12 @@ URL update site: `https://ondysss.github.io/codepilot1c-edt/`
 Требования: JDK 17.
 
 ```bash
-mvn -B -V --no-transfer-progress clean verify
+mvn -DskipTests package
 ```
 
 ## Локальный E2E workflow для EDT
 
-Для полного локального цикла `build -> p2 update -> relaunch EDT -> MCP smoke -> qa_status -> qa_run`
+Для полного локального цикла `build -> p2 update -> relaunch EDT -> MCP smoke -> qa_inspect(command=status) -> qa_run`
 используйте:
 
 ```bash
@@ -57,12 +57,12 @@ tools/run-edt-e2e-local.sh
 
 Скрипт:
 
-- собирает полный reactor через `mvn verify`;
+- собирает полный reactor через `mvn -DskipTests package`;
 - обновляет выделенную test-инсталляцию EDT через локальный p2 site
   `repositories/com.codepilot1c.update/target/repository`;
 - патчит `bundles.info` для auto-start `com.codepilot1c.core` в headless режиме;
 - поднимает EDT с MCP host на `http://127.0.0.1:8765/mcp`;
-- выполняет `tools/list`, затем `qa_status` и `qa_run` через MCP;
+- выполняет `tools/list`, затем `qa_inspect(command=status)` и `qa_run` через MCP;
 - складывает логи и trace-артефакты в `.runs/edt-e2e/<run-id>/`.
 
 Ключевые переменные:
@@ -70,7 +70,7 @@ tools/run-edt-e2e-local.sh
 - `EDT_HOME` — обязательная test-инсталляция 1C:EDT.
 - `EDT_WORKSPACE` — отдельный workspace для прогона.
 - `EDT_PROJECT_PATHS` — список проектов через `:`, которые будут смонтированы в workspace симлинками.
-- `QA_PROJECT_NAME` — EDT project name для `qa_status`/`qa_run`.
+- `QA_PROJECT_NAME` — EDT project name для `qa_inspect(command=status)`/`qa_run`.
 - `MCP_BEARER_TOKEN` — опционально; если не задан, скрипт создаст временный токен на один прогон.
 - `RUN_QA=false` — только build/update/launch/smoke без QA запуска.
 

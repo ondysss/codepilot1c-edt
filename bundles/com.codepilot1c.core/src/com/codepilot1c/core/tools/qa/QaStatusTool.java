@@ -137,8 +137,8 @@ public class QaStatusTool extends AbstractTool {
                         resolveProjectName(projectNameParam), effectiveUseEdtRuntime, useTestManager);
                 if (migration.legacyDetected() || migration.incomplete() || migration.changed()) {
                     String message = migration.incomplete()
-                            ? "QA config uses legacy or incomplete format; run qa_migrate_config to normalize it" //$NON-NLS-1$
-                            : "QA config contains legacy fields; run qa_migrate_config to normalize it"; //$NON-NLS-1$
+                            ? "QA config uses legacy or incomplete format; run qa_generate(command=migrate_config) to normalize it" //$NON-NLS-1$
+                            : "QA config contains legacy fields; run qa_generate(command=migrate_config) to normalize it"; //$NON-NLS-1$
                     checks.add(Check.warn("config", message, configFile)); //$NON-NLS-1$
                 }
                 List<String> configErrors = new ArrayList<>(config.validate());

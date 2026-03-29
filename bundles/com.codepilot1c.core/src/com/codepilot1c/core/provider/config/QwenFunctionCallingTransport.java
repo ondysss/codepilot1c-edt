@@ -127,16 +127,16 @@ final class QwenFunctionCallingTransport {
                 String toolCallExamples = QwenToolCallExamples.getExamples(caps, request.getTools());
                 if (!toolCallExamples.isEmpty()) {
                     String augmented = msg.getContent() + "\n\n" + toolCallExamples; //$NON-NLS-1$
-                    JsonObject augMsg = serializeMessage(msg);
+                    JsonObject augMsg = serializeMessage(msg, caps);
                     augMsg.addProperty("content", augmented); //$NON-NLS-1$
                     messages.add(augMsg);
                     LOG.debug("Qwen transport: injected %d chars of tool call examples into system message", //$NON-NLS-1$
                             toolCallExamples.length());
                 } else {
-                    messages.add(serializeMessage(msg));
+                    messages.add(serializeMessage(msg, caps));
                 }
             } else {
-                messages.add(serializeMessage(msg));
+                messages.add(serializeMessage(msg, caps));
             }
         }
 
@@ -166,7 +166,7 @@ final class QwenFunctionCallingTransport {
 
     // ---- Serialization helpers (mirror DynamicLlmProvider's internal format) ----
 
-    private JsonObject serializeMessage(LlmMessage msg) {
+    private JsonObject serializeMessage(LlmMessage msg, ProviderCapabilities caps) {
         JsonObject msgObj = new JsonObject();
         msgObj.addProperty("role", msg.getRole().getValue()); //$NON-NLS-1$
 
@@ -195,7 +195,7 @@ final class QwenFunctionCallingTransport {
             }
             msgObj.add("tool_calls", toolCalls); //$NON-NLS-1$
         } else {
-            msgObj.addProperty("content", msg.getContent()); //$NON-NLS-1$
+            msgObj.add("content", ProviderMessageContentSerializer.toOpenAiContent(msg, caps)); //$NON-NLS-1$
         }
 
         return msgObj;

@@ -36,19 +36,19 @@ public class AnalyzeToolErrorTool extends AbstractTool {
               "properties": {
                 "tool_name": {
                   "type": "string",
-                  "description": "Name of the tool that returned the error"
+                  "description": "Name of the tool that failed, for example edt_diagnostics or create_metadata"
                 },
                 "tool_result": {
                   "type": "string",
-                  "description": "Raw failed tool result or error payload returned to the agent"
+                  "description": "Raw failed ToolResult payload or error JSON; pass the failure body, not a normal success response"
                 },
                 "include_log_tail": {
                   "type": "boolean",
-                  "description": "Include tail of referenced log file when available"
+                  "description": "Include tail of the referenced log file when the error payload points to one"
                 },
                 "max_log_lines": {
                   "type": "integer",
-                  "description": "Maximum number of log lines to include"
+                  "description": "Maximum number of log lines to include from the referenced log file"
                 }
               },
               "required": ["tool_result"],
@@ -58,7 +58,7 @@ public class AnalyzeToolErrorTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Разбирает ошибку tool-вызова, извлекает error_code и предлагает вероятные причины и следующие шаги."; //$NON-NLS-1$
+        return "Разбирает конкретный failed tool result, извлекает error_code и предлагает вероятные причины и recovery steps. Используй после неуспешного tool-вызова, когда нужен структурированный разбор ошибки. Не заменяет get_diagnostics, metadata_smoke или повторный запуск самого доменного инструмента."; //$NON-NLS-1$
     }
 
     @Override
@@ -173,8 +173,9 @@ public class AnalyzeToolErrorTool extends AbstractTool {
 
         if (isEdtRuntimeConfigurationError(code) && projectName != null) {
             JsonObject call = new JsonObject();
-            call.addProperty("tool", "qa_status"); //$NON-NLS-1$ //$NON-NLS-2$
+            call.addProperty("tool", "qa_inspect"); //$NON-NLS-1$ //$NON-NLS-2$
             JsonObject arguments = new JsonObject();
+            arguments.addProperty("command", "status"); //$NON-NLS-1$ //$NON-NLS-2$
             arguments.addProperty("project_name", projectName); //$NON-NLS-1$
             arguments.addProperty("use_edt_runtime", true); //$NON-NLS-1$
             call.add("arguments", arguments); //$NON-NLS-1$
@@ -184,8 +185,9 @@ public class AnalyzeToolErrorTool extends AbstractTool {
         if (EdtToolErrorCode.PROCESS_TIMEOUT.name().equals(code) && projectName != null
                 && "edt_launch_app".equals(toolName)) { //$NON-NLS-1$
             JsonObject call = new JsonObject();
-            call.addProperty("tool", "edt_launch_app"); //$NON-NLS-1$ //$NON-NLS-2$
+            call.addProperty("tool", "edt_diagnostics"); //$NON-NLS-1$ //$NON-NLS-2$
             JsonObject arguments = new JsonObject();
+            arguments.addProperty("command", "launch_app"); //$NON-NLS-1$ //$NON-NLS-2$
             arguments.addProperty("project_name", projectName); //$NON-NLS-1$
             arguments.addProperty("wait_for_exit", false); //$NON-NLS-1$
             call.add("arguments", arguments); //$NON-NLS-1$
@@ -270,18 +272,18 @@ public class AnalyzeToolErrorTool extends AbstractTool {
         if (EdtToolErrorCode.PROJECT_NOT_FOUND.name().equals(code)) {
             return List.of(
                     "Проверь точное имя EDT проекта в текущем workspace.", //$NON-NLS-1$
-                    "Запусти qa_status с use_edt_runtime=true для этого проекта."); //$NON-NLS-1$
+                    "Запусти qa_inspect с command=status и use_edt_runtime=true для этого проекта."); //$NON-NLS-1$
         }
         if (EdtToolErrorCode.INFOBASE_ASSOCIATION_NOT_FOUND.name().equals(code)
                 || EdtToolErrorCode.INFOBASE_NOT_FOUND.name().equals(code)) {
             return List.of(
                     "Проверь association проекта с инфобазой в EDT.", //$NON-NLS-1$
-                    "Повтори qa_status с use_edt_runtime=true и тем же project_name."); //$NON-NLS-1$
+                    "Повтори qa_inspect с command=status, use_edt_runtime=true и тем же project_name."); //$NON-NLS-1$
         }
         if (EdtToolErrorCode.LAUNCH_CONFIG_NOT_FOUND.name().equals(code)) {
             return List.of(
                     "Создай или исправь RuntimeClient launch configuration для проекта в EDT.", //$NON-NLS-1$
-                    "После исправления снова вызови qa_status и затем edt_launch_app."); //$NON-NLS-1$
+                    "После исправления снова вызови qa_inspect(command=status), затем edt_diagnostics(command=launch_app)."); //$NON-NLS-1$
         }
         if (EdtToolErrorCode.RUNTIME_VERSION_NOT_FOUND.name().equals(code)
                 || EdtToolErrorCode.RUNTIME_NOT_RESOLVED.name().equals(code)) {
@@ -291,13 +293,13 @@ public class AnalyzeToolErrorTool extends AbstractTool {
         }
         if (EdtToolErrorCode.UPDATE_FAILED.name().equals(code)) {
             return List.of(
-                    "Проверь log_path и диагностики EDT, затем повтори edt_update_infobase.", //$NON-NLS-1$
+                    "Проверь log_path и диагностики EDT, затем повтори edt_diagnostics(command=update_infobase).", //$NON-NLS-1$
                     "Исключи блокировки инфобазы и ошибки аутентификации."); //$NON-NLS-1$
         }
         if (EdtToolErrorCode.PROCESS_START_FAILED.name().equals(code)) {
             return List.of(
                     "Проверь log_path, runtime_version и параметры запуска клиента.", //$NON-NLS-1$
-                    "Сначала устрани конфигурационные проблемы через qa_status, потом повтори edt_launch_app."); //$NON-NLS-1$
+                    "Сначала устрани конфигурационные проблемы через qa_inspect(command=status), потом повтори edt_diagnostics(command=launch_app)."); //$NON-NLS-1$
         }
         if (EdtToolErrorCode.PROCESS_TIMEOUT.name().equals(code)) {
             return List.of(
@@ -306,12 +308,12 @@ public class AnalyzeToolErrorTool extends AbstractTool {
         }
         if (code != null && code.startsWith("QA_")) { //$NON-NLS-1$
             return List.of(
-                    "Сначала вызови qa_status и устрани ошибки окружения.", //$NON-NLS-1$
+                    "Сначала вызови qa_inspect(command=status) и устрани ошибки окружения.", //$NON-NLS-1$
                     "Если ошибка связана с feature, повтори qa_validate_feature перед qa_run."); //$NON-NLS-1$
         }
         if ("edt_launch_app".equals(toolName) || "edt_update_infobase".equals(toolName)) { //$NON-NLS-1$ //$NON-NLS-2$
             return List.of(
-                    "Проверь project_name, qa_status и RuntimeClient launch configuration.", //$NON-NLS-1$
+                    "Проверь project_name, qa_inspect(command=status) и RuntimeClient launch configuration.", //$NON-NLS-1$
                     "Если есть log_path, проанализируй хвост лога и повтори вызов только после исправления причины."); //$NON-NLS-1$
         }
         return List.of(

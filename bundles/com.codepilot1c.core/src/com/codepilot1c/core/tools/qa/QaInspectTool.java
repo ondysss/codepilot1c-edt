@@ -37,7 +37,7 @@ public class QaInspectTool extends AbstractTool {
               "properties": {
                 "command": {
                   "type": "string",
-                  "description": "Command: explain_config|status|steps_search",
+                  "description": "Read-only QA command: explain_config, status, or steps_search",
                   "enum": ["explain_config", "status", "steps_search"]
                 }
               },
@@ -64,7 +64,7 @@ public class QaInspectTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "QA inspection: explain config, check status, search steps."; //$NON-NLS-1$
+        return "Читает состояние QA без изменений файлов: объясняет qa-config, проверяет окружение и ищет доступные шаги Vanessa Automation."; //$NON-NLS-1$
     }
 
     @Override

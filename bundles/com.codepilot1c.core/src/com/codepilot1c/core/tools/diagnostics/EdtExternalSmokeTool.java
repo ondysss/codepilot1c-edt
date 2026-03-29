@@ -42,11 +42,11 @@ public class EdtExternalSmokeTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "project": {"type": "string", "description": "Имя базового EDT проекта"},
-                "external_project": {"type": "string", "description": "Имя внешнего проекта (опционально, иначе авто-генерация)"},
-                "kind": {"type": "string", "description": "Тип внешнего объекта: report|processing (default=report)"},
-                "name": {"type": "string", "description": "Имя внешнего объекта (опционально)"},
-                "cleanup_created": {"type": "boolean", "description": "Удалить созданный проект после smoke (default=true)"}
+                "project": {"type": "string", "description": "Имя базового EDT проекта, на котором проверяется runtime внешних объектов"},
+                "external_project": {"type": "string", "description": "Имя внешнего проекта для smoke; если не указано, создается временный проект"},
+                "kind": {"type": "string", "description": "Тип внешнего объекта для smoke: report|processing (default=report)"},
+                "name": {"type": "string", "description": "Имя создаваемого внешнего объекта; если не указано, smoke сгенерирует временное имя"},
+                "cleanup_created": {"type": "boolean", "description": "Удалить временно созданный внешний проект после smoke (default=true)"}
               },
               "required": ["project"]
             }
@@ -70,7 +70,7 @@ public class EdtExternalSmokeTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Прогоняет smoke-сценарий EDT external API: create/list/get_details/cleanup."; //$NON-NLS-1$
+        return "Прогоняет end-to-end smoke для EDT external object runtime: create, list, get_details и cleanup. Используй для проверки external tooling или после изменений в runtime внешних отчетов и обработок. Не используй для обычного authoring; для него есть external_manage."; //$NON-NLS-1$
     }
 
     @Override

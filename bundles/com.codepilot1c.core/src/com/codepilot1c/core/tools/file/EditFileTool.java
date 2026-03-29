@@ -58,23 +58,23 @@ public class EditFileTool extends AbstractTool {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Path to the file (workspace-relative)"
+                        "description": "Path to an existing workspace file that should be edited"
                     },
                     "content": {
                         "type": "string",
-                        "description": "New content for the file (replaces entire file)"
+                        "description": "Full replacement content for the file; prefer write_file if you intentionally overwrite the whole file"
                     },
                     "old_text": {
                         "type": "string",
-                        "description": "Text to search for and replace (for partial edits). Supports fuzzy matching."
+                        "description": "Existing text to search for in partial-edit mode; supports fuzzy matching"
                     },
                     "new_text": {
                         "type": "string",
-                        "description": "Replacement text (used with old_text)"
+                        "description": "Replacement text used together with old_text"
                     },
                     "edits": {
                         "type": "string",
-                        "description": "SEARCH/REPLACE blocks in format: <<<<<<< SEARCH\\nold code\\n=======\\nnew code\\n>>>>>>> REPLACE. Supports multiple blocks."
+                        "description": "SEARCH/REPLACE blocks for targeted multi-edit patches inside an existing file"
                     },
                     "create": {
                         "type": "boolean",
@@ -95,10 +95,7 @@ public class EditFileTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Edit a file in the workspace. Can replace entire file content " + //$NON-NLS-1$
-               "or perform search-and-replace operations in existing files only. " + //$NON-NLS-1$
-               "⚠️ НЕ используйте для СОЗДАНИЯ новых объектов метаданных 1С (.mdo файлов)! " + //$NON-NLS-1$
-               "Для top-level используйте create_metadata, для форм — create_form, для вложенных объектов — add_metadata_child."; //$NON-NLS-1$
+        return "Редактирует существующий файл workspace через replace, SEARCH/REPLACE или fuzzy-патч."; //$NON-NLS-1$
     }
 
     @Override

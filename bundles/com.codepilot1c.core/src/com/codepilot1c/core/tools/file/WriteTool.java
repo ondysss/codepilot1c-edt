@@ -51,15 +51,15 @@ public class WriteTool extends AbstractTool {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Path to an existing file (workspace-relative)"
+                        "description": "Path to an existing workspace file that should be overwritten"
                     },
                     "content": {
                         "type": "string",
-                        "description": "Content to write to the file"
+                        "description": "Full new file content"
                     },
                     "overwrite": {
                         "type": "boolean",
-                        "description": "Overwrite if file exists (default: false)"
+                        "description": "Must be true; this tool only overwrites existing files"
                     }
                 },
                 "required": ["path", "content"]
@@ -68,13 +68,7 @@ public class WriteTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Записывает содержимое в существующий файл. Путь должен быть " +
-               "относительным к workspace (например, 'project/src/Module.bsl'). " +
-               "Создание новых файлов запрещено: для модулей сначала вызовите ensure_module_artifact, " +
-               "после чего редактируйте уже подготовленные модульные файлы. " +
-               "⚠️ ЗАПРЕЩЕНО использовать для создания объектов метаданных 1С (.mdo файлов)! " +
-               "Для справочников, документов, регистров и др. ОБЯЗАТЕЛЬНО используйте " +
-               "инструменты create_metadata (top-level), create_form (формы) и add_metadata_child (вложенные объекты).";
+        return "Перезаписывает содержимое существующего файла целиком. Используй, когда нужен осознанный full overwrite без patch-логики. Предпочитай edit_file для точечных правок и не используй этот tool как основной путь изменения EDT metadata или .mdo файлов."; //$NON-NLS-1$
     }
 
     @Override

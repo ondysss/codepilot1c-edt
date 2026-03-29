@@ -26,14 +26,14 @@ public class EdtContentAssistTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "projectName": {"type": "string", "description": "EDT project name"},
-                "filePath": {"type": "string", "description": "Path relative to src/, for example CommonModules/MyModule/Module.bsl"},
-                "line": {"type": "integer", "description": "1-based line"},
-                "column": {"type": "integer", "description": "1-based column"},
-                "limit": {"type": "integer", "description": "Max proposals (default 20)"},
-                "offset": {"type": "integer", "description": "Pagination offset"},
-                "contains": {"type": "string", "description": "Comma-separated contains filters"},
-                "extendedDocumentation": {"type": "boolean", "description": "Include extended docs"}
+                "projectName": {"type": "string", "description": "EDT project containing the BSL module"},
+                "filePath": {"type": "string", "description": "Path to the module relative to src/, for example CommonModules/MyModule/Module.bsl"},
+                "line": {"type": "integer", "description": "1-based line where completion is requested"},
+                "column": {"type": "integer", "description": "1-based column where completion is requested"},
+                "limit": {"type": "integer", "description": "Maximum completion proposals to return (default 20)"},
+                "offset": {"type": "integer", "description": "Pagination offset for long proposal lists"},
+                "contains": {"type": "string", "description": "Optional comma-separated text filters for proposal names"},
+                "extendedDocumentation": {"type": "boolean", "description": "Include extended documentation for proposals when available"}
               },
               "required": ["projectName", "filePath", "line", "column"]
             }
@@ -41,7 +41,7 @@ public class EdtContentAssistTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Get AST-aware content assist for BSL position inside EDT project."; //$NON-NLS-1$
+        return "Возвращает EDT content assist для позиции в BSL. Используй, когда нужны варианты автодополнения."; //$NON-NLS-1$
     }
 
     @Override

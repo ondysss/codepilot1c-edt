@@ -33,20 +33,20 @@ public class AddMetadataChildTool extends AbstractTool {
               "properties": {
                 "project": {
                   "type": "string",
-                  "description": "Имя проекта EDT"
+                  "description": "Имя EDT проекта, где уже существует owner object."
                 },
                 "parent_fqn": {
                   "type": "string",
-                  "description": "FQN родителя: <Type>.<Name>[.<Marker>.<Name>...]"
+                  "description": "FQN существующего owner object. Use this tool only when parent already exists."
                 },
                 "child_kind": {
                   "type": "string",
                   "enum": ["Attribute", "Tabular_Section", "Command", "Form", "Template", "Dimension", "Resource", "Requisite"],
-                  "description": "Тип создаваемого дочернего объекта"
+                  "description": "Kind of new child object. Do not use for top-level objects."
                 },
                 "name": {
                   "type": "string",
-                  "description": "Имя дочернего объекта"
+                  "description": "Name of the new child object."
                 },
                 "synonym": {
                   "type": "string",
@@ -79,7 +79,7 @@ public class AddMetadataChildTool extends AbstractTool {
                 },
                 "validation_token": {
                   "type": "string",
-                  "description": "Одноразовый токен из edt_validate_request"
+                  "description": "Одноразовый токен из edt_validate_request for this exact child-creation request."
                 }
               },
               "required": ["project", "parent_fqn", "child_kind", "name", "validation_token"]
@@ -100,7 +100,7 @@ public class AddMetadataChildTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Создает дочерние объекты метаданных (attribute/tabular section/command/form/template/dimension/resource/requisite)."; //$NON-NLS-1$
+        return "Создаёт дочерний объект метаданных под существующим владельцем через EDT BM API."; //$NON-NLS-1$
     }
 
     @Override

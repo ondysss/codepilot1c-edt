@@ -45,7 +45,8 @@ public class QaValidateFeatureTool extends AbstractTool {
               "type": "object",
               "properties": {
                 "config_path": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Optional path to qa-config.json; defaults to tests/qa/qa-config.json"
                 },
                 "feature_file": {
                   "type": "string",
@@ -63,7 +64,7 @@ public class QaValidateFeatureTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Проверяет feature по structured QA registry и текущему Vanessa steps catalog до qa_run."; //$NON-NLS-1$
+        return "Проверяет feature file по structured QA registry и Vanessa steps catalog до qa_run. Используй как preflight после qa_generate(command=compile_feature) и перед выполнением тестов. Не запускает feature."; //$NON-NLS-1$
     }
 
     @Override

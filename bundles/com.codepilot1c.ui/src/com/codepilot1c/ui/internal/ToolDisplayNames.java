@@ -37,22 +37,9 @@ public final class ToolDisplayNames {
             case "edt_find_references" -> "EDT поиск ссылок"; //$NON-NLS-1$ //$NON-NLS-2$
             case "edt_metadata_details" -> "EDT детали метаданных"; //$NON-NLS-1$ //$NON-NLS-2$
             case "scan_metadata_index" -> "Индекс метаданных EDT"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "dcs_get_summary" -> "СКД сводка"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "dcs_list_nodes" -> "СКД узлы"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "dcs_create_main_schema" -> "СКД создать основную схему"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "dcs_upsert_query_dataset" -> "СКД набор данных запроса"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "dcs_upsert_parameter" -> "СКД параметр"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "dcs_upsert_calculated_field" -> "СКД вычисляемое поле"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "extension_list_projects" -> "Расширения конфигурации"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "extension_list_objects" -> "Объекты расширения"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "external_list_projects" -> "Проекты внешних объектов"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "external_list_objects" -> "Внешние отчеты и обработки"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "external_get_details" -> "Детали внешнего объекта"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "external_create_report" -> "Создание внешнего отчета"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "external_create_processing" -> "Создание внешней обработки"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "extension_create_project" -> "Создание расширения"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "extension_adopt_object" -> "Добавление объекта в расширение"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "extension_set_property_state" -> "Состояние свойства расширения"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "dcs_manage" -> "Управление СКД"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "extension_manage" -> "Управление расширениями"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "external_manage" -> "Управление внешними объектами"; //$NON-NLS-1$ //$NON-NLS-2$
             case "inspect_form_layout" -> "Структура формы"; //$NON-NLS-1$ //$NON-NLS-2$
             case "get_platform_documentation", "inspect_platform_reference" -> "Справка платформы"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "bsl_symbol_at_position" -> "BSL символ по позиции"; //$NON-NLS-1$ //$NON-NLS-2$
@@ -66,24 +53,16 @@ public final class ToolDisplayNames {
             case "update_metadata" -> "Обновление метаданных EDT"; //$NON-NLS-1$ //$NON-NLS-2$
             case "mutate_form_model" -> "Изменение модели формы EDT"; //$NON-NLS-1$ //$NON-NLS-2$
             case "delete_metadata" -> "Удаление метаданных EDT"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "edt_trace_export" -> "Трейс экспорта EDT"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "edt_metadata_smoke" -> "Smoke метаданных EDT"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "edt_diagnostics" -> "EDT диагностика и runtime"; //$NON-NLS-1$ //$NON-NLS-2$
             case "edt_extension_smoke" -> "Smoke расширений EDT"; //$NON-NLS-1$ //$NON-NLS-2$
             case "edt_external_smoke" -> "Smoke внешних объектов EDT"; //$NON-NLS-1$ //$NON-NLS-2$
             case "get_diagnostics" -> "Диагностики"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "qa_init_config" -> "QA инициализация конфига"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "qa_explain_config" -> "QA объяснение конфига"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "qa_status" -> "QA статус"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "qa_migrate_config" -> "QA миграция конфига"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "analyze_tool_error" -> "Анализ ошибки инструмента"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "edt_update_infobase" -> "EDT обновление инфобазы"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "edt_launch_app" -> "EDT запуск приложения"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "qa_inspect" -> "QA инспекция"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "qa_generate" -> "QA генерация"; //$NON-NLS-1$ //$NON-NLS-2$
             case "qa_run" -> "QA запуск тестов"; //$NON-NLS-1$ //$NON-NLS-2$
             case "qa_prepare_form_context" -> "QA подготовка формы"; //$NON-NLS-1$ //$NON-NLS-2$
             case "qa_plan_scenario" -> "QA планирование сценария"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "qa_compile_feature" -> "QA компиляция feature"; //$NON-NLS-1$ //$NON-NLS-2$
             case "qa_validate_feature" -> "QA проверка feature"; //$NON-NLS-1$ //$NON-NLS-2$
-            case "qa_steps_search" -> "QA поиск шагов"; //$NON-NLS-1$ //$NON-NLS-2$
             case "list_metadata" -> "Список метаданных"; //$NON-NLS-1$ //$NON-NLS-2$
             case "get_metadata" -> "Получение метаданных"; //$NON-NLS-1$ //$NON-NLS-2$
             case "open_module" -> "Открытие модуля"; //$NON-NLS-1$ //$NON-NLS-2$

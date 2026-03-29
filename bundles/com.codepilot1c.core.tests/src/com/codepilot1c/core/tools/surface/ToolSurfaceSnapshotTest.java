@@ -46,8 +46,8 @@ public class ToolSurfaceSnapshotTest {
                 read_file=Read file contents with optional line ranges.
                 edit_file=Edit an existing text file in place.
                 create_metadata=Создает новый объект метаданных 1С через EDT BM model и forceExport.
-                qa_status=Проверяет QA окружение и эффективный qa-config для выбранного проекта/feature.
-                skill=Показывает доступные skills и загружает их инструкции по имени. Используй для lazy skill discovery вместо угадывания skill body.
+                qa_inspect=Читает состояние QA без изменений файлов: объясняет qa-config, проверяет окружение и ищет доступные шаги Vanessa Automation.
+                skill=Показывает доступные skills и загружает инструкцию выбранного skill по имени. Используй для подключения специализированного workflow.
                 """, nonBackend);
 
         assertEquals("""
@@ -56,8 +56,8 @@ public class ToolSurfaceSnapshotTest {
                 read_file=Read an existing workspace file or a 1-based line range. Use it for exact source inspection after discovery and keep paths workspace-relative. Qwen routing: prefer read/search before mutation, keep paths workspace-relative, and switch to EDT semantic tools for platform/model questions.
                 edit_file=Edit an existing workspace file in place via full replace, targeted search/replace, or SEARCH/REPLACE blocks. Do not use it to create files or mutate EDT metadata descriptors unless an explicit emergency override is intended. Qwen routing: read before edit, patch the smallest necessary region, and do not mutate EDT metadata files directly when a semantic tool exists.
                 create_metadata=Создает новый объект метаданных 1С через EDT BM model и forceExport. Qwen routing: enforce edt_validate_request -> validation_token -> mutation -> diagnostics. Do not skip validation or diagnose success without re-running diagnostics.
-                qa_status=Inspect the QA environment, effective configuration, and runtime readiness for the selected project or feature. Qwen routing: follow the QA pipeline in order, treat generated context as ephemeral, and use steps search only as fallback support for scenario authoring.
-                skill=Показывает доступные skills и загружает их инструкции по имени. Используй для lazy skill discovery вместо угадывания skill body.
+                qa_inspect=Читает состояние QA без изменений файлов: объясняет qa-config, проверяет окружение и ищет доступные шаги Vanessa Automation. Qwen routing: follow the QA pipeline in order, treat generated context as ephemeral, and use steps search only as fallback support for scenario authoring.
+                skill=Показывает доступные skills и загружает инструкцию выбранного skill по имени. Используй для подключения специализированного workflow.
                 """, backend);
     }
 
@@ -72,7 +72,7 @@ public class ToolSurfaceSnapshotTest {
                 read_file=%s
                 edit_file=%s
                 create_metadata=%s
-                qa_status=%s
+                qa_inspect=%s
                 skill=%s
                 """.formatted(
                 activeProviderId,
@@ -80,7 +80,7 @@ public class ToolSurfaceSnapshotTest {
                 descriptionOf(definitions, "read_file"), //$NON-NLS-1$
                 descriptionOf(definitions, "edit_file"), //$NON-NLS-1$
                 descriptionOf(definitions, "create_metadata"), //$NON-NLS-1$
-                descriptionOf(definitions, "qa_status"), //$NON-NLS-1$
+                descriptionOf(definitions, "qa_inspect"), //$NON-NLS-1$
                 descriptionOf(definitions, "skill"))); //$NON-NLS-1$
     }
 
@@ -105,9 +105,9 @@ public class ToolSurfaceSnapshotTest {
         registry.register(new SnapshotTool(
                 "create_metadata", "Создает новый объект метаданных 1С через EDT BM model и forceExport.")); //$NON-NLS-1$ //$NON-NLS-2$
         registry.register(new SnapshotTool(
-                "qa_status", "Проверяет QA окружение и эффективный qa-config для выбранного проекта/feature.")); //$NON-NLS-1$ //$NON-NLS-2$
+                "qa_inspect", "Читает состояние QA без изменений файлов: объясняет qa-config, проверяет окружение и ищет доступные шаги Vanessa Automation.")); //$NON-NLS-1$ //$NON-NLS-2$
         registry.register(new SnapshotTool(
-                "skill", "Показывает доступные skills и загружает их инструкции по имени. Используй для lazy skill discovery вместо угадывания skill body.")); //$NON-NLS-1$ //$NON-NLS-2$
+                "skill", "Показывает доступные skills и загружает инструкцию выбранного skill по имени. Используй для подключения специализированного workflow.")); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private void setStoreState(List<LlmProviderConfig> configs, String activeProviderId) throws Exception {
@@ -182,7 +182,7 @@ public class ToolSurfaceSnapshotTest {
                 case "read_file" -> "file"; //$NON-NLS-1$ //$NON-NLS-2$
                 case "edit_file" -> "file"; //$NON-NLS-1$ //$NON-NLS-2$
                 case "create_metadata" -> "metadata"; //$NON-NLS-1$ //$NON-NLS-2$
-                case "qa_status" -> "diagnostics"; //$NON-NLS-1$ //$NON-NLS-2$
+                case "qa_inspect" -> "diagnostics"; //$NON-NLS-1$ //$NON-NLS-2$
                 default -> "general"; //$NON-NLS-1$
             };
         }
@@ -190,7 +190,7 @@ public class ToolSurfaceSnapshotTest {
         @Override
         public String getSurfaceCategory() {
             return switch (name) {
-                case "qa_status" -> "qa"; //$NON-NLS-1$ //$NON-NLS-2$
+                case "qa_inspect" -> "qa"; //$NON-NLS-1$ //$NON-NLS-2$
                 default -> ""; //$NON-NLS-1$
             };
         }

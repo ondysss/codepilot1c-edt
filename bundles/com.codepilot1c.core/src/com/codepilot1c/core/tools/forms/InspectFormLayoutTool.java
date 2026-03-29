@@ -30,31 +30,31 @@ public class InspectFormLayoutTool extends AbstractTool {
               "properties": {
                 "project": {
                   "type": "string",
-                  "description": "Имя проекта EDT"
+                  "description": "Имя EDT проекта, содержащего уже существующую форму"
                 },
                 "form_fqn": {
                   "type": "string",
-                  "description": "FQN формы, например Document.РасходнаяНакладная.Form.ФормаДокумента"
+                  "description": "FQN существующей формы, например Document.РасходнаяНакладная.Form.ФормаДокумента"
                 },
                 "include_properties": {
                   "type": "boolean",
-                  "description": "Включить дополнительные scalar-свойства узлов формы"
+                  "description": "Включить scalar-свойства узлов формы для точечной последующей мутации"
                 },
                 "include_titles": {
                   "type": "boolean",
-                  "description": "Включить мультиязычные заголовки элементов"
+                  "description": "Включить мультиязычные заголовки элементов и групп"
                 },
                 "include_invisible": {
                   "type": "boolean",
-                  "description": "Включить невидимые элементы формы"
+                  "description": "Включить невидимые элементы, если нужно полное дерево формы"
                 },
                 "max_depth": {
                   "type": "integer",
-                  "description": "Максимальная глубина обхода дерева элементов (1..64)"
+                  "description": "Максимальная глубина обхода дерева элементов формы (1..64)"
                 },
                 "max_items": {
                   "type": "integer",
-                  "description": "Максимальное количество элементов в ответе (1..10000)"
+                  "description": "Максимальное количество узлов формы в ответе (1..10000)"
                 }
               },
               "required": ["project", "form_fqn"]
@@ -73,7 +73,7 @@ public class InspectFormLayoutTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Читает структуру управляемой формы через EDT BM API без active editor (дерево элементов, id, dataPath, свойства)."; //$NON-NLS-1$
+        return "Читает структуру уже существующей управляемой формы через EDT BM API: дерево элементов, dataPath, команды и свойства. Используй перед mutate_form_model или apply_form_recipe, когда нужно понять текущий layout. Не создает новую форму; для этого есть create_form."; //$NON-NLS-1$
     }
 
     @Override

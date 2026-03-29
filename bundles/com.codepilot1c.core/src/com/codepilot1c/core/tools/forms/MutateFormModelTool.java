@@ -32,11 +32,11 @@ public class MutateFormModelTool extends AbstractTool {
               "properties": {
                 "project": {
                   "type": "string",
-                  "description": "Имя проекта EDT"
+                  "description": "Имя EDT проекта, containing an already existing managed form."
                 },
                 "form_fqn": {
                   "type": "string",
-                  "description": "FQN формы, например Document.РасходнаяНакладная.Form.ФормаДокумента"
+                  "description": "FQN of an existing managed form to modify. Use create_form when the form does not exist yet."
                 },
                 "operations": {
                   "type": "array",
@@ -56,7 +56,7 @@ public class MutateFormModelTool extends AbstractTool {
                 },
                 "validation_token": {
                   "type": "string",
-                  "description": "Одноразовый токен из edt_validate_request"
+                  "description": "Одноразовый токен из edt_validate_request for this form-mutation request."
                 }
               },
               "required": ["project", "form_fqn", "operations", "validation_token"]
@@ -77,7 +77,7 @@ public class MutateFormModelTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Изменяет модель управляемой формы через EDT BM API без active editor."; //$NON-NLS-1$
+        return "Вносит точечные изменения в модель уже существующей управляемой формы через EDT BM API."; //$NON-NLS-1$
     }
 
     @Override

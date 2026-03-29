@@ -31,27 +31,27 @@ public class EnsureModuleArtifactTool extends AbstractTool {
               "properties": {
                 "project": {
                   "type": "string",
-                  "description": "Имя проекта EDT"
+                  "description": "Имя EDT проекта, где находится объект с модулем"
                 },
                 "object_fqn": {
                   "type": "string",
-                  "description": "FQN объекта метаданных, например Document.ПриходнаяНакладная"
+                  "description": "FQN существующего объекта метаданных, например Document.ПриходнаяНакладная"
                 },
                 "module_kind": {
                   "type": "string",
-                  "description": "Тип модуля: auto|object|manager|module"
+                  "description": "Какой модуль материализовать: auto|object|manager|module"
                 },
                 "create_if_missing": {
                   "type": "boolean",
-                  "description": "Создать файл модуля, если отсутствует (по умолчанию true)"
+                  "description": "Создать модульный файл, если его еще нет (по умолчанию true)"
                 },
                 "initial_content": {
                   "type": "string",
-                  "description": "Начальное содержимое файла при создании (опционально)"
+                  "description": "Начальное содержимое нового модуля при создании; не используется для существующего файла"
                 },
                 "validation_token": {
                   "type": "string",
-                  "description": "Одноразовый токен из edt_validate_request"
+                  "description": "Одноразовый токен из edt_validate_request для operation=ensure_module_artifact; передавать без изменений"
                 }
               },
               "required": ["project", "object_fqn", "validation_token"]
@@ -72,7 +72,7 @@ public class EnsureModuleArtifactTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Гарантирует наличие файла модуля (*.bsl) для объекта метаданных после pre-validation и возвращает путь для последующего редактирования."; //$NON-NLS-1$
+        return "Материализует файл модуля (*.bsl) для существующего объекта метаданных и возвращает путь для дальнейшего edit_file. Используй после edt_validate_request и перед текстовой правкой кода. Не создает сам metadata object и не заменяет edit_file."; //$NON-NLS-1$
     }
 
     @Override

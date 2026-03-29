@@ -26,8 +26,8 @@ public class GetPlatformDocumentationTool extends AbstractTool {
             {
               "type": "object",
               "properties": {
-                "project": {"type": "string", "description": "Имя EDT проекта"},
-                "type_name": {"type": "string", "description": "Имя/синоним типа платформы (например: DocumentObject). Не передавай сюда имя метода/свойства."},
+                "project": {"type": "string", "description": "Имя EDT проекта для разрешения platform reference context"},
+                "type_name": {"type": "string", "description": "Имя или синоним платформенного типа 1С, например Query или DocumentObject; не имя metadata object"},
                 "language": {"type": "string", "enum": ["ru", "en"], "description": "Предпочитаемый язык имен"},
                 "member_filter": {"type": "string", "enum": ["all", "methods", "properties"], "description": "Какие элементы вернуть"},
                 "contains": {"type": "string", "description": "Фильтр по имени метода/свойства (например: ПоказатьВопросПользователю)"},
@@ -50,7 +50,7 @@ public class GetPlatformDocumentationTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Возвращает встроенную справку EDT по типам встроенного языка 1С (например Запрос/Query): методы, свойства, параметры и типы возврата."; //$NON-NLS-1$
+        return "Возвращает встроенную EDT-справку по типам встроенного языка 1С: методы, свойства, параметры и типы возврата. Используй для platform types вроде Query или DocumentObject. Не используй для project metadata; для него есть edt_metadata_details."; //$NON-NLS-1$
     }
 
     @Override

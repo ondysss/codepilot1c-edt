@@ -43,8 +43,8 @@ public final class QwenToolSurfaceRewriteContributor implements ToolSurfaceContr
             case "edit_file" -> "Edit an existing workspace file in place via full replace, targeted search/replace, or SEARCH/REPLACE blocks. Do not use it to create files or mutate EDT metadata descriptors unless an explicit emergency override is intended."; //$NON-NLS-1$
             case "write_file" -> "Overwrite an existing workspace file with full content. Prefer edit_file for narrow patches and ensure_module_artifact before touching metadata-owned BSL modules."; //$NON-NLS-1$
             case "workspace_import_project" -> "Import an existing Eclipse/EDT project directory into the current workspace. Inspect repository and project state first, then import only when a .project-based project already exists."; //$NON-NLS-1$
-            case "git_inspect" -> "Read git state through allowlisted inspection operations such as status, diff, log, branch, and show. Use it before any mutating git step and keep repo_path explicit."; //$NON-NLS-1$
-            case "git_mutate" -> "Perform allowlisted git mutations such as clone, checkout, branch, add, commit, fetch, pull, and push. Use it only when the repository state and intended mutation are already explicit."; //$NON-NLS-1$
+            case "git_inspect" -> "Показывает состояние git-репозитория через безопасные read-only операции. Для EDT проекта предпочитай project_name; repo_path используй только как явный override."; //$NON-NLS-1$
+            case "git_mutate" -> "Выполняет разрешённые git-изменения. Для существующего EDT проекта передавай project_name, а для init/create/clone обязательно указывай repo_path."; //$NON-NLS-1$
             case "git_clone_and_import_project" -> "Clone a git repository and import an existing Eclipse/EDT project from it into the workspace. Prefer it only when both clone and workspace import are required in one step."; //$NON-NLS-1$
             case "import_project_from_infobase" -> "Create a new EDT project by exporting configuration from the infobase associated with an existing EDT project. Use dry_run first when runtime or infobase availability is uncertain."; //$NON-NLS-1$
             case "edt_content_assist" -> "Return EDT AST-aware content assist for a BSL position. Prefer it over grep when you need semantic completions or symbol-aware editing help."; //$NON-NLS-1$
@@ -61,7 +61,7 @@ public final class QwenToolSurfaceRewriteContributor implements ToolSurfaceContr
             case "bsl_analyze_method" -> "Analyze one BSL method for complexity, call graph, unused parameters, and risky flow patterns."; //$NON-NLS-1$
             case "bsl_module_context" -> "Read module-level BSL context: module type, owner, default pragmas, and method counts."; //$NON-NLS-1$
             case "bsl_module_exports" -> "List exported procedures and functions of one BSL module with signatures and line ranges."; //$NON-NLS-1$
-            case "edt_validate_request" -> "Validate a pending metadata, form, extension, external-object, DCS, or module-artifact mutation and issue a one-time validation_token. Call it immediately before the mutating tool and pass the validated payload unchanged."; //$NON-NLS-1$
+            case "edt_validate_request" -> "Проверяет запрос на изменение метаданных и выдаёт одноразовый validation_token. Обязателен перед metadata/forms/DCS/extension/external мутациями. Не используй для read-only tools."; //$NON-NLS-1$
             case "create_form" -> "Create a managed form through EDT BM APIs for a specific owner object. Re-run diagnostics after creation and fix type-related warnings instead of ignoring them."; //$NON-NLS-1$
             case "add_metadata_child" -> "Create a child metadata object such as an attribute, tabular section, or command under an existing metadata parent through EDT BM APIs. Respect reserved-name guardrails before adding attributes."; //$NON-NLS-1$
             case "ensure_module_artifact" -> "Ensure that a metadata-owned BSL module artifact exists and return its path. Use it after edt_validate_request and before edit_file or write_file when changing object-owned module code."; //$NON-NLS-1$
@@ -80,13 +80,13 @@ public final class QwenToolSurfaceRewriteContributor implements ToolSurfaceContr
             case "edt_extension_smoke" -> "Run smoke verification focused on EDT extension workflows and report the exact failing stage."; //$NON-NLS-1$
             case "edt_external_smoke" -> "Run smoke verification focused on EDT external-object workflows and report the exact failing stage."; //$NON-NLS-1$
             // Composite tools
-            case "dcs_manage" -> "Manage DCS schemas: get_summary, list_nodes, create_schema, upsert_dataset, upsert_param, upsert_field. Use command parameter."; //$NON-NLS-1$
-            case "extension_manage" -> "Manage EDT extensions: list_projects, list_objects, create, adopt, set_state. Use command parameter."; //$NON-NLS-1$
-            case "external_manage" -> "Manage EDT external objects: list_projects, list_objects, details, create_report, create_processing. Use command parameter."; //$NON-NLS-1$
-            case "edt_diagnostics" -> "EDT diagnostics: metadata_smoke, trace_export, analyze_error, update_infobase, launch_app. Use command parameter."; //$NON-NLS-1$
-            case "qa_inspect" -> "Inspect QA state: explain_config, status, steps_search. Use command parameter."; //$NON-NLS-1$
-            case "qa_generate" -> "Generate QA assets: init_config, migrate_config, compile_feature. Use command parameter."; //$NON-NLS-1$
-            case "discover_tools" -> "Discover domain tools by category. Use before calling domain-specific tools."; //$NON-NLS-1$
+            case "dcs_manage" -> "Управляет схемой компоновки данных через один tool: читает состояние, создаёт основную схему и обновляет наборы данных, параметры и вычисляемые поля."; //$NON-NLS-1$
+            case "extension_manage" -> "Управляет расширениями EDT: показывает проекты и объекты, создаёт расширение, заимствует объект из базы и меняет состояние свойства."; //$NON-NLS-1$
+            case "external_manage" -> "Управляет внешними отчётами и обработками: показывает проекты и объекты, читает детали и создаёт новый внешний отчёт или обработку."; //$NON-NLS-1$
+            case "edt_diagnostics" -> "Запускает EDT диагностику и runtime-команды: smoke, trace export, разбор ошибок, обновление инфобазы и запуск приложения."; //$NON-NLS-1$
+            case "qa_inspect" -> "Читает состояние QA без изменений файлов: объясняет qa-config, проверяет окружение и ищет доступные шаги Vanessa Automation."; //$NON-NLS-1$
+            case "qa_generate" -> "Генерирует QA-артефакты: создаёт или мигрирует qa-config и собирает feature-файл из структурированного сценарного плана."; //$NON-NLS-1$
+            case "discover_tools" -> "Показывает скрытые domain tools по категории, когда текущей поверхности недостаточно. Сам работу не выполняет, только раскрывает инструменты."; //$NON-NLS-1$
             default -> null;
         };
     }

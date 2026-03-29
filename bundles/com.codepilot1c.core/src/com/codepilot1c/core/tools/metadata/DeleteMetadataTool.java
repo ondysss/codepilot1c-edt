@@ -30,11 +30,11 @@ public class DeleteMetadataTool extends AbstractTool {
               "properties": {
                 "project": {
                   "type": "string",
-                  "description": "Имя проекта EDT"
+                  "description": "Имя EDT проекта, где существует удаляемый объект"
                 },
                 "target_fqn": {
                   "type": "string",
-                  "description": "FQN удаляемого объекта"
+                  "description": "FQN существующего объекта или дочернего элемента, который нужно удалить"
                 },
                 "recursive": {
                   "type": "boolean",
@@ -46,7 +46,7 @@ public class DeleteMetadataTool extends AbstractTool {
                 },
                 "validation_token": {
                   "type": "string",
-                  "description": "Одноразовый токен из edt_validate_request"
+                  "description": "Одноразовый токен из edt_validate_request для operation=delete_metadata; передавать без изменений"
                 }
               },
               "required": ["project", "target_fqn", "validation_token"]
@@ -67,7 +67,7 @@ public class DeleteMetadataTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Удаляет объект метаданных через EDT BM API."; //$NON-NLS-1$
+        return "Удаляет существующий metadata object или child element через EDT BM API после edt_validate_request. Используй только когда действительно нужен delete, а не update_metadata. После удаления обязательно проверь diagnostics и impact на ссылки и формы."; //$NON-NLS-1$
     }
 
     @Override

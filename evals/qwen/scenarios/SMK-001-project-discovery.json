@@ -15,11 +15,11 @@
     "must_act_like_user": true,
     "must_not_reference_internal_traces": true
   },
-  "prompt": "Ты работаешь в локально запущенном проекте EDT. Проверь, что текущий проект доступен для чтения: можно использовать MCP-инструменты или обычные файловые операции в текущей папке (read-only). Коротко сообщи имя проекта. Не запускай мутации и не используй external_list_projects или extension_list_projects.",
+  "prompt": "Ты работаешь в локально запущенном проекте EDT. Проверь, что текущий проект доступен для чтения: можно использовать MCP-инструменты или обычные файловые операции в текущей папке (read-only). Коротко сообщи имя проекта. Не запускай мутации и не используй external_manage или extension_manage.",
   "expected_tool_path": {
     "forbidden": [
-      "external_list_projects",
-      "extension_list_projects",
+      "external_manage",
+      "extension_manage",
       "create_metadata",
       "add_metadata_child",
       "update_metadata",

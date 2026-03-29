@@ -43,7 +43,7 @@ public class EdtDiagnosticsTool extends AbstractTool {
               "properties": {
                 "command": {
                   "type": "string",
-                  "description": "Command: metadata_smoke|trace_export|analyze_error|update_infobase|launch_app",
+                  "description": "Diagnostics command. Use metadata_smoke for headless verification, trace_export for export issues, analyze_error for a concrete error payload, update_infobase or launch_app for runtime workflow.",
                   "enum": ["metadata_smoke", "trace_export", "analyze_error", "update_infobase", "launch_app"]
                 }
               },
@@ -77,7 +77,7 @@ public class EdtDiagnosticsTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "EDT diagnostics: smoke tests, trace export, error analysis, runtime."; //$NON-NLS-1$
+        return "Запускает EDT диагностику и runtime-команды: smoke, trace export, разбор ошибок, обновление инфобазы и запуск приложения."; //$NON-NLS-1$
     }
 
     @Override
