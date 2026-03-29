@@ -10,6 +10,9 @@ package com.codepilot1c.core.model;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.LinkedHashSet;
+import java.util.stream.Collectors;
 
 /**
  * Represents a message in a conversation with an LLM.
@@ -38,6 +41,7 @@ public class LlmMessage {
 
     private final Role role;
     private final String content;
+    private final List<LlmContentPart> contentParts;
     private final List<ToolCall> toolCalls;
     private final String toolCallId;
 
@@ -48,7 +52,7 @@ public class LlmMessage {
      * @param content the message content
      */
     public LlmMessage(Role role, String content) {
-        this(role, content, null, null);
+        this(role, content, null, null, null);
     }
 
     /**
@@ -60,8 +64,29 @@ public class LlmMessage {
      * @param toolCallId the tool call ID (for tool result messages)
      */
     public LlmMessage(Role role, String content, List<ToolCall> toolCalls, String toolCallId) {
+        this(role, content, null, toolCalls, toolCallId);
+    }
+
+    /**
+     * Creates a new message with structured content parts.
+     *
+     * @param role the role of the sender
+     * @param contentParts the content parts
+     */
+    public LlmMessage(Role role, List<LlmContentPart> contentParts) {
+        this(role, flattenContentParts(contentParts), contentParts, null, null);
+    }
+
+    /**
+     * Creates a new message with fully specified fields.
+     */
+    public LlmMessage(Role role, String content, List<LlmContentPart> contentParts, List<ToolCall> toolCalls,
+            String toolCallId) {
         this.role = Objects.requireNonNull(role, "role must not be null"); //$NON-NLS-1$
         this.content = content != null ? content : ""; //$NON-NLS-1$
+        this.contentParts = contentParts != null
+                ? Collections.unmodifiableList(contentParts)
+                : Collections.emptyList();
         this.toolCalls = toolCalls != null ? Collections.unmodifiableList(toolCalls) : Collections.emptyList();
         this.toolCallId = toolCallId;
     }
@@ -76,6 +101,10 @@ public class LlmMessage {
         return new LlmMessage(Role.SYSTEM, content);
     }
 
+    public static LlmMessage system(List<LlmContentPart> contentParts) {
+        return new LlmMessage(Role.SYSTEM, contentParts);
+    }
+
     /**
      * Creates a user message.
      *
@@ -84,6 +113,10 @@ public class LlmMessage {
      */
     public static LlmMessage user(String content) {
         return new LlmMessage(Role.USER, content);
+    }
+
+    public static LlmMessage user(List<LlmContentPart> contentParts) {
+        return new LlmMessage(Role.USER, contentParts);
     }
 
     /**
@@ -126,6 +159,36 @@ public class LlmMessage {
         return content;
     }
 
+    public List<LlmContentPart> getContentParts() {
+        return contentParts;
+    }
+
+    public boolean hasContentParts() {
+        return !contentParts.isEmpty();
+    }
+
+    public List<LlmAttachment> getAttachments() {
+        return contentParts.stream()
+                .map(LlmContentPart::getAttachment)
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    public boolean hasImageAttachments() {
+        return getAttachments().stream().anyMatch(LlmAttachment::isImage);
+    }
+
+    public boolean hasFileAttachments() {
+        return getAttachments().stream().anyMatch(LlmAttachment::isFile);
+    }
+
+    public String getTextualContentFallback() {
+        if (!hasContentParts()) {
+            return content;
+        }
+        return flattenContentParts(contentParts);
+    }
+
     /**
      * Returns the tool calls for this message.
      *
@@ -160,6 +223,26 @@ public class LlmMessage {
      */
     public boolean isToolResult() {
         return role == Role.TOOL && toolCallId != null;
+    }
+
+    public Set<String> getAttachmentMimeTypes() {
+        Set<String> result = new LinkedHashSet<>();
+        for (LlmAttachment attachment : getAttachments()) {
+            if (attachment.getMimeType() != null && !attachment.getMimeType().isBlank()) {
+                result.add(attachment.getMimeType());
+            }
+        }
+        return result;
+    }
+
+    private static String flattenContentParts(List<LlmContentPart> contentParts) {
+        if (contentParts == null || contentParts.isEmpty()) {
+            return ""; //$NON-NLS-1$
+        }
+        return contentParts.stream()
+                .map(LlmContentPart::toTextFallback)
+                .filter(part -> part != null && !part.isBlank())
+                .collect(Collectors.joining("\n\n")); //$NON-NLS-1$
     }
 
     @Override

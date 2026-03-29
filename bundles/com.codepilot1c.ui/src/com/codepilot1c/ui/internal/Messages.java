@@ -39,6 +39,11 @@ public class Messages extends NLS {
     public static String ChatView_ContextCompactedSkippedNotice;
     public static String ChatView_AutoCompactLabel;
     public static String ChatView_ManualCompactLabel;
+    public static String ChatView_AttachButton;
+    public static String ChatView_AttachDialogTitle;
+    public static String ChatView_AttachmentTooLarge;
+    public static String ChatView_AttachmentLimitExceeded;
+    public static String ChatView_ImageAttachmentsUnsupported;
 
     public static String PreferencePage_Description;
     public static String PreferencePage_ProviderLabel;

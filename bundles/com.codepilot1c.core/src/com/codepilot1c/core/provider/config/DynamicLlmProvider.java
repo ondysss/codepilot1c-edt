@@ -12,8 +12,11 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -26,6 +29,7 @@ import org.eclipse.core.runtime.preferences.InstanceScope;
 import com.codepilot1c.core.internal.VibeCorePlugin;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
+import com.codepilot1c.core.model.LlmAttachment;
 import com.codepilot1c.core.model.LlmMessage;
 import com.codepilot1c.core.model.LlmConversationSanitizer;
 import com.codepilot1c.core.model.LlmRequest;
@@ -608,6 +612,7 @@ public class DynamicLlmProvider implements ILlmProvider {
         body.addProperty("model", resolveModelName(request)); //$NON-NLS-1$
         body.addProperty("max_tokens", request.getMaxTokens() > 0 ? request.getMaxTokens() : config.getMaxTokens()); //$NON-NLS-1$
         body.addProperty("stream", executionPlan.isStreaming()); //$NON-NLS-1$
+        ProviderCapabilities caps = getCapabilities();
 
         JsonArray messages = new JsonArray();
 
@@ -615,7 +620,7 @@ public class DynamicLlmProvider implements ILlmProvider {
         List<LlmMessage> sanitizedMessages = LlmConversationSanitizer
                 .sanitizeForOpenAiToolCalls(request.getMessages());
         for (LlmMessage msg : sanitizedMessages) {
-            messages.add(serializeMessage(msg));
+            messages.add(serializeMessage(msg, caps));
         }
 
         body.add("messages", messages); //$NON-NLS-1$
@@ -645,7 +650,7 @@ public class DynamicLlmProvider implements ILlmProvider {
     /**
      * Serializes a message to JSON, handling tool calls and tool results.
      */
-    private JsonObject serializeMessage(LlmMessage msg) {
+    private JsonObject serializeMessage(LlmMessage msg, ProviderCapabilities caps) {
         JsonObject msgObj = new JsonObject();
         msgObj.addProperty("role", msg.getRole().getValue()); //$NON-NLS-1$
 
@@ -676,8 +681,8 @@ public class DynamicLlmProvider implements ILlmProvider {
             }
             msgObj.add("tool_calls", toolCalls); //$NON-NLS-1$
         } else {
-            // Regular message
-            msgObj.addProperty("content", msg.getContent()); //$NON-NLS-1$
+            JsonElement content = ProviderMessageContentSerializer.toOpenAiContent(msg, caps);
+            msgObj.add("content", content); //$NON-NLS-1$
         }
 
         return msgObj;
@@ -758,6 +763,7 @@ public class DynamicLlmProvider implements ILlmProvider {
         body.addProperty("model", resolveModelName(request)); //$NON-NLS-1$
         body.addProperty("max_tokens", config.getMaxTokens()); //$NON-NLS-1$
         body.addProperty("stream", stream); //$NON-NLS-1$
+        ProviderCapabilities caps = getCapabilities();
 
         // Extract system message (Anthropic uses separate "system" field)
         JsonArray messages = new JsonArray();
@@ -766,15 +772,53 @@ public class DynamicLlmProvider implements ILlmProvider {
                 // System message is a separate field in Anthropic API
                 body.addProperty("system", msg.getContent()); //$NON-NLS-1$
             } else {
-                JsonObject msgObj = new JsonObject();
-                msgObj.addProperty("role", msg.getRole().getValue()); //$NON-NLS-1$
-                msgObj.addProperty("content", msg.getContent()); //$NON-NLS-1$
-                messages.add(msgObj);
+                messages.add(serializeAnthropicMessage(msg, caps));
             }
         }
 
         body.add("messages", messages); //$NON-NLS-1$
         return gson.toJson(body);
+    }
+
+    private JsonObject serializeAnthropicMessage(LlmMessage msg, ProviderCapabilities caps) {
+        JsonObject msgObj = new JsonObject();
+        msgObj.addProperty("role", msg.getRole().getValue()); //$NON-NLS-1$
+
+        if (msg.getRole() == LlmMessage.Role.TOOL) {
+            JsonArray contentArray = new JsonArray();
+            JsonObject toolResult = new JsonObject();
+            toolResult.addProperty("type", "tool_result"); //$NON-NLS-1$ //$NON-NLS-2$
+            toolResult.addProperty("tool_use_id", msg.getToolCallId()); //$NON-NLS-1$
+            toolResult.addProperty("content", msg.getContent()); //$NON-NLS-1$
+            contentArray.add(toolResult);
+            msgObj.add("content", contentArray); //$NON-NLS-1$
+            msgObj.addProperty("role", "user"); //$NON-NLS-1$ //$NON-NLS-2$
+        } else if (msg.hasToolCalls()) {
+            JsonArray contentArray = new JsonArray();
+            if (msg.getContent() != null && !msg.getContent().isEmpty()) {
+                JsonObject textBlock = new JsonObject();
+                textBlock.addProperty("type", "text"); //$NON-NLS-1$ //$NON-NLS-2$
+                textBlock.addProperty("text", msg.getContent()); //$NON-NLS-1$
+                contentArray.add(textBlock);
+            }
+            for (ToolCall call : msg.getToolCalls()) {
+                JsonObject toolUse = new JsonObject();
+                toolUse.addProperty("type", "tool_use"); //$NON-NLS-1$ //$NON-NLS-2$
+                toolUse.addProperty("id", call.getId()); //$NON-NLS-1$
+                toolUse.addProperty("name", call.getName()); //$NON-NLS-1$
+                try {
+                    JsonElement input = JsonParser.parseString(call.getArguments());
+                    toolUse.add("input", input); //$NON-NLS-1$
+                } catch (Exception e) {
+                    toolUse.add("input", new JsonObject()); //$NON-NLS-1$
+                }
+                contentArray.add(toolUse);
+            }
+            msgObj.add("content", contentArray); //$NON-NLS-1$
+        } else {
+            msgObj.add("content", ProviderMessageContentSerializer.toAnthropicContent(msg, caps)); //$NON-NLS-1$
+        }
+        return msgObj;
     }
 
     /**
@@ -791,12 +835,45 @@ public class DynamicLlmProvider implements ILlmProvider {
         for (LlmMessage msg : request.getMessages()) {
             JsonObject msgObj = new JsonObject();
             msgObj.addProperty("role", msg.getRole().getValue()); //$NON-NLS-1$
-            msgObj.addProperty("content", msg.getContent()); //$NON-NLS-1$
+            msgObj.addProperty("content", msg.hasContentParts()
+                    ? msg.getTextualContentFallback()
+                    : msg.getContent() != null ? msg.getContent() : ""); //$NON-NLS-1$ //$NON-NLS-2$
+            JsonArray images = buildOllamaImages(msg);
+            if (images.size() > 0) {
+                msgObj.add("images", images); //$NON-NLS-1$
+            }
             messages.add(msgObj);
         }
 
         body.add("messages", messages); //$NON-NLS-1$
         return gson.toJson(body);
+    }
+
+    private JsonArray buildOllamaImages(LlmMessage message) {
+        JsonArray images = new JsonArray();
+        for (LlmAttachment attachment : message.getAttachments()) {
+            if (!attachment.isImage()) {
+                continue;
+            }
+            String encoded = encodeAttachmentBase64(attachment);
+            if (encoded != null) {
+                images.add(encoded);
+            }
+        }
+        return images;
+    }
+
+    private String encodeAttachmentBase64(LlmAttachment attachment) {
+        String effectivePath = attachment.getEffectivePath();
+        if (effectivePath == null || effectivePath.isBlank()) {
+            return null;
+        }
+        try {
+            return Base64.getEncoder().encodeToString(Files.readAllBytes(Path.of(effectivePath)));
+        } catch (IOException | RuntimeException e) {
+            LOG.warn("Failed to read Ollama image attachment %s: %s", effectivePath, e.getMessage()); //$NON-NLS-1$
+            return null;
+        }
     }
 
     private String resolveModelName(LlmRequest request) {

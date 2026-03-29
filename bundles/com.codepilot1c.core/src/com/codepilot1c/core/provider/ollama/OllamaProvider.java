@@ -7,17 +7,23 @@
  */
 package com.codepilot1c.core.provider.ollama;
 
+import java.io.IOException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
+import com.codepilot1c.core.model.LlmAttachment;
 import com.codepilot1c.core.model.LlmMessage;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
 import com.codepilot1c.core.provider.AbstractLlmProvider;
 import com.codepilot1c.core.provider.LlmProviderException;
+import com.codepilot1c.core.provider.ProviderCapabilities;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -48,6 +54,17 @@ public class OllamaProvider extends AbstractLlmProvider {
     @Override
     public boolean supportsStreaming() {
         return true;
+    }
+
+    @Override
+    public ProviderCapabilities getCapabilities() {
+        return ProviderCapabilities.builder()
+                .imageInput(true)
+                .documentInput(true)
+                .attachmentMetadata(true)
+                .maxAttachmentBytes(10L * 1024L * 1024L)
+                .maxAttachmentsPerMessage(5)
+                .build();
     }
 
     private String getApiUrl() {
@@ -140,7 +157,13 @@ public class OllamaProvider extends AbstractLlmProvider {
         for (LlmMessage msg : request.getMessages()) {
             JsonObject msgObj = new JsonObject();
             msgObj.addProperty("role", msg.getRole().getValue()); //$NON-NLS-1$
-            msgObj.addProperty("content", msg.getContent()); //$NON-NLS-1$
+            msgObj.addProperty("content", msg.hasContentParts()
+                    ? msg.getTextualContentFallback()
+                    : msg.getContent() != null ? msg.getContent() : ""); //$NON-NLS-1$ //$NON-NLS-2$
+            JsonArray images = buildImages(msg);
+            if (images.size() > 0) {
+                msgObj.add("images", images); //$NON-NLS-1$
+            }
             messages.add(msgObj);
         }
         body.add("messages", messages); //$NON-NLS-1$
@@ -154,6 +177,32 @@ public class OllamaProvider extends AbstractLlmProvider {
         body.add("options", options); //$NON-NLS-1$
 
         return gson.toJson(body);
+    }
+
+    private JsonArray buildImages(LlmMessage message) {
+        JsonArray images = new JsonArray();
+        for (LlmAttachment attachment : message.getAttachments()) {
+            if (!attachment.isImage()) {
+                continue;
+            }
+            String encoded = encodeAttachmentBase64(attachment);
+            if (encoded != null) {
+                images.add(encoded);
+            }
+        }
+        return images;
+    }
+
+    private String encodeAttachmentBase64(LlmAttachment attachment) {
+        String effectivePath = attachment.getEffectivePath();
+        if (effectivePath == null || effectivePath.isBlank()) {
+            return null;
+        }
+        try {
+            return Base64.getEncoder().encodeToString(Files.readAllBytes(Path.of(effectivePath)));
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
     }
 
     private LlmResponse parseResponse(HttpResponse<String> response) {

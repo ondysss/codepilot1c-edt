@@ -29,6 +29,7 @@ import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Status;
 
 import com.codepilot1c.core.internal.VibeCorePlugin;
+import com.codepilot1c.core.model.LlmContentPart;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.TypeAdapter;
@@ -401,6 +402,7 @@ public class FileSessionStore implements ISessionStore {
         String type;
         String content;
         Instant timestamp;
+        List<LlmContentPart> contentParts;
         String toolCallId;
         String toolName;
         boolean isError;
@@ -412,6 +414,7 @@ public class FileSessionStore implements ISessionStore {
             data.type = msg.getType().name();
             data.content = msg.getContent();
             data.timestamp = msg.getTimestamp();
+            data.contentParts = msg.getContentParts();
             data.toolCallId = msg.getToolCallId();
             data.toolName = msg.getToolName();
             data.isError = msg.isError();
@@ -423,6 +426,7 @@ public class FileSessionStore implements ISessionStore {
                     .id(id)
                     .type(SessionMessage.MessageType.valueOf(type))
                     .content(content)
+                    .contentParts(contentParts)
                     .timestamp(timestamp)
                     .toolCallId(toolCallId)
                     .toolName(toolName)

@@ -24,6 +24,8 @@ import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.AbstractLlmProvider;
 import com.codepilot1c.core.provider.LlmProviderException;
+import com.codepilot1c.core.provider.ProviderCapabilities;
+import com.codepilot1c.core.provider.config.ProviderMessageContentSerializer;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -61,6 +63,17 @@ public class ClaudeProvider extends AbstractLlmProvider {
     @Override
     public boolean supportsStreaming() {
         return true;
+    }
+
+    @Override
+    public ProviderCapabilities getCapabilities() {
+        return ProviderCapabilities.builder()
+                .imageInput(true)
+                .documentInput(true)
+                .attachmentMetadata(true)
+                .maxAttachmentBytes(10L * 1024L * 1024L)
+                .maxAttachmentsPerMessage(5)
+                .build();
     }
 
     private String getApiKey() {
@@ -281,6 +294,7 @@ public class ClaudeProvider extends AbstractLlmProvider {
 
     private String buildRequestBody(LlmRequest request, boolean stream) {
         JsonObject body = new JsonObject();
+        ProviderCapabilities caps = getCapabilities();
 
         String model = request.getModel() != null ? request.getModel() : getModel();
         body.addProperty("model", model); //$NON-NLS-1$
@@ -297,7 +311,7 @@ public class ClaudeProvider extends AbstractLlmProvider {
             if (msg.getRole() == LlmMessage.Role.SYSTEM) {
                 body.addProperty("system", msg.getContent()); //$NON-NLS-1$
             } else {
-                messages.add(serializeMessage(msg));
+                messages.add(serializeMessage(msg, caps));
             }
         }
         body.add("messages", messages); //$NON-NLS-1$
@@ -317,7 +331,7 @@ public class ClaudeProvider extends AbstractLlmProvider {
         return json;
     }
 
-    private JsonObject serializeMessage(LlmMessage msg) {
+    private JsonObject serializeMessage(LlmMessage msg, ProviderCapabilities caps) {
         JsonObject msgObj = new JsonObject();
         msgObj.addProperty("role", msg.getRole().getValue()); //$NON-NLS-1$
 
@@ -362,8 +376,7 @@ public class ClaudeProvider extends AbstractLlmProvider {
             }
             msgObj.add("content", contentArray); //$NON-NLS-1$
         } else {
-            // Regular message
-            msgObj.addProperty("content", msg.getContent()); //$NON-NLS-1$
+            msgObj.add("content", ProviderMessageContentSerializer.toAnthropicContent(msg, caps)); //$NON-NLS-1$
         }
 
         return msgObj;

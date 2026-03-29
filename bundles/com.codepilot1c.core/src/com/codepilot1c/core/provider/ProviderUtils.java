@@ -15,6 +15,9 @@ import com.codepilot1c.core.provider.config.ProviderType;
  */
 public final class ProviderUtils {
 
+    private static final long DEFAULT_MAX_ATTACHMENT_BYTES = 10L * 1024L * 1024L;
+    private static final int DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE = 5;
+
     private ProviderUtils() {
     }
 
@@ -30,12 +33,24 @@ public final class ProviderUtils {
         if (config == null || config.getType() == null) {
             return ProviderCapabilities.none();
         }
+        ProviderCapabilities.Builder base = ProviderCapabilities.builder()
+                .imageInput(true)
+                .documentInput(true)
+                .attachmentMetadata(true)
+                .maxAttachmentBytes(DEFAULT_MAX_ATTACHMENT_BYTES)
+                .maxAttachmentsPerMessage(DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE);
+        if (config.getType() == ProviderType.ANTHROPIC) {
+            return base.build();
+        }
+        if (config.getType() == ProviderType.OPENAI_COMPATIBLE) {
+            return base.build();
+        }
         if (config.getType() == ProviderType.CODEPILOT_BACKEND) {
             String modelFamily = ProviderCapabilities.resolveModelFamily(config.getModel());
             float defaultTemp = ProviderCapabilities.FAMILY_UNKNOWN.equals(modelFamily)
                     ? -1f
                     : ProviderCapabilities.QWEN_DEFAULT_TEMPERATURE;
-            return ProviderCapabilities.builder()
+            return base
                     .codePilotBackend(true)
                     .backendOptimizations(true)
                     .promptCacheHeaders(true)
@@ -43,6 +58,9 @@ public final class ProviderUtils {
                     .resolvedModelFamily(modelFamily)
                     .defaultTemperature(defaultTemp)
                     .build();
+        }
+        if (config.getType() == ProviderType.OLLAMA) {
+            return base.build();
         }
         return ProviderCapabilities.none();
     }
