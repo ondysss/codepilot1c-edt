@@ -10,6 +10,7 @@ package com.codepilot1c.ui.views;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -61,6 +62,11 @@ import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.util.AttachmentTextExtractor;
+import com.codepilot1c.core.backend.BackendConfig;
+import com.codepilot1c.core.backend.BackendService;
+import com.codepilot1c.core.provider.config.ProviderType;
+import com.codepilot1c.core.provider.config.ModelFetchService;
+import com.codepilot1c.core.provider.config.ModelFetchService.ModelInfo;
 import com.codepilot1c.ui.dialogs.ToolConfirmationDialog;
 import com.codepilot1c.ui.diff.DiffReviewDialog;
 import com.codepilot1c.ui.diff.ProposedChange;
@@ -69,6 +75,7 @@ import com.codepilot1c.ui.editor.CodeApplicationService;
 import com.codepilot1c.ui.internal.Messages;
 import com.codepilot1c.ui.internal.ToolDisplayNames;
 import com.codepilot1c.ui.internal.VibeUiPlugin;
+import com.codepilot1c.ui.preferences.ModelSelectionDialog;
 import com.codepilot1c.ui.theme.ThemeManager;
 import com.codepilot1c.ui.theme.VibeTheme;
 
@@ -103,6 +110,8 @@ public class ChatView extends ViewPart {
     private Button stopButton;
     private Button applyCodeButton;
     private Button compactButton;
+    private Button modelButton;
+    private String overrideModelId;
     private TypingIndicatorWidget typingIndicator;
     private Label tokenUsageLabel;
     private Composite attachmentPreviewArea;
@@ -294,7 +303,7 @@ public class ChatView extends ViewPart {
         Composite buttonBar = new Composite(inputArea, SWT.NONE);
         buttonBar.setBackground(inputArea.getBackground());
         buttonBar.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-        GridLayout buttonLayout = new GridLayout(8, false);
+        GridLayout buttonLayout = new GridLayout(9, false);
         buttonLayout.marginWidth = 0;
         buttonLayout.marginHeight = 0;
         buttonLayout.horizontalSpacing = 4; // Compact spacing
@@ -344,6 +353,15 @@ public class ChatView extends ViewPart {
                 appendSystemMessage(Messages.ChatView_ContextCompactedSkippedNotice);
             }
         });
+
+        // Model selector button — only visible when CodePilot is active
+        modelButton = new Button(buttonBar, SWT.PUSH);
+        modelButton.setText(Messages.ChatView_ModelButton);
+        modelButton.setToolTipText(Messages.ChatView_ModelButtonTooltip);
+        modelButton.setFont(theme.getFont());
+        modelButton.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+        modelButton.addListener(SWT.Selection, e -> openModelSelectionDialog());
+        updateModelButtonVisibility();
 
         tokenUsageLabel = new Label(buttonBar, SWT.NONE);
         tokenUsageLabel.setBackground(buttonBar.getBackground());
@@ -987,6 +1005,10 @@ public class ChatView extends ViewPart {
             List<ToolDefinition> tools = ToolRegistry.getInstance().getToolDefinitions();
             requestBuilder.tools(tools);
             requestBuilder.toolChoice(LlmRequest.ToolChoice.AUTO);
+        }
+
+        if (overrideModelId != null && !overrideModelId.isBlank()) {
+            requestBuilder.model(overrideModelId);
         }
 
         return requestBuilder.build();
@@ -1961,6 +1983,9 @@ public class ChatView extends ViewPart {
             if (compactButton != null && !compactButton.isDisposed()) {
                 compactButton.setEnabled(!processing);
             }
+            if (modelButton != null && !modelButton.isDisposed()) {
+                modelButton.setEnabled(!processing);
+            }
             refreshAttachmentPreview();
 
             // Show/hide typing indicator
@@ -2335,6 +2360,71 @@ public class ChatView extends ViewPart {
                 totalTokensTotal);
         tokenUsageLabel.setText(text);
         tokenUsageLabel.getParent().layout(true, true);
+    }
+
+    private void updateModelButtonVisibility() {
+        if (modelButton == null || modelButton.isDisposed()) {
+            return;
+        }
+        boolean isCodePilot = currentProviderCapabilities().isCodePilotBackend();
+        modelButton.setVisible(isCodePilot);
+        ((GridData) modelButton.getLayoutData()).exclude = !isCodePilot;
+        modelButton.getParent().layout(true, true);
+    }
+
+    private void updateModelButtonLabel() {
+        if (modelButton == null || modelButton.isDisposed()) {
+            return;
+        }
+        if (overrideModelId != null && !overrideModelId.isBlank()) {
+            modelButton.setText(overrideModelId);
+        } else {
+            modelButton.setText(Messages.ChatView_ModelButton);
+        }
+        modelButton.getParent().layout(true, true);
+    }
+
+    private void openModelSelectionDialog() {
+        ILlmProvider provider = LlmProviderRegistry.getInstance().getActiveProvider();
+        if (provider == null || !provider.getCapabilities().isCodePilotBackend()) {
+            return;
+        }
+        modelButton.setEnabled(false);
+        modelButton.setText(Messages.ChatView_ModelFetching);
+        modelButton.getParent().layout(true, true);
+
+        String apiKey = BackendService.getInstance().getApiKey();
+        ModelFetchService.getInstance().fetchModels(
+                BackendConfig.LITELLM_BASE_URL, apiKey, ProviderType.CODEPILOT_BACKEND)
+                .thenAccept(result -> Display.getDefault().asyncExec(() -> {
+                    if (modelButton == null || modelButton.isDisposed()) {
+                        return;
+                    }
+                    modelButton.setEnabled(true);
+                    updateModelButtonLabel();
+                    if (!result.isSuccess()) {
+                        MessageDialog.openError(getSite().getShell(),
+                                Messages.ChatView_ModelButtonTooltip,
+                                MessageFormat.format(
+                                        Messages.ChatView_ModelFetchError, result.getError()));
+                        return;
+                    }
+                    List<ModelInfo> models = result.getModels();
+                    if (models.isEmpty()) {
+                        MessageDialog.openInformation(getSite().getShell(),
+                                Messages.ChatView_ModelButtonTooltip,
+                                Messages.ChatView_ModelNoModels);
+                        return;
+                    }
+                    ModelSelectionDialog dialog = new ModelSelectionDialog(getSite().getShell(), models);
+                    if (dialog.open() == org.eclipse.jface.dialogs.IDialogConstants.OK_ID) {
+                        ModelInfo selected = dialog.getSelectedModel();
+                        if (selected != null) {
+                            overrideModelId = selected.getId();
+                            updateModelButtonLabel();
+                        }
+                    }
+                }));
     }
 
     private boolean isTokenUsageVisible() {

@@ -44,6 +44,11 @@ public class Messages extends NLS {
     public static String ChatView_AttachmentTooLarge;
     public static String ChatView_AttachmentLimitExceeded;
     public static String ChatView_ImageAttachmentsUnsupported;
+    public static String ChatView_ModelButton;
+    public static String ChatView_ModelButtonTooltip;
+    public static String ChatView_ModelFetching;
+    public static String ChatView_ModelFetchError;
+    public static String ChatView_ModelNoModels;
 
     public static String PreferencePage_Description;
     public static String PreferencePage_ProviderLabel;
