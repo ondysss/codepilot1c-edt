@@ -67,7 +67,11 @@ public final class QwenToolSurfaceRewriteContributor implements ToolSurfaceContr
             case "add_metadata_child" -> "Создаёт дочерний объект (реквизит, табличную часть, команду). Тип: {types:[xs:string]} или {types:[CatalogRef.Склады]}. НЕ используй v8:STRING."; //$NON-NLS-1$
             case "ensure_module_artifact" -> "Ensure that a metadata-owned BSL module artifact exists and return its path. Use it after edt_validate_request and before edit_file or write_file when changing object-owned module code."; //$NON-NLS-1$
             case "update_metadata" -> "Применяет изменения свойств через BM API. Формат changes: {\"set\":{\"field\":\"value\"}} — обёртка set ОБЯЗАТЕЛЬНА. Enum-поля: строки (Allow/Deny). НЕ используй: subsystems, name. После изменений запусти диагностику."; //$NON-NLS-1$
-            case "mutate_form_model" -> "Применяет низкоуровневые операции к форме. Каждая операция содержит поле op (НЕ id!): add_field, add_group, move, remove, set_property. Поле name ОБЯЗАТЕЛЬНО для add_field/add_group. Сначала inspect_form_layout."; //$NON-NLS-1$
+            case "mutate_form_model" -> "Изменяет форму через operations:[{op:...}]. op: add_field|add_group|set_item|remove_item|move_item|set_form_props. " //$NON-NLS-1$
+                    + "add_field: ОБЯЗАТЕЛЬНО name+data_path, field_type=LABEL_FIELD|INPUT_FIELD. " //$NON-NLS-1$
+                    + "set_item: ОБЯЗАТЕЛЬНО item_id(число) ИЛИ item_name(строка) + set:{...}. НЕ используй id или name вместо item_id/item_name. " //$NON-NLS-1$
+                    + "Родитель: parent_item_id(число) ИЛИ parent_item_name(строка). НЕ используй parent_id или parent. " //$NON-NLS-1$
+                    + "Сначала вызови inspect_form_layout чтобы узнать ID элементов."; //$NON-NLS-1$
             case "delete_metadata" -> "Delete a metadata object through EDT BM APIs with an explicit validation_token. Use recursive or force only when the request truly requires it."; //$NON-NLS-1$
             case "apply_form_recipe" -> "Apply a higher-level managed-form recipe that can create or locate a form, upsert attributes, and mutate layout. Prefer it over low-level mutate_form_model when the intended change fits the recipe flow."; //$NON-NLS-1$
             case "inspect_form_layout" -> "Inspect managed-form structure headlessly through EDT BM APIs. Use it before form mutations to locate element ids, data paths, and layout nodes."; //$NON-NLS-1$

@@ -1130,8 +1130,19 @@ public class EdtMetadataService {
     }
 
     private FormItemContainer resolveTargetContainer(Form formModel, Map<String, Object> operation) {
+        // Accept parent_item_id (canonical) or parent_id/parentId (common LLM hallucination aliases)
         Integer parentItemId = asOptionalInteger(getMapValueIgnoreCase(operation, "parent_item_id"), "parent_item_id"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (parentItemId == null) {
+            parentItemId = asOptionalInteger(getMapValueIgnoreCase(operation, "parent_id"), "parent_id"); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if (parentItemId == null) {
+            parentItemId = asOptionalInteger(getMapValueIgnoreCase(operation, "parentId"), "parentId"); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        // Accept parent_item_name (canonical) or parent (common LLM hallucination alias)
         String parentItemName = asString(getMapValueIgnoreCase(operation, "parent_item_name")); //$NON-NLS-1$
+        if (parentItemName == null) {
+            parentItemName = asString(getMapValueIgnoreCase(operation, "parent")); //$NON-NLS-1$
+        }
         if (parentItemId == null && parentItemName == null) {
             return formModel;
         }
@@ -1145,7 +1156,11 @@ public class EdtMetadataService {
     }
 
     private FormItem resolveRequiredItem(Form formModel, Map<String, Object> operation) {
+        // Accept item_id (canonical) or id (common LLM hallucination alias)
         Integer itemId = asOptionalInteger(getMapValueIgnoreCase(operation, "item_id"), "item_id"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (itemId == null) {
+            itemId = asOptionalInteger(getMapValueIgnoreCase(operation, "id"), "id"); //$NON-NLS-1$ //$NON-NLS-2$
+        }
         String itemName = asString(getMapValueIgnoreCase(operation, "item_name")); //$NON-NLS-1$
         if (itemName == null) {
             itemName = asString(getMapValueIgnoreCase(operation, "name")); //$NON-NLS-1$
