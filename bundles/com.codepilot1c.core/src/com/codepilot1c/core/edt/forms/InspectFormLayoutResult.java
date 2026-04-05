@@ -13,8 +13,23 @@ public record InspectFormLayoutResult(
         Map<String, Object> formProperties,
         int totalItems,
         boolean truncated,
+        String mutationHint,
         List<FormItemNode> items
 ) {
+    /**
+     * Constructor without mutationHint for backward compatibility.
+     */
+    public InspectFormLayoutResult(
+            String projectName,
+            String formFqn,
+            String formName,
+            Map<String, Object> formProperties,
+            int totalItems,
+            boolean truncated,
+            List<FormItemNode> items) {
+        this(projectName, formFqn, formName, formProperties, totalItems, truncated, null, items);
+    }
+
     /**
      * Form item node representation.
      */

@@ -640,6 +640,7 @@ public class EdtMetadataService {
                     0,
                     request,
                     state);
+            String mutationHint = buildFormMutationHint(request.formFqn());
             return new InspectFormLayoutResult(
                     request.projectName(),
                     request.formFqn(),
@@ -647,6 +648,7 @@ public class EdtMetadataService {
                     formProperties,
                     state.visited(),
                     state.truncated(),
+                    mutationHint,
                     nodes);
         });
 
@@ -752,6 +754,8 @@ public class EdtMetadataService {
         int operationIndex = 1;
         for (Map<String, Object> operation : operations) {
             String rawOp = asString(operation.get("op")); //$NON-NLS-1$
+            // Early validation: detect common LLM hallucinations and give actionable errors
+            validateFormOperationParams(operation, rawOp);
             String op = normalizeToken(rawOp);
             switch (op) {
                 case "setformprops", "setformproperties", "setform" -> {
@@ -2029,6 +2033,57 @@ public class EdtMetadataService {
             }
         }
         return null;
+    }
+
+    /**
+     * Early validation of form operation parameters to detect common LLM hallucinations
+     * and provide actionable error messages instead of cryptic BM errors.
+     */
+    private void validateFormOperationParams(Map<String, Object> operation, String rawOp) {
+        if (rawOp == null || rawOp.isBlank()) {
+            // Check if the model used "action" instead of "op"
+            String action = asString(getMapValueIgnoreCase(operation, "action")); //$NON-NLS-1$
+            if (action != null && !action.isBlank()) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Use \"op\" field instead of \"action\". Example: {\"op\":\"add_field\",...}", false); //$NON-NLS-1$
+            }
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Operation requires \"op\" field. Valid values: add_field, add_group, set_item, " //$NON-NLS-1$
+                            + "remove_item, move_item, set_form_props", false); //$NON-NLS-1$
+        }
+
+        // Detect "type":"field" hallucination — model should use op:"add_field"
+        String normalized = normalizeToken(rawOp);
+        if ("add".equals(normalized)) { //$NON-NLS-1$
+            String type = asString(getMapValueIgnoreCase(operation, "type")); //$NON-NLS-1$
+            if ("field".equalsIgnoreCase(type)) { //$NON-NLS-1$
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Use {\"op\":\"add_field\"} instead of {\"op\":\"add\",\"type\":\"field\"}. " //$NON-NLS-1$
+                                + "Valid field_type values: INPUT_FIELD, LABEL_FIELD, BUTTON_FIELD", false); //$NON-NLS-1$
+            }
+            if ("group".equalsIgnoreCase(type)) { //$NON-NLS-1$
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Use {\"op\":\"add_group\"} instead of {\"op\":\"add\",\"type\":\"group\"}", false); //$NON-NLS-1$
+            }
+        }
+    }
+
+    /**
+     * Builds a concise mutation hint string that is embedded in the inspect_form_layout
+     * output. LLMs read this hint before calling mutate_form_model, which dramatically
+     * reduces parameter name hallucinations (parent_id vs parent_item_id, etc.).
+     */
+    private String buildFormMutationHint(String formFqn) {
+        return "To mutate this form with mutate_form_model, use: " //$NON-NLS-1$
+                + "form_fqn=\"" + formFqn + "\", operations:[{op:\"add_field\", name:\"...\", " //$NON-NLS-1$ //$NON-NLS-2$
+                + "parent_item_id:<id from items above>, data_path:\"...\", field_type:\"LABEL_FIELD\"}]. " //$NON-NLS-1$
+                + "For set_item use item_id:<id> (NOT id). " //$NON-NLS-1$
+                + "For move_item use parent_item_id:<id> (NOT parent_id or parent). " //$NON-NLS-1$
+                + "Valid ops: add_field, add_group, set_item, remove_item, move_item, set_form_props."; //$NON-NLS-1$
     }
 
     private Map<String, Object> collectFormRootProperties(
