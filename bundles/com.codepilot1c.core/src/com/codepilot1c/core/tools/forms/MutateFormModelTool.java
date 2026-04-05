@@ -12,6 +12,7 @@ import java.util.concurrent.CompletableFuture;
 import com.codepilot1c.core.edt.forms.EdtFormService;
 import com.codepilot1c.core.edt.forms.UpdateFormModelRequest;
 import com.codepilot1c.core.edt.forms.UpdateFormModelResult;
+import com.codepilot1c.core.edt.metadata.MetadataOperationCode;
 import com.codepilot1c.core.edt.metadata.MetadataOperationException;
 import com.codepilot1c.core.edt.validation.MetadataRequestValidationService;
 import com.codepilot1c.core.edt.validation.ValidationOperation;
@@ -152,7 +153,13 @@ public class MutateFormModelTool extends AbstractTool {
 
     private String asRequiredString(Map<String, Object> payload, String key) {
         Object value = payload.get(key);
-        return value == null ? null : String.valueOf(value);
+        if (value == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_NAME,
+                    "Required field missing in validated payload: " + key, //$NON-NLS-1$
+                    false);
+        }
+        return String.valueOf(value);
     }
 
     @SuppressWarnings("unchecked")

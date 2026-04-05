@@ -56,6 +56,19 @@ final class QwenContentToolCallParser {
     /** Quick check pattern — avoids regex for the common case. */
     private static final String TOOL_CALL_MARKER = "<tool_call>"; //$NON-NLS-1$
 
+    // --- Kimi/Moonshot format support ---
+
+    /** Kimi tool call section markers. */
+    private static final String KIMI_SECTION_BEGIN = "<|tool_calls_section_begin|>"; //$NON-NLS-1$
+    private static final String KIMI_SECTION_END = "<|tool_calls_section_end|>"; //$NON-NLS-1$
+    private static final String KIMI_CALL_BEGIN = "<|tool_call_begin|>"; //$NON-NLS-1$
+    private static final String KIMI_CALL_END = "<|tool_call_end|>"; //$NON-NLS-1$
+    private static final String KIMI_ARG_BEGIN = "<|tool_call_argument_begin|>"; //$NON-NLS-1$
+
+    /** Pattern to extract function name from Kimi format: functions.NAME:INDEX */
+    private static final Pattern KIMI_FUNCTION_PATTERN =
+            Pattern.compile("functions\\.([\\w_]+):\\d+", Pattern.DOTALL); //$NON-NLS-1$
+
     private QwenContentToolCallParser() {
     }
 
@@ -66,7 +79,21 @@ final class QwenContentToolCallParser {
      * @return list of parsed tool calls (empty if none found)
      */
     static List<ToolCall> extractFromContent(String content) {
-        if (content == null || !content.contains(TOOL_CALL_MARKER)) {
+        if (content == null) {
+            return Collections.emptyList();
+        }
+
+        // Try Kimi format first
+        if (content.contains(KIMI_SECTION_BEGIN)) {
+            List<ToolCall> kimiResults = extractKimiToolCalls(content);
+            if (!kimiResults.isEmpty()) {
+                LOG.info("Content fallback: extracted %d tool call(s) from Kimi format", kimiResults.size()); //$NON-NLS-1$
+                return kimiResults;
+            }
+        }
+
+        // Try Qwen XML format
+        if (!content.contains(TOOL_CALL_MARKER)) {
             return Collections.emptyList();
         }
 
@@ -96,17 +123,35 @@ final class QwenContentToolCallParser {
      * @return content with tool call blocks removed
      */
     static String stripToolCallBlocks(String content) {
-        if (content == null || !content.contains(TOOL_CALL_MARKER)) {
+        if (content == null) {
             return content;
         }
-        return TOOL_CALL_BLOCK_PATTERN.matcher(content).replaceAll("").trim(); //$NON-NLS-1$
+        String result = content;
+        // Strip Kimi format
+        if (result.contains(KIMI_SECTION_BEGIN)) {
+            int start = result.indexOf(KIMI_SECTION_BEGIN);
+            int end = result.indexOf(KIMI_SECTION_END);
+            if (end > start) {
+                result = result.substring(0, start) + result.substring(end + KIMI_SECTION_END.length());
+            } else {
+                // No closing marker — strip from begin to end of string
+                result = result.substring(0, start);
+            }
+            result = result.trim();
+        }
+        // Strip Qwen XML format
+        if (result.contains(TOOL_CALL_MARKER)) {
+            result = TOOL_CALL_BLOCK_PATTERN.matcher(result).replaceAll("").trim(); //$NON-NLS-1$
+        }
+        return result;
     }
 
     /**
-     * Checks if content contains tool call XML markers.
+     * Checks if content contains tool call markers (Qwen XML or Kimi format).
      */
     static boolean hasToolCallMarkers(String content) {
-        return content != null && content.contains(TOOL_CALL_MARKER);
+        return content != null
+                && (content.contains(TOOL_CALL_MARKER) || content.contains(KIMI_SECTION_BEGIN));
     }
 
     /**
@@ -217,6 +262,75 @@ final class QwenContentToolCallParser {
             LOG.debug("Content fallback: failed to parse JSON tool call: %s", e.getMessage()); //$NON-NLS-1$
             return null;
         }
+    }
+
+    /**
+     * Extracts tool calls from Kimi/Moonshot format:
+     * <pre>
+     * &lt;|tool_calls_section_begin|&gt;
+     * &lt;|tool_call_begin|&gt; functions.glob:3
+     * &lt;|tool_call_argument_begin|&gt; {"pattern": "...", "path": "..."}
+     * &lt;|tool_call_end|&gt;
+     * &lt;|tool_calls_section_end|&gt;
+     * </pre>
+     */
+    private static List<ToolCall> extractKimiToolCalls(String content) {
+        List<ToolCall> results = new ArrayList<>();
+
+        int sectionStart = content.indexOf(KIMI_SECTION_BEGIN);
+        int sectionEnd = content.indexOf(KIMI_SECTION_END);
+        if (sectionStart < 0) {
+            return results;
+        }
+        String section = sectionEnd > sectionStart
+                ? content.substring(sectionStart, sectionEnd)
+                : content.substring(sectionStart);
+
+        // Split by <|tool_call_begin|> to get individual calls
+        String[] parts = section.split(Pattern.quote(KIMI_CALL_BEGIN));
+        for (String part : parts) {
+            if (part.isBlank() || !part.contains(KIMI_ARG_BEGIN)) {
+                continue;
+            }
+
+            // Extract function name: "functions.NAME:INDEX"
+            Matcher nameMatcher = KIMI_FUNCTION_PATTERN.matcher(part);
+            if (!nameMatcher.find()) {
+                LOG.debug("Kimi fallback: could not extract function name from: %s", //$NON-NLS-1$
+                        part.length() > 80 ? part.substring(0, 80) : part);
+                continue;
+            }
+            String functionName = nameMatcher.group(1).trim();
+
+            // Extract arguments JSON after <|tool_call_argument_begin|>
+            int argStart = part.indexOf(KIMI_ARG_BEGIN);
+            if (argStart < 0) {
+                continue;
+            }
+            String argsPart = part.substring(argStart + KIMI_ARG_BEGIN.length());
+            // Trim up to <|tool_call_end|> if present
+            int callEnd = argsPart.indexOf(KIMI_CALL_END);
+            if (callEnd > 0) {
+                argsPart = argsPart.substring(0, callEnd);
+            }
+            argsPart = argsPart.trim();
+
+            // Parse or repair JSON arguments
+            if (!argsPart.startsWith("{")) { //$NON-NLS-1$
+                LOG.debug("Kimi fallback: arguments not JSON: %s", argsPart); //$NON-NLS-1$
+                continue;
+            }
+            String json = JsonRepairUtil.isComplete(argsPart) ? argsPart : JsonRepairUtil.repair(argsPart);
+            if (!JsonRepairUtil.isComplete(json)) {
+                LOG.debug("Kimi fallback: could not repair JSON args"); //$NON-NLS-1$
+                continue;
+            }
+
+            String id = "kimi_content_" + UUID.randomUUID().toString().substring(0, 8); //$NON-NLS-1$
+            results.add(new ToolCall(id, functionName, json));
+        }
+
+        return results;
     }
 
     /**

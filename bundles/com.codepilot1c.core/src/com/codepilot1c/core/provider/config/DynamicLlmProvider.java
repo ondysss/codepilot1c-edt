@@ -181,7 +181,7 @@ public class DynamicLlmProvider implements ILlmProvider {
                         correlationId,
                         request.hasTools(),
                         streamingToolCallParser,
-                        getCapabilities().isQwenNative() && request.hasTools())
+                        getCapabilities().needsContentToolCallFallback() && request.hasTools())
                 : null;
         ProviderStreamProcessingSummary summary = openAiSession != null
                 ? openAiSession.getSummary()
@@ -250,8 +250,13 @@ public class DynamicLlmProvider implements ILlmProvider {
             }
 
             if (!cancelled.get() && summary.shouldFallbackToNonStreaming()) {
-                LOG.warn("[%s] Falling back to non-streaming response handling: parseFailures=%d, opaqueChunks=%d", //$NON-NLS-1$
-                        correlationId, summary.getParseFailures().get(), summary.getOpaqueChunks().get());
+                if (summary.isReasoningOnlyResponse()) {
+                    LOG.warn("[%s] Reasoning-only response detected (reasoning=%d, content=0, toolCalls=0) — retrying as non-streaming", //$NON-NLS-1$
+                            correlationId, summary.getReasoningChunks().get());
+                } else {
+                    LOG.warn("[%s] Falling back to non-streaming response handling: parseFailures=%d, opaqueChunks=%d", //$NON-NLS-1$
+                            correlationId, summary.getParseFailures().get(), summary.getOpaqueChunks().get());
+                }
                 streamingToolCallParser.clear();
                 replayNonStreamingFallback(request, consumer, correlationId);
                 return;
@@ -666,6 +671,13 @@ public class DynamicLlmProvider implements ILlmProvider {
                 msgObj.add("content", null); //$NON-NLS-1$
             }
 
+            // Moonshot/Kimi API requires reasoning_content to be preserved in assistant messages
+            // with tool calls. Without it, follow-up responses degrade to reasoning-only (contentChunks=0).
+            // See: https://github.com/BerriAI/litellm/issues/21672
+            if (msg.hasReasoningContent()) {
+                msgObj.addProperty("reasoning_content", msg.getReasoningContent()); //$NON-NLS-1$
+            }
+
             JsonArray toolCalls = new JsonArray();
             for (ToolCall call : msg.getToolCalls()) {
                 JsonObject callObj = new JsonObject();
@@ -935,6 +947,14 @@ public class DynamicLlmProvider implements ILlmProvider {
             content = message.get("content").getAsString(); //$NON-NLS-1$
         }
 
+        // Preserve reasoning_content for Kimi/Moonshot models.
+        // This is critical for multi-turn tool usage: without reasoning_content
+        // in assistant messages, follow-up responses degrade to reasoning-only.
+        String reasoningContent = null;
+        if (message.has("reasoning_content") && !message.get("reasoning_content").isJsonNull()) { //$NON-NLS-1$ //$NON-NLS-2$
+            reasoningContent = message.get("reasoning_content").getAsString(); //$NON-NLS-1$
+        }
+
         String finishReason = choice.has("finish_reason") && !choice.get("finish_reason").isJsonNull() ? //$NON-NLS-1$ //$NON-NLS-2$
                 normalizeFinishReason(choice.get("finish_reason").getAsString()) : LlmResponse.FINISH_REASON_STOP; //$NON-NLS-1$
         String responseModel = getString(json, "model"); //$NON-NLS-1$
@@ -965,38 +985,45 @@ public class DynamicLlmProvider implements ILlmProvider {
             //
             // We only use this fallback when there are no tool calls (i.e., final answer).
             if ((content == null || content.isEmpty())
-                    && message.has("reasoning_content") //$NON-NLS-1$
-                    && !message.get("reasoning_content").isJsonNull()) { //$NON-NLS-1$
-                String rc = message.get("reasoning_content").getAsString(); //$NON-NLS-1$
-                if (rc != null && !rc.isEmpty()) {
-                    LOG.debug("Using reasoning_content as content fallback (provider returned empty content)"); //$NON-NLS-1$
-                    content = rc;
-                }
+                    && reasoningContent != null && !reasoningContent.isEmpty()) {
+                LOG.debug("Using reasoning_content as content fallback (provider returned empty content)"); //$NON-NLS-1$
+                content = reasoningContent;
             }
         }
 
-        // Qwen content fallback: if no structured tool_calls were found but content
-        // contains <tool_call> XML, extract tool calls from the content.
-        // This is a safety net for when XML priming causes the model to emit
-        // tool calls as text instead of using the structured API.
+        // Content tool call fallback: if no structured tool_calls were found but content
+        // or reasoning_content contains tool call markers (Qwen XML or Kimi special tokens),
+        // extract them. This is a safety net for when the model emits tool calls as text
+        // instead of using the structured API.
+        // Check both content and reasoning_content — kimi-k2.5 may place tool calls in reasoning.
+        String contentToCheck = content;
+        if ((contentToCheck == null || contentToCheck.isEmpty()) && reasoningContent != null) {
+            contentToCheck = reasoningContent;
+        }
         if ((toolCalls == null || toolCalls.isEmpty())
-                && getCapabilities().isQwenNative()
-                && QwenContentToolCallParser.hasToolCallMarkers(content)) {
-            List<ToolCall> fallbackCalls = QwenContentToolCallParser.extractFromContent(content);
+                && getCapabilities().needsContentToolCallFallback()
+                && QwenContentToolCallParser.hasToolCallMarkers(contentToCheck)) {
+            List<ToolCall> fallbackCalls = QwenContentToolCallParser.extractFromContent(contentToCheck);
             if (!fallbackCalls.isEmpty()) {
-                LOG.info("Qwen fallback: extracted %d tool call(s) from content XML", fallbackCalls.size()); //$NON-NLS-1$
+                LOG.info("Content fallback: extracted %d tool call(s) from %s", //$NON-NLS-1$
+                        fallbackCalls.size(),
+                        contentToCheck == reasoningContent ? "reasoning_content" : "content"); //$NON-NLS-1$ //$NON-NLS-2$
                 toolCalls = fallbackCalls;
                 finishReason = LlmResponse.FINISH_REASON_TOOL_USE;
-                // Strip <tool_call> blocks from content to avoid showing raw XML to user
-                content = QwenContentToolCallParser.stripToolCallBlocks(content);
+                // Strip tool call blocks from whichever field contained them
+                if (contentToCheck == content) {
+                    content = QwenContentToolCallParser.stripToolCallBlocks(content);
+                }
+                // Don't strip reasoning_content — it should be preserved as-is for history
             }
         }
 
-        LOG.debug("Response parsed: finishReason=%s, hasContent=%b, toolCalls=%d", //$NON-NLS-1$
+        LOG.debug("Response parsed: finishReason=%s, hasContent=%b, hasReasoning=%b, toolCalls=%d", //$NON-NLS-1$
                 finishReason, content != null && !content.isEmpty(),
+                reasoningContent != null && !reasoningContent.isEmpty(),
                 toolCalls != null ? toolCalls.size() : 0);
 
-        return new LlmResponse(content, resolveRequestedModel(), responseModel, usage, finishReason, toolCalls);
+        return new LlmResponse(content, resolveRequestedModel(), responseModel, usage, finishReason, toolCalls, reasoningContent);
     }
 
     private String resolveRequestedModel() {

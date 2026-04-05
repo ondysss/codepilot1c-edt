@@ -41,6 +41,7 @@ public class LlmMessage {
 
     private final Role role;
     private final String content;
+    private final String reasoningContent;
     private final List<LlmContentPart> contentParts;
     private final List<ToolCall> toolCalls;
     private final String toolCallId;
@@ -52,7 +53,7 @@ public class LlmMessage {
      * @param content the message content
      */
     public LlmMessage(Role role, String content) {
-        this(role, content, null, null, null);
+        this(role, content, null, null, null, null);
     }
 
     /**
@@ -64,7 +65,7 @@ public class LlmMessage {
      * @param toolCallId the tool call ID (for tool result messages)
      */
     public LlmMessage(Role role, String content, List<ToolCall> toolCalls, String toolCallId) {
-        this(role, content, null, toolCalls, toolCallId);
+        this(role, content, null, null, toolCalls, toolCallId);
     }
 
     /**
@@ -74,16 +75,27 @@ public class LlmMessage {
      * @param contentParts the content parts
      */
     public LlmMessage(Role role, List<LlmContentPart> contentParts) {
-        this(role, flattenContentParts(contentParts), contentParts, null, null);
+        this(role, flattenContentParts(contentParts), null, contentParts, null, null);
     }
 
     /**
-     * Creates a new message with fully specified fields.
+     * Creates a new message with fully specified fields (backward-compatible 5-arg).
      */
     public LlmMessage(Role role, String content, List<LlmContentPart> contentParts, List<ToolCall> toolCalls,
             String toolCallId) {
+        this(role, content, null, contentParts, toolCalls, toolCallId);
+    }
+
+    /**
+     * Creates a new message with fully specified fields including reasoning content.
+     * Moonshot/Kimi API requires reasoning_content to be preserved in conversation history
+     * when thinking mode is enabled — omitting it causes reasoning-only empty-content responses.
+     */
+    public LlmMessage(Role role, String content, String reasoningContent, List<LlmContentPart> contentParts,
+            List<ToolCall> toolCalls, String toolCallId) {
         this.role = Objects.requireNonNull(role, "role must not be null"); //$NON-NLS-1$
         this.content = content != null ? content : ""; //$NON-NLS-1$
+        this.reasoningContent = reasoningContent;
         this.contentParts = contentParts != null
                 ? Collections.unmodifiableList(contentParts)
                 : Collections.emptyList();
@@ -137,7 +149,23 @@ public class LlmMessage {
      * @return a new assistant message
      */
     public static LlmMessage assistantWithToolCalls(String content, List<ToolCall> toolCalls) {
-        return new LlmMessage(Role.ASSISTANT, content, toolCalls, null);
+        return new LlmMessage(Role.ASSISTANT, content, null, null, toolCalls, null);
+    }
+
+    /**
+     * Creates an assistant message with tool calls and reasoning content.
+     * Required by Moonshot/Kimi API: reasoning_content must be preserved in conversation
+     * history when thinking mode is enabled, otherwise follow-up responses degrade to
+     * reasoning-only with empty content.
+     *
+     * @param content          the message content (may be null)
+     * @param reasoningContent the model's reasoning/thinking content (may be null)
+     * @param toolCalls        the tool calls requested by the assistant
+     * @return a new assistant message
+     */
+    public static LlmMessage assistantWithToolCalls(String content, String reasoningContent,
+            List<ToolCall> toolCalls) {
+        return new LlmMessage(Role.ASSISTANT, content, reasoningContent, null, toolCalls, null);
     }
 
     /**
@@ -157,6 +185,23 @@ public class LlmMessage {
 
     public String getContent() {
         return content;
+    }
+
+    /**
+     * Returns the reasoning/thinking content from the model.
+     * Must be preserved in conversation history for Moonshot/Kimi API compatibility.
+     *
+     * @return the reasoning content, or null if not present
+     */
+    public String getReasoningContent() {
+        return reasoningContent;
+    }
+
+    /**
+     * Returns whether this message has reasoning content.
+     */
+    public boolean hasReasoningContent() {
+        return reasoningContent != null && !reasoningContent.isEmpty();
     }
 
     public List<LlmContentPart> getContentParts() {

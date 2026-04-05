@@ -144,6 +144,15 @@ public class EditFileTool extends AbstractTool {
                     LOG.warn("edit_file: аварийный override .mdo включен для %s", normalizedPath); //$NON-NLS-1$
                 }
 
+                // QWEN-308: Прямое редактирование .form/.form.xml файлов запрещено — ломает XML-структуру формы.
+                if (isFormFilePath(normalizedPath)) {
+                    LOG.warn("edit_file: заблокирована попытка редактирования .form файла: %s", normalizedPath); //$NON-NLS-1$
+                    return ToolResult.failure(
+                            "Writing .form files is blocked. Use create_form/apply_form_recipe/mutate_form_model to manage forms.\n" + //$NON-NLS-1$
+                            "Прямое редактирование .form/.form.xml ломает XML-структуру формы EDT.\n" + //$NON-NLS-1$
+                            "Используйте штатные инструменты управления формами."); //$NON-NLS-1$
+                }
+
                 // Find or create file in workspace
                 IFile file = findWorkspaceFile(normalizedPath);
 
@@ -265,6 +274,14 @@ public class EditFileTool extends AbstractTool {
         }
         String lower = normalizedPath.toLowerCase(java.util.Locale.ROOT);
         return lower.endsWith(".mdo"); //$NON-NLS-1$
+    }
+
+    private boolean isFormFilePath(String normalizedPath) {
+        if (normalizedPath == null) {
+            return false;
+        }
+        String lower = normalizedPath.toLowerCase(java.util.Locale.ROOT);
+        return lower.endsWith(".form") || lower.endsWith(".form.xml"); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private ToolResult replaceContent(IFile file, String content) throws CoreException {

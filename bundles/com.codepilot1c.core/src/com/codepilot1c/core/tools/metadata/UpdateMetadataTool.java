@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import com.codepilot1c.core.edt.metadata.EdtMetadataService;
+import com.codepilot1c.core.edt.metadata.MetadataOperationCode;
 import com.codepilot1c.core.edt.metadata.MetadataOperationException;
 import com.codepilot1c.core.edt.metadata.MetadataOperationResult;
 import com.codepilot1c.core.edt.metadata.UpdateMetadataRequest;
@@ -137,7 +138,13 @@ public class UpdateMetadataTool extends AbstractTool {
 
     private String asRequiredString(Map<String, Object> payload, String key) {
         Object value = payload.get(key);
-        return value == null ? null : String.valueOf(value);
+        if (value == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_NAME,
+                    "Required field missing in validated payload: " + key, //$NON-NLS-1$
+                    false);
+        }
+        return String.valueOf(value);
     }
 
     @SuppressWarnings("unchecked")

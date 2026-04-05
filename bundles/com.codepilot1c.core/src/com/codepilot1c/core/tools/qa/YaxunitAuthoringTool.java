@@ -351,7 +351,8 @@ public class YaxunitAuthoringTool extends AbstractTool {
         }
 
         Map<String, Object> set = new LinkedHashMap<>();
-        set.put("client", Boolean.TRUE); //$NON-NLS-1$
+        set.put("clientManagedApplication", Boolean.TRUE); //$NON-NLS-1$
+        set.put("clientOrdinaryApplication", Boolean.TRUE); //$NON-NLS-1$
         set.put("server", Boolean.TRUE); //$NON-NLS-1$
         Map<String, Object> changes = new LinkedHashMap<>();
         changes.put("set", set); //$NON-NLS-1$

@@ -260,6 +260,11 @@ final class QwenToolCallExamples {
                     new String[]{"projectName", "filePath"}, //$NON-NLS-1$ //$NON-NLS-2$
                     new String[]{"DemoConfiguration", "CommonModules/Orders/Module.bsl"}); //$NON-NLS-1$ //$NON-NLS-2$
         }
+        if ("skill".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"name"}, //$NON-NLS-1$
+                    new String[]{"review"}); //$NON-NLS-1$
+        }
         if ("delegate_to_agent".equals(name)) { //$NON-NLS-1$
             return new ExampleParams(
                     new String[]{"agentType", "task", "context"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -305,6 +310,11 @@ final class QwenToolCallExamples {
             return new ExampleParams(
                     new String[]{"category"}, //$NON-NLS-1$
                     new String[]{"metadata"}); //$NON-NLS-1$
+        }
+        if ("remember_fact".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"content", "category", "domain"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    new String[]{"Регистр ОстаткиТоваров используется для учёта складских остатков", "FACT", "accumulation-registers"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         }
         return null;
     }

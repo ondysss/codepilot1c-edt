@@ -2947,6 +2947,17 @@ public class EdtMetadataService {
             ownerMdoPath = "src/" + topFolder + "/" + topName + "/" + topName + ".mdo"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         }
         IFile ownerMdoFile = project.getFile(ownerMdoPath);
+
+        // QWEN-307: trigger BM-to-disk export for the owner before polling,
+        // otherwise the form entry may exist only in BM and never appear on disk.
+        try {
+            String topLevelFqn = extractTopLevelFqn(ownerFqn);
+            forceExportTopLevelObject(project, topLevelFqn, opId);
+        } catch (RuntimeException e) {
+            LOG.warn("[%s] pre-poll forceExport failed for %s, will still poll: %s", //$NON-NLS-1$
+                    opId, ownerFqn, e.getMessage());
+        }
+
         long startedAt = System.currentTimeMillis();
         long deadline = startedAt + waitMs;
 
@@ -4359,9 +4370,7 @@ public class EdtMetadataService {
             if ("synonym".equalsIgnoreCase(key)) { //$NON-NLS-1$
                 EMap<String, String> synonymMap = target.getSynonym();
                 if (synonymMap != null) {
-                    @SuppressWarnings("unchecked")
-                    Map<Object, Object> typedMap = (Map<Object, Object>) (Map<?, ?>) synonymMap;
-                    applyStringMapPatch(typedMap, entry.getValue(), "synonym"); //$NON-NLS-1$
+                    applyEMapStringPatch(synonymMap, entry.getValue(), "synonym"); //$NON-NLS-1$
                 }
                 continue;
             }
@@ -6416,7 +6425,7 @@ public class EdtMetadataService {
         }
         Object raw = target.eGet(reference);
         if (raw instanceof EMap<?, ?> eMap) {
-            applyStringMapPatch((Map<Object, Object>) eMap, value, reference.getName());
+            applyEMapStringPatch((EMap<String, String>) eMap, value, reference.getName());
             return true;
         }
         if (raw instanceof Map<?, ?> map) {
@@ -6427,7 +6436,7 @@ public class EdtMetadataService {
             // EMF map references are initialized lazily in generated models.
             Object refreshed = target.eGet(reference);
             if (refreshed instanceof EMap<?, ?> refreshedMap) {
-                applyStringMapPatch((Map<Object, Object>) refreshedMap, value, reference.getName());
+                applyEMapStringPatch((EMap<String, String>) refreshedMap, value, reference.getName());
                 return true;
             }
         }
@@ -6487,6 +6496,52 @@ public class EdtMetadataService {
                 String text = String.valueOf(rawText);
                 if (text.isBlank()) {
                     targetMap.remove(language);
+                } else {
+                    targetMap.put(language, text);
+                }
+            }
+            return;
+        }
+        String text = asString(value);
+        if (text == null || text.isBlank()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "Expected string or {lang:text} map for " + fieldName + ": " + value, false); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        targetMap.put(RU_LANGUAGE, text);
+    }
+
+    /**
+     * EMap-safe variant of {@link #applyStringMapPatch} that avoids casting
+     * {@code EBmStoreEcoreEMap} to {@code java.util.Map} (QWEN-305).
+     * The EMap interface provides its own {@code put}/{@code removeKey} methods
+     * that work across OSGi classloader boundaries.
+     */
+    private void applyEMapStringPatch(EMap<String, String> targetMap, Object value, String fieldName) {
+        if (targetMap == null) {
+            return;
+        }
+        if (value == null) {
+            targetMap.removeKey(RU_LANGUAGE);
+            return;
+        }
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() == null) {
+                    continue;
+                }
+                String language = String.valueOf(entry.getKey()).trim();
+                if (language.isBlank()) {
+                    continue;
+                }
+                Object rawText = entry.getValue();
+                if (rawText == null) {
+                    targetMap.removeKey(language);
+                    continue;
+                }
+                String text = String.valueOf(rawText);
+                if (text.isBlank()) {
+                    targetMap.removeKey(language);
                 } else {
                     targetMap.put(language, text);
                 }

@@ -15,11 +15,14 @@ import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.impl.RuntimeEx
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.impl.RuntimeExecutionCommandBuilder.ThickClientMode;
 import com._1c.g5.v8.dt.platform.services.model.InfobaseAccess;
 import com._1c.g5.v8.dt.platform.services.model.InfobaseReference;
+import com.codepilot1c.core.logging.VibeLogger;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.NullProgressMonitor;
 
 public class EdtRuntimeService {
+
+    private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(EdtRuntimeService.class);
 
     private final EdtRuntimeGateway gateway;
 
@@ -118,7 +121,7 @@ public class EdtRuntimeService {
         try {
             IInfobaseAccessManager accessManager = gateway.getInfobaseAccessManager();
             settings = accessManager.getSettings(infobase, InfobaseAccess.INFOBASE);
-        } catch (Exception e) {
+        } catch (Exception | NoSuchMethodError e) {
             return null;
         }
         if (settings == null || settings == IInfobaseAccessSettings.NOT_DEFINED) {
@@ -144,8 +147,9 @@ public class EdtRuntimeService {
             } else {
                 info = runtimeComponentManager.getThickClientInfo(infobase);
             }
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to resolve thick client: " + e.getMessage(), e); //$NON-NLS-1$
+        } catch (Exception | NoSuchMethodError e) {
+            LOG.warn("Failed to resolve thick client (possible EDT API incompatibility): " + e.getMessage(), e); //$NON-NLS-1$
+            return null;
         }
         if (info == null || info.component() == null || info.component().getFile() == null) {
             throw new IllegalStateException("Thick client runtime component not resolved for infobase"); //$NON-NLS-1$
@@ -431,7 +435,8 @@ public class EdtRuntimeService {
         try {
             IInfobaseAccessManager accessManager = gateway.getInfobaseAccessManager();
             settings = accessManager.getSettings(infobase, InfobaseAccess.INFOBASE);
-        } catch (Exception e) {
+        } catch (Exception | NoSuchMethodError e) {
+            LOG.warn("Failed to resolve access settings (possible EDT 2025.2 API change): " + e.getMessage(), e); //$NON-NLS-1$
             settings = null;
         }
 

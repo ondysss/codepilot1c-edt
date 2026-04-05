@@ -92,12 +92,30 @@ final class ProviderStreamProcessingSummary {
     }
 
     boolean hasMeaningfulOutput() {
-        return contentChunks.get() > 0 || reasoningChunks.get() > 0 || completedToolCalls.get() > 0;
+        // Reasoning-only responses (contentChunks=0, completedToolCalls=0) are NOT considered
+        // meaningful — they indicate the model consumed its token budget on thinking without
+        // producing actionable output. This enables fallback/retry for such cases.
+        return contentChunks.get() > 0 || completedToolCalls.get() > 0;
+    }
+
+    /**
+     * Returns true when the stream produced only reasoning tokens but no content or tool calls.
+     * This is a known issue with Moonshot/Kimi models when thinking is enabled but
+     * reasoning_content is not preserved in conversation history.
+     */
+    boolean isReasoningOnlyResponse() {
+        return reasoningChunks.get() > 0
+                && contentChunks.get() == 0
+                && completedToolCalls.get() == 0;
     }
 
     boolean shouldFallbackToNonStreaming() {
         if (!requestHasTools || hasMeaningfulOutput()) {
             return false;
+        }
+        // Reasoning-only responses should also trigger fallback to non-streaming
+        if (isReasoningOnlyResponse()) {
+            return true;
         }
         return parseFailures.get() >= FALLBACK_PARSE_FAILURE_THRESHOLD
                 || opaqueChunks.get() >= FALLBACK_OPAQUE_CHUNK_THRESHOLD

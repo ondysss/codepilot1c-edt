@@ -232,6 +232,11 @@ public class MetadataRequestValidationService {
             String purpose,
             String compatibilityMode
     ) {
+        if (projectName == null || projectName.isBlank()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.PROJECT_NOT_FOUND,
+                    "project name is required", false); //$NON-NLS-1$
+        }
         String effectiveBaseProject = baseProject == null || baseProject.isBlank() ? projectName : baseProject.trim();
         if (!projectName.equals(effectiveBaseProject)) {
             throw new MetadataOperationException(
@@ -353,6 +358,11 @@ public class MetadataRequestValidationService {
             String sourceObjectFqn,
             Boolean updateIfExists
     ) {
+        if (projectName == null || projectName.isBlank()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.PROJECT_NOT_FOUND,
+                    "project name is required", false); //$NON-NLS-1$
+        }
         String effectiveBaseProject = baseProject == null || baseProject.isBlank() ? projectName : baseProject.trim();
         if (!projectName.equals(effectiveBaseProject)) {
             throw new MetadataOperationException(
@@ -384,6 +394,11 @@ public class MetadataRequestValidationService {
             String propertyName,
             String state
     ) {
+        if (projectName == null || projectName.isBlank()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.PROJECT_NOT_FOUND,
+                    "project name is required", false); //$NON-NLS-1$
+        }
         String effectiveBaseProject = baseProject == null || baseProject.isBlank() ? projectName : baseProject.trim();
         if (!projectName.equals(effectiveBaseProject)) {
             throw new MetadataOperationException(

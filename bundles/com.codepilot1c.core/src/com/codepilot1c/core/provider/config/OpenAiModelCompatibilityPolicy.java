@@ -38,6 +38,40 @@ final class OpenAiModelCompatibilityPolicy {
                         "Qwen backend: temperature=0.3"); //$NON-NLS-1$
             }
 
+            // Kimi/Moonshot models via CodePilot backend:
+            // Per qwen-code reference implementation, kimi-k2.5 works best with:
+            //   - thinking ENABLED (not disabled) — model uses reasoning_content naturally
+            //   - streaming ENABLED — structured tool_calls arrive via SSE deltas
+            //   - reasoning_content preserved in conversation history (handled in DynamicLlmProvider)
+            // The previous approach (thinking=disabled + non-stream) caused reasoning-only
+            // responses because reasoning_content was not being preserved in history.
+            if (model.startsWith("kimi") || model.startsWith("moonshot")) { //$NON-NLS-1$ //$NON-NLS-2$
+                overrides.addProperty("temperature", 0.6); //$NON-NLS-1$
+                if (request.hasTools()) {
+                    if (hasLargeToolResult(request) || estimateRequestChars(request) > LARGE_REQUEST_ESTIMATE_CHARS) {
+                        return ProviderExecutionPlan.of(false, overrides,
+                                "kimi backend: large tool result -> non-stream for stability"); //$NON-NLS-1$
+                    }
+                    return ProviderExecutionPlan.of(streaming, overrides,
+                            "kimi backend: thinking enabled, streaming, reasoning_content preserved"); //$NON-NLS-1$
+                }
+                return ProviderExecutionPlan.of(streaming, overrides,
+                        "kimi backend: temperature=0.6"); //$NON-NLS-1$
+            }
+
+            // Other CodePilot backend models (unknown family, "auto" routing):
+            // Use conservative settings — keep streaming enabled but don't force thinking disabled.
+            // If "auto" resolves to kimi, the model will work with streaming + thinking enabled
+            // because reasoning_content is now preserved in conversation history.
+            if (request.hasTools()) {
+                if (hasLargeToolResult(request) || estimateRequestChars(request) > LARGE_REQUEST_ESTIMATE_CHARS) {
+                    return ProviderExecutionPlan.of(false, overrides,
+                            "codepilot backend: large tool result -> non-stream for stability"); //$NON-NLS-1$
+                }
+                return ProviderExecutionPlan.of(streaming, overrides,
+                        "codepilot backend: streaming with parallel_tool_calls=false"); //$NON-NLS-1$
+            }
+
             return ProviderExecutionPlan.of(streaming, overrides,
                     "codepilot backend uses explicit backend execution plan"); //$NON-NLS-1$
         }
@@ -51,14 +85,20 @@ final class OpenAiModelCompatibilityPolicy {
                 return ProviderExecutionPlan.of(false, overrides,
                         "MiniMax-M2.5 tool calls are more stable in non-stream mode"); //$NON-NLS-1$
             }
-            if (model.contains("kimi-k2.5")) { //$NON-NLS-1$
-                overrides.addProperty("enable_thinking", false); //$NON-NLS-1$
+            if (model.contains("kimi-k2.5") || model.contains("kimi-k2")) { //$NON-NLS-1$ //$NON-NLS-2$
+                // Moonshot API uses {"thinking":{"type":"disabled"}} — NOT enable_thinking (DashScope/Qwen format).
+                // Without this, thinking stays enabled by default and the model produces reasoning-only
+                // responses (contentChunks=0) after tool calls, consuming the entire token budget on reasoning.
+                JsonObject thinking = new JsonObject();
+                thinking.addProperty("type", "disabled"); //$NON-NLS-1$ //$NON-NLS-2$
+                overrides.add("thinking", thinking); //$NON-NLS-1$
+                overrides.addProperty("temperature", 0.6); //$NON-NLS-1$
                 if (hasLargeToolResult(request) || estimateRequestChars(request) > LARGE_REQUEST_ESTIMATE_CHARS) {
                     return ProviderExecutionPlan.of(false, overrides,
                             "kimi-k2.5 large tool-result follow-up uses non-stream mode to avoid stream timeout"); //$NON-NLS-1$
                 }
                 return ProviderExecutionPlan.of(streaming, overrides,
-                        "kimi-k2.5 tool requests use enable_thinking=false for generic provider compatibility"); //$NON-NLS-1$
+                        "kimi-k2.5 tool requests use thinking.type=disabled per Moonshot API spec"); //$NON-NLS-1$
             }
         }
 

@@ -18,7 +18,7 @@ public record CreateFormRequest(
         String comment,
         Long waitMs
 ) {
-    private static final long DEFAULT_WAIT_MS = 30_000L;
+    private static final long DEFAULT_WAIT_MS = 60_000L;
     private static final long MIN_WAIT_MS = 1_000L;
     private static final long MAX_WAIT_MS = 300_000L;
 

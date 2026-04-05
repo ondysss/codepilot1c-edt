@@ -143,6 +143,20 @@ public class WriteTool extends AbstractTool {
                     "Пример: create_metadata(kind=\"Catalog\", name=\"Контрагенты\", synonym=\"Контрагенты\")");
         }
 
+        // QWEN-308: Прямая запись .form/.form.xml файлов запрещена — ломает XML-структуру формы.
+        if (isFormFilePath(normalizedPath)) {
+            logWarning("═══════════════════════════════════════════════════════════════");
+            logWarning("[WRITE_FILE] ✗ ЗАБЛОКИРОВАНО: Попытка записать .form файл напрямую!");
+            logWarning("[WRITE_FILE] Путь: " + normalizedPath);
+            logWarning("[WRITE_FILE] Размер контента: " + (content != null ? content.length() : 0) + " символов");
+            logWarning("[WRITE_FILE] РЕШЕНИЕ: Используйте create_form/apply_form_recipe/mutate_form_model");
+            logWarning("═══════════════════════════════════════════════════════════════");
+            return ToolResult.failure(
+                    "Writing .form files is blocked. Use create_form/apply_form_recipe/mutate_form_model to manage forms.\n\n" +
+                    "Прямая запись .form/.form.xml ломает XML-структуру формы EDT.\n" +
+                    "Используйте штатные инструменты управления формами.");
+        }
+
         // Get workspace
         IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
 
@@ -230,6 +244,14 @@ public class WriteTool extends AbstractTool {
         }
         String lower = normalizedPath.toLowerCase(java.util.Locale.ROOT);
         return lower.endsWith(".mdo"); //$NON-NLS-1$
+    }
+
+    private boolean isFormFilePath(String normalizedPath) {
+        if (normalizedPath == null) {
+            return false;
+        }
+        String lower = normalizedPath.toLowerCase(java.util.Locale.ROOT);
+        return lower.endsWith(".form") || lower.endsWith(".form.xml"); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private void logInfo(String message) {

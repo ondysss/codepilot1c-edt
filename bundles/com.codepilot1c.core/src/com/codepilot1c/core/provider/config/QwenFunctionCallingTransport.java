@@ -180,6 +180,12 @@ final class QwenFunctionCallingTransport {
                 msgObj.add("content", null); //$NON-NLS-1$
             }
 
+            // Preserve reasoning_content in assistant messages with tool calls.
+            // Required by Moonshot/Kimi API and beneficial for Qwen models.
+            if (msg.hasReasoningContent()) {
+                msgObj.addProperty("reasoning_content", msg.getReasoningContent()); //$NON-NLS-1$
+            }
+
             JsonArray toolCalls = new JsonArray();
             for (ToolCall call : msg.getToolCalls()) {
                 JsonObject callObj = new JsonObject();

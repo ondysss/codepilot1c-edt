@@ -545,9 +545,28 @@ public class OpenAiProvider extends AbstractLlmProvider {
             if (json.has("error")) { //$NON-NLS-1$
                 JsonObject error = json.getAsJsonObject("error"); //$NON-NLS-1$
                 String type = error.has("type") ? error.get("type").getAsString() : null; //$NON-NLS-1$ //$NON-NLS-2$
+                String code = error.has("code") ? error.get("code").getAsString() : null; //$NON-NLS-1$ //$NON-NLS-2$
                 String message = error.has("message") ? error.get("message").getAsString() //$NON-NLS-1$ //$NON-NLS-2$
                         : "Unknown error"; //$NON-NLS-1$
-                return new LlmProviderException(message, null, response.statusCode(), type);
+                LlmProviderException ex = new LlmProviderException(message, null, response.statusCode(), type, code);
+
+                // Parse rate-limit details if present
+                if (json.has("details")) { //$NON-NLS-1$
+                    try {
+                        JsonObject details = json.getAsJsonObject("details"); //$NON-NLS-1$
+                        long limitCents = details.has("limit_cents") ? details.get("limit_cents").getAsLong() : 0; //$NON-NLS-1$ //$NON-NLS-2$
+                        long usedCents = details.has("used_cents") ? details.get("used_cents").getAsLong() : 0; //$NON-NLS-1$ //$NON-NLS-2$
+                        long attemptedCents = details.has("attempted_cents") ? details.get("attempted_cents").getAsLong() : 0; //$NON-NLS-1$ //$NON-NLS-2$
+                        String window = details.has("window") ? details.get("window").getAsString() : ""; //$NON-NLS-1$ //$NON-NLS-2$
+                        String retryAtLocal = details.has("retry_at_local") ? details.get("retry_at_local").getAsString() : ""; //$NON-NLS-1$ //$NON-NLS-2$
+                        long retryAfterSeconds = details.has("retry_after_seconds") ? details.get("retry_after_seconds").getAsLong() : 0; //$NON-NLS-1$ //$NON-NLS-2$
+                        ex.setRateLimitDetails(new LlmProviderException.RateLimitDetails(
+                                limitCents, usedCents, attemptedCents, window, retryAtLocal, retryAfterSeconds));
+                    } catch (Exception detailsEx) {
+                        LOG.warn("Failed to parse rate-limit details: %s", detailsEx.getMessage()); //$NON-NLS-1$
+                    }
+                }
+                return ex;
             }
         } catch (Exception ignored) {
             // Fall through to default error

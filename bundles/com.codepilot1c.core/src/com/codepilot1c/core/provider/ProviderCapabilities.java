@@ -19,6 +19,7 @@ public final class ProviderCapabilities {
     public static final String FAMILY_QWEN_CODER = "qwen-coder"; //$NON-NLS-1$
     public static final String FAMILY_QWEN_VL = "qwen-vl"; //$NON-NLS-1$
     public static final String FAMILY_QWEN_GENERAL = "qwen-general"; //$NON-NLS-1$
+    public static final String FAMILY_KIMI = "kimi"; //$NON-NLS-1$
     public static final String FAMILY_UNKNOWN = "unknown"; //$NON-NLS-1$
 
     /** Default temperature for Qwen models (per Qwen Code reference implementation). */
@@ -70,10 +71,36 @@ public final class ProviderCapabilities {
      * Returns {@code true} when the active provider is CodePilot backend
      * routing to a Qwen model family. This gates all Qwen-specific
      * transport optimizations (XML tool call priming, streaming repair, etc.).
+     *
+     * <p>Kimi/Moonshot models are NOT considered Qwen-native even when routed
+     * through CodePilot backend. They use standard OpenAI function-calling format
+     * and are confused by Qwen-specific XML tool call priming.</p>
      */
     public boolean isQwenNative() {
         return codePilotBackend && resolvedModelFamily != null
-                && !FAMILY_UNKNOWN.equals(resolvedModelFamily);
+                && !FAMILY_UNKNOWN.equals(resolvedModelFamily)
+                && !FAMILY_KIMI.equals(resolvedModelFamily);
+    }
+
+    /**
+     * Returns {@code true} when the resolved model is from the Kimi/Moonshot family.
+     * Kimi models require special handling: they use standard OpenAI tool-calling
+     * format (not Qwen XML) but need {@code reasoning_content} preserved in conversation
+     * history for stable multi-turn tool usage.
+     */
+    public boolean isKimiNative() {
+        return codePilotBackend && FAMILY_KIMI.equals(resolvedModelFamily);
+    }
+
+    /**
+     * Returns {@code true} when content-based tool call fallback should be enabled.
+     *
+     * <p>This is broader than {@link #isQwenNative()} — it covers ALL CodePilot backend
+     * models that may emit tool calls as text content instead of structured API responses.
+     * Currently this includes Qwen (XML format) and Kimi/Moonshot (special token format).</p>
+     */
+    public boolean needsContentToolCallFallback() {
+        return codePilotBackend;
     }
 
     public boolean supportsBackendOptimizations() {
@@ -156,6 +183,11 @@ public final class ProviderCapabilities {
             return FAMILY_UNKNOWN;
         }
         String lower = model.toLowerCase(java.util.Locale.ROOT);
+        // Match kimi/moonshot models — must be checked BEFORE qwen patterns
+        // because CodePilot backend may route "auto" to kimi-k2.5
+        if (lower.startsWith("kimi") || lower.startsWith("moonshot")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return FAMILY_KIMI;
+        }
         // Match qwen*-coder or coder-model patterns
         if (lower.matches("qwen[^-]*-coder.*") || lower.contains("coder-model")) { //$NON-NLS-1$ //$NON-NLS-2$
             return FAMILY_QWEN_CODER;

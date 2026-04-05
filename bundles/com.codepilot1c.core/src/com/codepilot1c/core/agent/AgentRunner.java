@@ -410,11 +410,11 @@ public class AgentRunner implements IAgentRunner {
             return completeCancelled();
         }
 
-        // Add assistant message to history
+        // Add assistant message to history (preserving reasoning_content for Moonshot/Kimi API)
         synchronized (historyLock) {
             if (response.hasToolCalls()) {
                 conversationHistory.add(LlmMessage.assistantWithToolCalls(
-                        response.getContent(), response.getToolCalls()));
+                        response.getContent(), response.getReasoningContent(), response.getToolCalls()));
             } else {
                 conversationHistory.add(LlmMessage.assistant(response.getContent()));
             }

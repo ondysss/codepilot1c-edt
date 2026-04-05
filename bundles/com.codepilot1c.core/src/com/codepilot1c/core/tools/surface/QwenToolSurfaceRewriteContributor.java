@@ -61,12 +61,13 @@ public final class QwenToolSurfaceRewriteContributor implements ToolSurfaceContr
             case "bsl_analyze_method" -> "Analyze one BSL method for complexity, call graph, unused parameters, and risky flow patterns."; //$NON-NLS-1$
             case "bsl_module_context" -> "Read module-level BSL context: module type, owner, default pragmas, and method counts."; //$NON-NLS-1$
             case "bsl_module_exports" -> "List exported procedures and functions of one BSL module with signatures and line ranges."; //$NON-NLS-1$
-            case "edt_validate_request" -> "Проверяет запрос на изменение метаданных и выдаёт одноразовый validation_token. Обязателен перед metadata/forms/DCS/extension/external мутациями. Не используй для read-only tools."; //$NON-NLS-1$
-            case "create_form" -> "Create a managed form through EDT BM APIs for a specific owner object. Re-run diagnostics after creation and fix type-related warnings instead of ignoring them."; //$NON-NLS-1$
-            case "add_metadata_child" -> "Create a child metadata object such as an attribute, tabular section, or command under an existing metadata parent through EDT BM APIs. Respect reserved-name guardrails before adding attributes."; //$NON-NLS-1$
+            case "edt_validate_request" -> "Проверяет запрос на изменение метаданных и выдаёт ОДНОРАЗОВЫЙ validation_token. Каждый токен может быть использован ТОЛЬКО ОДИН РАЗ — для каждой новой мутации запрашивай НОВЫЙ токен. Обязателен перед metadata/forms/DCS/extension/external мутациями."; //$NON-NLS-1$
+            case "create_form" -> "Создаёт управляемую форму через BM API. owner_fqn: ПОЛНЫЙ FQN с типом (Document.ПоступлениеТоваров, ExternalDataProcessor.МояОбработка). НЕ используй короткое имя. После создания запусти диагностику."; //$NON-NLS-1$
+            case "create_metadata" -> "Создаёт метаданный объект через BM API. Свойства: COMMON_MODULE — clientManagedApplication/server/global. DOCUMENT — useStandardCommands. CATALOG — hierarchical+hierarchyType. После создания запусти диагностику."; //$NON-NLS-1$
+            case "add_metadata_child" -> "Создаёт дочерний объект (реквизит, табличную часть, команду). Тип: {types:[xs:string]} или {types:[CatalogRef.Склады]}. НЕ используй v8:STRING."; //$NON-NLS-1$
             case "ensure_module_artifact" -> "Ensure that a metadata-owned BSL module artifact exists and return its path. Use it after edt_validate_request and before edit_file or write_file when changing object-owned module code."; //$NON-NLS-1$
-            case "update_metadata" -> "Apply BM-model property changes to an existing metadata object. Follow success with diagnostics and explicit remediation of remaining warnings."; //$NON-NLS-1$
-            case "mutate_form_model" -> "Apply low-level managed-form operations to an existing form model. Inspect the form layout first and follow structural edits with diagnostics."; //$NON-NLS-1$
+            case "update_metadata" -> "Применяет изменения свойств через BM API. Формат changes: {\"set\":{\"field\":\"value\"}} — обёртка set ОБЯЗАТЕЛЬНА. Enum-поля: строки (Allow/Deny). НЕ используй: subsystems, name. После изменений запусти диагностику."; //$NON-NLS-1$
+            case "mutate_form_model" -> "Применяет низкоуровневые операции к форме. Каждая операция содержит поле op (НЕ id!): add_field, add_group, move, remove, set_property. Поле name ОБЯЗАТЕЛЬНО для add_field/add_group. Сначала inspect_form_layout."; //$NON-NLS-1$
             case "delete_metadata" -> "Delete a metadata object through EDT BM APIs with an explicit validation_token. Use recursive or force only when the request truly requires it."; //$NON-NLS-1$
             case "apply_form_recipe" -> "Apply a higher-level managed-form recipe that can create or locate a form, upsert attributes, and mutate layout. Prefer it over low-level mutate_form_model when the intended change fits the recipe flow."; //$NON-NLS-1$
             case "inspect_form_layout" -> "Inspect managed-form structure headlessly through EDT BM APIs. Use it before form mutations to locate element ids, data paths, and layout nodes."; //$NON-NLS-1$
@@ -80,9 +81,9 @@ public final class QwenToolSurfaceRewriteContributor implements ToolSurfaceContr
             case "edt_extension_smoke" -> "Run smoke verification focused on EDT extension workflows and report the exact failing stage."; //$NON-NLS-1$
             case "edt_external_smoke" -> "Run smoke verification focused on EDT external-object workflows and report the exact failing stage."; //$NON-NLS-1$
             // Composite tools
-            case "dcs_manage" -> "Управляет схемой компоновки данных через один tool: читает состояние, создаёт основную схему и обновляет наборы данных, параметры и вычисляемые поля."; //$NON-NLS-1$
+            case "dcs_manage" -> "Управляет СКД: читает состояние, создаёт основную схему, обновляет наборы данных, параметры и поля. ВАЖНО: owner-объект ДОЛЖЕН существовать — сначала создай через create_metadata."; //$NON-NLS-1$
             case "extension_manage" -> "Управляет расширениями EDT: показывает проекты и объекты, создаёт расширение, заимствует объект из базы и меняет состояние свойства."; //$NON-NLS-1$
-            case "external_manage" -> "Управляет внешними отчётами и обработками: показывает проекты и объекты, читает детали и создаёт новый внешний отчёт или обработку."; //$NON-NLS-1$
+            case "external_manage" -> "Управляет внешними обработками/отчётами. object_fqn: ПОЛНЫЙ FQN (ExternalDataProcessor.МояОбработка, ExternalReport.МойОтчёт). НЕ используй короткое имя без типа."; //$NON-NLS-1$
             case "edt_diagnostics" -> "Запускает EDT диагностику и runtime-команды: smoke, trace export, разбор ошибок, обновление инфобазы и запуск приложения."; //$NON-NLS-1$
             case "qa_inspect" -> "Читает состояние QA без изменений файлов: объясняет qa-config, проверяет окружение и ищет доступные шаги Vanessa Automation."; //$NON-NLS-1$
             case "qa_generate" -> "Генерирует QA-артефакты: создаёт или мигрирует qa-config и собирает feature-файл из структурированного сценарного плана."; //$NON-NLS-1$
