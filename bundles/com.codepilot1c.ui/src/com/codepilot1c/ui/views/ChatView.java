@@ -45,7 +45,12 @@ import org.eclipse.ui.part.ViewPart;
 import com.codepilot1c.core.diff.CodeDiffUtils;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.agent.prompts.SystemPromptAssembler;
+import com.codepilot1c.core.skills.SkillMentionParser;
 import com.codepilot1c.core.model.LlmAttachment;
+import com.codepilot1c.core.memory.compaction.LlmCompactionService;
+import com.codepilot1c.core.session.Session;
+import com.codepilot1c.core.session.SessionManager;
+import com.codepilot1c.core.session.SessionMessage;
 import com.codepilot1c.core.model.LlmContentPart;
 import com.codepilot1c.core.model.LlmMessage;
 import com.codepilot1c.core.model.LlmConversationSanitizer;
@@ -107,6 +112,7 @@ public class ChatView extends ViewPart {
     private Button sendButton;
     private Button attachButton;
     private Button clearButton;
+    private Button newChatButton;
     private Button stopButton;
     private Button applyCodeButton;
     private Button compactButton;
@@ -121,6 +127,8 @@ public class ChatView extends ViewPart {
     private final List<LlmAttachment> draftAttachments = new ArrayList<>();
     private CompletableFuture<?> currentRequest;
     private boolean isProcessing = false;
+    /** Skill names extracted from the latest user input via $mention syntax. */
+    private List<String> currentRequestedSkills = List.of();
     private String lastAssistantResponse;
 
     /** Accumulated content during streaming (thread-safe) */
@@ -303,7 +311,7 @@ public class ChatView extends ViewPart {
         Composite buttonBar = new Composite(inputArea, SWT.NONE);
         buttonBar.setBackground(inputArea.getBackground());
         buttonBar.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-        GridLayout buttonLayout = new GridLayout(9, false);
+        GridLayout buttonLayout = new GridLayout(8, false);
         buttonLayout.marginWidth = 0;
         buttonLayout.marginHeight = 0;
         buttonLayout.horizontalSpacing = 4; // Compact spacing
@@ -363,14 +371,17 @@ public class ChatView extends ViewPart {
         modelButton.addListener(SWT.Selection, e -> openModelSelectionDialog());
         updateModelButtonVisibility();
 
+        // Token usage label — hidden by default (Phase 2: replaced by budget indicator)
         tokenUsageLabel = new Label(buttonBar, SWT.NONE);
         tokenUsageLabel.setBackground(buttonBar.getBackground());
         tokenUsageLabel.setForeground(theme.getTextMuted());
-        tokenUsageLabel.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+        tokenUsageLabel.setVisible(false);
+        GridData tokenData = new GridData(SWT.FILL, SWT.CENTER, true, false);
+        tokenData.exclude = true;
+        tokenUsageLabel.setLayoutData(tokenData);
         tokenUsageLabel.setText(""); //$NON-NLS-1$
-        updateTokenUsageDisplay();
 
-        // Spacer to push stop and clear to the right
+        // Spacer to push stop/new-chat to the right (replaces token label space)
         Label spacer = new Label(buttonBar, SWT.NONE);
         spacer.setBackground(buttonBar.getBackground());
         spacer.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
@@ -387,14 +398,27 @@ public class ChatView extends ViewPart {
         stopButton.setLayoutData(stopData);
         stopButton.addListener(SWT.Selection, e -> stopGeneration());
 
-        // Clear button with icon
+        // New Chat button — prominent action to start fresh conversation
+        newChatButton = new Button(buttonBar, SWT.PUSH);
+        newChatButton.setText("\uD83D\uDCC4+"); // 📄+ new chat icon //$NON-NLS-1$
+        newChatButton.setToolTipText(Messages.ChatView_NewChatTooltip);
+        newChatButton.setFont(theme.getFont());
+        GridData newChatData = new GridData(SWT.RIGHT, SWT.CENTER, false, false);
+        newChatData.widthHint = 42;
+        newChatData.heightHint = 28;
+        newChatButton.setLayoutData(newChatData);
+        newChatButton.addListener(SWT.Selection, e -> confirmAndClearChat());
+
+        // Clear button with icon (legacy, kept for backward compat)
         clearButton = new Button(buttonBar, SWT.PUSH);
         clearButton.setText("\uD83D\uDDD1"); // 🗑 trash icon //$NON-NLS-1$
         clearButton.setToolTipText(Messages.ChatView_ClearButton);
         clearButton.setFont(theme.getFont());
+        clearButton.setVisible(false); // Hidden: replaced by newChatButton
         GridData clearData = new GridData(SWT.RIGHT, SWT.CENTER, false, false);
         clearData.widthHint = 36;
         clearData.heightHint = 28;
+        clearData.exclude = true;
         clearButton.setLayoutData(clearData);
         clearButton.addListener(SWT.Selection, e -> clearChat());
 
@@ -706,6 +730,9 @@ public class ChatView extends ViewPart {
 
         maybeAutoCompactHistory();
 
+        // Extract $skill mentions from user input for system prompt assembly
+        currentRequestedSkills = SkillMentionParser.extractMentions(userInput);
+
         // No automatic context preparation: send the user message as-is.
         setProcessing(true, "Отправка запроса..."); //$NON-NLS-1$
         conversationHistory.add(buildUserMessage(userInput, outgoingAttachments));
@@ -1007,8 +1034,9 @@ public class ChatView extends ViewPart {
             requestBuilder.toolChoice(LlmRequest.ToolChoice.AUTO);
         }
 
-        if (overrideModelId != null && !overrideModelId.isBlank()) {
-            requestBuilder.model(overrideModelId);
+        // Set model override only for CodePilot backend; custom providers use their own configured model
+        if (currentProviderCapabilities().isCodePilotBackend()) {
+            requestBuilder.model(getEffectiveModelId());
         }
 
         return requestBuilder.build();
@@ -1805,7 +1833,7 @@ public class ChatView extends ViewPart {
                 prompt.toString(),
                 null,
                 "chat", //$NON-NLS-1$
-                List.of());
+                currentRequestedSkills);
     }
 
     private void appendToolsSection(StringBuilder prompt) {
@@ -1842,10 +1870,62 @@ public class ChatView extends ViewPart {
         if (error.getCause() != null) {
             LOG.error("handleError cause: %s", error.getCause().getMessage()); //$NON-NLS-1$
         }
-        String message = error.getCause() != null ? error.getCause().getMessage() : error.getMessage();
-        appendSystemMessage(java.text.MessageFormat.format(Messages.ChatView_ErrorMessage, message));
+
+        // Extract the root cause (may be wrapped in CompletionException etc.)
+        Throwable root = error.getCause() != null ? error.getCause() : error;
+        String userMessage = formatUserFriendlyError(root);
+
+        appendSystemMessage(userMessage);
         LOG.debug("handleError: calling setProcessing(false)"); //$NON-NLS-1$
         setProcessing(false);
+    }
+
+    /**
+     * Formats a user-friendly error message, handling rate-limit and budget errors specially.
+     */
+    private String formatUserFriendlyError(Throwable error) {
+        if (error instanceof com.codepilot1c.core.provider.LlmProviderException providerEx) {
+
+            // Rate limit — spending window exceeded
+            if (providerEx.isSpendWindowError()) {
+                var details = providerEx.getRateLimitDetails();
+                if (details != null) {
+                    String window = "5h".equals(details.window()) ? "5 часов" : //$NON-NLS-1$ //$NON-NLS-2$
+                                    "7d".equals(details.window()) ? "7 дней" : details.window(); //$NON-NLS-1$ //$NON-NLS-2$
+                    String retryInfo;
+                    if (details.retryAtLocal() != null && !details.retryAtLocal().isEmpty()) {
+                        retryInfo = String.format("Попробуйте после %s", details.retryAtLocal()); //$NON-NLS-1$
+                    } else if (details.retryAfterSeconds() > 0) {
+                        retryInfo = String.format("Подождите %s", details.retryWaitFormatted()); //$NON-NLS-1$
+                    } else {
+                        retryInfo = "Подождите — лимит обновится автоматически"; //$NON-NLS-1$
+                    }
+                    return String.format(
+                            "\u26A0\uFE0F Превышен лимит за %s. %s.", //$NON-NLS-1$
+                            window,
+                            retryInfo);
+                }
+                return "\u26A0\uFE0F Превышен лимит расхода. Подождите — лимит обновится автоматически."; //$NON-NLS-1$
+            }
+
+            // Budget fully exhausted
+            if (providerEx.isBudgetExhausted()) {
+                return "\u26D4 Бюджет исчерпан. Пополните баланс или перейдите на другой тариф."; //$NON-NLS-1$
+            }
+
+            // Generic rate limit (429 without specific code)
+            if (providerEx.isRateLimitError()) {
+                return "\u23F3 Слишком много запросов. Подождите несколько секунд и попробуйте снова."; //$NON-NLS-1$
+            }
+
+            // Authentication error
+            if (providerEx.isAuthenticationError()) {
+                return "\u274C Ошибка авторизации. Проверьте настройки аккаунта CodePilot."; //$NON-NLS-1$
+            }
+        }
+
+        // Default: show raw message
+        return java.text.MessageFormat.format(Messages.ChatView_ErrorMessage, error.getMessage());
     }
 
     /**
@@ -1914,7 +1994,67 @@ public class ChatView extends ViewPart {
         setProcessing(false);
     }
 
+    /**
+     * Confirms with user before clearing chat when conversation is non-empty.
+     */
+    private void confirmAndClearChat() {
+        if (conversationHistory.isEmpty()) {
+            clearChat();
+            return;
+        }
+        boolean confirmed = MessageDialog.openConfirm(
+                getSite().getShell(),
+                Messages.ChatView_NewChatConfirmTitle,
+                Messages.ChatView_NewChatConfirmMessage);
+        if (confirmed) {
+            clearChat();
+        }
+    }
+
     private void clearChat() {
+        // Sync UI conversation history into SessionManager and complete session.
+        // This triggers memory extraction for facts like "Запомни что...".
+        try {
+            if (!conversationHistory.isEmpty()) {
+                SessionManager sm = SessionManager.getInstance();
+                Session session = sm.getCurrentSession();
+                if (session == null) {
+                    // Force-create a session if none exists
+                    session = sm.startNewSession();
+                }
+                // Populate the session with UI conversation messages
+                for (LlmMessage msg : conversationHistory) {
+                    LlmMessage.Role role = msg.getRole();
+                    if (role == LlmMessage.Role.USER || role == LlmMessage.Role.ASSISTANT) {
+                        String content = msg.getContent();
+                        if (content == null || content.isBlank()) {
+                            if (msg.getContentParts() != null) {
+                                StringBuilder sb = new StringBuilder();
+                                for (var part : msg.getContentParts()) {
+                                    if (part.getText() != null) {
+                                        sb.append(part.getText());
+                                    }
+                                }
+                                content = sb.toString();
+                            }
+                        }
+                        if (content != null && !content.isBlank()) {
+                            session.addMessage(role == LlmMessage.Role.USER
+                                    ? SessionMessage.user(content)
+                                    : SessionMessage.assistant(content));
+                        }
+                    }
+                }
+                LOG.debug("clearChat: synced " + conversationHistory.size() //$NON-NLS-1$
+                        + " UI messages to session " + session.getId() //$NON-NLS-1$
+                        + " (now has " + session.getMessages().size() + " messages)"); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            // Complete the current session (triggers memory extraction) and start fresh
+            SessionManager.getInstance().startNewSession();
+        } catch (Exception e) {
+            LOG.debug("clearChat: session management failed: " + e.getMessage()); //$NON-NLS-1$
+        }
+
         if (USE_BROWSER_RENDERING) {
             clearChatBrowser();
         } else {
@@ -2035,6 +2175,13 @@ public class ChatView extends ViewPart {
         appendMessage("AI", message, true, List.of()); //$NON-NLS-1$
     }
 
+    /**
+     * Returns the currently active model name for display in message badges.
+     */
+    private String getCurrentModelName() {
+        return getEffectiveModelId();
+    }
+
     private void appendSystemMessage(String message) {
         appendMessage("Система", message, false, List.of()); //$NON-NLS-1$
     }
@@ -2070,7 +2217,8 @@ public class ChatView extends ViewPart {
         }
 
         boolean isSystem = "Система".equals(sender) || "System".equals(sender); //$NON-NLS-1$ //$NON-NLS-2$
-        browserChatPanel.addMessage(sender, message, isAssistant, isSystem, attachments);
+        String modelName = isAssistant ? getCurrentModelName() : null;
+        browserChatPanel.addMessage(sender, message, isAssistant, isSystem, attachments, modelName);
         LOG.debug("appendMessageBrowser: message added to browserChatPanel"); //$NON-NLS-1$
     }
 
@@ -2208,7 +2356,18 @@ public class ChatView extends ViewPart {
         keepFrom = LlmConversationSanitizer.findSafeCompactionStart(conversationHistory, keepFrom);
         List<LlmMessage> head = new ArrayList<>(conversationHistory.subList(0, keepFrom));
         List<LlmMessage> tail = new ArrayList<>(conversationHistory.subList(keepFrom, conversationHistory.size()));
-        String summary = buildHistorySummary(head);
+
+        // Try LLM-based compaction first if feature flag is enabled
+        LlmCompactionService compactor = LlmCompactionService.getInstance();
+        String summary = null;
+        if (compactor.isEnabled()) {
+            int targetTokens = Math.max(200, estimateTokensForMessages(head) / 4);
+            summary = compactor.compact(head, targetTokens);
+        }
+        // Fall back to existing truncation-based summary
+        if (summary == null || summary.isBlank()) {
+            summary = buildHistorySummary(head);
+        }
         if (summary.isBlank()) {
             return false;
         }
@@ -2337,29 +2496,13 @@ public class ChatView extends ViewPart {
     }
 
     private void updateTokenUsageDisplay() {
+        // Token counter is hidden — will be replaced by budget indicator in Phase 2.
+        // Still accumulate values internally for backend usage tracking.
         if (tokenUsageLabel == null || tokenUsageLabel.isDisposed()) {
             return;
         }
-        boolean showUsage = isTokenUsageVisible();
-        tokenUsageLabel.setVisible(showUsage);
-        ((GridData) tokenUsageLabel.getLayoutData()).exclude = !showUsage;
-        if (!showUsage) {
-            tokenUsageLabel.setText(""); //$NON-NLS-1$
-            tokenUsageLabel.getParent().layout(true, true);
-            return;
-        }
-
-        long nonCachedInput = Math.max(0, inputTokensTotal - cachedInputTokensTotal);
-        long cachePercent = inputTokensTotal > 0 ? (cachedInputTokensTotal * 100L / inputTokensTotal) : 0L;
-        String text = String.format(
-                "Вход: %,d | Кэш: %,d (%d%%) | Выход: %,d | Итого: %,d", //$NON-NLS-1$
-                nonCachedInput,
-                cachedInputTokensTotal,
-                cachePercent,
-                outputTokensTotal,
-                totalTokensTotal);
-        tokenUsageLabel.setText(text);
-        tokenUsageLabel.getParent().layout(true, true);
+        tokenUsageLabel.setVisible(false);
+        ((GridData) tokenUsageLabel.getLayoutData()).exclude = true;
     }
 
     private void updateModelButtonVisibility() {
@@ -2372,16 +2515,27 @@ public class ChatView extends ViewPart {
         modelButton.getParent().layout(true, true);
     }
 
+    /** Default model when user has not explicitly selected one. */
+    private static final String DEFAULT_MODEL_ID = "kimi-k2.5"; //$NON-NLS-1$
+
     private void updateModelButtonLabel() {
         if (modelButton == null || modelButton.isDisposed()) {
             return;
         }
-        if (overrideModelId != null && !overrideModelId.isBlank()) {
-            modelButton.setText(overrideModelId);
-        } else {
-            modelButton.setText(Messages.ChatView_ModelButton);
-        }
+        String displayId = getEffectiveModelId();
+        modelButton.setText(displayId);
         modelButton.getParent().layout(true, true);
+    }
+
+    /**
+     * Returns the model ID to use for requests and display.
+     * Falls back to {@link #DEFAULT_MODEL_ID} when no explicit selection.
+     */
+    private String getEffectiveModelId() {
+        if (overrideModelId != null && !overrideModelId.isBlank()) {
+            return overrideModelId;
+        }
+        return DEFAULT_MODEL_ID;
     }
 
     private void openModelSelectionDialog() {
@@ -2420,8 +2574,27 @@ public class ChatView extends ViewPart {
                     if (dialog.open() == org.eclipse.jface.dialogs.IDialogConstants.OK_ID) {
                         ModelInfo selected = dialog.getSelectedModel();
                         if (selected != null) {
+                            String previousModelId = overrideModelId;
                             overrideModelId = selected.getId();
                             updateModelButtonLabel();
+
+                            // Ask user whether to start a new chat when model changes mid-conversation
+                            if (previousModelId != null && !previousModelId.equals(overrideModelId)
+                                    && !conversationHistory.isEmpty()) {
+                                String msg = MessageFormat.format(
+                                        Messages.ChatView_ModelSwitchMessage, selected.getId());
+                                MessageDialog switchDialog = new MessageDialog(
+                                        getSite().getShell(),
+                                        Messages.ChatView_ModelSwitchTitle,
+                                        null, msg, MessageDialog.QUESTION,
+                                        new String[] {
+                                            Messages.ChatView_ModelSwitchNewChat,
+                                            Messages.ChatView_ModelSwitchContinue
+                                        }, 0);
+                                if (switchDialog.open() == 0) {
+                                    clearChat();
+                                }
+                            }
                         }
                     }
                 }));

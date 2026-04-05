@@ -29,7 +29,9 @@ import com.codepilot1c.core.agent.prompts.WorkspacePromptSourceResolver;
  */
 public final class SkillCatalog {
 
-    private static final List<String> BUNDLED_SKILLS = List.of("review", "refactor", "explain"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+    private static final List<String> BUNDLED_SKILLS = List.of(
+            "review", "refactor", "explain", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            "architect", "validator"); //$NON-NLS-1$ //$NON-NLS-2$
 
     private final Path projectRoot;
     private final WorkspacePromptSourceResolver sourceResolver;
@@ -43,6 +45,22 @@ public final class SkillCatalog {
         this.sourceResolver = new WorkspacePromptSourceResolver(projectRoot, userHome);
     }
 
+    /**
+     * Discovers all skills from three scope layers.
+     * <p>
+     * Scope priority (highest wins on name collision):
+     * <ol>
+     *   <li><b>PROJECT</b> &mdash; {@code .codepilot1c/skills/} inside the project root
+     *       (uses {@code put}, overrides both USER and BUNDLED).</li>
+     *   <li><b>USER</b> &mdash; {@code ~/.codepilot1c/skills/} in the user home directory
+     *       (uses {@code put}, overrides BUNDLED).</li>
+     *   <li><b>BUNDLED</b> &mdash; skills shipped inside the core bundle
+     *       (uses {@code putIfAbsent}, lowest priority).</li>
+     * </ol>
+     * Within each directory-based scope, an optional {@code SKILL.yaml} file in the same
+     * directory as {@code SKILL.md} can override frontmatter values (see
+     * {@link #parseSkillYaml(Path)}).
+     */
     public List<SkillDefinition> discoverSkills() {
         Map<String, SkillDefinition> definitions = new LinkedHashMap<>();
         addBundledSkills(definitions);
@@ -52,8 +70,10 @@ public final class SkillCatalog {
     }
 
     public List<SkillDefinition> discoverVisibleSkills(boolean backendSelectedInUi) {
+        SkillConfigStore store = SkillConfigStore.getInstance();
         return discoverSkills().stream()
                 .filter(skill -> backendSelectedInUi || !skill.backendOnly())
+                .filter(skill -> store.isEnabled(skill.name()))
                 .toList();
     }
 
@@ -65,6 +85,7 @@ public final class SkillCatalog {
         return discoverSkills().stream()
                 .filter(skill -> normalizeName(skill.name()).equals(requested))
                 .filter(skill -> backendSelectedInUi || !skill.backendOnly())
+                .filter(skill -> SkillConfigStore.getInstance().isEnabled(skill.name()))
                 .findFirst();
     }
 
@@ -120,6 +141,13 @@ public final class SkillCatalog {
                             String raw = Files.readString(skillFile, StandardCharsets.UTF_8);
                             SkillDefinition definition = parseSkill(raw, directory.getFileName().toString(), type,
                                     skillFile.toAbsolutePath().toString());
+
+                            // Apply optional SKILL.yaml overrides
+                            Path yamlFile = directory.resolve("SKILL.yaml"); //$NON-NLS-1$
+                            if (Files.isRegularFile(yamlFile)) {
+                                definition = applyYamlOverrides(definition, yamlFile);
+                            }
+
                             definitions.put(normalizeName(definition.name()), definition);
                         } catch (IOException e) {
                             // Ignore malformed skill file and keep discovery resilient.
@@ -128,6 +156,93 @@ public final class SkillCatalog {
         } catch (IOException e) {
             // Ignore broken discovery root and keep other layers working.
         }
+    }
+
+    /**
+     * Applies overrides from a {@code SKILL.yaml} file to an existing skill definition.
+     * <p>
+     * Supported SKILL.yaml keys and their mapping to SkillDefinition fields:
+     * <ul>
+     *   <li>{@code interface.display_name} &rarr; name</li>
+     *   <li>{@code interface.short_description} &rarr; description</li>
+     *   <li>{@code policy.allow_implicit_invocation} &rarr; allowImplicit</li>
+     *   <li>{@code policy.implicit_triggers} &rarr; implicitTriggers</li>
+     *   <li>{@code dependencies.required_tools} &rarr; allowedTools</li>
+     * </ul>
+     */
+    private SkillDefinition applyYamlOverrides(SkillDefinition base, Path yamlFile) {
+        Map<String, String> yaml = parseSkillYaml(yamlFile);
+        if (yaml.isEmpty()) {
+            return base;
+        }
+
+        String name = yaml.containsKey("interface.display_name") //$NON-NLS-1$
+                ? yaml.get("interface.display_name") : base.name(); //$NON-NLS-1$
+        String description = yaml.containsKey("interface.short_description") //$NON-NLS-1$
+                ? yaml.get("interface.short_description") : base.description(); //$NON-NLS-1$
+        boolean allowImplicit = yaml.containsKey("policy.allow_implicit_invocation") //$NON-NLS-1$
+                ? Boolean.parseBoolean(yaml.get("policy.allow_implicit_invocation")) : base.allowImplicit(); //$NON-NLS-1$
+        List<String> implicitTriggers = yaml.containsKey("policy.implicit_triggers") //$NON-NLS-1$
+                ? parseList(yaml.get("policy.implicit_triggers")) : base.implicitTriggers(); //$NON-NLS-1$
+        List<String> allowedTools = yaml.containsKey("dependencies.required_tools") //$NON-NLS-1$
+                ? parseList(yaml.get("dependencies.required_tools")) : base.allowedTools(); //$NON-NLS-1$
+
+        return new SkillDefinition(name, description, allowedTools, base.backendOnly(),
+                allowImplicit, implicitTriggers, base.body(), base.sourceType(), base.sourcePath());
+    }
+
+    /**
+     * Parses a {@code SKILL.yaml} file using simple line-based parsing (no YAML library).
+     * <p>
+     * Returns a map of flattened dotted keys to their string values, e.g.
+     * {@code "interface.display_name" -> "Code Review"}.
+     * <p>
+     * Supports a two-level YAML structure where top-level keys end with {@code :} and
+     * child keys are indented with spaces. List values using {@code [...]} inline syntax
+     * are stored as the raw bracket string for later parsing by {@link #parseList(String)}.
+     *
+     * @param yamlFile path to the SKILL.yaml file
+     * @return flattened key-value map; empty if the file cannot be read or is malformed
+     */
+    private Map<String, String> parseSkillYaml(Path yamlFile) {
+        Map<String, String> result = new LinkedHashMap<>();
+        List<String> lines;
+        try {
+            lines = Files.readAllLines(yamlFile, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return result;
+        }
+
+        String currentSection = null;
+        for (String line : lines) {
+            // Skip blank lines and comments
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) { //$NON-NLS-1$
+                continue;
+            }
+
+            int colonIndex = trimmed.indexOf(':');
+            if (colonIndex <= 0) {
+                continue;
+            }
+
+            String key = trimmed.substring(0, colonIndex).trim();
+            String value = trimmed.substring(colonIndex + 1).trim();
+
+            // Detect section header: no leading whitespace and value is empty or only whitespace
+            if (!Character.isWhitespace(line.charAt(0)) && value.isEmpty()) {
+                currentSection = key;
+                continue;
+            }
+
+            // Child key under a section
+            if (Character.isWhitespace(line.charAt(0)) && currentSection != null) {
+                String flatKey = currentSection + "." + key; //$NON-NLS-1$
+                result.put(flatKey, stripQuotes(value));
+            }
+        }
+
+        return result;
     }
 
     private SkillDefinition parseSkill(String raw, String fallbackName, SkillDefinition.SourceType sourceType,
@@ -157,8 +272,13 @@ public final class SkillCatalog {
                 frontmatter.get("backend-only"), frontmatter.get("backend_only"), "false")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         List<String> allowedTools = parseList(firstNonBlank(
                 frontmatter.get("allowed-tools"), frontmatter.get("allowed_tools"), "")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        boolean allowImplicit = Boolean.parseBoolean(firstNonBlank(
+                frontmatter.get("allow-implicit"), frontmatter.get("allow_implicit"), "false")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        List<String> implicitTriggers = parseList(firstNonBlank(
+                frontmatter.get("implicit-triggers"), frontmatter.get("implicit_triggers"), "")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 
-        return new SkillDefinition(name, description, allowedTools, backendOnly, body, sourceType, sourcePath);
+        return new SkillDefinition(name, description, allowedTools, backendOnly,
+                allowImplicit, implicitTriggers, body, sourceType, sourcePath);
     }
 
     private List<String> parseList(String raw) {

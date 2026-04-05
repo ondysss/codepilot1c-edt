@@ -49,7 +49,14 @@ public final class SkillTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Показывает доступные skills и загружает инструкцию выбранного skill по имени. Используй для подключения специализированного workflow."; //$NON-NLS-1$
+        return "Загружает специализированный workflow (skill) для задачи. " //$NON-NLS-1$
+                + "АВТОМАТИЧЕСКИ загружай нужный skill ДО начала работы: " //$NON-NLS-1$
+                + "code review/ревью кода -> skill(name=review), " //$NON-NLS-1$
+                + "рефакторинг -> skill(name=refactor), " //$NON-NLS-1$
+                + "объяснение кода -> skill(name=explain), " //$NON-NLS-1$
+                + "архитектура/проектирование -> skill(name=architect), " //$NON-NLS-1$
+                + "валидация/аудит проекта -> skill(name=validator). " //$NON-NLS-1$
+                + "Без аргументов возвращает список доступных skills."; //$NON-NLS-1$
     }
 
     @Override

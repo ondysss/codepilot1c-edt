@@ -86,7 +86,8 @@ public final class AgentPromptTemplates {
         sb.append("- EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, bsl_analyze_method, bsl_module_context, bsl_module_exports\n"); //$NON-NLS-1$
         sb.append("- EDT диагностика и runtime: edt_diagnostics(command=metadata_smoke|trace_export|analyze_error|update_infobase|launch_app), import_project_from_infobase\n"); //$NON-NLS-1$
         sb.append("- Подагенты: task (делегирование в auto/explore/plan/code/metadata/qa/dcs/extension/recovery/orchestrator; доступно только с CodePilot backend)\n"); //$NON-NLS-1$
-        sb.append("- QA: qa_inspect(command=explain_config|status|steps_search), qa_generate(command=init_config|migrate_config|compile_feature), qa_prepare_form_context, qa_plan_scenario, qa_validate_feature, qa_run\n\n"); //$NON-NLS-1$
+        sb.append("- QA: qa_inspect(command=explain_config|status|steps_search), qa_generate(command=init_config|migrate_config|compile_feature), qa_prepare_form_context, qa_plan_scenario, qa_validate_feature, qa_run\n"); //$NON-NLS-1$
+        sb.append("- Скиллы: skill(name=review|refactor|explain|architect|validator)\n\n"); //$NON-NLS-1$
 
         sb.append("## QA workflow\n"); //$NON-NLS-1$
         sb.append("1. Если qa-config.json отсутствует, сначала вызывай qa_generate(command=init_config), а затем qa_inspect(command=explain_config).\n"); //$NON-NLS-1$
@@ -318,7 +319,7 @@ public final class AgentPromptTemplates {
         sb.append("- Контекст: read_file, list_files, glob, grep\n"); //$NON-NLS-1$
         sb.append("- Делегирование: delegate_to_agent(agentType=auto|code|metadata|qa|dcs|extension|recovery|plan|explore|orchestrator, task, context), task(prompt, profile=auto|...)\n"); //$NON-NLS-1$
         sb.append("- Skills: skill\n\n"); //$NON-NLS-1$
-        sb.append("## Маршрутизация\n"); //$NON-NLS-1$
+        sb.append("## Маршрутизация по домену\n"); //$NON-NLS-1$
         sb.append("1. Код BSL, процедуры, функции, модули -> code.\n"); //$NON-NLS-1$
         sb.append("2. Метаданные, формы, реквизиты, объекты конфигурации -> metadata.\n"); //$NON-NLS-1$
         sb.append("3. Тесты, Vanessa, YAxUnit, feature/scenario -> qa.\n"); //$NON-NLS-1$
@@ -326,6 +327,11 @@ public final class AgentPromptTemplates {
         sb.append("5. Расширения и внешние объекты -> extension.\n"); //$NON-NLS-1$
         sb.append("6. Runtime/smoke/recovery/diagnostics -> recovery.\n"); //$NON-NLS-1$
         sb.append("7. Чистый анализ или план без изменений -> plan/explore.\n\n"); //$NON-NLS-1$
+        sb.append("## Маршрутизация по масштабу\n"); //$NON-NLS-1$
+        sb.append("1. 1-2 объекта: task(profile=<domain>) напрямую.\n"); //$NON-NLS-1$
+        sb.append("2. 3-5 задач: сначала task(profile=plan, prompt='skill(name=architect)...') для плана, затем серия task(profile=<domain>) по задачам.\n"); //$NON-NLS-1$
+        sb.append("3. После реализации: task(profile=plan, prompt='skill(name=review)...') для проверки качества кода.\n"); //$NON-NLS-1$
+        sb.append("4. Финально: task(profile=qa, prompt='skill(name=validator)...') для валидации проекта.\n\n"); //$NON-NLS-1$
         sb.append("## Формат финального ответа\n"); //$NON-NLS-1$
         sb.append("1. Кратко сформулируй итог.\n"); //$NON-NLS-1$
         sb.append("2. Перечисли выполненные подзадачи и выбранные профили.\n"); //$NON-NLS-1$

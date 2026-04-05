@@ -7,14 +7,24 @@
  */
 package com.codepilot1c.core.agent.prompts;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Resolves workspace-scoped and user-scoped prompt and skill sources.
+ *
+ * <p>Ancestor walk is bounded by project root markers ({@code .git}, {@code .codepilot},
+ * {@code .codepilot1c}, {@code AGENTS.md}) following the Codex root-bounded discovery pattern.
+ * This prevents loading unrelated instructions from parent directories above the project.
  */
 public final class WorkspacePromptSourceResolver {
+
+    /** Markers that indicate a project/repo root — stop ancestor walk here. */
+    private static final Set<String> ROOT_MARKERS = Set.of(
+            ".git", ".codepilot", ".codepilot1c", "AGENTS.md"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
 
     private final Path projectStart;
     private final Path userHome;
@@ -28,11 +38,27 @@ public final class WorkspacePromptSourceResolver {
         this.userHome = userHome;
     }
 
+    /**
+     * Collects ancestor directories from project start upward, stopping at the
+     * first directory that contains a root marker ({@code .git}, {@code .codepilot},
+     * {@code .codepilot1c}, or {@code AGENTS.md}).
+     *
+     * <p>This follows the Codex root-bounded discovery pattern: instructions from
+     * directories above the project root are not loaded, preventing leakage of
+     * unrelated context from parent directories.
+     *
+     * @return ancestors ordered from filesystem root to project start
+     */
     public List<Path> collectAncestors() {
         List<Path> reversed = new ArrayList<>();
         Path current = projectStart;
         while (current != null) {
-            reversed.add(current.toAbsolutePath().normalize());
+            Path normalized = current.toAbsolutePath().normalize();
+            reversed.add(normalized);
+            // Stop at project/repo root — do not walk above it
+            if (!reversed.isEmpty() && reversed.size() > 1 && isProjectRoot(normalized)) {
+                break;
+            }
             current = current.getParent();
         }
 
@@ -41,6 +67,14 @@ public final class WorkspacePromptSourceResolver {
             ordered.add(reversed.get(i));
         }
         return ordered;
+    }
+
+    /**
+     * Returns true if the directory contains a project/repo root marker.
+     */
+    private static boolean isProjectRoot(Path directory) {
+        return ROOT_MARKERS.stream()
+                .anyMatch(marker -> Files.exists(directory.resolve(marker)));
     }
 
     public List<Path> hiddenPromptCandidates(String fileName) {

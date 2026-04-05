@@ -124,15 +124,36 @@ public class AgentProfileRegistry {
      * @return конфигурация
      */
     public AgentConfig createConfig(AgentProfile profile) {
+        ProfileOverride override = ProfileConfigStore.getInstance()
+                .getOverride(profile.getId()).orElse(null);
+
+        int maxSteps = (override != null && override.maxSteps() != null)
+                ? override.maxSteps() : profile.getMaxSteps();
+        long timeoutMs = (override != null && override.timeoutMs() != null)
+                ? override.timeoutMs() : profile.getTimeoutMs();
+
+        String promptAddition = profile.getSystemPromptAddition();
+        if (override != null && override.additionalPrompt() != null
+                && !override.additionalPrompt().isBlank()) {
+            promptAddition = (promptAddition != null ? promptAddition + "\n" : "") //$NON-NLS-1$ //$NON-NLS-2$
+                    + override.additionalPrompt();
+        }
+
         AgentConfig.Builder builder = AgentConfig.builder()
-                .maxSteps(profile.getMaxSteps())
-                .timeoutMs(profile.getTimeoutMs())
-                .systemPromptAddition(profile.getSystemPromptAddition())
+                .maxSteps(maxSteps)
+                .timeoutMs(timeoutMs)
+                .systemPromptAddition(promptAddition)
                 .profileName(profile.getId());
 
-        // Enable only allowed tools
+        // Enable all profile tools
         for (String tool : profile.getAllowedTools()) {
             builder.enableTool(tool);
+        }
+
+        // Apply user's disabled tools blacklist via AgentConfig's native mechanism
+        if (override != null && override.disabledTools() != null
+                && !override.disabledTools().isEmpty()) {
+            builder.disabledTools(override.disabledTools());
         }
 
         return builder.build();

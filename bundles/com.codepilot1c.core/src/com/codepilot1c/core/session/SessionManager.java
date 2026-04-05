@@ -232,25 +232,61 @@ public class SessionManager {
 
     /**
      * Возвращает или создает текущую сессию.
+     * If the session exists but has no project binding, attempts to bind it
+     * to the current project (projectPath must never remain null in normal usage).
      */
     public Session getOrCreateCurrentSession() {
         if (currentSession == null) {
             currentSession = createSessionForCurrentProject();
+        } else {
+            // Ensure existing session is bound to a project
+            ensureSessionProjectBound(currentSession);
         }
         return currentSession;
+    }
+
+    /**
+     * Ensures the session is bound to a project.
+     * If projectPath is null, resolves and binds the current project.
+     * Should be called when a project is opened or activated.
+     */
+    public void ensureSessionProjectBound(Session session) {
+        if (session != null && session.getProjectPath() == null) {
+            IProject project = getCurrentProject();
+            if (project != null && project.exists()) {
+                session.setProjectName(project.getName());
+                IPath location = project.getLocation();
+                if (location != null) {
+                    session.setProjectPath(location.toOSString());
+                }
+            }
+        }
     }
 
     /**
      * Очищает текущую сессию и создает новую.
      */
     public Session startNewSession() {
+        LOG.info("startNewSession: currentSession=" //$NON-NLS-1$
+                + (currentSession != null ? currentSession.getId() : "null") //$NON-NLS-1$
+                + ", isEmpty=" + (currentSession != null ? currentSession.isEmpty() : "N/A") //$NON-NLS-1$ //$NON-NLS-2$
+                + ", messageCount=" + (currentSession != null ? currentSession.getMessages().size() : 0) //$NON-NLS-1$
+                + ", projectPath=" + (currentSession != null ? currentSession.getProjectPath() : "null")); //$NON-NLS-1$ //$NON-NLS-2$
+
         // Save current session if it has messages
         if (currentSession != null && !currentSession.isEmpty()) {
             currentSession.setStatus(Session.SessionStatus.COMPLETED);
-            saveSession(currentSession);
+            // IMPORTANT #9 fix: only notify completed if save succeeds
+            boolean saved = saveSession(currentSession);
+            LOG.info("startNewSession: session saved=" + saved); //$NON-NLS-1$
+            if (saved) {
+                notifySessionCompleted(currentSession);
+            }
         }
 
         currentSession = createSessionForCurrentProject();
+        LOG.info("startNewSession: new session created, id=" + currentSession.getId() //$NON-NLS-1$
+                + ", projectPath=" + currentSession.getProjectPath()); //$NON-NLS-1$
         return currentSession;
     }
 
@@ -260,7 +296,10 @@ public class SessionManager {
     public void archiveSession(String sessionId) {
         loadSession(sessionId).ifPresent(session -> {
             session.setStatus(Session.SessionStatus.ARCHIVED);
-            saveSession(session);
+            // IMPORTANT #9 fix: only notify completed if save succeeds
+            if (saveSession(session)) {
+                notifySessionCompleted(session);
+            }
         });
     }
 
@@ -308,17 +347,35 @@ public class SessionManager {
     }
 
     /**
-     * Возвращает текущий выбранный проект (упрощенная версия).
+     * Возвращает текущий проект 1С.
+     *
+     * <p>Resolution order:</p>
+     * <ol>
+     *   <li>V8ProjectManager: first managed V8 project in workspace</li>
+     *   <li>Workspace fallback: first open project</li>
+     * </ol>
      */
     private IProject getCurrentProject() {
-        // This is a simplified implementation
-        // In real implementation, we would get the project from the active editor or selection
+        // Try V8ProjectManager first — this gives us real 1C projects
+        try {
+            com._1c.g5.v8.dt.core.platform.IV8ProjectManager v8pm =
+                    com.codepilot1c.core.internal.VibeCorePlugin.getDefault().getV8ProjectManager();
+            if (v8pm != null) {
+                for (com._1c.g5.v8.dt.core.platform.IV8Project v8p : v8pm.getProjects()) {
+                    IProject project = v8p.getProject();
+                    if (project != null && project.exists() && project.isOpen()) {
+                        return project;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // V8ProjectManager not available (startup race or non-EDT workspace)
+        }
+
+        // Fallback: first open project in workspace
         IWorkspace workspace = ResourcesPlugin.getWorkspace();
         IWorkspaceRoot root = workspace.getRoot();
-        IProject[] projects = root.getProjects();
-
-        // Return first open project as fallback
-        for (IProject project : projects) {
+        for (IProject project : root.getProjects()) {
             if (project.exists() && project.isOpen()) {
                 return project;
             }
@@ -405,6 +462,21 @@ public class SessionManager {
         }
     }
 
+    private void notifySessionCompleted(Session session) {
+        LOG.info("notifySessionCompleted: session=" + session.getId() //$NON-NLS-1$
+                + ", listeners=" + listeners.size() //$NON-NLS-1$
+                + ", messages=" + session.getMessages().size() //$NON-NLS-1$
+                + ", projectPath=" + session.getProjectPath()); //$NON-NLS-1$
+        for (ISessionChangeListener listener : listeners) {
+            try {
+                LOG.info("notifySessionCompleted: calling " + listener.getClass().getSimpleName()); //$NON-NLS-1$
+                listener.onSessionCompleted(session);
+            } catch (Exception e) {
+                logWarning("Ошибка в слушателе событий сессий (completed)", e);
+            }
+        }
+    }
+
     private void notifyCurrentSessionChanged(Session oldSession, Session newSession) {
         for (ISessionChangeListener listener : listeners) {
             try {
@@ -443,5 +515,8 @@ public class SessionManager {
 
         /** Вызывается при смене текущей сессии */
         default void onCurrentSessionChanged(Session oldSession, Session newSession) {}
+
+        /** Вызывается при завершении сессии (status = COMPLETED или ARCHIVED) */
+        default void onSessionCompleted(Session session) {}
     }
 }

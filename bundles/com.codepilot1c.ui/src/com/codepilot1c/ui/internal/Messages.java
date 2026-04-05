@@ -49,6 +49,14 @@ public class Messages extends NLS {
     public static String ChatView_ModelFetching;
     public static String ChatView_ModelFetchError;
     public static String ChatView_ModelNoModels;
+    public static String ChatView_NewChatButton;
+    public static String ChatView_NewChatTooltip;
+    public static String ChatView_NewChatConfirmTitle;
+    public static String ChatView_NewChatConfirmMessage;
+    public static String ChatView_ModelSwitchTitle;
+    public static String ChatView_ModelSwitchMessage;
+    public static String ChatView_ModelSwitchNewChat;
+    public static String ChatView_ModelSwitchContinue;
 
     public static String PreferencePage_Description;
     public static String PreferencePage_ProviderLabel;
@@ -181,6 +189,76 @@ public class Messages extends NLS {
     public static String ModelSelectionDialog_FilterPlaceholder;
     public static String ModelSelectionDialog_ModelCount;
 
+
+    // Skills preference page
+    public static String SkillsPreferencePage_Description;
+    public static String SkillsPreferencePage_ColumnEnabled;
+    public static String SkillsPreferencePage_ColumnName;
+    public static String SkillsPreferencePage_ColumnSource;
+    public static String SkillsPreferencePage_ColumnTools;
+    public static String SkillsPreferencePage_Add;
+    public static String SkillsPreferencePage_Edit;
+    public static String SkillsPreferencePage_Remove;
+    public static String SkillsPreferencePage_Refresh;
+    public static String SkillsPreferencePage_OpenFile;
+    public static String SkillsPreferencePage_SourceBundled;
+    public static String SkillsPreferencePage_SourceUser;
+    public static String SkillsPreferencePage_SourceProject;
+    public static String SkillsPreferencePage_RemoveConfirmTitle;
+    public static String SkillsPreferencePage_RemoveConfirmMessage;
+
+    // Skill edit dialog
+    public static String SkillEditDialog_TitleAdd;
+    public static String SkillEditDialog_TitleEdit;
+    public static String SkillEditDialog_TitleView;
+    public static String SkillEditDialog_Name;
+    public static String SkillEditDialog_Description;
+    public static String SkillEditDialog_BackendOnly;
+    public static String SkillEditDialog_AllowedTools;
+    public static String SkillEditDialog_Body;
+    public static String SkillEditDialog_NameRequired;
+    public static String SkillEditDialog_NameInvalid;
+    public static String SkillEditDialog_NameDuplicate;
+    public static String SkillEditDialog_DescriptionTooLong;
+
+    // Profiles preference page
+    public static String ProfilesPreferencePage_Description;
+    public static String ProfilesPreferencePage_ColumnIcon;
+    public static String ProfilesPreferencePage_ColumnProfile;
+    public static String ProfilesPreferencePage_ColumnTools;
+    public static String ProfilesPreferencePage_ColumnMaxSteps;
+    public static String ProfilesPreferencePage_ColumnTimeout;
+    public static String ProfilesPreferencePage_Configure;
+    public static String ProfilesPreferencePage_Reset;
+    public static String ProfilesPreferencePage_ResetConfirmTitle;
+    public static String ProfilesPreferencePage_ResetConfirmMessage;
+    public static String ProfilesPreferencePage_Customized;
+
+    // Profile edit dialog
+    public static String ProfileEditDialog_Title;
+    public static String ProfileEditDialog_MaxSteps;
+    public static String ProfileEditDialog_Timeout;
+    public static String ProfileEditDialog_DisabledTools;
+    public static String ProfileEditDialog_AdditionalPrompt;
+    public static String ProfileEditDialog_ResetButton;
+
+    // Skill display info
+    public static String SkillDisplayInfo_SkillLabel_review;
+    public static String SkillDisplayInfo_SkillLabel_refactor;
+    public static String SkillDisplayInfo_SkillLabel_explain;
+    public static String SkillDisplayInfo_SkillLabel_architect;
+    public static String SkillDisplayInfo_SkillLabel_validator;
+    public static String SkillDisplayInfo_ProfileLabel_build;
+    public static String SkillDisplayInfo_ProfileLabel_code;
+    public static String SkillDisplayInfo_ProfileLabel_metadata;
+    public static String SkillDisplayInfo_ProfileLabel_qa;
+    public static String SkillDisplayInfo_ProfileLabel_dcs;
+    public static String SkillDisplayInfo_ProfileLabel_extension;
+    public static String SkillDisplayInfo_ProfileLabel_recovery;
+    public static String SkillDisplayInfo_ProfileLabel_plan;
+    public static String SkillDisplayInfo_ProfileLabel_explore;
+    public static String SkillDisplayInfo_ProfileLabel_orchestrator;
+    public static String SkillDisplayInfo_ProfileLabel_auto;
 
     // Code block widget
     public static String CodeBlockWidget_Copy;

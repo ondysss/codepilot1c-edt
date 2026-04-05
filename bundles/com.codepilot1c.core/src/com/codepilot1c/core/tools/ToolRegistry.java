@@ -148,6 +148,7 @@ public class ToolRegistry {
         register(new DelegateToAgentTool(this));
         register(new TaskTool(this));
         register(new DiscoverToolsTool(this));
+        register(new com.codepilot1c.core.tools.memory.RememberFactTool());
 
         // Extra tools may be contributed by an overlay (e.g. Pro) via extension point.
         loadToolsFromExtensionPoint();

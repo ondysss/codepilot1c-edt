@@ -104,6 +104,9 @@ public class VibeCorePlugin extends Plugin {
 
         WorkspaceProjectBootstrap.importConfiguredProjects();
 
+        // Initialize persistent memory subsystem (contributor pipeline)
+        com.codepilot1c.core.memory.MemoryService.initialize();
+
         // Initialize LLM providers and set initial state.
         // If no providers are configured, plugin still starts but shows NOT_CONFIGURED.
         try {

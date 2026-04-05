@@ -165,19 +165,17 @@ public class TaskTool extends AbstractTool {
                 .getProfile(profileId)
                 .orElse(AgentProfileRegistry.getInstance().getExploreProfile());
 
-        // Create config from profile with reduced limits for subagent
-        AgentConfig.Builder configBuilder = AgentConfig.builder()
-                .maxSteps(Math.min(profile.getMaxSteps(), 15)) // Limit subagent steps
+        // Create config from profile (applies user overrides via ProfileConfigStore)
+        AgentConfig baseConfig = AgentProfileRegistry.getInstance().createConfig(profile);
+        AgentConfig.Builder configBuilder = AgentConfig.builder().from(baseConfig)
+                .maxSteps(Math.min(baseConfig.getMaxSteps(), 15)) // Limit subagent steps
                 .timeoutMs(DEFAULT_TIMEOUT_SECONDS * 1000L)
                 .systemPromptAddition(buildSubagentSystemPrompt(profile, description))
                 .profileName(profileId);
 
-        // Enable tools based on profile
-        for (String tool : profile.getAllowedTools()) {
-            // Don't allow nested task calls beyond depth 2
-            if (!"task".equals(tool) || currentDepth.get().get() < MAX_DEPTH - 1) {
-                configBuilder.enableTool(tool);
-            }
+        // Don't allow nested task calls beyond depth 2
+        if (currentDepth.get().get() >= MAX_DEPTH - 1) {
+            configBuilder.disableTool("task"); //$NON-NLS-1$
         }
 
         AgentConfig config = configBuilder.build();

@@ -1,0 +1,11 @@
+Typical 1C configuration patterns:
+- ERP (УправлениеПредприятием/ЕРП): full-cycle enterprise management, complex document flow
+- Trade Management (УправлениеТорговлей): sales/purchases/warehouse/CRM
+- Accounting (Бухгалтерия): chart of accounts, accounting registers, regulated reports
+- Payroll (ЗарплатаИУправлениеПерсоналом): HR records, payroll calculation, staffing
+- Retail (Розница): POS integration, shift management, peripheral equipment
+- Small Business (УправлениеНебольшойФирмой): simplified all-in-one for small companies
+- All typical configs share BSP as foundation; do not duplicate BSP functionality
+- Typical configs use standard document flow patterns: order -> invoice -> shipment -> payment
+- Register structure follows accumulation (остатки/обороты) and information (settings/cache) split
+- Integration points: exchange plans for distributed systems, HTTP/web services for external APIs

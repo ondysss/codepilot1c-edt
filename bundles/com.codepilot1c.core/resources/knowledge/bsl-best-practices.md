@@ -1,0 +1,13 @@
+BSL coding standards:
+- Use Russian identifiers per 1C naming conventions
+- Prefix private module variables with underscore is NOT standard; use descriptive names
+- Export procedures/functions must have a comment block describing parameters and return value
+- Maximum procedure/function length: 200 lines (recommendation)
+- Use НовыйОбъект pattern instead of direct constructor calls for platform objects
+- Prefer query language (DQL) over programmatic filtering of large datasets
+- Use CommonModule server calls for client-server boundary crossing
+- Never call server methods in loops from client code
+- Use БезопасныйРежим() for external code execution
+- Transaction scope: keep transactions as short as possible, avoid user interaction inside transactions
+- Always handle exceptions in background job handlers
+- Use structured logging via ЖурналРегистрации (EventLog)

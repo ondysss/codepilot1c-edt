@@ -11,15 +11,29 @@ import java.util.List;
 
 /**
  * Parsed skill definition with provenance and optional routing metadata.
+ *
+ * <p>Supports Codex-style skill policy: {@code implicit-triggers} defines keywords
+ * that hint the model to auto-load this skill, and {@code allow-implicit} controls
+ * whether implicit invocation is enabled for this skill.
  */
 public record SkillDefinition(
         String name,
         String description,
         List<String> allowedTools,
         boolean backendOnly,
+        boolean allowImplicit,
+        List<String> implicitTriggers,
         String body,
         SourceType sourceType,
         String sourcePath) {
+
+    /**
+     * Backward-compatible constructor without implicit invocation fields.
+     */
+    public SkillDefinition(String name, String description, List<String> allowedTools,
+            boolean backendOnly, String body, SourceType sourceType, String sourcePath) {
+        this(name, description, allowedTools, backendOnly, false, List.of(), body, sourceType, sourcePath);
+    }
 
     public enum SourceType {
         PROJECT,

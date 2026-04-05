@@ -27,6 +27,18 @@
             class="com.codepilot1c.ui.preferences.ProvidersPreferencePage">
         </page>
         <page
+            id="com.codepilot1c.ui.preferences.SkillsPreferencePage"
+            name="%preferences.skills.name"
+            category="com.codepilot1c.ui.preferences.VibePreferencePage"
+            class="com.codepilot1c.ui.preferences.SkillsPreferencePage">
+        </page>
+        <page
+            id="com.codepilot1c.ui.preferences.ProfilesPreferencePage"
+            name="%preferences.profiles.name"
+            category="com.codepilot1c.ui.preferences.VibePreferencePage"
+            class="com.codepilot1c.ui.preferences.ProfilesPreferencePage">
+        </page>
+        <page
             id="com.codepilot1c.ui.preferences.McpServersPreferencePage"
             name="%preferences.mcpServers.name"
             category="com.codepilot1c.ui.preferences.VibePreferencePage"
@@ -75,6 +87,14 @@
             class="com.codepilot1c.ui.views.GraphStudioView"
             allowMultiple="false">
         </view>
+        <view
+            id="com.codepilot1c.ui.views.MemoryInspectorView"
+            name="%view.memoryInspector.name"
+            icon="icons/vibe16.png"
+            category="com.codepilot1c.ui.category"
+            class="com.codepilot1c.ui.views.MemoryInspectorView"
+            allowMultiple="false">
+        </view>
     </extension>
 
     <!-- Perspective extensions -->
@@ -82,6 +102,7 @@
         <perspectiveExtension targetID="*">
             <viewShortcut id="com.codepilot1c.ui.views.ChatView"/>
             <viewShortcut id="com.codepilot1c.ui.views.GraphStudioView"/>
+            <viewShortcut id="com.codepilot1c.ui.views.MemoryInspectorView"/>
         </perspectiveExtension>
     </extension>
 

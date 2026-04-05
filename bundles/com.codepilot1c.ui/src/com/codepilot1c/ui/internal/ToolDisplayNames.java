@@ -68,6 +68,7 @@ public final class ToolDisplayNames {
             case "open_module" -> "Открытие модуля"; //$NON-NLS-1$ //$NON-NLS-2$
             case "delegate_to_agent" -> "Делегирование агенту"; //$NON-NLS-1$ //$NON-NLS-2$
             case "task" -> "Подзадача"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "skill" -> "Скилл"; //$NON-NLS-1$ //$NON-NLS-2$
             default -> name;
         };
     }

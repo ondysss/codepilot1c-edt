@@ -9,6 +9,7 @@ package com.codepilot1c.core.tools;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
@@ -132,8 +133,28 @@ public abstract class AbstractTool implements ITool {
     @Override
     public final CompletableFuture<ToolResult> execute(Map<String, Object> parameters) {
         try {
-            ToolParameters params = new ToolParameters(parameters);
-            return doExecute(params);
+            // Run before interceptors
+            Map<String, Object> effectiveArgs = parameters;
+            for (IToolInterceptor interceptor : ToolInterceptorRegistry.getInstance().getInterceptors()) {
+                Optional<Map<String, Object>> modified = interceptor.beforeToolCall(name, effectiveArgs);
+                if (modified.isEmpty()) {
+                    return CompletableFuture.completedFuture(
+                            ToolResult.failure("Tool call cancelled by interceptor")); //$NON-NLS-1$
+                }
+                effectiveArgs = modified.get();
+            }
+
+            long startTime = System.currentTimeMillis();
+            ToolParameters params = new ToolParameters(effectiveArgs);
+            return doExecute(params).thenApply(result -> {
+                // Run after interceptors
+                long duration = System.currentTimeMillis() - startTime;
+                ToolResult effective = result;
+                for (IToolInterceptor interceptor : ToolInterceptorRegistry.getInstance().getInterceptors()) {
+                    effective = interceptor.afterToolCall(name, effective, duration);
+                }
+                return effective;
+            });
         } catch (ToolParameters.ToolParameterException e) {
             return CompletableFuture.completedFuture(
                     ToolResult.failure(String.format("Parameter error in %s: %s", name, e.getMessage()))); //$NON-NLS-1$
