@@ -3160,8 +3160,35 @@ public class EdtMetadataService {
         IProject project = requireProject(request.projectName());
         readinessChecker.ensureReady(project);
 
-        // Resolve .mxl path from FQN
+        // Validate template exists in BM and is SpreadsheetDocument type
         String templateFqn = request.templateFqn();
+        try {
+            IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
+            Configuration configuration = configurationProvider.getConfiguration(project);
+            if (configuration != null) {
+                MdObject templateMd = resolveByFqn(configuration, templateFqn);
+                if (templateMd == null) {
+                    throw new MetadataOperationException(
+                            MetadataOperationCode.METADATA_NOT_FOUND,
+                            "Template metadata not found in BM: " + templateFqn
+                                    + ". Create it first via add_metadata_child with child_kind=Template", false); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                if (templateMd instanceof BasicTemplate bt) {
+                    TemplateType tt = bt.getTemplateType();
+                    if (tt != null && tt != TemplateType.SPREADSHEET_DOCUMENT) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                                "render_template only supports SpreadsheetDocument templates, got: " + tt.getLiteral(), false); //$NON-NLS-1$
+                    }
+                }
+            }
+        } catch (MetadataOperationException e) {
+            throw e; // re-throw our own exceptions
+        } catch (Exception e) {
+            LOG.debug("[%s] renderTemplate: could not validate template in BM: %s", opId, e.getMessage()); //$NON-NLS-1$
+        }
+
+        // Resolve .mxl path from FQN
         String mxlPath = resolveTemplateMxlPath(templateFqn);
         if (mxlPath == null) {
             throw new MetadataOperationException(
@@ -3329,8 +3356,9 @@ public class EdtMetadataService {
             mxlResource.save(Collections.emptyMap());
             LOG.debug("[%s] renderTemplate: MoxelResourceMxl.save() succeeded for %s", opId, mxlPath); //$NON-NLS-1$
         } catch (Exception e) {
-            LOG.warn("[%s] renderTemplate: MoxelResourceMxl failed, attempting raw fallback: %s", opId, e.getMessage()); //$NON-NLS-1$
-            warnings.add("MoxelResourceMxl serialization failed: " + e.getMessage() + ". Template metadata created but .mxl content may be incomplete."); //$NON-NLS-1$ //$NON-NLS-2$
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Failed to serialize SpreadsheetDocument to .mxl: " + e.getMessage(), true, e); //$NON-NLS-1$
         }
 
         // Refresh and wait for importer sync
@@ -3501,7 +3529,9 @@ public class EdtMetadataService {
             return "[" + cell.getParameter() + "]"; //$NON-NLS-1$ //$NON-NLS-2$
         }
         if (cell.getDetailParameter() != null && !cell.getDetailParameter().isEmpty()) {
-            return "[detail:" + cell.getDetailParameter() + "]"; //$NON-NLS-1$ //$NON-NLS-2$
+            // Use same [Field] syntax as render_template expects — render auto-detects
+            // detail vs document based on section name (СтрокаТаблицы)
+            return "[" + cell.getDetailParameter() + "]"; //$NON-NLS-1$ //$NON-NLS-2$
         }
         if (cell.getText() != null && cell.getText().getContent() != null
                 && !cell.getText().getContent().isEmpty()) {
