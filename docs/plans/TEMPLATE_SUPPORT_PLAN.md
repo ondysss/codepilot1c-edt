@@ -1,6 +1,6 @@
 # Plan: Template/Макет Support via EDT BM API
 
-## Status: Phase 1 DONE, Phase 1.5a IN PROGRESS
+## Status: Phase 1 ✅, Phase 1.5a ✅, Phase 2 ✅, Phase 2.5 ✅ — ALL DONE
 
 ---
 
@@ -401,10 +401,10 @@ Model calls `apply_template_recipe` and gets a pre-filled template, then can ref
 | Phase | Priority | Depends On | Effort | Status |
 |-------|----------|------------|--------|--------|
 | Phase 1 | HIGH | — | ~2h | ✅ DONE |
-| Phase 1.5a | HIGH | Phase 1 | ~2h | IN PROGRESS |
-| Phase 1.5b | HIGH | Phase 1.5a | ~2h | Planned |
-| Phase 2 | HIGH | Phase 1.5b | ~10h | Planned |
-| Phase 2.5 | MEDIUM | Phase 1 | ~3h | Planned |
+| Phase 1.5a | HIGH | Phase 1 | ~2h | ✅ DONE |
+| Phase 1.5b | HIGH | Phase 1.5a | ~2h | ✅ DONE (merged into 1.5a) |
+| Phase 2 | HIGH | Phase 1.5b | ~10h | ✅ DONE |
+| Phase 2.5 | MEDIUM | Phase 1 | ~3h | ✅ DONE |
 | Phase 3 | LOW | Phase 2.5 | ~8h | Future |
 | Phase 4 | LOW | Phase 2 | ~4h | Future |
 
