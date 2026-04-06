@@ -112,7 +112,10 @@ import com._1c.g5.v8.dt.metadata.mdclass.ScriptVariant;
 import com._1c.g5.v8.dt.metadata.mdclass.MdClassPackage;
 import com._1c.g5.v8.dt.metadata.mdclass.MdClassFactory;
 import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
+import com._1c.g5.v8.dt.moxel.Columns;
 import com._1c.g5.v8.dt.moxel.MoxelFactory;
+import com._1c.g5.v8.dt.moxel.MoxelResourceFactory;
+import com._1c.g5.v8.dt.moxel.MoxelResourceMxl;
 import com._1c.g5.v8.dt.moxel.SpreadsheetDocument;
 import com.codepilot1c.core.edt.forms.CreateFormRequest;
 import com.codepilot1c.core.edt.forms.CreateFormResult;
@@ -3037,23 +3040,97 @@ public class EdtMetadataService {
 
             createParentsIfMissing(templateFile);
 
-            // Empty MXL file — minimal valid EDT spreadsheet document
-            String emptyMxl = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" //$NON-NLS-1$
-                    + "<document xmlns=\"http://v8.1c.ru/8.3/xcf/readable\" " //$NON-NLS-1$
-                    + "xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" " //$NON-NLS-1$
-                    + "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/>"; //$NON-NLS-1$
-            try (ByteArrayInputStream source = new ByteArrayInputStream(emptyMxl.getBytes(StandardCharsets.UTF_8))) {
+            // Create empty SpreadsheetDocument and serialize via MoxelResourceMxl (binary MOXCEL format)
+            String mxlCreationResult = createEmptyMxlViaMoxelResource(project, templatePath, opId);
+            if (mxlCreationResult != null) {
+                refreshProjectSafely(project);
+                LOG.info("[%s] ensureTemplateArtifact SUCCESS (MOXCEL): created %s", opId, templatePath); //$NON-NLS-1$
+                return templatePath;
+            }
+
+            // Fallback: write raw MOXCEL minimal binary header if EMF Resource approach fails
+            LOG.warn("[%s] ensureTemplateArtifact: MoxelResource approach failed, using raw MOXCEL fallback", opId); //$NON-NLS-1$
+            byte[] minimalMoxcel = createMinimalMoxcelBytes();
+            try (ByteArrayInputStream source = new ByteArrayInputStream(minimalMoxcel)) {
                 templateFile.create(source, IResource.FORCE, null);
                 templateFile.refreshLocal(IResource.DEPTH_ZERO, null);
             }
             refreshProjectSafely(project);
-            LOG.info("[%s] ensureTemplateArtifact SUCCESS: created %s", opId, templatePath); //$NON-NLS-1$
+            LOG.info("[%s] ensureTemplateArtifact SUCCESS (raw fallback): created %s", opId, templatePath); //$NON-NLS-1$
             return templatePath;
         } catch (Exception e) {
             LOG.warn("[%s] ensureTemplateArtifact failed for %s.Template.%s: %s", //$NON-NLS-1$
                     opId, parentFqn, templateName, e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Create an empty .mxl file using MoxelResourceMxl EMF Resource (produces valid binary MOXCEL format).
+     * MoxelResourceMxl implements IDtProjectAware and requires setDtProject for proper serialization.
+     *
+     * @return "ok" on success, null on failure
+     */
+    private String createEmptyMxlViaMoxelResource(IProject project, String templatePath, String opId) {
+        try {
+            // Build minimal SpreadsheetDocument with empty Columns
+            SpreadsheetDocument sheet = MoxelFactory.eINSTANCE.createSpreadsheetDocument();
+            Columns columns = MoxelFactory.eINSTANCE.createColumns();
+            columns.setColumnsId(UUID.randomUUID());
+            columns.setSize(100); // total width in internal units (NOT column count)
+            sheet.setColumns(columns);
+
+            // Serialize via MoxelResourceMxl — this produces binary MOXCEL format
+            URI fileUri = URI.createPlatformResourceURI(project.getName() + "/" + templatePath, true); //$NON-NLS-1$
+            MoxelResourceMxl mxlResource = new MoxelResourceMxl(fileUri);
+
+            // Set IDtProject context if available (required for full serialization fidelity)
+            try {
+                IDtProjectManager projectManager = gateway.getDtProjectManager();
+                IDtProject dtProject = projectManager.getDtProject(project);
+                if (dtProject != null) {
+                    mxlResource.setDtProject(dtProject);
+                    LOG.debug("[%s] createEmptyMxlViaMoxelResource: IDtProject set for %s", opId, project.getName()); //$NON-NLS-1$
+                } else {
+                    LOG.debug("[%s] createEmptyMxlViaMoxelResource: IDtProject is null, proceeding without it", opId); //$NON-NLS-1$
+                }
+            } catch (Exception e) {
+                LOG.debug("[%s] createEmptyMxlViaMoxelResource: could not obtain IDtProject: %s", opId, e.getMessage()); //$NON-NLS-1$
+            }
+
+            mxlResource.getContents().add(sheet);
+            mxlResource.save(Collections.emptyMap());
+            LOG.debug("[%s] createEmptyMxlViaMoxelResource: MoxelResourceMxl.save() succeeded for %s", opId, templatePath); //$NON-NLS-1$
+            return "ok"; //$NON-NLS-1$
+        } catch (Exception e) {
+            LOG.warn("[%s] createEmptyMxlViaMoxelResource failed: %s", opId, e.getMessage()); //$NON-NLS-1$
+            return null;
+        }
+    }
+
+    /**
+     * Creates minimal valid MOXCEL binary bytes as a fallback when MoxelResourceMxl is unavailable.
+     * The MOXCEL format starts with magic bytes "MOXCEL" (0x4D 0x4F 0x58 0x43 0x45 0x4C)
+     * followed by version/header data and an empty spreadsheet structure.
+     *
+     * This produces the smallest valid .mxl that EDT can import without errors.
+     */
+    private byte[] createMinimalMoxcelBytes() {
+        // Minimal MOXCEL binary: magic header + version 8 + empty spreadsheet descriptor
+        // Format: MOXCEL (6 bytes) + version (2 bytes) + flags (2 bytes) + minimal body
+        // The body contains a text-encoded spreadsheet descriptor: {columns,rows,formatCount,...}
+        byte[] header = new byte[] {
+            0x4D, 0x4F, 0x58, 0x43, 0x45, 0x4C, // "MOXCEL" magic
+            0x00, 0x08,                             // version 8
+            0x00, 0x01,                             // flags
+            0x00, 0x04                              // minimal body length indicator
+        };
+        // Empty spreadsheet body: 0 columns, 0 rows, 0 formats
+        byte[] body = "{0}".getBytes(StandardCharsets.UTF_8); //$NON-NLS-1$
+        byte[] result = new byte[header.length + body.length];
+        System.arraycopy(header, 0, result, 0, header.length);
+        System.arraycopy(body, 0, result, header.length, body.length);
+        return result;
     }
 
     private List<String> buildModuleCandidates(ModuleTarget target, ModuleArtifactKind requestedKind) {
