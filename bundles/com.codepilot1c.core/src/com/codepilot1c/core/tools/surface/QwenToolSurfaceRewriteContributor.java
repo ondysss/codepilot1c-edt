@@ -64,11 +64,13 @@ public final class QwenToolSurfaceRewriteContributor implements ToolSurfaceContr
             case "edt_validate_request" -> "Проверяет запрос на изменение метаданных и выдаёт ОДНОРАЗОВЫЙ validation_token. Каждый токен может быть использован ТОЛЬКО ОДИН РАЗ — для каждой новой мутации запрашивай НОВЫЙ токен. Обязателен перед metadata/forms/DCS/extension/external мутациями."; //$NON-NLS-1$
             case "create_form" -> "Создаёт управляемую форму через BM API. owner_fqn: ПОЛНЫЙ FQN с типом (Document.ПоступлениеТоваров, ExternalDataProcessor.МояОбработка). НЕ используй короткое имя. После создания запусти диагностику."; //$NON-NLS-1$
             case "create_metadata" -> "Создаёт метаданный объект через BM API. Свойства: COMMON_MODULE — clientManagedApplication/server/global. DOCUMENT — useStandardCommands. CATALOG — hierarchical+hierarchyType. После создания запусти диагностику."; //$NON-NLS-1$
-            case "add_metadata_child" -> "Создаёт дочерний объект (реквизит, табличную часть, команду). Тип: {types:[xs:string]} или {types:[CatalogRef.Склады]}. НЕ используй v8:STRING."; //$NON-NLS-1$
+            case "add_metadata_child" -> "Создаёт дочерний объект (реквизит, табличную часть, команду, макет). Тип: {types:[xs:string]} или {types:[CatalogRef.Склады]}. НЕ используй v8:STRING. Для макетов: child_kind=Template, template_type=spreadsheet (по умолч.) — .mxl файл создаётся автоматически."; //$NON-NLS-1$
             case "ensure_module_artifact" -> "Ensure that a metadata-owned BSL module artifact exists and return its path. Use it after edt_validate_request and before edit_file or write_file when changing object-owned module code."; //$NON-NLS-1$
             case "update_metadata" -> "Применяет изменения свойств через BM API. Формат changes: {\"set\":{\"field\":\"value\"}} — обёртка set ОБЯЗАТЕЛЬНА. Enum-поля: строки (Allow/Deny). НЕ используй: subsystems, name. После изменений запусти диагностику."; //$NON-NLS-1$
-            case "mutate_form_model" -> "Изменяет форму через operations:[{op:...}]. op: add_field|add_group|set_item|remove_item|move_item|set_form_props. " //$NON-NLS-1$
+            case "mutate_form_model" -> "Изменяет форму через operations:[{op:...}]. " //$NON-NLS-1$
+                    + "op: add_field|add_group|add_command|add_button|set_item|remove_item|move_item|set_form_props. " //$NON-NLS-1$
                     + "add_field: ОБЯЗАТЕЛЬНО name+data_path, field_type=LABEL_FIELD|INPUT_FIELD. " //$NON-NLS-1$
+                    + "add_command: name+action(обработчик)+title. add_button: name+command_name(ссылка на команду), parent автоматически=CommandBar. " //$NON-NLS-1$
                     + "set_item: ОБЯЗАТЕЛЬНО item_id(число) ИЛИ item_name(строка) + set:{...}. НЕ используй id или name вместо item_id/item_name. " //$NON-NLS-1$
                     + "Родитель: parent_item_id(число) ИЛИ parent_item_name(строка). НЕ используй parent_id или parent. " //$NON-NLS-1$
                     + "Сначала вызови inspect_form_layout чтобы узнать ID элементов."; //$NON-NLS-1$

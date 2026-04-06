@@ -1035,6 +1035,12 @@ public class MetadataRequestValidationService {
                 yield payload;
             }
             case ADD_METADATA_CHILD -> {
+                Map<String, Object> childProps = new java.util.LinkedHashMap<>(asMap(request.payload().get("properties"))); //$NON-NLS-1$
+                // Merge template_type from top-level payload into properties if not already present
+                Object templateTypeVal = request.payload().get("template_type"); //$NON-NLS-1$
+                if (templateTypeVal != null && !childProps.containsKey("template_type")) { //$NON-NLS-1$
+                    childProps.put("template_type", templateTypeVal); //$NON-NLS-1$
+                }
                 Map<String, Object> payload = normalizeAddChildPayload(
                         coalesceProject(request.projectName(), request.payload()),
                         asString(request.payload().get("parent_fqn")), //$NON-NLS-1$
@@ -1042,7 +1048,7 @@ public class MetadataRequestValidationService {
                         asString(request.payload().get("name")), //$NON-NLS-1$
                         asOptionalString(request.payload().get("synonym")), //$NON-NLS-1$
                         asOptionalString(request.payload().get("comment")), //$NON-NLS-1$
-                        asMap(request.payload().get("properties"))); //$NON-NLS-1$
+                        childProps);
                 checks.add("Операция add_metadata_child валидирована по обязательным полям и имени."); //$NON-NLS-1$
                 yield payload;
             }

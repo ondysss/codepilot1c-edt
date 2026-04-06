@@ -47,13 +47,13 @@ public class MutateFormModelTool extends AbstractTool {
                     "properties": {
                       "op": {
                         "type": "string",
-                        "description": "Тип операции: set_form_props/add_group/add_field/set_item/remove_item/move_item"
+                        "description": "Тип операции: set_form_props/add_group/add_field/add_command/add_button/set_item/remove_item/move_item"
                       }
                     },
                     "required": ["op"],
                     "additionalProperties": true
                   },
-                  "description": "Список операций mutate_form_model: set_form_props/add_group/add_field/set_item/remove_item/move_item (в set_item/set_form_props допустимы set или properties)"
+                  "description": "Список операций: set_form_props/add_group/add_field/add_command/add_button/set_item/remove_item/move_item. add_command: name+action (handler). add_button: name+command_name+parent_item_id."
                 },
                 "validation_token": {
                   "type": "string",

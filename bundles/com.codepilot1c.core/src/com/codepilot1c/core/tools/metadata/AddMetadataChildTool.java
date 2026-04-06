@@ -74,6 +74,11 @@ public class AddMetadataChildTool extends AbstractTool {
                   "type": "integer",
                   "description": "Таймаут ожидания материализации формы в файлы"
                 },
+                "template_type": {
+                  "type": "string",
+                  "enum": ["spreadsheet", "html", "text", "binary", "dcs", "active_document"],
+                  "description": "Тип макета (используется при child_kind=Template). По умолчанию spreadsheet (табличный документ .mxl)"
+                },
                 "properties": {
                   "type": "object",
                   "description": "Дополнительные параметры. Для batch: children=[{name,synonym,comment}]"
@@ -230,7 +235,16 @@ public class AddMetadataChildTool extends AbstractTool {
             Map<String, Object> parameters,
             String childKindValue
     ) {
-        if (!"form".equalsIgnoreCase(String.valueOf(childKindValue))) { //$NON-NLS-1$
+        String normalizedKind = childKindValue == null ? "" : childKindValue.toLowerCase(java.util.Locale.ROOT); //$NON-NLS-1$
+        if ("template".equals(normalizedKind) || "макет".equals(normalizedKind)) { //$NON-NLS-1$ //$NON-NLS-2$
+            Map<String, Object> merged = new LinkedHashMap<>();
+            if (baseProperties != null && !baseProperties.isEmpty()) {
+                merged.putAll(baseProperties);
+            }
+            putIfPresent(merged, "template_type", parameters.get("template_type")); //$NON-NLS-1$ //$NON-NLS-2$
+            return merged;
+        }
+        if (!"form".equals(normalizedKind)) { //$NON-NLS-1$
             return baseProperties;
         }
         Map<String, Object> merged = new LinkedHashMap<>();
