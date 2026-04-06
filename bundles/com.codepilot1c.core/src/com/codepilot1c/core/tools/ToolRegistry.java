@@ -127,6 +127,8 @@ public class ToolRegistry {
         register(new UpdateMetadataTool());
         register(new MutateFormModelTool());
         register(new DeleteMetadataTool());
+        register(new RenderTemplateTool());
+        register(new InspectTemplateTool());
         register(new YaxunitAuthoringTool());
         register(new EdtDiagnosticsTool());
         register(new ExtensionManageTool());

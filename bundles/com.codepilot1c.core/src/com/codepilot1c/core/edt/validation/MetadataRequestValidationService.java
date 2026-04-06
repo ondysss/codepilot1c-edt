@@ -28,6 +28,7 @@ import com.codepilot1c.core.edt.metadata.EnsureModuleArtifactRequest;
 import com.codepilot1c.core.edt.metadata.MetadataChildKind;
 import com.codepilot1c.core.edt.metadata.MetadataKind;
 import com.codepilot1c.core.edt.metadata.MetadataOperationCode;
+import com.codepilot1c.core.edt.metadata.RenderTemplateRequest;
 import com.codepilot1c.core.edt.metadata.MetadataOperationException;
 import com.codepilot1c.core.edt.metadata.MetadataProjectReadinessChecker;
 import com.codepilot1c.core.edt.metadata.MetadataNameValidator;
@@ -651,6 +652,21 @@ public class MetadataRequestValidationService {
         return payload;
     }
 
+    public Map<String, Object> normalizeRenderTemplatePayload(
+            String projectName,
+            String templateFqn,
+            List<Map<String, Object>> sections
+    ) {
+        RenderTemplateRequest request = new RenderTemplateRequest(projectName, templateFqn, sections);
+        request.validate();
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("project", projectName); //$NON-NLS-1$
+        payload.put("template_fqn", templateFqn); //$NON-NLS-1$
+        payload.put("sections", sections == null ? List.of() : new ArrayList<>(sections)); //$NON-NLS-1$
+        return payload;
+    }
+
     public Map<String, Object> normalizeApplyFormRecipePayload(
             String projectName,
             String mode,
@@ -1086,6 +1102,14 @@ public class MetadataRequestValidationService {
                         asString(request.payload().get("form_fqn")), //$NON-NLS-1$
                         asListOfMaps(request.payload().get("operations"))); //$NON-NLS-1$
                 checks.add("Операция mutate_form_model валидирована по обязательным полям."); //$NON-NLS-1$
+                yield payload;
+            }
+            case RENDER_TEMPLATE -> {
+                Map<String, Object> payload = normalizeRenderTemplatePayload(
+                        coalesceProject(request.projectName(), request.payload()),
+                        asString(request.payload().get("template_fqn")), //$NON-NLS-1$
+                        asListOfMaps(request.payload().get("sections"))); //$NON-NLS-1$
+                checks.add("Операция render_template валидирована по обязательным полям."); //$NON-NLS-1$
                 yield payload;
             }
         };

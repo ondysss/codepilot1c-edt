@@ -75,6 +75,12 @@ public final class QwenToolSurfaceRewriteContributor implements ToolSurfaceContr
                     + "Родитель: parent_item_id(число) ИЛИ parent_item_name(строка). НЕ используй parent_id или parent. " //$NON-NLS-1$
                     + "Сначала вызови inspect_form_layout чтобы узнать ID элементов."; //$NON-NLS-1$
             case "delete_metadata" -> "Delete a metadata object through EDT BM APIs with an explicit validation_token. Use recursive or force only when the request truly requires it."; //$NON-NLS-1$
+            case "render_template" -> "Генерирует содержимое макета (.mxl) из секций: Шапка, ШапкаТаблицы, СтрокаТаблицы, Подвал. " //$NON-NLS-1$
+                    + "Каждая ячейка — либо статический текст, либо [Привязка]. " //$NON-NLS-1$
+                    + "В секции СтрокаТаблицы привязки автоматически становятся detail-параметрами. " //$NON-NLS-1$
+                    + "Стили: table-header, table-row, total-row, signature, title, default. " //$NON-NLS-1$
+                    + "Макет ДОЛЖЕН существовать — сначала создай через add_metadata_child с child_kind=Template."; //$NON-NLS-1$
+            case "inspect_template" -> "Читает содержимое существующего макета: сетка ячеек (text|[parameter]), именованные области, размеры. Только чтение. Вызови перед render_template чтобы изучить текущее содержимое."; //$NON-NLS-1$
             case "apply_form_recipe" -> "Apply a higher-level managed-form recipe that can create or locate a form, upsert attributes, and mutate layout. Prefer it over low-level mutate_form_model when the intended change fits the recipe flow."; //$NON-NLS-1$
             case "inspect_form_layout" -> "Inspect managed-form structure headlessly through EDT BM APIs. Use it before form mutations to locate element ids, data paths, and layout nodes."; //$NON-NLS-1$
             // QA tools (still registered individually)

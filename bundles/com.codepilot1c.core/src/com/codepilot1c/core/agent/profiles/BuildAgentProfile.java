@@ -82,6 +82,8 @@ public class BuildAgentProfile implements AgentProfile {
             "update_metadata",
             "mutate_form_model",
             "delete_metadata",
+            "render_template",
+            "inspect_template",
             "author_yaxunit_tests",
             "edt_diagnostics",
             "qa_inspect",
@@ -143,6 +145,7 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("bsl_module_exports").forAllResources(),
                 PermissionRule.allow("edt_validate_request").forAllResources(),
                 PermissionRule.allow("inspect_form_layout").forAllResources(),
+                PermissionRule.allow("inspect_template").forAllResources(),
                 PermissionRule.allow("qa_inspect").forAllResources(),
                 PermissionRule.ask("qa_generate")
                         .withDescription("QA генерация: init/migrate config, compile feature")
@@ -204,6 +207,9 @@ public class BuildAgentProfile implements AgentProfile {
                         .forAllResources(),
                 PermissionRule.ask("delete_metadata")
                         .withDescription("Удаление объектов метаданных EDT")
+                        .forAllResources(),
+                PermissionRule.ask("render_template")
+                        .withDescription("Генерация содержимого макета печатной формы")
                         .forAllResources(),
                 PermissionRule.ask("author_yaxunit_tests")
                         .withDescription("Генерация/обновление автотестов YAxUnit")

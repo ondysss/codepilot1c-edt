@@ -306,6 +306,16 @@ final class QwenToolCallExamples {
                     new String[]{"command"}, //$NON-NLS-1$
                     new String[]{"init_config"}); //$NON-NLS-1$
         }
+        if ("render_template".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"project", "template_fqn", "sections", "validation_token"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                    new String[]{"DemoConfiguration", "Document.ПоступлениеТоваров.Template.Макет", "[{\"name\":\"Шапка\",\"rows\":[[\"Документ №\",\"[НомерДокумента]\"]]},{\"name\":\"СтрокаТаблицы\",\"rows\":[[\"[Номенклатура]\",\"[Количество]\"]]}]", "abc123"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        }
+        if ("inspect_template".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"project", "template_fqn"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"DemoConfiguration", "Document.ПоступлениеТоваров.Template.Макет"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
         if ("discover_tools".equals(name)) { //$NON-NLS-1$
             return new ExampleParams(
                     new String[]{"category"}, //$NON-NLS-1$

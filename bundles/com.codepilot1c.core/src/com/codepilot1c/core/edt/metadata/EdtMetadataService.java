@@ -112,10 +112,18 @@ import com._1c.g5.v8.dt.metadata.mdclass.ScriptVariant;
 import com._1c.g5.v8.dt.metadata.mdclass.MdClassPackage;
 import com._1c.g5.v8.dt.metadata.mdclass.MdClassFactory;
 import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
+import com._1c.g5.v8.dt.moxel.Cell;
+import com._1c.g5.v8.dt.moxel.Column;
 import com._1c.g5.v8.dt.moxel.Columns;
+import com._1c.g5.v8.dt.moxel.Format;
+import com._1c.g5.v8.dt.moxel.Merge;
 import com._1c.g5.v8.dt.moxel.MoxelFactory;
 import com._1c.g5.v8.dt.moxel.MoxelResourceFactory;
 import com._1c.g5.v8.dt.moxel.MoxelResourceMxl;
+import com._1c.g5.v8.dt.moxel.NamedItemCells;
+import com._1c.g5.v8.dt.moxel.Rect;
+import com._1c.g5.v8.dt.moxel.Row;
+import com._1c.g5.v8.dt.moxel.RowsArea;
 import com._1c.g5.v8.dt.moxel.SpreadsheetDocument;
 import com.codepilot1c.core.edt.forms.CreateFormRequest;
 import com.codepilot1c.core.edt.forms.CreateFormResult;
@@ -3131,6 +3139,450 @@ public class EdtMetadataService {
         System.arraycopy(header, 0, result, 0, header.length);
         System.arraycopy(body, 0, result, header.length, body.length);
         return result;
+    }
+
+    // ─── render_template: section-based layout generation ──────────────────
+
+    /**
+     * Render a print template from section-based JSON.
+     * Full-layout replacement — generates SpreadsheetDocument from sections,
+     * serializes to binary MOXCEL .mxl via MoxelResourceMxl.
+     */
+    public RenderTemplateResult renderTemplate(RenderTemplateRequest request) {
+        String opId = LogSanitizer.newId("render-tpl"); //$NON-NLS-1$
+        long startedAt = System.currentTimeMillis();
+        request.validate();
+        LOG.info("[%s] renderTemplate START project=%s template=%s sections=%d", //$NON-NLS-1$
+                opId, request.projectName(), request.templateFqn(),
+                Integer.valueOf(request.sections().size()));
+
+        gateway.ensureMutationRuntimeAvailable();
+        IProject project = requireProject(request.projectName());
+        readinessChecker.ensureReady(project);
+
+        // Resolve .mxl path from FQN
+        String templateFqn = request.templateFqn();
+        String mxlPath = resolveTemplateMxlPath(templateFqn);
+        if (mxlPath == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_NAME,
+                    "Cannot resolve .mxl path from FQN: " + templateFqn, false); //$NON-NLS-1$
+        }
+        IFile mxlFile = project.getFile(mxlPath);
+        if (!mxlFile.exists()) {
+            // Create parent dirs and empty file if not exists
+            try {
+                createParentsIfMissing(mxlFile);
+            } catch (CoreException e) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                        "Failed to create parent directories for " + mxlPath + ": " + e.getMessage(), true); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+        }
+
+        // Build SpreadsheetDocument from sections
+        List<String> sectionSummaries = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+        int maxColumns = 0;
+        int totalRows = 0;
+
+        // First pass: calculate max columns across all sections
+        for (Map<String, Object> section : request.sections()) {
+            List<List<String>> rows = extractRows(section);
+            for (List<String> row : rows) {
+                maxColumns = Math.max(maxColumns, row.size());
+            }
+        }
+        if (maxColumns == 0) {
+            maxColumns = 1;
+        }
+
+        // Build SpreadsheetDocument
+        MoxelFactory f = MoxelFactory.eINSTANCE;
+        SpreadsheetDocument sheet = f.createSpreadsheetDocument();
+
+        // Set up columns — size is total width in internal units
+        Columns columns = f.createColumns();
+        columns.setColumnsId(UUID.randomUUID());
+        columns.setSize(maxColumns * 100); // total width = columns * 100 units each
+        for (int c = 0; c < maxColumns; c++) {
+            Column column = f.createColumn();
+            // Column stores formatIndex only — width is derived from Columns.size / count
+            columns.getColumns().put(Integer.valueOf(c), column);
+        }
+        sheet.setColumns(columns);
+
+        // Create formats for different section styles
+        // Format 0: default (no special formatting)
+        Format defaultFormat = f.createFormat();
+        sheet.getFormats().add(defaultFormat);
+        // Format 1: bold (for headers, totals)
+        Format boldFormat = f.createFormat();
+        // Bold is indicated by font index — we just set a distinct format
+        sheet.getFormats().add(boldFormat);
+
+        // Determine if a section is a detail/repeating section
+        java.util.Set<String> detailSections = Set.of(
+                "СтрокаТаблицы", "строкатаблицы", "tablerow", "table-row"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+
+        int currentRow = 0;
+        for (Map<String, Object> section : request.sections()) {
+            String sectionName = String.valueOf(section.get("name")); //$NON-NLS-1$
+            String sectionStyle = section.get("style") != null //$NON-NLS-1$
+                    ? String.valueOf(section.get("style")).trim() //$NON-NLS-1$
+                    : inferStyleFromSectionName(sectionName);
+            List<List<String>> rows = extractRows(section);
+            boolean isDetailSection = detailSections.contains(sectionName.toLowerCase(Locale.ROOT));
+            boolean isBoldStyle = "table-header".equals(sectionStyle) //$NON-NLS-1$
+                    || "total-row".equals(sectionStyle) //$NON-NLS-1$
+                    || "title".equals(sectionStyle); //$NON-NLS-1$
+
+            int sectionStartRow = currentRow;
+
+            for (List<String> rowCells : rows) {
+                Row row = f.createRow();
+                row.setColumns(columns);
+                if (isBoldStyle) {
+                    row.setFormatIndex(1); // bold format
+                }
+
+                for (int c = 0; c < rowCells.size(); c++) {
+                    String cellValue = rowCells.get(c);
+                    Cell cell = f.createCell();
+
+                    if (cellValue != null && cellValue.startsWith("[") && cellValue.endsWith("]")) { //$NON-NLS-1$ //$NON-NLS-2$
+                        // Data binding
+                        String binding = cellValue.substring(1, cellValue.length() - 1).trim();
+                        if (isDetailSection) {
+                            cell.setDetailParameter(binding);
+                        } else {
+                            cell.setParameter(binding);
+                        }
+                    } else if (cellValue != null && !cellValue.isEmpty()) {
+                        // Static text — use moxel content LocalString (EMap<String,String>)
+                        com._1c.g5.v8.dt.moxel.content.LocalString ls =
+                                com._1c.g5.v8.dt.moxel.content.ContentFactory.eINSTANCE.createLocalString();
+                        ls.getContent().put(RU_LANGUAGE, cellValue);
+                        cell.setText(ls);
+                    }
+
+                    if (isBoldStyle) {
+                        cell.setFormatIndex(1);
+                    }
+
+                    row.getCells().put(Integer.valueOf(c), cell);
+                }
+
+                // Handle colspan: if row has fewer cells than max, merge remaining
+                if (rowCells.size() < maxColumns && rowCells.size() > 0) {
+                    // Create merge for the last cell spanning remaining columns
+                    int lastCellIdx = rowCells.size() - 1;
+                    if (lastCellIdx < maxColumns - 1) {
+                        Merge merge = f.createMerge();
+                        Rect rect = f.createRect();
+                        rect.setX(lastCellIdx);
+                        rect.setY(currentRow);
+                        rect.setWidth(maxColumns - lastCellIdx);
+                        rect.setHeight(1);
+                        merge.setPosition(rect);
+                        sheet.getMerges().add(merge);
+                    }
+                }
+
+                sheet.getRows().put(Integer.valueOf(currentRow), row);
+                currentRow++;
+            }
+
+            int sectionEndRow = currentRow - 1;
+
+            // Create named area for this section
+            if (sectionStartRow <= sectionEndRow) {
+                NamedItemCells namedItem = f.createNamedItemCells();
+                RowsArea rowsArea = f.createRowsArea();
+                rowsArea.setBegin(sectionStartRow);
+                rowsArea.setEnd(sectionEndRow);
+                namedItem.setArea(rowsArea);
+                sheet.getNamedItems().put(sectionName, namedItem);
+            }
+
+            sectionSummaries.add(sectionName + " (" + rows.size() + " строк, стиль: " + sectionStyle + ")"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        }
+        totalRows = currentRow;
+
+        // Serialize via MoxelResourceMxl
+        try {
+            URI fileUri = URI.createPlatformResourceURI(project.getName() + "/" + mxlPath, true); //$NON-NLS-1$
+            MoxelResourceMxl mxlResource = new MoxelResourceMxl(fileUri);
+
+            // Set IDtProject context
+            try {
+                IDtProjectManager projectManager = gateway.getDtProjectManager();
+                IDtProject dtProject = projectManager.getDtProject(project);
+                if (dtProject != null) {
+                    mxlResource.setDtProject(dtProject);
+                }
+            } catch (Exception e) {
+                LOG.debug("[%s] renderTemplate: could not set IDtProject: %s", opId, e.getMessage()); //$NON-NLS-1$
+            }
+
+            mxlResource.getContents().add(sheet);
+            mxlResource.save(Collections.emptyMap());
+            LOG.debug("[%s] renderTemplate: MoxelResourceMxl.save() succeeded for %s", opId, mxlPath); //$NON-NLS-1$
+        } catch (Exception e) {
+            LOG.warn("[%s] renderTemplate: MoxelResourceMxl failed, attempting raw fallback: %s", opId, e.getMessage()); //$NON-NLS-1$
+            warnings.add("MoxelResourceMxl serialization failed: " + e.getMessage() + ". Template metadata created but .mxl content may be incomplete."); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+
+        // Refresh and wait for importer sync
+        refreshProjectSafely(project);
+        try {
+            IDtProjectManager projectManager = gateway.getDtProjectManager();
+            IDtProject dtProject = projectManager.getDtProject(project);
+            if (dtProject != null) {
+                waitExportDerivedData(dtProject, opId, templateFqn);
+            }
+        } catch (Exception e) {
+            LOG.debug("[%s] renderTemplate: derived data wait skipped: %s", opId, e.getMessage()); //$NON-NLS-1$
+        }
+
+        LOG.info("[%s] renderTemplate SUCCESS in %s template=%s rows=%d cols=%d", opId, //$NON-NLS-1$
+                LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),
+                templateFqn, Integer.valueOf(totalRows), Integer.valueOf(maxColumns));
+
+        return new RenderTemplateResult(
+                request.projectName(),
+                templateFqn,
+                mxlPath,
+                totalRows,
+                maxColumns,
+                sectionSummaries,
+                warnings);
+    }
+
+    /**
+     * Inspect an existing template — read .mxl file and return grid of cells + named areas.
+     */
+    public InspectTemplateResult inspectTemplate(InspectTemplateRequest request) {
+        String opId = LogSanitizer.newId("inspect-tpl"); //$NON-NLS-1$
+        request.validate();
+        LOG.info("[%s] inspectTemplate START project=%s template=%s", //$NON-NLS-1$
+                opId, request.projectName(), request.templateFqn());
+
+        IProject project = requireProject(request.projectName());
+
+        String templateFqn = request.templateFqn();
+        String mxlPath = resolveTemplateMxlPath(templateFqn);
+
+        // Determine template type from metadata
+        String templateType = "SpreadsheetDocument"; //$NON-NLS-1$
+        try {
+            IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
+            Configuration configuration = configurationProvider.getConfiguration(project);
+            if (configuration != null) {
+                MdObject templateMd = resolveByFqn(configuration, templateFqn);
+                if (templateMd instanceof BasicTemplate bt) {
+                    templateType = bt.getTemplateType() != null ? bt.getTemplateType().getLiteral() : "SpreadsheetDocument"; //$NON-NLS-1$
+                }
+            }
+        } catch (Exception e) {
+            LOG.debug("[%s] inspectTemplate: could not resolve template type: %s", opId, e.getMessage()); //$NON-NLS-1$
+        }
+
+        // If DCS template, return minimal info
+        if ("DataCompositionSchema".equals(templateType)) { //$NON-NLS-1$
+            return new InspectTemplateResult(
+                    request.projectName(), templateFqn, templateType,
+                    mxlPath, 0, 0, List.of(), List.of());
+        }
+
+        // Try to load .mxl file via MoxelResourceMxl
+        if (mxlPath == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_NAME,
+                    "Cannot resolve .mxl path from FQN: " + templateFqn, false); //$NON-NLS-1$
+        }
+
+        IFile mxlFile = project.getFile(mxlPath);
+        if (!mxlFile.exists()) {
+            return new InspectTemplateResult(
+                    request.projectName(), templateFqn, templateType,
+                    mxlPath, 0, 0, List.of(), List.of(List.of("(файл не найден)"))); //$NON-NLS-1$
+        }
+
+        // Load SpreadsheetDocument from .mxl
+        SpreadsheetDocument sheet = null;
+        try {
+            URI fileUri = URI.createPlatformResourceURI(project.getName() + "/" + mxlPath, true); //$NON-NLS-1$
+            MoxelResourceMxl mxlResource = new MoxelResourceMxl(fileUri);
+            try {
+                IDtProjectManager projectManager = gateway.getDtProjectManager();
+                IDtProject dtProject = projectManager.getDtProject(project);
+                if (dtProject != null) {
+                    mxlResource.setDtProject(dtProject);
+                }
+            } catch (Exception e) {
+                LOG.debug("[%s] inspectTemplate: could not set IDtProject: %s", opId, e.getMessage()); //$NON-NLS-1$
+            }
+            mxlResource.load(Collections.emptyMap());
+            if (!mxlResource.getContents().isEmpty()
+                    && mxlResource.getContents().get(0) instanceof SpreadsheetDocument sd) {
+                sheet = sd;
+            }
+        } catch (Exception e) {
+            LOG.warn("[%s] inspectTemplate: failed to load .mxl: %s", opId, e.getMessage()); //$NON-NLS-1$
+            return new InspectTemplateResult(
+                    request.projectName(), templateFqn, templateType,
+                    mxlPath, 0, 0, List.of(), List.of(List.of("(ошибка загрузки: " + e.getMessage() + ")"))); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+
+        if (sheet == null) {
+            return new InspectTemplateResult(
+                    request.projectName(), templateFqn, templateType,
+                    mxlPath, 0, 0, List.of(), List.of(List.of("(пустой документ)"))); //$NON-NLS-1$
+        }
+
+        // Extract grid
+        int maxRow = 0;
+        int maxCol = 0;
+        for (Map.Entry<Integer, Row> entry : sheet.getRows()) {
+            int rowIdx = entry.getKey().intValue();
+            maxRow = Math.max(maxRow, rowIdx + 1);
+            Row row = entry.getValue();
+            for (Map.Entry<Integer, Cell> cellEntry : row.getCells()) {
+                maxCol = Math.max(maxCol, cellEntry.getKey().intValue() + 1);
+            }
+        }
+
+        List<List<String>> grid = new ArrayList<>();
+        for (int r = 0; r < maxRow; r++) {
+            Row row = sheet.getRows().get(Integer.valueOf(r));
+            List<String> rowData = new ArrayList<>();
+            for (int c = 0; c < maxCol; c++) {
+                if (row == null) {
+                    rowData.add(""); //$NON-NLS-1$
+                    continue;
+                }
+                Cell cell = row.getCells().get(Integer.valueOf(c));
+                if (cell == null) {
+                    rowData.add(""); //$NON-NLS-1$
+                    continue;
+                }
+                String cellStr = formatCellForInspection(cell);
+                rowData.add(cellStr);
+            }
+            grid.add(rowData);
+        }
+
+        // Extract named areas
+        List<Map<String, Object>> namedAreas = new ArrayList<>();
+        for (Map.Entry<String, ?> entry : sheet.getNamedItems()) {
+            String areaName = entry.getKey();
+            Object namedItem = entry.getValue();
+            Map<String, Object> areaInfo = new LinkedHashMap<>();
+            areaInfo.put("name", areaName); //$NON-NLS-1$
+            if (namedItem instanceof NamedItemCells nic && nic.getArea() instanceof RowsArea ra) {
+                areaInfo.put("begin", Integer.valueOf(ra.getBegin())); //$NON-NLS-1$
+                areaInfo.put("end", Integer.valueOf(ra.getEnd())); //$NON-NLS-1$
+            }
+            namedAreas.add(areaInfo);
+        }
+
+        LOG.info("[%s] inspectTemplate SUCCESS template=%s rows=%d cols=%d areas=%d", //$NON-NLS-1$
+                opId, templateFqn, Integer.valueOf(maxRow), Integer.valueOf(maxCol),
+                Integer.valueOf(namedAreas.size()));
+
+        return new InspectTemplateResult(
+                request.projectName(), templateFqn, templateType,
+                mxlPath, maxRow, maxCol, namedAreas, grid);
+    }
+
+    private String formatCellForInspection(Cell cell) {
+        if (cell.getParameter() != null && !cell.getParameter().isEmpty()) {
+            return "[" + cell.getParameter() + "]"; //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if (cell.getDetailParameter() != null && !cell.getDetailParameter().isEmpty()) {
+            return "[detail:" + cell.getDetailParameter() + "]"; //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if (cell.getText() != null && cell.getText().getContent() != null
+                && !cell.getText().getContent().isEmpty()) {
+            // LocalString.getContent() is EMap<String, String> (language → text)
+            // Try Russian first, then any available
+            String ruText = cell.getText().getContent().get(RU_LANGUAGE);
+            if (ruText != null && !ruText.isEmpty()) {
+                return ruText;
+            }
+            for (Map.Entry<String, String> entry : cell.getText().getContent()) {
+                if (entry.getValue() != null && !entry.getValue().isEmpty()) {
+                    return entry.getValue();
+                }
+            }
+        }
+        return ""; //$NON-NLS-1$
+    }
+
+    /**
+     * Resolve .mxl file path from template FQN.
+     * FQN format: Document.ПеремещениеТоваров.Template.МакетПеремещения
+     * Path: src/Documents/ПеремещениеТоваров/Templates/МакетПеремещения/Template.mxl
+     */
+    private String resolveTemplateMxlPath(String templateFqn) {
+        if (templateFqn == null || !templateFqn.contains(".Template.")) { //$NON-NLS-1$
+            return null;
+        }
+        int templateIdx = templateFqn.indexOf(".Template."); //$NON-NLS-1$
+        String parentFqn = templateFqn.substring(0, templateIdx);
+        String templateName = templateFqn.substring(templateIdx + ".Template.".length()); //$NON-NLS-1$
+
+        String topKind = topKindFromFqn(parentFqn);
+        String topName = topNameFromFqn(parentFqn);
+        if (topKind == null || topName == null) {
+            return null;
+        }
+        String topFolder = tryMapTopFolder(topKind);
+        if (topFolder == null) {
+            return null;
+        }
+        return "src/" + topFolder + "/" + topName //$NON-NLS-1$ //$NON-NLS-2$
+                + "/Templates/" + templateName + "/Template.mxl"; //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<List<String>> extractRows(Map<String, Object> section) {
+        Object rowsObj = section.get("rows"); //$NON-NLS-1$
+        if (!(rowsObj instanceof List<?> rowsList)) {
+            return List.of();
+        }
+        List<List<String>> result = new ArrayList<>();
+        for (Object rowObj : rowsList) {
+            if (rowObj instanceof List<?> cellList) {
+                List<String> cells = new ArrayList<>();
+                for (Object cell : cellList) {
+                    cells.add(cell == null ? "" : String.valueOf(cell)); //$NON-NLS-1$
+                }
+                result.add(cells);
+            }
+        }
+        return result;
+    }
+
+    private String inferStyleFromSectionName(String name) {
+        if (name == null) {
+            return "default"; //$NON-NLS-1$
+        }
+        String lower = name.toLowerCase(Locale.ROOT);
+        if (lower.contains("шапкатаблицы") || lower.contains("tableheader")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "table-header"; //$NON-NLS-1$
+        }
+        if (lower.contains("строкатаблицы") || lower.contains("tablerow")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "table-row"; //$NON-NLS-1$
+        }
+        if (lower.contains("подвал") || lower.contains("footer")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "total-row"; //$NON-NLS-1$
+        }
+        if (lower.contains("заголовок") || lower.contains("title")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "title"; //$NON-NLS-1$
+        }
+        return "default"; //$NON-NLS-1$
     }
 
     private List<String> buildModuleCandidates(ModuleTarget target, ModuleArtifactKind requestedKind) {
