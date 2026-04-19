@@ -142,6 +142,7 @@ public class ToolRegistry {
         register(new QaGenerateTool());
         // AnalyzeToolErrorTool, EdtUpdateInfobaseTool, EdtLaunchAppTool
         // are now dispatched through EdtDiagnosticsTool
+        register(new com.codepilot1c.core.tools.workspace.UpdateInfobaseStatusTool());
         register(new QaRunTool());
         register(new QaPrepareFormContextTool());
         register(new QaPlanScenarioTool());
