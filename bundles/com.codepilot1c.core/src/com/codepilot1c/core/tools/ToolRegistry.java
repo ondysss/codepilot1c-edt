@@ -99,6 +99,7 @@ public class ToolRegistry {
         register(new GrepTool());
         register(new GlobTool());
         register(new WorkspaceImportProjectTool());
+        register(new ConnectInfobaseTool());
         register(new GitInspectTool());
         register(new GitMutateTool());
         register(new GitCloneAndImportProjectTool());

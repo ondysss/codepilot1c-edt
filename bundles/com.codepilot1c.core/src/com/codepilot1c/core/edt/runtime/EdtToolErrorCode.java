@@ -5,6 +5,9 @@ package com.codepilot1c.core.edt.runtime;
  */
 public enum EdtToolErrorCode {
     INVALID_ARGUMENT,
+    INVALID_PATH,
+    PRIMARY_EXISTS,
+    EDT_NOT_READY,
     EDT_SERVICE_UNAVAILABLE,
     PROJECT_NOT_FOUND,
     PROJECT_ALREADY_EXISTS,
