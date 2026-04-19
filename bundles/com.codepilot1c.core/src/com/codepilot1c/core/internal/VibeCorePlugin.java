@@ -381,6 +381,21 @@ public class VibeCorePlugin extends Plugin {
         return getTrackedService(standaloneServerServiceTracker, "IStandaloneServerService"); //$NON-NLS-1$
     }
 
+    /**
+     * Returns the currently-tracked {@link IStandaloneServerService}, or {@code null} if the
+     * service is not registered at the moment of the call. In contrast to
+     * {@link #getStandaloneServerService()} this method never blocks waiting for the service to
+     * appear, making it safe to call from latency-sensitive code paths (e.g. agent tool
+     * dispatch) where a missing standalone binding is an expected, non-fatal condition.
+     */
+    public IStandaloneServerService peekStandaloneServerService() {
+        ServiceTracker<IStandaloneServerService, IStandaloneServerService> tracker = standaloneServerServiceTracker;
+        if (tracker == null) {
+            return null;
+        }
+        return tracker.getService();
+    }
+
     public IRemoteWorkbenchBridge getRemoteWorkbenchBridge() {
         return getTrackedService(remoteWorkbenchBridgeTracker, "IRemoteWorkbenchBridge"); //$NON-NLS-1$
     }
