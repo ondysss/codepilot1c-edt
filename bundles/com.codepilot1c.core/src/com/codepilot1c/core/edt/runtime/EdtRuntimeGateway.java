@@ -6,6 +6,7 @@ import org.eclipse.core.resources.ResourcesPlugin;
 
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessManager;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationManager;
+import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseManager;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IRuntimeComponentManager;
 import com.codepilot1c.core.internal.VibeCorePlugin;
 import com.e1c.g5.v8.dt.platform.standaloneserver.wst.core.IStandaloneServerService;
@@ -36,6 +37,24 @@ public class EdtRuntimeGateway {
         IInfobaseAccessManager service = plugin.getInfobaseAccessManager();
         if (service == null) {
             throw serviceUnavailable("IInfobaseAccessManager"); //$NON-NLS-1$
+        }
+        return service;
+    }
+
+    public IInfobaseManager getInfobaseManager() {
+        VibeCorePlugin plugin = requirePlugin();
+        IInfobaseManager service = plugin.getInfobaseManager();
+        if (service == null) {
+            throw serviceUnavailable("IInfobaseManager"); //$NON-NLS-1$
+        }
+        return service;
+    }
+
+    public IStandaloneServerService getStandaloneServerService() {
+        VibeCorePlugin plugin = requirePlugin();
+        IStandaloneServerService service = plugin.getStandaloneServerService();
+        if (service == null) {
+            throw serviceUnavailable("IStandaloneServerService"); //$NON-NLS-1$
         }
         return service;
     }

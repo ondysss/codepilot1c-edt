@@ -31,6 +31,7 @@ import com._1c.g5.v8.dt.md.extension.adopt.IModelObjectAdopter;
 import com._1c.g5.v8.dt.cli.api.workspace.IImportConfigurationFilesApi;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessManager;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationManager;
+import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseManager;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IRuntimeComponentManager;
 import com._1c.g5.v8.dt.validation.marker.IMarkerManager;
 import com.e1c.g5.dt.applications.IApplicationManager;
@@ -80,6 +81,7 @@ public class VibeCorePlugin extends Plugin {
     private ServiceTracker<IApplicationManager, IApplicationManager> applicationManagerTracker;
     private ServiceTracker<IInfobaseAssociationManager, IInfobaseAssociationManager> infobaseAssociationManagerTracker;
     private ServiceTracker<IInfobaseAccessManager, IInfobaseAccessManager> infobaseAccessManagerTracker;
+    private ServiceTracker<IInfobaseManager, IInfobaseManager> infobaseManagerTracker;
     private ServiceTracker<IRuntimeComponentManager, IRuntimeComponentManager> runtimeComponentManagerTracker;
     private ServiceTracker<IImportConfigurationFilesApi, IImportConfigurationFilesApi> importConfigurationFilesApiTracker;
     private ServiceTracker<IStandaloneServerService, IStandaloneServerService> standaloneServerServiceTracker;
@@ -181,6 +183,8 @@ public class VibeCorePlugin extends Plugin {
         infobaseAssociationManagerTracker.open();
         infobaseAccessManagerTracker = new ServiceTracker<>(context, IInfobaseAccessManager.class, null);
         infobaseAccessManagerTracker.open();
+        infobaseManagerTracker = new ServiceTracker<>(context, IInfobaseManager.class, null);
+        infobaseManagerTracker.open();
         runtimeComponentManagerTracker = new ServiceTracker<>(context, IRuntimeComponentManager.class, null);
         runtimeComponentManagerTracker.open();
         importConfigurationFilesApiTracker = new ServiceTracker<>(context, IImportConfigurationFilesApi.class, null);
@@ -270,6 +274,8 @@ public class VibeCorePlugin extends Plugin {
         infobaseAssociationManagerTracker = null;
         closeTracker(infobaseAccessManagerTracker);
         infobaseAccessManagerTracker = null;
+        closeTracker(infobaseManagerTracker);
+        infobaseManagerTracker = null;
         closeTracker(runtimeComponentManagerTracker);
         runtimeComponentManagerTracker = null;
         closeTracker(importConfigurationFilesApiTracker);
@@ -373,6 +379,10 @@ public class VibeCorePlugin extends Plugin {
 
     public IInfobaseAccessManager getInfobaseAccessManager() {
         return getTrackedService(infobaseAccessManagerTracker, "IInfobaseAccessManager"); //$NON-NLS-1$
+    }
+
+    public IInfobaseManager getInfobaseManager() {
+        return getTrackedService(infobaseManagerTracker, "IInfobaseManager"); //$NON-NLS-1$
     }
 
     public IRuntimeComponentManager getRuntimeComponentManager() {
