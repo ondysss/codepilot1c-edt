@@ -50,6 +50,7 @@ import com.codepilot1c.core.provider.config.ProviderType;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
 import com.codepilot1c.core.remote.IRemoteWorkbenchBridge;
 import com.codepilot1c.core.state.VibeStateService;
+import com.codepilot1c.core.tools.workspace.BackgroundJobRegistry;
 
 /**
  * The activator class controls the plug-in life cycle.
@@ -209,6 +210,11 @@ public class VibeCorePlugin extends Plugin {
             EdtLaunchProcessRegistry.getInstance().cleanupAll();
         } catch (Exception e) {
             logWarn("Error cleaning EDT launch processes", e); //$NON-NLS-1$
+        }
+        try {
+            BackgroundJobRegistry.getInstance().shutdown();
+        } catch (Exception e) {
+            logWarn("Error shutting down background job registry", e); //$NON-NLS-1$
         }
 
         // Dispose HTTP client factory

@@ -7,6 +7,7 @@ import com.codepilot1c.core.tools.AbstractTool;
 import java.io.File;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
 
 import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.resources.ResourcesPlugin;
@@ -50,6 +51,10 @@ public class EdtUpdateInfobaseTool extends AbstractTool {
                 "dry_run": {
                   "type": "boolean",
                   "description": "Resolve project and infobase without updating"
+                },
+                "async": {
+                  "type": "boolean",
+                  "description": "Fire-and-forget; returns jobId to poll via update_infobase_status (default: false)"
                 }
               },
               "required": ["project_name"]
@@ -90,18 +95,58 @@ public class EdtUpdateInfobaseTool extends AbstractTool {
 
     @Override
     protected CompletableFuture<ToolResult> doExecute(ToolParameters params) {
+        Map<String, Object> parameters = params.getRaw();
+        String opId = LogSanitizer.newId("edt-update"); //$NON-NLS-1$
+        File workspaceRoot = getWorkspaceRoot();
+        String projectName = asString(parameters == null ? null : parameters.get("project_name")); //$NON-NLS-1$
+        boolean keepConnected = parameters == null || !Boolean.FALSE.equals(parameters.get("keep_connected")); //$NON-NLS-1$
+        boolean dryRun = parameters != null && Boolean.TRUE.equals(parameters.get("dry_run")); //$NON-NLS-1$
+        boolean async = parameters != null && Boolean.TRUE.equals(parameters.get("async")); //$NON-NLS-1$
+
+        if (async && dryRun) {
+            // Dry-run is fast and deterministic; running it synchronously avoids
+            // roundtripping through the background registry. Surface an explicit
+            // flag so the caller knows the async request was intentionally ignored.
+            LOG.info("[%s] edt_update_infobase async+dry_run: running sync (async_ignored)", opId); //$NON-NLS-1$
+        } else if (async) {
+            try {
+                String jobId = BackgroundJobRegistry.getInstance().startJob(
+                        "edt_update_infobase", //$NON-NLS-1$
+                        () -> runUpdateAndRenderResult(opId, projectName, keepConnected, workspaceRoot));
+                LOG.info("[%s] edt_update_infobase scheduled async job=%s", opId, jobId); //$NON-NLS-1$
+                JsonObject accepted = basePayload(opId, "scheduled", projectName, false, workspaceRoot); //$NON-NLS-1$
+                accepted.addProperty("async", true); //$NON-NLS-1$
+                accepted.addProperty("job_id", jobId); //$NON-NLS-1$
+                accepted.addProperty("state", BackgroundJobRegistry.JobState.RUNNING.name());
+                accepted.addProperty("updated", false); //$NON-NLS-1$
+                accepted.add("details", new JsonObject()); //$NON-NLS-1$
+                return CompletableFuture.completedFuture(
+                        ToolResult.success(pretty(accepted), ToolResult.ToolResultType.CODE));
+            } catch (RejectedExecutionException e) {
+                LOG.warn("[%s] edt_update_infobase async rejected: %s", opId, e.getMessage()); //$NON-NLS-1$
+                JsonObject rejected = basePayload(opId, "error", projectName, false, workspaceRoot); //$NON-NLS-1$
+                rejected.addProperty("updated", false); //$NON-NLS-1$
+                rejected.addProperty("error", "queue_saturated"); //$NON-NLS-1$ //$NON-NLS-2$
+                rejected.addProperty("message", "Background job queue full; retry later"); //$NON-NLS-1$ //$NON-NLS-2$
+                rejected.add("details", new JsonObject()); //$NON-NLS-1$
+                return CompletableFuture.completedFuture(
+                        ToolResult.failure(pretty(rejected)));
+            }
+        }
+
+        final boolean asyncIgnored = async && dryRun;
+
         return CompletableFuture.supplyAsync(() -> {
-            Map<String, Object> parameters = params.getRaw();
-            String opId = LogSanitizer.newId("edt-update"); //$NON-NLS-1$
             LOG.info("[%s] START edt_update_infobase", opId); //$NON-NLS-1$
-            File workspaceRoot = getWorkspaceRoot();
-            String projectName = asString(parameters == null ? null : parameters.get("project_name")); //$NON-NLS-1$
-            boolean keepConnected = parameters == null || !Boolean.FALSE.equals(parameters.get("keep_connected")); //$NON-NLS-1$
-            boolean dryRun = parameters != null && Boolean.TRUE.equals(parameters.get("dry_run")); //$NON-NLS-1$
             try {
                 InfobaseReference infobase = projectResolver.resolveInfobase(projectName, workspaceRoot);
                 JsonObject result = basePayload(opId, dryRun ? "dry_run" : "updated", projectName, dryRun, //$NON-NLS-1$ //$NON-NLS-2$
                         workspaceRoot);
+                if (asyncIgnored) {
+                    result.addProperty("async_ignored", true); //$NON-NLS-1$
+                    result.addProperty("async_ignored_reason", //$NON-NLS-1$
+                            "dry_run completes synchronously"); //$NON-NLS-1$
+                }
                 JsonObject details = new JsonObject();
                 if (infobase != null && infobase.getConnectionString() != null) {
                     details.addProperty("infobase_connection",
@@ -126,6 +171,40 @@ public class EdtUpdateInfobaseTool extends AbstractTool {
                         EdtToolErrorCode.UPDATE_FAILED, e.getMessage())));
             }
         });
+    }
+
+    /**
+     * Runs the non-dry update synchronously and renders a pretty JSON payload.
+     * Used by the background job path so the job result mirrors the regular
+     * synchronous output.
+     */
+    private String runUpdateAndRenderResult(String opId, String projectName, boolean keepConnected,
+            File workspaceRoot) {
+        LOG.info("[%s] START edt_update_infobase (async)", opId); //$NON-NLS-1$
+        try {
+            InfobaseReference infobase = projectResolver.resolveInfobase(projectName, workspaceRoot);
+            JsonObject result = basePayload(opId, "updated", projectName, false, workspaceRoot); //$NON-NLS-1$
+            JsonObject details = new JsonObject();
+            if (infobase != null && infobase.getConnectionString() != null) {
+                details.addProperty("infobase_connection", //$NON-NLS-1$
+                        infobase.getConnectionString().asConnectionString());
+            }
+            result.add("details", details); //$NON-NLS-1$
+            boolean updated = runtimeService.updateInfobase(projectName, keepConnected, new NullProgressMonitor());
+            result.addProperty("updated", updated); //$NON-NLS-1$
+            if (!updated) {
+                JsonObject error = errorPayload(opId, projectName, workspaceRoot,
+                        EdtToolErrorCode.UPDATE_FAILED,
+                        "EDT update returned false for project: " + projectName); //$NON-NLS-1$
+                return pretty(error);
+            }
+            return pretty(result);
+        } catch (EdtToolException e) {
+            return pretty(errorPayload(opId, projectName, workspaceRoot, e.getCode(), e.getMessage()));
+        } catch (Exception e) {
+            return pretty(errorPayload(opId, projectName, workspaceRoot,
+                    EdtToolErrorCode.UPDATE_FAILED, e.getMessage()));
+        }
     }
 
     private static JsonObject basePayload(String opId, String status, String projectName, boolean dryRun,
