@@ -56,6 +56,7 @@ import com.e1c.g5.dt.applications.IApplicationManager;
 import com.e1c.g5.v8.dt.check.settings.CheckUid;
 import com.e1c.g5.v8.dt.check.settings.ICheckDescription;
 import com.e1c.g5.v8.dt.check.settings.ICheckRepository;
+import com.codepilot1c.core.diagnostics.PathMatchTokens;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.internal.VibeCorePlugin;
 import com.codepilot1c.ui.diagnostics.EdtDiagnostic.Severity;
@@ -447,48 +448,11 @@ public class EdtDiagnosticsCollector {
     }
 
     private List<String> buildMatchTokens(List<String> relativeCandidates) {
-        Set<String> generic = Set.of(
-                "src", //$NON-NLS-1$
-                "configuration", //$NON-NLS-1$
-                "конфигурация", //$NON-NLS-1$
-                "forms", //$NON-NLS-1$
-                "documents", //$NON-NLS-1$
-                "catalogs", //$NON-NLS-1$
-                "commonmodules", //$NON-NLS-1$
-                "module", //$NON-NLS-1$
-                "module.bsl", //$NON-NLS-1$
-                "mdo"); //$NON-NLS-1$
-
-        LinkedHashSet<String> tokens = new LinkedHashSet<>();
-        for (String candidate : relativeCandidates) {
-            if (candidate == null || candidate.isBlank()) {
-                continue;
-            }
-            String[] segments = candidate.split("/"); //$NON-NLS-1$
-            for (String rawSegment : segments) {
-                if (rawSegment == null || rawSegment.isBlank()) {
-                    continue;
-                }
-                String segment = rawSegment.toLowerCase(Locale.ROOT);
-                if (segment.endsWith(".bsl")) { //$NON-NLS-1$
-                    segment = segment.substring(0, segment.length() - 4);
-                } else if (segment.endsWith(".mdo")) { //$NON-NLS-1$
-                    segment = segment.substring(0, segment.length() - 4);
-                }
-                if (segment.length() < 3 || generic.contains(segment)) {
-                    continue;
-                }
-                tokens.add(segment);
-            }
-        }
-        return List.copyOf(tokens);
+        return PathMatchTokens.buildMatchTokens(relativeCandidates);
     }
 
     private int computeTokenThreshold(List<String> tokens) {
-        if (tokens == null || tokens.isEmpty()) {
-            return 0;
-        }
-        return tokens.size() > 1 ? 2 : 1;
+        return PathMatchTokens.computeTokenThreshold(tokens);
     }
 
     private void collectRuntimeFileMarkers(
