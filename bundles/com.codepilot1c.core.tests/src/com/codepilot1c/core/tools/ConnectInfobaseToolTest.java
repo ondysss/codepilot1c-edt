@@ -250,6 +250,32 @@ public class ConnectInfobaseToolTest {
     }
 
     @Test
+    public void nullMessageExceptionSurfacesClassNameInstead() {
+        // When the underlying service throws with a null message, the tool's JSON payload
+        // must not surface an empty `message` field — it should fall back to the exception
+        // class name so operators have something actionable to grep. See GH issue #31.
+        RecordingConnectService service = new RecordingConnectService();
+        service.responseBuilder = req -> { throw new RuntimeException((String) null); };
+        ConnectInfobaseTool tool = new ConnectInfobaseTool(service);
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("project_name", "Demo"); //$NON-NLS-1$ //$NON-NLS-2$
+        params.put("database_path", "/tmp/demo-ib"); //$NON-NLS-1$ //$NON-NLS-2$
+        params.put("kind", "file"); //$NON-NLS-1$ //$NON-NLS-2$
+
+        ToolResult result = tool.execute(params).join();
+        assertFalse(result.isSuccess());
+        JsonObject json = JsonParser.parseString(result.getErrorMessage()).getAsJsonObject();
+        assertEquals(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE.name(),
+                json.get("error_code").getAsString()); //$NON-NLS-1$
+        String message = json.get("message").getAsString(); //$NON-NLS-1$
+        assertFalse("message must not be empty when underlying exception has null getMessage()", //$NON-NLS-1$
+                message.isBlank());
+        assertTrue("message must include the exception class name, was: " + message, //$NON-NLS-1$
+                message.contains("RuntimeException")); //$NON-NLS-1$
+    }
+
+    @Test
     public void pathOutsideWorkspaceOrHomeIsRejected() {
         // /etc/passwd is never inside the Eclipse workspace or the user home directory,
         // so the path validator must reject it with INVALID_PATH.
