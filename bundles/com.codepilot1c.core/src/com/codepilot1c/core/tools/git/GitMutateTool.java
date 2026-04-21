@@ -45,11 +45,11 @@ public class GitMutateTool extends AbstractTool {
                 },
                 "remote_url": {
                   "type": "string",
-                  "description": "URL удаленного репозитория"
+                  "description": "URL удаленного репозитория; обязателен для clone/remote_add/remote_set_url"
                 },
                 "branch": {
                   "type": "string",
-                  "description": "Имя ветки"
+                  "description": "Имя ветки; обязательно для checkout/create_branch"
                 },
                 "start_point": {
                   "type": "string",
@@ -73,66 +73,11 @@ public class GitMutateTool extends AbstractTool {
                 },
                 "message": {
                   "type": "string",
-                  "description": "Сообщение коммита для commit"
+                  "description": "Сообщение коммита; обязательно для commit"
                 }
               },
               "required": ["operation"],
-              "additionalProperties": false,
-              "allOf": [
-                {
-                  "if": {
-                    "properties": {
-                      "operation": { "enum": ["init", "create", "create_repo", "clone"] }
-                    }
-                  },
-                  "then": {
-                    "required": ["operation", "repo_path"]
-                  }
-                },
-                {
-                  "if": {
-                    "properties": {
-                      "operation": { "enum": ["remote_add", "remote_set_url", "fetch", "pull", "push", "checkout", "create_branch", "add", "commit"] }
-                    }
-                  },
-                  "then": {
-                    "anyOf": [
-                      { "required": ["project_name"] },
-                      { "required": ["repo_path"] }
-                    ]
-                  }
-                },
-                {
-                  "if": {
-                    "properties": {
-                      "operation": { "enum": ["clone", "remote_add", "remote_set_url"] }
-                    }
-                  },
-                  "then": {
-                    "required": ["remote_url"]
-                  }
-                },
-                {
-                  "if": {
-                    "properties": {
-                      "operation": { "enum": ["checkout", "create_branch"] }
-                    }
-                  },
-                  "then": {
-                    "required": ["branch"]
-                  }
-                },
-                {
-                  "if": {
-                    "properties": {
-                      "operation": { "enum": ["commit"] }
-                    }
-                  },
-                  "then": {
-                    "required": ["message"]
-                  }
-                }
-              ]
+              "additionalProperties": false
             }
             """; //$NON-NLS-1$
 
@@ -174,7 +119,7 @@ public class GitMutateTool extends AbstractTool {
             try {
                 GitOperation operation = GitOperation.from(asString(parameters.get("operation"))); //$NON-NLS-1$
                 Path repoPath = asPath(parameters.get("repo_path")); //$NON-NLS-1$
-                validateArguments(operation, repoPath, asString(parameters.get("project_name"))); //$NON-NLS-1$
+                validateArguments(operation, repoPath, parameters);
                 JsonObject result = gitService.mutate(opId, operation, repoPath, parameters);
                 return ToolResult.success(pretty(result), ToolResult.ToolResultType.CONFIRMATION);
             } catch (InvalidPathException | NullPointerException e) {
@@ -187,11 +132,59 @@ public class GitMutateTool extends AbstractTool {
         });
     }
 
-    private static void validateArguments(GitOperation operation, Path repoPath, String projectName) {
-        if ((operation == GitOperation.INIT || operation == GitOperation.CLONE)
-                && repoPath == null) {
+    /**
+     * Runtime validation of per-operation required parameters. Replaces the JSON-Schema
+     * {@code allOf/if/then} conditionals that were previously embedded in the tool schema but are
+     * rejected by the Anthropic Claude input_schema validator (see GitHub issue #31).
+     */
+    static void validateArguments(GitOperation operation, Path repoPath, Map<String, Object> parameters) {
+        String projectName = asString(parameters.get("project_name")); //$NON-NLS-1$
+
+        // init/clone need an explicit repo_path (no project-context fallback).
+        if ((operation == GitOperation.INIT || operation == GitOperation.CLONE) && repoPath == null) {
             throw new GitToolException(GitErrorCode.INVALID_ARGUMENT,
                     "repo_path is required for operation=" + operation.name().toLowerCase()); //$NON-NLS-1$
+        }
+
+        // Operations against an existing repo accept either project_name or repo_path.
+        switch (operation) {
+            case REMOTE_ADD, REMOTE_SET_URL, FETCH, PULL, PUSH, CHECKOUT, CREATE_BRANCH, ADD, COMMIT -> {
+                if (repoPath == null && (projectName == null || projectName.isBlank())) {
+                    throw new GitToolException(GitErrorCode.INVALID_ARGUMENT,
+                            "project_name or repo_path is required for operation=" //$NON-NLS-1$
+                                    + operation.name().toLowerCase());
+                }
+            }
+            default -> { /* no repo-context requirement */ }
+        }
+
+        // remote_url is required for clone/remote_add/remote_set_url.
+        if (operation == GitOperation.CLONE
+                || operation == GitOperation.REMOTE_ADD
+                || operation == GitOperation.REMOTE_SET_URL) {
+            String remoteUrl = asString(parameters.get("remote_url")); //$NON-NLS-1$
+            if (remoteUrl == null || remoteUrl.isBlank()) {
+                throw new GitToolException(GitErrorCode.INVALID_ARGUMENT,
+                        "remote_url is required for operation=" + operation.name().toLowerCase()); //$NON-NLS-1$
+            }
+        }
+
+        // branch is required for checkout/create_branch.
+        if (operation == GitOperation.CHECKOUT || operation == GitOperation.CREATE_BRANCH) {
+            String branch = asString(parameters.get("branch")); //$NON-NLS-1$
+            if (branch == null || branch.isBlank()) {
+                throw new GitToolException(GitErrorCode.INVALID_ARGUMENT,
+                        "branch is required for operation=" + operation.name().toLowerCase()); //$NON-NLS-1$
+            }
+        }
+
+        // message is required for commit.
+        if (operation == GitOperation.COMMIT) {
+            String message = asString(parameters.get("message")); //$NON-NLS-1$
+            if (message == null || message.isBlank()) {
+                throw new GitToolException(GitErrorCode.INVALID_ARGUMENT,
+                        "message is required for operation=commit"); //$NON-NLS-1$
+            }
         }
     }
 
