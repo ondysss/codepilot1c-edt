@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Optional;
+import java.util.UUID;
 
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IWorkspaceRoot;
@@ -355,10 +356,28 @@ public class EdtInfobaseConnectService {
             throw new IllegalStateException(
                     "IInfobaseManager service unavailable \u2014 EDT may not be fully initialized"); //$NON-NLS-1$
         }
+        // The downstream EDT call {@code IInfobaseAccessManager.storeSettings} NPEs when the
+        // reference has no UUID. Ensure every return path below leaves the reference with a
+        // non-null UUID. See GH issue #31.
         if (!manager.isPersistenceSupported()) {
+            if (reference.getUuid() == null) {
+                reference.setUuid(UUID.randomUUID());
+            }
             return;
         }
-        if (alreadyKnown(manager, reference)) {
+        Optional<InfobaseReference> existing = findExisting(manager, reference);
+        if (existing.isPresent()) {
+            // Copy the existing entry's UUID onto the in-memory reference so downstream calls
+            // (storeSettings, associate) target the already-registered row.
+            UUID existingUuid = existing.get().getUuid();
+            if (existingUuid != null && reference.getUuid() == null) {
+                reference.setUuid(existingUuid);
+            }
+            if (reference.getUuid() == null) {
+                // Defense-in-depth: existing entry had no UUID either — assign a fresh one so
+                // storeSettings doesn't NPE.
+                reference.setUuid(UUID.randomUUID());
+            }
             return;
         }
         try {
@@ -369,26 +388,43 @@ public class EdtInfobaseConnectService {
             throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
                     "Failed to register infobase reference: " + detail, e); //$NON-NLS-1$
         }
+        // manager.add() normally populates the UUID; if it didn't, assign one locally so the
+        // subsequent storeSettings call has a non-null key.
+        if (reference.getUuid() == null) {
+            reference.setUuid(UUID.randomUUID());
+        }
     }
 
-    private boolean alreadyKnown(IInfobaseManager manager, InfobaseReference reference) {
+    private Optional<InfobaseReference> findExisting(IInfobaseManager manager, InfobaseReference reference) {
         try {
-            if (reference.getUuid() != null
-                    && manager.findInfobaseByUuid(reference.getUuid()).isPresent()) {
-                return true;
+            if (reference.getUuid() != null) {
+                Optional<InfobaseReference> byUuid = manager.findInfobaseByUuid(reference.getUuid());
+                if (byUuid.isPresent()) {
+                    return byUuid;
+                }
             }
             String name = reference.getName();
-            if (name != null && !name.isBlank()
-                    && manager.findInfobaseByName(name).isPresent()) {
-                return true;
+            if (name != null && !name.isBlank()) {
+                Optional<InfobaseReference> byName = manager.findInfobaseByName(name);
+                if (byName.isPresent()) {
+                    return byName;
+                }
             }
         } catch (RuntimeException ignored) {
-            // Best-effort lookup; proceed with add below.
+            // Best-effort lookup; caller falls through to manager.add() or a local UUID assignment.
         }
-        return false;
+        return Optional.empty();
     }
 
     protected void storeAccessSettings(InfobaseReference reference, String login, String password) {
+        // Guard against EDT's storeSettings NPE when the reference has no UUID. persistReference()
+        // is responsible for assigning one; bail early with a clear diagnostic if it didn't so the
+        // failure doesn't surface as an opaque ": null" message. See GH issue #31.
+        if (reference.getUuid() == null) {
+            throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
+                    "Cannot store access settings: infobase reference has no UUID " //$NON-NLS-1$
+                            + "(persistReference did not assign one)"); //$NON-NLS-1$
+        }
         IInfobaseAccessManager accessManager = gateway.getInfobaseAccessManager();
         InfobaseAccess access = (login != null && !login.isBlank())
                 ? InfobaseAccess.INFOBASE : InfobaseAccess.OS;
@@ -400,8 +436,10 @@ public class EdtInfobaseConnectService {
         try {
             accessManager.storeSettings(reference, settings);
         } catch (Exception e) {
+            String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                    ? e.getMessage() : e.getClass().getSimpleName();
             throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
-                    "Failed to store infobase access settings: " + e.getMessage(), e); //$NON-NLS-1$
+                    "Failed to store infobase access settings: " + detail, e); //$NON-NLS-1$
         }
     }
 
