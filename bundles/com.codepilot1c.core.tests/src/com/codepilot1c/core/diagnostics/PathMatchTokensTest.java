@@ -135,4 +135,70 @@ public class PathMatchTokensTest {
                 List.of("Catalogs/A/ObjectModule.bsl")); //$NON-NLS-1$
         assertTrue(tokens.isEmpty());
     }
+
+    // --- matchesAsWord: regression from 2026-04-21 ------------------------
+
+    @Test
+    public void matchesAsWord_rejectsSubstringMatchInsideLongerIdentifier() {
+        // Token "alerts" must NOT match inside "alertstypes" or
+        // "paymentsystemstransactionsalertssettings" — this was the root
+        // cause of scope=file leaking diagnostics of every "*alert*" object.
+        assertFalse(PathMatchTokens.matchesAsWord("catalog.alertstypes", "alerts")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertFalse(PathMatchTokens.matchesAsWord(
+                "informationregister.paymentsystemstransactionsalertssettings", "alerts")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertFalse(PathMatchTokens.matchesAsWord(
+                "informationregister.integrationalerts", "alerts")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertFalse(PathMatchTokens.matchesAsWord(
+                "informationregister.dataloadsalertstoprocess", "alerts")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void matchesAsWord_acceptsTokenSurroundedByPunctuation() {
+        // The haystack for InformationRegister.Alerts should still match.
+        assertTrue(PathMatchTokens.matchesAsWord("informationregister.alerts", "alerts")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(PathMatchTokens.matchesAsWord(
+                "informationregister.alerts.managermodule", "alerts")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(PathMatchTokens.matchesAsWord(
+                "informationregisters/alerts/managermodule.bsl", "alerts")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void matchesAsWord_tokenAtStringStartOrEnd() {
+        assertTrue(PathMatchTokens.matchesAsWord("alerts.managermodule", "alerts")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(PathMatchTokens.matchesAsWord("catalog.alerts", "alerts")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(PathMatchTokens.matchesAsWord("alerts", "alerts")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void matchesAsWord_multipleOccurrences() {
+        // Even if the first occurrence is a substring embed, later whole-word
+        // occurrence must still register.
+        assertTrue(PathMatchTokens.matchesAsWord(
+                "alertstypes catalog.alerts objectmodule", "alerts")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void matchesAsWord_nullAndEmpty() {
+        assertFalse(PathMatchTokens.matchesAsWord(null, "x")); //$NON-NLS-1$
+        assertFalse(PathMatchTokens.matchesAsWord("haystack", null)); //$NON-NLS-1$
+        assertFalse(PathMatchTokens.matchesAsWord("haystack", "")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void matchesAsWord_underscoreIsWordChar() {
+        // "users" must NOT match inside "users_backup" (underscore is wordy).
+        assertFalse(PathMatchTokens.matchesAsWord("catalog.users_backup", "users")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void matchesAsWord_cyrillicLowercaseIsWordChar() {
+        // "справочник" inside a longer Cyrillic identifier must not match.
+        assertFalse(PathMatchTokens.matchesAsWord(
+                "\u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A\u0438", //$NON-NLS-1$
+                "\u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A")); //$NON-NLS-1$
+        // But the exact word should match when delimited.
+        assertTrue(PathMatchTokens.matchesAsWord(
+                "\u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A.users", //$NON-NLS-1$
+                "\u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A")); //$NON-NLS-1$
+    }
 }

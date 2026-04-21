@@ -534,7 +534,8 @@ public class EdtDiagnosticsCollector {
 
         int matches = 0;
         for (String token : context.matchTokens()) {
-            if (token != null && !token.isBlank() && haystack.contains(token)) {
+            if (token != null && !token.isBlank()
+                    && com.codepilot1c.core.diagnostics.PathMatchTokens.matchesAsWord(haystack, token)) {
                 matches++;
                 if (matches >= threshold) {
                     return true;

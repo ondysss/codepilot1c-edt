@@ -168,4 +168,44 @@ public final class PathMatchTokens {
     public static int computeTokenThreshold(List<String> tokens) {
         return tokens == null ? 0 : tokens.size();
     }
+
+    /**
+     * Word-boundary match of {@code token} in {@code haystack}. A plain
+     * {@code haystack.contains(token)} incorrectly matches {@code "alerts"}
+     * inside {@code "alertstypes"} or {@code "integrationalerts"} — the
+     * surrounding chars must be non-alphanumeric (or string boundary) for
+     * the token to count as a distinguishing identifier match.
+     *
+     * <p>Assumes both arguments are already lowercased.</p>
+     */
+    public static boolean matchesAsWord(String haystack, String token) {
+        if (haystack == null || token == null || token.isEmpty()) {
+            return false;
+        }
+        int tokenLen = token.length();
+        int from = 0;
+        while (from <= haystack.length() - tokenLen) {
+            int idx = haystack.indexOf(token, from);
+            if (idx < 0) {
+                return false;
+            }
+            boolean leftOk = idx == 0 || !isWordChar(haystack.charAt(idx - 1));
+            int afterIdx = idx + tokenLen;
+            boolean rightOk = afterIdx == haystack.length() || !isWordChar(haystack.charAt(afterIdx));
+            if (leftOk && rightOk) {
+                return true;
+            }
+            from = idx + 1;
+        }
+        return false;
+    }
+
+    private static boolean isWordChar(char c) {
+        return (c >= 'a' && c <= 'z')
+                || (c >= '0' && c <= '9')
+                || c == '_'
+                // Cyrillic lowercase (after toLowerCase ROOT, these stay lowercase).
+                || (c >= '\u0430' && c <= '\u044F')
+                || c == '\u0451'; // ё
+    }
 }
