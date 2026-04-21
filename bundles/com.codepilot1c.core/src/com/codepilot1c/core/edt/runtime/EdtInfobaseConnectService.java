@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Optional;
+import java.util.UUID;
 
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IWorkspaceRoot;
@@ -268,11 +269,15 @@ public class EdtInfobaseConnectService {
         } catch (EdtToolException e) {
             throw e;
         } catch (StandaloneServerException e) {
+            String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                    ? e.getMessage() : e.getClass().getSimpleName();
             throw new EdtToolException(EdtToolErrorCode.STANDALONE_SERVER_CREATE_FAILED,
-                    "Standalone server operation failed: " + e.getMessage(), e); //$NON-NLS-1$
+                    "Standalone server operation failed: " + detail, e); //$NON-NLS-1$
         } catch (ReflectiveOperationException e) {
+            String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                    ? e.getMessage() : e.getClass().getSimpleName();
             throw new EdtToolException(EdtToolErrorCode.STANDALONE_SERVER_CREATE_FAILED,
-                    "Failed to create standalone server: " + e.getMessage(), e); //$NON-NLS-1$
+                    "Failed to create standalone server: " + detail, e); //$NON-NLS-1$
         }
 
         if (boundReference.getName() == null || boundReference.getName().isBlank()) {
@@ -351,38 +356,75 @@ public class EdtInfobaseConnectService {
             throw new IllegalStateException(
                     "IInfobaseManager service unavailable \u2014 EDT may not be fully initialized"); //$NON-NLS-1$
         }
+        // The downstream EDT call {@code IInfobaseAccessManager.storeSettings} NPEs when the
+        // reference has no UUID. Ensure every return path below leaves the reference with a
+        // non-null UUID. See GH issue #31.
         if (!manager.isPersistenceSupported()) {
+            if (reference.getUuid() == null) {
+                reference.setUuid(UUID.randomUUID());
+            }
             return;
         }
-        if (alreadyKnown(manager, reference)) {
+        Optional<InfobaseReference> existing = findExisting(manager, reference);
+        if (existing.isPresent()) {
+            // Copy the existing entry's UUID onto the in-memory reference so downstream calls
+            // (storeSettings, associate) target the already-registered row.
+            UUID existingUuid = existing.get().getUuid();
+            if (existingUuid != null && reference.getUuid() == null) {
+                reference.setUuid(existingUuid);
+            }
+            if (reference.getUuid() == null) {
+                // Defense-in-depth: existing entry had no UUID either — assign a fresh one so
+                // storeSettings doesn't NPE.
+                reference.setUuid(UUID.randomUUID());
+            }
             return;
         }
         try {
             manager.add(reference, null);
         } catch (InfobaseReferenceException e) {
+            String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                    ? e.getMessage() : e.getClass().getSimpleName();
             throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
-                    "Failed to register infobase reference: " + e.getMessage(), e); //$NON-NLS-1$
+                    "Failed to register infobase reference: " + detail, e); //$NON-NLS-1$
+        }
+        // manager.add() normally populates the UUID; if it didn't, assign one locally so the
+        // subsequent storeSettings call has a non-null key.
+        if (reference.getUuid() == null) {
+            reference.setUuid(UUID.randomUUID());
         }
     }
 
-    private boolean alreadyKnown(IInfobaseManager manager, InfobaseReference reference) {
+    private Optional<InfobaseReference> findExisting(IInfobaseManager manager, InfobaseReference reference) {
         try {
-            if (reference.getUuid() != null
-                    && manager.findInfobaseByUuid(reference.getUuid()).isPresent()) {
-                return true;
+            if (reference.getUuid() != null) {
+                Optional<InfobaseReference> byUuid = manager.findInfobaseByUuid(reference.getUuid());
+                if (byUuid.isPresent()) {
+                    return byUuid;
+                }
             }
             String name = reference.getName();
-            if (name != null && !name.isBlank()
-                    && manager.findInfobaseByName(name).isPresent()) {
-                return true;
+            if (name != null && !name.isBlank()) {
+                Optional<InfobaseReference> byName = manager.findInfobaseByName(name);
+                if (byName.isPresent()) {
+                    return byName;
+                }
             }
         } catch (RuntimeException ignored) {
-            // Best-effort lookup; proceed with add below.
+            // Best-effort lookup; caller falls through to manager.add() or a local UUID assignment.
         }
-        return false;
+        return Optional.empty();
     }
 
     protected void storeAccessSettings(InfobaseReference reference, String login, String password) {
+        // Guard against EDT's storeSettings NPE when the reference has no UUID. persistReference()
+        // is responsible for assigning one; bail early with a clear diagnostic if it didn't so the
+        // failure doesn't surface as an opaque ": null" message. See GH issue #31.
+        if (reference.getUuid() == null) {
+            throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
+                    "Cannot store access settings: infobase reference has no UUID " //$NON-NLS-1$
+                            + "(persistReference did not assign one)"); //$NON-NLS-1$
+        }
         IInfobaseAccessManager accessManager = gateway.getInfobaseAccessManager();
         InfobaseAccess access = (login != null && !login.isBlank())
                 ? InfobaseAccess.INFOBASE : InfobaseAccess.OS;
@@ -394,8 +436,10 @@ public class EdtInfobaseConnectService {
         try {
             accessManager.storeSettings(reference, settings);
         } catch (Exception e) {
+            String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                    ? e.getMessage() : e.getClass().getSimpleName();
             throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
-                    "Failed to store infobase access settings: " + e.getMessage(), e); //$NON-NLS-1$
+                    "Failed to store infobase access settings: " + detail, e); //$NON-NLS-1$
         }
     }
 
@@ -405,15 +449,19 @@ public class EdtInfobaseConnectService {
         try {
             associationManager.associate(project, reference, settings);
         } catch (InfobaseAssociationException e) {
+            String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                    ? e.getMessage() : e.getClass().getSimpleName();
             throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
-                    "Failed to associate infobase with project: " + e.getMessage(), e); //$NON-NLS-1$
+                    "Failed to associate infobase with project: " + detail, e); //$NON-NLS-1$
         }
         if (setPrimary) {
             try {
                 associationManager.setDefaultInfobase(project, reference, InfobaseAssociationContext.empty());
             } catch (InfobaseAssociationException e) {
+                String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                        ? e.getMessage() : e.getClass().getSimpleName();
                 throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
-                        "Failed to set default infobase for project: " + e.getMessage(), e); //$NON-NLS-1$
+                        "Failed to set default infobase for project: " + detail, e); //$NON-NLS-1$
             }
             return true;
         }
@@ -502,8 +550,10 @@ public class EdtInfobaseConnectService {
         try {
             Files.createDirectories(path);
         } catch (Exception e) {
+            String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                    ? e.getMessage() : e.getClass().getSimpleName();
             throw new EdtToolException(EdtToolErrorCode.INVALID_ARGUMENT,
-                    "Failed to create directory: " + path + " (" + e.getMessage() + ")", e); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    "Failed to create directory: " + path + " (" + detail + ")", e); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         }
     }
 
@@ -586,7 +636,9 @@ public class EdtInfobaseConnectService {
                 return manager.findInfobaseByName(standaloneInfobase.getName()).orElse(fallback);
             }
         } catch (RuntimeException e) {
-            LOG.warn("Failed to resolve bound standalone infobase reference: %s", e.getMessage()); //$NON-NLS-1$
+            String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                    ? e.getMessage() : e.getClass().getSimpleName();
+            LOG.warn("Failed to resolve bound standalone infobase reference: %s", detail); //$NON-NLS-1$
         }
         return fallback;
     }

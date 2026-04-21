@@ -136,15 +136,51 @@ public class ConnectInfobaseTool extends AbstractTool {
                 JsonObject payload = successPayload(opId, projectName, result);
                 return ToolResult.success(pretty(payload), ToolResult.ToolResultType.CODE);
             } catch (EdtToolException e) {
+                LOG.warn("[%s] connect_infobase project=%s failed with %s: %s", //$NON-NLS-1$
+                        opId, projectName, e.getCode() == null ? "<unknown>" : e.getCode().name(), //$NON-NLS-1$
+                        e.getMessage() == null ? "" : e.getMessage()); //$NON-NLS-1$
                 return ToolResult.failure(pretty(errorPayload(opId, projectName, e.getCode(), e.getMessage())));
             } catch (IllegalStateException e) {
+                LOG.error(String.format("[%s] connect_infobase project=%s EDT_NOT_READY", //$NON-NLS-1$
+                        opId, projectName), e);
                 return ToolResult.failure(pretty(errorPayload(opId, projectName,
-                        EdtToolErrorCode.EDT_NOT_READY, e.getMessage())));
+                        EdtToolErrorCode.EDT_NOT_READY, detailFor(e))));
             } catch (Exception e) {
+                LOG.error(String.format("[%s] connect_infobase project=%s EDT_SERVICE_UNAVAILABLE", //$NON-NLS-1$
+                        opId, projectName), e);
                 return ToolResult.failure(pretty(errorPayload(opId, projectName,
-                        EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE, e.getMessage())));
+                        EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE, detailFor(e))));
             }
         });
+    }
+
+    /**
+     * Builds a caller-facing detail string that is never empty. Falls back to the exception
+     * class name plus the first stack-trace frame when {@link Throwable#getMessage()} is
+     * {@code null} or blank, so standalone failures stop surfacing as empty messages.
+     */
+    private static String detailFor(Throwable t) {
+        if (t == null) {
+            return ""; //$NON-NLS-1$
+        }
+        String message = t.getMessage();
+        if (message != null && !message.isBlank()) {
+            return message;
+        }
+        return t.getClass().getSimpleName() + " at " + topStackFrame(t); //$NON-NLS-1$
+    }
+
+    /** Extracts the first stack-trace frame as {@code Class.method:line}, or "<unknown>" if absent. */
+    private static String topStackFrame(Throwable t) {
+        if (t == null) {
+            return "<unknown>"; //$NON-NLS-1$
+        }
+        StackTraceElement[] stack = t.getStackTrace();
+        if (stack == null || stack.length == 0) {
+            return "<unknown>"; //$NON-NLS-1$
+        }
+        StackTraceElement frame = stack[0];
+        return frame.getClassName() + "." + frame.getMethodName() + ":" + frame.getLineNumber(); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private static JsonObject successPayload(String opId, String projectName, ConnectResult result) {

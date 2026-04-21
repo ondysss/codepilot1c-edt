@@ -7,15 +7,24 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.lang.reflect.Proxy;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
 
+import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessManager;
+import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseManager;
+import com._1c.g5.v8.dt.platform.services.model.InfobaseReference;
 import com.codepilot1c.core.edt.runtime.EdtInfobaseConnectService;
 import com.codepilot1c.core.edt.runtime.EdtInfobaseConnectService.ConnectRequest;
 import com.codepilot1c.core.edt.runtime.EdtInfobaseConnectService.ConnectResult;
 import com.codepilot1c.core.edt.runtime.EdtInfobaseConnectService.ConnectionKind;
+import com.codepilot1c.core.edt.runtime.EdtRuntimeGateway;
 import com.codepilot1c.core.edt.runtime.EdtToolErrorCode;
 import com.codepilot1c.core.edt.runtime.EdtToolException;
 import com.codepilot1c.core.tools.workspace.ConnectInfobaseTool;
@@ -250,6 +259,32 @@ public class ConnectInfobaseToolTest {
     }
 
     @Test
+    public void nullMessageExceptionSurfacesClassNameInstead() {
+        // When the underlying service throws with a null message, the tool's JSON payload
+        // must not surface an empty `message` field — it should fall back to the exception
+        // class name so operators have something actionable to grep. See GH issue #31.
+        RecordingConnectService service = new RecordingConnectService();
+        service.responseBuilder = req -> { throw new RuntimeException((String) null); };
+        ConnectInfobaseTool tool = new ConnectInfobaseTool(service);
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("project_name", "Demo"); //$NON-NLS-1$ //$NON-NLS-2$
+        params.put("database_path", "/tmp/demo-ib"); //$NON-NLS-1$ //$NON-NLS-2$
+        params.put("kind", "file"); //$NON-NLS-1$ //$NON-NLS-2$
+
+        ToolResult result = tool.execute(params).join();
+        assertFalse(result.isSuccess());
+        JsonObject json = JsonParser.parseString(result.getErrorMessage()).getAsJsonObject();
+        assertEquals(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE.name(),
+                json.get("error_code").getAsString()); //$NON-NLS-1$
+        String message = json.get("message").getAsString(); //$NON-NLS-1$
+        assertFalse("message must not be empty when underlying exception has null getMessage()", //$NON-NLS-1$
+                message.isBlank());
+        assertTrue("message must include the exception class name, was: " + message, //$NON-NLS-1$
+                message.contains("RuntimeException")); //$NON-NLS-1$
+    }
+
+    @Test
     public void pathOutsideWorkspaceOrHomeIsRejected() {
         // /etc/passwd is never inside the Eclipse workspace or the user home directory,
         // so the path validator must reject it with INVALID_PATH.
@@ -274,6 +309,308 @@ public class ConnectInfobaseToolTest {
         } catch (EdtToolException e) {
             assertEquals(EdtToolErrorCode.INVALID_PATH, e.getCode());
             assertTrue(e.getMessage().contains("'..'")); //$NON-NLS-1$
+        }
+    }
+
+    // ----- GH issue #31: persistReference/storeAccessSettings UUID handling ---------------------
+
+    /**
+     * Regression for GH issue #31: when {@code IInfobaseManager.isPersistenceSupported()} is
+     * false, {@code persistReference} must still assign a UUID locally so the subsequent
+     * {@code storeSettings} call does not fail with an NPE. Before the fix, the reference
+     * would come out of {@code persistReference} with {@code getUuid() == null} and EDT's
+     * {@code storeSettings} would NPE deep inside.
+     */
+    @Test
+    public void persistReferenceAssignsUuidWhenPersistenceUnsupported() {
+        StubInfobaseManager manager = new StubInfobaseManager(false);
+        StubGateway gateway = new StubGateway(manager, noopAccessManager());
+        TestableConnectService service = new TestableConnectService(gateway);
+
+        InfobaseReference reference = stubReferenceWithState(null, "ib-name"); //$NON-NLS-1$
+        assertNull("precondition: reference starts without a uuid", reference.getUuid()); //$NON-NLS-1$
+
+        service.invokePersistReference(reference);
+
+        assertNotNull("persistReference must leave the reference with a non-null UUID " //$NON-NLS-1$
+                + "even when persistence is unsupported", reference.getUuid());
+        assertTrue("manager.add must NOT be called when persistence is unsupported", //$NON-NLS-1$
+                manager.addCalls.isEmpty());
+    }
+
+    /**
+     * Regression for GH issue #31: when {@code storeSettings} throws an exception whose
+     * {@code getMessage()} returns {@code null} (historically an NPE from inside EDT), the
+     * service must wrap it with a message that includes the exception class name so
+     * operators no longer see the literal {@code ": null"} tail.
+     */
+    @Test
+    public void storeAccessSettingsSurfacesClassNameWhenMessageNull() {
+        StubInfobaseManager manager = new StubInfobaseManager(true);
+        ThrowingAccessManager accessManager = new ThrowingAccessManager(
+                new NullPointerException((String) null));
+        StubGateway gateway = new StubGateway(manager, accessManager);
+        TestableConnectService service = new TestableConnectService(gateway);
+
+        InfobaseReference reference = stubReferenceWithState(UUID.randomUUID(), "ib-name"); //$NON-NLS-1$
+
+        try {
+            service.invokeStoreAccessSettings(reference, "Admin", "secret"); //$NON-NLS-1$ //$NON-NLS-2$
+            fail("expected EdtToolException"); //$NON-NLS-1$
+        } catch (EdtToolException e) {
+            assertEquals(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE, e.getCode());
+            String message = e.getMessage();
+            assertNotNull(message);
+            assertFalse("message must not tail with ': null' when cause has null getMessage()", //$NON-NLS-1$
+                    message.endsWith(": null")); //$NON-NLS-1$
+            assertTrue("message must include the exception class name, was: " + message, //$NON-NLS-1$
+                    message.contains("NullPointerException")); //$NON-NLS-1$
+        }
+    }
+
+    /** Reference stub that actually persists {@code getUuid}/{@code setUuid}/{@code getName}/{@code setName}. */
+    private static InfobaseReference stubReferenceWithState(UUID initialUuid, String initialName) {
+        AtomicReference<UUID> uuidSlot = new AtomicReference<>(initialUuid);
+        AtomicReference<String> nameSlot = new AtomicReference<>(initialName);
+        return (InfobaseReference) Proxy.newProxyInstance(
+                InfobaseReference.class.getClassLoader(),
+                new Class<?>[] { InfobaseReference.class },
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "getUuid" -> uuidSlot.get(); //$NON-NLS-1$
+                    case "setUuid" -> { uuidSlot.set((UUID) args[0]); yield null; } //$NON-NLS-1$
+                    case "getName" -> nameSlot.get(); //$NON-NLS-1$
+                    case "setName" -> { nameSlot.set((String) args[0]); yield null; } //$NON-NLS-1$
+                    case "toString" -> "StubReference@" + System.identityHashCode(proxy); //$NON-NLS-1$ //$NON-NLS-2$
+                    case "hashCode" -> Integer.valueOf(System.identityHashCode(proxy)); //$NON-NLS-1$
+                    case "equals" -> Boolean.valueOf(proxy == args[0]); //$NON-NLS-1$
+                    default -> defaultReturnFor(method.getReturnType());
+                });
+    }
+
+    private static Object defaultReturnFor(Class<?> returnType) {
+        if (returnType == boolean.class) return Boolean.FALSE;
+        if (returnType == int.class) return Integer.valueOf(0);
+        if (returnType == long.class) return Long.valueOf(0L);
+        if (returnType == double.class) return Double.valueOf(0);
+        if (returnType == float.class) return Float.valueOf(0);
+        if (returnType == short.class) return Short.valueOf((short) 0);
+        if (returnType == byte.class) return Byte.valueOf((byte) 0);
+        if (returnType == char.class) return Character.valueOf('\0');
+        return null;
+    }
+
+    private static IInfobaseAccessManager noopAccessManager() {
+        return (IInfobaseAccessManager) Proxy.newProxyInstance(
+                IInfobaseAccessManager.class.getClassLoader(),
+                new Class<?>[] { IInfobaseAccessManager.class },
+                (proxy, method, args) -> defaultReturnFor(method.getReturnType()));
+    }
+
+    /** Stub gateway that returns the pre-configured manager / access-manager. */
+    private static final class StubGateway extends EdtRuntimeGateway {
+        private final IInfobaseManager manager;
+        private final IInfobaseAccessManager accessManager;
+
+        StubGateway(IInfobaseManager manager, IInfobaseAccessManager accessManager) {
+            this.manager = manager;
+            this.accessManager = accessManager;
+        }
+
+        @Override
+        public IInfobaseManager getInfobaseManager() {
+            return manager;
+        }
+
+        @Override
+        public IInfobaseAccessManager getInfobaseAccessManager() {
+            return accessManager;
+        }
+    }
+
+    /** Subclass exposing protected service methods for unit testing. */
+    private static final class TestableConnectService extends EdtInfobaseConnectService {
+        TestableConnectService(EdtRuntimeGateway gateway) {
+            super(gateway);
+        }
+
+        void invokePersistReference(InfobaseReference reference) {
+            persistReference(reference);
+        }
+
+        void invokeStoreAccessSettings(InfobaseReference reference, String login, String password) {
+            storeAccessSettings(reference, login, password);
+        }
+    }
+
+    /** Minimal {@link IInfobaseManager} stub tracking {@code add} calls. */
+    private static final class StubInfobaseManager implements IInfobaseManager {
+        private final boolean persistenceSupported;
+        final java.util.List<Object> addCalls = new java.util.ArrayList<>();
+
+        StubInfobaseManager(boolean persistenceSupported) {
+            this.persistenceSupported = persistenceSupported;
+        }
+
+        @Override
+        public boolean isPersistenceSupported() { return persistenceSupported; }
+
+        @Override
+        public java.util.List<InfobaseReference> getRecent() { return List.of(); }
+
+        @Override
+        public java.util.List<com._1c.g5.v8.dt.platform.services.model.Section> getAll() { return List.of(); }
+
+        @Override
+        public org.eclipse.core.runtime.IStatus getLoadStatus() { return null; }
+
+        @Override
+        public org.eclipse.emf.ecore.resource.Resource getInfobasesResource() { return null; }
+
+        @Override
+        public void save(java.util.List<com._1c.g5.v8.dt.platform.services.model.Section> sections) { }
+
+        @Override
+        public void add(java.util.List<com._1c.g5.v8.dt.platform.services.model.Section> added,
+                java.util.List<com._1c.g5.v8.dt.platform.services.model.Section> toRemove,
+                com._1c.g5.v8.dt.platform.services.model.Section parent) {
+            addCalls.add(added);
+        }
+
+        @Override
+        public void add(com._1c.g5.v8.dt.platform.services.model.Section section, String parentName) {
+            addCalls.add(section);
+        }
+
+        @Override
+        public void delete(com._1c.g5.v8.dt.platform.services.model.Section section) { }
+
+        @Override
+        public void update(com._1c.g5.v8.dt.platform.services.model.Section section) { }
+
+        @Override
+        public Optional<InfobaseReference> findInfobaseByUuid(UUID uuid) { return Optional.empty(); }
+
+        @Override
+        public Optional<InfobaseReference> findInfobaseByName(String name) { return Optional.empty(); }
+
+        @Override
+        public java.util.List<InfobaseReference> findInfobasesByNames(
+                java.util.Collection<String> names) {
+            return List.of();
+        }
+
+        @Override
+        public boolean isSortByName() { return false; }
+
+        @Override
+        public void setSortByName(boolean value) { }
+
+        @Override
+        public boolean isShowRecent() { return false; }
+
+        @Override
+        public void setShowRecent(boolean value) { }
+
+        @Override
+        public int getRecentInfobasesCount() { return 0; }
+
+        @Override
+        public void setRecentInfobasesCount(int value) { }
+
+        @Override
+        public void markInfobaseAsRecent(InfobaseReference reference) { }
+
+        @Override
+        public java.util.concurrent.locks.Lock getLock(InfobaseReference reference) { return null; }
+
+        @Override
+        public java.util.concurrent.locks.Lock getInternalInfobaseLock() { return null; }
+
+        @Override
+        public String generateInfobaseName() { return "stub"; } //$NON-NLS-1$
+
+        @Override
+        public String generateGroupName() { return "group"; } //$NON-NLS-1$
+
+        @Override
+        public Optional<java.nio.file.Path> generateDefaultInfobaseLocation() { return Optional.empty(); }
+
+        @Override
+        public void addInfobaseChangeListener(
+                com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseChangeListener listener) { }
+
+        @Override
+        public void removeInfobaseChangeListener(
+                com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseChangeListener listener) { }
+
+        @Override
+        public void reload(org.eclipse.core.runtime.IProgressMonitor monitor) { }
+    }
+
+    /** Access manager whose {@code storeSettings} always throws the supplied exception. */
+    private static final class ThrowingAccessManager implements IInfobaseAccessManager {
+        private final RuntimeException toThrow;
+
+        ThrowingAccessManager(RuntimeException toThrow) {
+            this.toThrow = toThrow;
+        }
+
+        @Override
+        public com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessSettings getSettings(
+                InfobaseReference reference) { return null; }
+
+        @Override
+        public com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessSettings getSettings(
+                InfobaseReference reference,
+                com._1c.g5.v8.dt.platform.services.model.InfobaseAccess access) { return null; }
+
+        @Override
+        public com._1c.g5.v8.dt.platform.services.core.runtimes.environments.IResolvableRuntimeInstallation
+                getInstallation(org.eclipse.core.resources.IProject project, InfobaseReference ref) {
+            return null;
+        }
+
+        @Override
+        public com._1c.g5.v8.dt.platform.services.core.runtimes.environments.IResolvableRuntimeInstallation
+                getInstallation(InfobaseReference reference) { return null; }
+
+        @Override
+        public com._1c.g5.v8.dt.platform.services.core.runtimes.environments.IResolvableRuntimeInstallation
+                getInstallation(InfobaseReference reference,
+                        com._1c.g5.v8.dt.platform.version.Version version) { return null; }
+
+        @Override
+        public void storeSettings(InfobaseReference reference,
+                com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessSettings settings) {
+            throw toThrow;
+        }
+
+        @Override
+        public void storeSettings(InfobaseReference reference,
+                com._1c.g5.v8.dt.platform.services.model.InfobaseAccess access, String userName,
+                String password, String additionalProperties) {
+            throw toThrow;
+        }
+
+        @Override
+        public void storeInstallation(org.eclipse.core.resources.IProject project,
+                InfobaseReference reference,
+                com._1c.g5.v8.dt.platform.services.core.runtimes.environments.IResolvableRuntimeInstallation installation) {
+        }
+
+        @Override
+        public void addInfobaseAccessSettingsChangeListener(
+                com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessSettingsChangeListener listener) {
+        }
+
+        @Override
+        public void removeInfobaseAccessSettingsChangeListener(
+                com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessSettingsChangeListener listener) {
+        }
+
+        @Override
+        public void updateSettings(InfobaseReference reference,
+                com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessSettings settings) {
         }
     }
 
