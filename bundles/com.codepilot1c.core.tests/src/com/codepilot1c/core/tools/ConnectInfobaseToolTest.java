@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.HashMap;
 import java.util.List;
@@ -338,6 +339,45 @@ public class ConnectInfobaseToolTest {
                 manager.addCalls.isEmpty());
     }
 
+    @Test
+    public void persistReferenceDoesNotReuseUuidWhenOnlyNameMatches() {
+        StubInfobaseManager manager = new StubInfobaseManager(true);
+        UUID existingUuid = UUID.randomUUID();
+        manager.findByNames = List.of(
+                stubReferenceWithState(existingUuid, "shared-name", "File=\"/tmp/existing\"")); //$NON-NLS-1$ //$NON-NLS-2$
+        StubGateway gateway = new StubGateway(manager, noopAccessManager());
+        TestableConnectService service = new TestableConnectService(gateway);
+
+        InfobaseReference reference = stubReferenceWithState(null, "shared-name", //$NON-NLS-1$
+                "File=\"/tmp/new-target\""); //$NON-NLS-1$
+
+        service.invokePersistReference(reference);
+
+        assertEquals("a different infobase identity must be registered as a new entry", //$NON-NLS-1$
+                1, manager.addCalls.size());
+        assertNotNull(reference.getUuid());
+        assertFalse("UUID from a same-name but different infobase must not be reused", //$NON-NLS-1$
+                existingUuid.equals(reference.getUuid()));
+    }
+
+    @Test
+    public void persistReferenceReusesUuidWhenIdentityMatchesConnectionString() {
+        StubInfobaseManager manager = new StubInfobaseManager(true);
+        UUID existingUuid = UUID.randomUUID();
+        String connection = "File=\"/tmp/existing\""; //$NON-NLS-1$
+        manager.findByNames = List.of(stubReferenceWithState(existingUuid, "shared-name", connection)); //$NON-NLS-1$
+        StubGateway gateway = new StubGateway(manager, noopAccessManager());
+        TestableConnectService service = new TestableConnectService(gateway);
+
+        InfobaseReference reference = stubReferenceWithState(null, "shared-name", connection); //$NON-NLS-1$
+
+        service.invokePersistReference(reference);
+
+        assertTrue("matching infobase identity should reuse the existing entry", //$NON-NLS-1$
+                manager.addCalls.isEmpty());
+        assertEquals(existingUuid, reference.getUuid());
+    }
+
     /**
      * Regression for GH issue #31: when {@code storeSettings} throws an exception whose
      * {@code getMessage()} returns {@code null} (historically an NPE from inside EDT), the
@@ -370,8 +410,15 @@ public class ConnectInfobaseToolTest {
 
     /** Reference stub that actually persists {@code getUuid}/{@code setUuid}/{@code getName}/{@code setName}. */
     private static InfobaseReference stubReferenceWithState(UUID initialUuid, String initialName) {
+        return stubReferenceWithState(initialUuid, initialName, null);
+    }
+
+    /** Reference stub that also exposes a stable connection string for identity comparison. */
+    private static InfobaseReference stubReferenceWithState(UUID initialUuid, String initialName,
+            String connectionIdentity) {
         AtomicReference<UUID> uuidSlot = new AtomicReference<>(initialUuid);
         AtomicReference<String> nameSlot = new AtomicReference<>(initialName);
+        Object connectionString = connectionStringStub(connectionIdentity);
         return (InfobaseReference) Proxy.newProxyInstance(
                 InfobaseReference.class.getClassLoader(),
                 new Class<?>[] { InfobaseReference.class },
@@ -380,11 +427,37 @@ public class ConnectInfobaseToolTest {
                     case "setUuid" -> { uuidSlot.set((UUID) args[0]); yield null; } //$NON-NLS-1$
                     case "getName" -> nameSlot.get(); //$NON-NLS-1$
                     case "setName" -> { nameSlot.set((String) args[0]); yield null; } //$NON-NLS-1$
+                    case "getConnectionString" -> connectionString; //$NON-NLS-1$
                     case "toString" -> "StubReference@" + System.identityHashCode(proxy); //$NON-NLS-1$ //$NON-NLS-2$
                     case "hashCode" -> Integer.valueOf(System.identityHashCode(proxy)); //$NON-NLS-1$
                     case "equals" -> Boolean.valueOf(proxy == args[0]); //$NON-NLS-1$
                     default -> defaultReturnFor(method.getReturnType());
                 });
+    }
+
+    private static Object connectionStringStub(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            Method getter = InfobaseReference.class.getMethod("getConnectionString"); //$NON-NLS-1$
+            Class<?> returnType = getter.getReturnType();
+            if (!returnType.isInterface()) {
+                fail("InfobaseReference#getConnectionString() must return an interface in this test"); //$NON-NLS-1$
+            }
+            return Proxy.newProxyInstance(
+                    returnType.getClassLoader(),
+                    new Class<?>[] { returnType },
+                    (proxy, method, args) -> switch (method.getName()) {
+                        case "asConnectionString" -> value; //$NON-NLS-1$
+                        case "toString" -> value; //$NON-NLS-1$
+                        case "hashCode" -> Integer.valueOf(value.hashCode()); //$NON-NLS-1$
+                        case "equals" -> Boolean.valueOf(proxy == args[0]); //$NON-NLS-1$
+                        default -> defaultReturnFor(method.getReturnType());
+                    });
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError("Failed to create connection-string stub", e); //$NON-NLS-1$
+        }
     }
 
     private static Object defaultReturnFor(Class<?> returnType) {
@@ -446,6 +519,9 @@ public class ConnectInfobaseToolTest {
     private static final class StubInfobaseManager implements IInfobaseManager {
         private final boolean persistenceSupported;
         final java.util.List<Object> addCalls = new java.util.ArrayList<>();
+        Optional<InfobaseReference> findByUuid = Optional.empty();
+        Optional<InfobaseReference> findByName = Optional.empty();
+        java.util.List<InfobaseReference> findByNames = List.of();
 
         StubInfobaseManager(boolean persistenceSupported) {
             this.persistenceSupported = persistenceSupported;
@@ -488,15 +564,15 @@ public class ConnectInfobaseToolTest {
         public void update(com._1c.g5.v8.dt.platform.services.model.Section section) { }
 
         @Override
-        public Optional<InfobaseReference> findInfobaseByUuid(UUID uuid) { return Optional.empty(); }
+        public Optional<InfobaseReference> findInfobaseByUuid(UUID uuid) { return findByUuid; }
 
         @Override
-        public Optional<InfobaseReference> findInfobaseByName(String name) { return Optional.empty(); }
+        public Optional<InfobaseReference> findInfobaseByName(String name) { return findByName; }
 
         @Override
         public java.util.List<InfobaseReference> findInfobasesByNames(
                 java.util.Collection<String> names) {
-            return List.of();
+            return findByNames;
         }
 
         @Override

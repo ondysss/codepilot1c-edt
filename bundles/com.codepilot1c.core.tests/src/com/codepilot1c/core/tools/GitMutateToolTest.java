@@ -154,7 +154,7 @@ public class GitMutateToolTest {
 
     @Test
     public void remoteAddWithoutRepoContextFailsWithClearError() {
-        GitMutateTool tool = new GitMutateTool();
+        GitMutateTool tool = new GitMutateTool(new GitService(() -> null, () -> null));
 
         ToolResult result = tool.execute(Map.of(
                 "operation", "remote_add", //$NON-NLS-1$ //$NON-NLS-2$
@@ -162,8 +162,8 @@ public class GitMutateToolTest {
         )).join();
 
         assertFalse(result.isSuccess());
-        assertTrue("expected 'project_name or repo_path is required' in error, got: " + result.getErrorMessage(), //$NON-NLS-1$
-                result.getErrorMessage().contains("project_name or repo_path is required")); //$NON-NLS-1$
+        assertTrue("expected git context resolution error, got: " + result.getErrorMessage(), //$NON-NLS-1$
+                result.getErrorMessage().contains("resolve git context")); //$NON-NLS-1$
     }
 
     @Test

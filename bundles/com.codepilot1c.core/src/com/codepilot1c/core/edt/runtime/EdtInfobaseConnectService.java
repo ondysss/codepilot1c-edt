@@ -5,7 +5,9 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -403,17 +405,77 @@ public class EdtInfobaseConnectService {
                     return byUuid;
                 }
             }
-            String name = reference.getName();
-            if (name != null && !name.isBlank()) {
-                Optional<InfobaseReference> byName = manager.findInfobaseByName(name);
-                if (byName.isPresent()) {
-                    return byName;
-                }
-            }
+            return findExistingByIdentity(manager, reference);
         } catch (RuntimeException ignored) {
             // Best-effort lookup; caller falls through to manager.add() or a local UUID assignment.
         }
         return Optional.empty();
+    }
+
+    private Optional<InfobaseReference> findExistingByIdentity(IInfobaseManager manager, InfobaseReference reference) {
+        String name = reference.getName();
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        for (InfobaseReference candidate : findCandidatesByName(manager, name)) {
+            if (sameInfobaseIdentity(candidate, reference)) {
+                return Optional.of(candidate);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private List<InfobaseReference> findCandidatesByName(IInfobaseManager manager, String name) {
+        List<InfobaseReference> candidates = new ArrayList<>();
+        try {
+            List<InfobaseReference> byNames = manager.findInfobasesByNames(List.of(name));
+            if (byNames != null) {
+                candidates.addAll(byNames);
+            }
+        } catch (RuntimeException ignored) {
+            // Fall back to the single-name lookup below.
+        }
+        if (!candidates.isEmpty()) {
+            return candidates;
+        }
+        try {
+            manager.findInfobaseByName(name).ifPresent(candidates::add);
+        } catch (RuntimeException ignored) {
+            // Best-effort lookup only.
+        }
+        return candidates;
+    }
+
+    private static boolean sameInfobaseIdentity(InfobaseReference left, InfobaseReference right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null) {
+            return false;
+        }
+        UUID leftUuid = left.getUuid();
+        UUID rightUuid = right.getUuid();
+        if (leftUuid != null && rightUuid != null) {
+            return leftUuid.equals(rightUuid);
+        }
+        String leftConnection = infobaseIdentity(left);
+        String rightConnection = infobaseIdentity(right);
+        if (leftConnection != null && rightConnection != null) {
+            return leftConnection.equals(rightConnection);
+        }
+        return false;
+    }
+
+    private static String infobaseIdentity(InfobaseReference reference) {
+        try {
+            if (reference == null || reference.getConnectionString() == null) {
+                return null;
+            }
+            String value = reference.getConnectionString().asConnectionString();
+            return value == null || value.isBlank() ? null : value.trim();
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     protected void storeAccessSettings(InfobaseReference reference, String login, String password) {

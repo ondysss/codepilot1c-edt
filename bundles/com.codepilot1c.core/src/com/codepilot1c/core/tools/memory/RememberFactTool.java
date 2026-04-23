@@ -9,9 +9,6 @@ package com.codepilot1c.core.tools.memory;
 
 import java.util.concurrent.CompletableFuture;
 
-import org.eclipse.core.runtime.ILog;
-import org.eclipse.core.runtime.Platform;
-
 import com.codepilot1c.core.memory.MemoryCategory;
 import com.codepilot1c.core.memory.MemoryEntry;
 import com.codepilot1c.core.memory.MemoryService;
@@ -37,8 +34,6 @@ import com.codepilot1c.core.tools.ToolResult;
     tags = {"memory", "workspace"}
 )
 public class RememberFactTool extends AbstractTool {
-
-    private static final ILog LOG = Platform.getLog(RememberFactTool.class);
 
     private static final String SCHEMA = """
             {
@@ -106,7 +101,7 @@ public class RememberFactTool extends AbstractTool {
             }
 
             MemoryService.remember(projectPath, entry);
-            LOG.info("RememberFactTool: saved fact [" + category + "] " + content); //$NON-NLS-1$ //$NON-NLS-2$
+            log.info("RememberFactTool: saved fact [" + category + "] " + content); //$NON-NLS-1$ //$NON-NLS-2$
 
             return ToolResult.success("Fact saved to memory: " + content); //$NON-NLS-1$
         });
@@ -137,7 +132,7 @@ public class RememberFactTool extends AbstractTool {
                 }
             }
         } catch (Exception e) {
-            LOG.warn("RememberFactTool: could not resolve project path", e); //$NON-NLS-1$
+            log.warn("RememberFactTool: could not resolve project path", e); //$NON-NLS-1$
         }
         return null;
     }
