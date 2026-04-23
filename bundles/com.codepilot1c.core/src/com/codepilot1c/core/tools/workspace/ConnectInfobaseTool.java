@@ -136,9 +136,9 @@ public class ConnectInfobaseTool extends AbstractTool {
                 JsonObject payload = successPayload(opId, projectName, result);
                 return ToolResult.success(pretty(payload), ToolResult.ToolResultType.CODE);
             } catch (EdtToolException e) {
-                LOG.warn("[%s] connect_infobase project=%s failed with %s: %s", //$NON-NLS-1$
+                LOG.warn(String.format("[%s] connect_infobase project=%s failed with %s: %s", //$NON-NLS-1$
                         opId, projectName, e.getCode() == null ? "<unknown>" : e.getCode().name(), //$NON-NLS-1$
-                        e.getMessage() == null ? "" : e.getMessage()); //$NON-NLS-1$
+                        e.getMessage() == null ? "" : e.getMessage()), e); //$NON-NLS-1$
                 return ToolResult.failure(pretty(errorPayload(opId, projectName, e.getCode(), e.getMessage())));
             } catch (IllegalStateException e) {
                 LOG.error(String.format("[%s] connect_infobase project=%s EDT_NOT_READY", //$NON-NLS-1$

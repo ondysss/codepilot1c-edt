@@ -307,10 +307,10 @@ final class QwenToolCallExamples {
                     new String[]{"init_config"}); //$NON-NLS-1$
         }
         if ("render_template".equals(name)) { //$NON-NLS-1$
-            // Use only flat params for XML fallback safety — sections is complex so use minimal keys
             return new ExampleParams(
-                    new String[]{"project", "template_fqn", "validation_token"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                    new String[]{"DemoConfiguration", "Document.ПоступлениеТоваров.Template.Макет", "abc123"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    new String[]{"project", "template_fqn", "sections", "validation_token"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                    new String[]{"DemoConfiguration", "Document.ПоступлениеТоваров.Template.Макет", //$NON-NLS-1$ //$NON-NLS-2$
+                            "[{\"name\":\"Шапка\",\"rows\":[[\"Товары\"]]}]", "abc123"}); //$NON-NLS-1$ //$NON-NLS-2$
         }
         if ("inspect_template".equals(name)) { //$NON-NLS-1$
             return new ExampleParams(
