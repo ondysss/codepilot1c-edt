@@ -42,15 +42,15 @@ public class GetDiagnosticsTool implements ITool {
                     "scope": {
                         "type": "string",
                         "enum": ["project", "file", "active_editor"],
-                        "description": "Область диагностики: project (по project_name или по всем проектам), file (по path), active_editor (по активному редактору)"
+                        "description": "Область live UI diagnostics: project, file, or active_editor. Use edt_diagnostics:metadata_smoke when UI is unavailable."
                     },
                     "path": {
                         "type": "string",
-                        "description": "Путь к файлу (workspace-relative) для scope=file"
+                        "description": "Workspace-relative file path for scope=file."
                     },
                     "project_name": {
                         "type": "string",
-                        "description": "Имя проекта EDT для scope=project. Если не указан, будет использован default project или диагностика по workspace"
+                        "description": "EDT project name for scope=project. If omitted, default project or workspace diagnostics are used."
                     },
                     "severity": {
                         "type": "string",
@@ -81,8 +81,7 @@ public class GetDiagnosticsTool implements ITool {
 
     @Override
     public String getDescription() {
-        return "Получить диагностики EDT (ошибки компиляции, предупреждения) по проекту/файлу. " + //$NON-NLS-1$
-               "По умолчанию анализирует проект и не требует активного редактора."; //$NON-NLS-1$
+        return "Возвращает живые EDT diagnostics из UI workbench для проекта, файла или активного редактора."; //$NON-NLS-1$
     }
 
     @Override

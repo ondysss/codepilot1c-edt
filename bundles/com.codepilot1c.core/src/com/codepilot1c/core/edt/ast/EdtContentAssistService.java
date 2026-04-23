@@ -38,7 +38,10 @@ public class EdtContentAssistService {
 
     public ContentAssistResult getContentAssist(ContentAssistRequest req) {
         req.validate();
+        return executeRead(req.getProjectName(), () -> doGetContentAssist(req));
+    }
 
+    ContentAssistResult doGetContentAssist(ContentAssistRequest req) {
         IProject project = gateway.resolveProject(req.getProjectName());
         readinessChecker.ensureReady(project);
 
@@ -49,6 +52,27 @@ public class EdtContentAssistService {
         }
 
         return uiThreadExecutor.callSync(() -> executeUi(file, req));
+    }
+
+    private <T> T executeRead(String projectName, ReadOnlyTask<T> task) {
+        IProject project = gateway.resolveProject(projectName);
+        if (project == null) {
+            return task.execute();
+        }
+        try {
+            return gateway.getBmModelManager().executeReadOnlyTask(project, tx -> task.execute());
+        } catch (EdtAstException e) {
+            if (e.getCode() == EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE) {
+                return task.execute();
+            }
+            throw e;
+        } catch (RuntimeException e) {
+            throw new EdtAstException(
+                    EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE,
+                    "Failed to execute content assist read transaction: " + e.getMessage(), //$NON-NLS-1$
+                    true,
+                    e);
+        }
     }
 
     private ContentAssistResult executeUi(IFile file, ContentAssistRequest req) {
@@ -203,5 +227,10 @@ public class EdtContentAssistService {
         text = text.replaceAll("(?s)<[^>]+>", " "); //$NON-NLS-1$ //$NON-NLS-2$
         text = text.replaceAll("\\s+", " ").trim(); //$NON-NLS-1$ //$NON-NLS-2$
         return text.isEmpty() ? null : text;
+    }
+
+    @FunctionalInterface
+    private interface ReadOnlyTask<T> {
+        T execute();
     }
 }

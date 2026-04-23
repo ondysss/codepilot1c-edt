@@ -23,6 +23,7 @@ public class LlmResponse {
 
     private final String content;
     private final String model;
+    private final String resolvedModel;
     private final Usage usage;
     private final String finishReason;
     private final List<ToolCall> toolCalls;
@@ -37,7 +38,7 @@ public class LlmResponse {
      * @param finishReason the reason for completion
      */
     public LlmResponse(String content, String model, Usage usage, String finishReason) {
-        this(content, model, usage, finishReason, null);
+        this(content, model, model, usage, finishReason, null);
     }
 
     /**
@@ -50,7 +51,12 @@ public class LlmResponse {
      * @param toolCalls    list of tool calls requested by the model
      */
     public LlmResponse(String content, String model, Usage usage, String finishReason, List<ToolCall> toolCalls) {
-        this(content, model, usage, finishReason, toolCalls, null);
+        this(content, model, model, usage, finishReason, toolCalls, null);
+    }
+
+    public LlmResponse(String content, String model, String resolvedModel, Usage usage, String finishReason,
+            List<ToolCall> toolCalls) {
+        this(content, model, resolvedModel, usage, finishReason, toolCalls, null);
     }
 
     /**
@@ -64,9 +70,15 @@ public class LlmResponse {
      * @param reasoningContent the model's reasoning/thinking content
      */
     public LlmResponse(String content, String model, Usage usage, String finishReason,
-                       List<ToolCall> toolCalls, String reasoningContent) {
+            List<ToolCall> toolCalls, String reasoningContent) {
+        this(content, model, model, usage, finishReason, toolCalls, reasoningContent);
+    }
+
+    public LlmResponse(String content, String model, String resolvedModel, Usage usage, String finishReason,
+            List<ToolCall> toolCalls, String reasoningContent) {
         this.content = content != null ? content : ""; //$NON-NLS-1$
         this.model = model;
+        this.resolvedModel = resolvedModel != null && !resolvedModel.isBlank() ? resolvedModel : model;
         this.usage = usage;
         this.finishReason = finishReason;
         this.toolCalls = toolCalls != null ? Collections.unmodifiableList(toolCalls) : Collections.emptyList();
@@ -99,6 +111,10 @@ public class LlmResponse {
 
     public String getModel() {
         return model;
+    }
+
+    public String getResolvedModel() {
+        return resolvedModel;
     }
 
     public Usage getUsage() {
@@ -169,6 +185,7 @@ public class LlmResponse {
     public static class Builder {
         private String content;
         private String model;
+        private String resolvedModel;
         private Usage usage;
         private String finishReason;
         private List<ToolCall> toolCalls;
@@ -181,6 +198,11 @@ public class LlmResponse {
 
         public Builder model(String model) {
             this.model = model;
+            return this;
+        }
+
+        public Builder resolvedModel(String resolvedModel) {
+            this.resolvedModel = resolvedModel;
             return this;
         }
 
@@ -205,7 +227,7 @@ public class LlmResponse {
         }
 
         public LlmResponse build() {
-            return new LlmResponse(content, model, usage, finishReason, toolCalls, reasoningContent);
+            return new LlmResponse(content, model, resolvedModel, usage, finishReason, toolCalls, reasoningContent);
         }
     }
 

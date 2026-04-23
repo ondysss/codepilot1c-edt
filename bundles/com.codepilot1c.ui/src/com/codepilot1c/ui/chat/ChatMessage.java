@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+import com.codepilot1c.core.model.LlmContentPart;
 import com.codepilot1c.core.model.LlmMessage;
 import com.codepilot1c.core.model.ToolCall;
 
@@ -38,6 +39,7 @@ public class ChatMessage {
     private final Instant timestamp;
     private MessageStatus status;
     private String rawContent;
+    private final List<LlmContentPart> contentParts;
     private final List<MessagePart> parts;
     private String errorMessage;
 
@@ -73,6 +75,7 @@ public class ChatMessage {
         this.rawContent = rawContent != null ? rawContent : ""; //$NON-NLS-1$
         this.timestamp = Objects.requireNonNull(timestamp, "timestamp must not be null"); //$NON-NLS-1$
         this.status = Objects.requireNonNull(status, "status must not be null"); //$NON-NLS-1$
+        this.contentParts = new ArrayList<>();
         this.parts = new ArrayList<>();
         this.toolCalls = new ArrayList<>();
     }
@@ -87,6 +90,14 @@ public class ChatMessage {
      */
     public static ChatMessage user(String content) {
         return new ChatMessage(MessageKind.USER, content);
+    }
+
+    public static ChatMessage user(String content, List<LlmContentPart> contentParts) {
+        ChatMessage message = new ChatMessage(MessageKind.USER, content);
+        if (contentParts != null) {
+            message.contentParts.addAll(contentParts);
+        }
+        return message;
     }
 
     /**
@@ -172,6 +183,9 @@ public class ChatMessage {
         };
 
         ChatMessage message = new ChatMessage(kind, llmMessage.getContent());
+        if (llmMessage.hasContentParts()) {
+            message.contentParts.addAll(llmMessage.getContentParts());
+        }
 
         if (llmMessage.hasToolCalls()) {
             message.toolCalls.addAll(llmMessage.getToolCalls());
@@ -204,6 +218,10 @@ public class ChatMessage {
 
     public List<MessagePart> getParts() {
         return Collections.unmodifiableList(parts);
+    }
+
+    public List<LlmContentPart> getContentParts() {
+        return Collections.unmodifiableList(contentParts);
     }
 
     public List<ToolCall> getToolCalls() {
@@ -342,6 +360,13 @@ public class ChatMessage {
         }
     }
 
+    public void setContentParts(List<LlmContentPart> contentParts) {
+        this.contentParts.clear();
+        if (contentParts != null) {
+            this.contentParts.addAll(contentParts);
+        }
+    }
+
     // === Conversion ===
 
     /**
@@ -351,7 +376,7 @@ public class ChatMessage {
      */
     public LlmMessage toLlmMessage() {
         return switch (kind) {
-            case USER -> LlmMessage.user(rawContent);
+            case USER -> !contentParts.isEmpty() ? LlmMessage.user(contentParts) : LlmMessage.user(rawContent);
             case ASSISTANT -> hasToolCalls()
                     ? LlmMessage.assistantWithToolCalls(rawContent, toolCalls)
                     : LlmMessage.assistant(rawContent);

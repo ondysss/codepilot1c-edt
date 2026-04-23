@@ -12,6 +12,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -38,6 +40,7 @@ import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Display;
 
 import com.codepilot1c.core.logging.VibeLogger;
+import com.codepilot1c.core.model.LlmAttachment;
 import com.codepilot1c.ui.internal.ToolDisplayNames;
 import com.codepilot1c.ui.internal.VibeUiPlugin;
 import com.codepilot1c.ui.markdown.FlexmarkParser;
@@ -197,17 +200,31 @@ public class BrowserChatPanel extends Composite {
         public final boolean isSystem;
         public final String id;
         public final String reasoning;
+        public final List<LlmAttachment> attachments;
+        public final String modelName;
 
         public ChatMessageData(String sender, String content, boolean isAssistant, boolean isSystem) {
-            this(sender, content, isAssistant, isSystem, null);
+            this(sender, content, isAssistant, isSystem, null, List.of(), null);
         }
 
         public ChatMessageData(String sender, String content, boolean isAssistant, boolean isSystem, String reasoning) {
+            this(sender, content, isAssistant, isSystem, reasoning, List.of(), null);
+        }
+
+        public ChatMessageData(String sender, String content, boolean isAssistant, boolean isSystem, String reasoning,
+                List<LlmAttachment> attachments) {
+            this(sender, content, isAssistant, isSystem, reasoning, attachments, null);
+        }
+
+        public ChatMessageData(String sender, String content, boolean isAssistant, boolean isSystem, String reasoning,
+                List<LlmAttachment> attachments, String modelName) {
             this.sender = sender;
             this.content = content;
             this.isAssistant = isAssistant;
             this.isSystem = isSystem;
             this.reasoning = reasoning;
+            this.attachments = attachments != null ? List.copyOf(attachments) : List.of();
+            this.modelName = modelName;
             this.id = "msg-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 10000); //$NON-NLS-1$ //$NON-NLS-2$
         }
     }
@@ -323,10 +340,20 @@ public class BrowserChatPanel extends Composite {
      * @param isSystem true если системное сообщение
      */
     public void addMessage(String sender, String content, boolean isAssistant, boolean isSystem) {
+        addMessage(sender, content, isAssistant, isSystem, List.of(), null);
+    }
+
+    public void addMessage(String sender, String content, boolean isAssistant, boolean isSystem,
+            List<LlmAttachment> attachments) {
+        addMessage(sender, content, isAssistant, isSystem, attachments, null);
+    }
+
+    public void addMessage(String sender, String content, boolean isAssistant, boolean isSystem,
+            List<LlmAttachment> attachments, String modelName) {
         LOG.debug("addMessage: sender=%s, isAssistant=%b, isSystem=%b, contentLength=%d", //$NON-NLS-1$
                 sender, isAssistant, isSystem, content != null ? content.length() : 0);
 
-        ChatMessageData msg = new ChatMessageData(sender, content, isAssistant, isSystem);
+        ChatMessageData msg = new ChatMessageData(sender, content, isAssistant, isSystem, null, attachments, modelName);
         messages.add(msg);
 
         LOG.debug("addMessage: browserReady=%b, browser=%s, disposed=%b", //$NON-NLS-1$
@@ -373,7 +400,8 @@ public class BrowserChatPanel extends Composite {
         if (messages.isEmpty()) return;
 
         ChatMessageData lastMsg = messages.get(messages.size() - 1);
-        ChatMessageData updated = new ChatMessageData(lastMsg.sender, content, lastMsg.isAssistant, lastMsg.isSystem);
+        ChatMessageData updated = new ChatMessageData(lastMsg.sender, content, lastMsg.isAssistant, lastMsg.isSystem,
+                null, lastMsg.attachments);
         messages.set(messages.size() - 1, updated);
 
         if (browserReady && browser != null && !browser.isDisposed()) {
@@ -401,7 +429,8 @@ public class BrowserChatPanel extends Composite {
 
         // Update the backing messages list so re-renders preserve content and reasoning
         ChatMessageData lastMsg = messages.get(messages.size() - 1);
-        ChatMessageData updated = new ChatMessageData(lastMsg.sender, content, lastMsg.isAssistant, lastMsg.isSystem, reasoning);
+        ChatMessageData updated = new ChatMessageData(lastMsg.sender, content, lastMsg.isAssistant, lastMsg.isSystem,
+                reasoning, lastMsg.attachments);
         messages.set(messages.size() - 1, updated);
 
         // Execute browser update only when browser is ready
@@ -432,7 +461,7 @@ public class BrowserChatPanel extends Composite {
         String escapedReasoning = escapeHtml(reasoning)
                 .replace("\n", "<br>"); //$NON-NLS-1$ //$NON-NLS-2$
 
-        return "<details class=\"reasoning-block\" open>" + //$NON-NLS-1$
+        return "<details class=\"reasoning-block\">" + //$NON-NLS-1$
                "<summary>\uD83D\uDCAD Ход рассуждений</summary>" + //$NON-NLS-1$
                "<div class=\"reasoning-content\">" + escapedReasoning + "</div>" + //$NON-NLS-1$ //$NON-NLS-2$
                "</details>"; //$NON-NLS-1$
@@ -629,7 +658,26 @@ public class BrowserChatPanel extends Composite {
             allCardsHtml.append(buildToolCallCardHtml(toolCall));
         }
 
-        String escapedHtml = escapeForJs(allCardsHtml.toString());
+        // Wrap in collapsible group when multiple tool calls
+        String groupId = "tcg-" + System.currentTimeMillis(); //$NON-NLS-1$
+        String wrappedHtml;
+        if (toolCalls.size() > 1) {
+            wrappedHtml = "<div class=\"tool-calls-group\" id=\"" + groupId + "\">\n" + //$NON-NLS-1$ //$NON-NLS-2$
+                "  <div class=\"tool-calls-group-header\" onclick=\"toggleToolCallGroup(this)\">\n" + //$NON-NLS-1$
+                "    <span class=\"tool-calls-group-icon\">\uD83D\uDD27</span>\n" + //$NON-NLS-1$
+                "    <span class=\"tool-calls-group-label\">\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u043E " + //$NON-NLS-1$
+                toolCalls.size() + " \u0438\u043D\u0441\u0442\u0440\u0443\u043C\u0435\u043D\u0442\u043E\u0432</span>\n" + //$NON-NLS-1$
+                "    <span class=\"tool-calls-group-status\" data-group-id=\"" + groupId + "\"></span>\n" + //$NON-NLS-1$ //$NON-NLS-2$
+                "  </div>\n" + //$NON-NLS-1$
+                "  <div class=\"tool-calls-group-body\">\n" + //$NON-NLS-1$
+                allCardsHtml.toString() +
+                "  </div>\n" + //$NON-NLS-1$
+                "</div>\n"; //$NON-NLS-1$
+        } else {
+            wrappedHtml = allCardsHtml.toString();
+        }
+
+        String escapedHtml = escapeForJs(wrappedHtml);
 
         String jsCode =
             "var container = document.getElementById('messages');" + //$NON-NLS-1$
@@ -827,6 +875,7 @@ public class BrowserChatPanel extends Composite {
     private String buildMessageHtml(ChatMessageData msg) {
         String messageClass = msg.isSystem ? "system" : (msg.isAssistant ? "assistant" : "user"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         String contentHtml = buildMessageContentHtml(msg.content);
+        String attachmentsHtml = buildAttachmentsHtml(msg.attachments);
 
         // Include reasoning block if present (for thinking mode)
         String reasoningHtml = ""; //$NON-NLS-1$
@@ -834,12 +883,25 @@ public class BrowserChatPanel extends Composite {
             reasoningHtml = buildReasoningBlock(msg.reasoning);
         }
 
+        // Model badge for assistant messages
+        String modelBadgeHtml = ""; //$NON-NLS-1$
+        if (msg.isAssistant && msg.modelName != null && !msg.modelName.isEmpty()) {
+            modelBadgeHtml = " <span class=\"model-badge\">" + escapeHtml(msg.modelName) + "</span>"; //$NON-NLS-1$ //$NON-NLS-2$
+        }
+
+        // Copy response button for assistant messages
+        String copyResponseHtml = ""; //$NON-NLS-1$
+        if (msg.isAssistant && !msg.isSystem) {
+            copyResponseHtml = "        <button class=\"copy-response-btn\" onclick=\"copyResponse(this)\" title=\"\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043E\u0442\u0432\u0435\u0442\">\uD83D\uDCCB</button>\n"; //$NON-NLS-1$
+        }
+
         return "<div class=\"message " + messageClass + "\" id=\"" + msg.id + "\">\n" + //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                "    <div class=\"message-header\">\n" + //$NON-NLS-1$
-               "        <span class=\"message-sender\">" + escapeHtml(msg.sender) + "</span>\n" + //$NON-NLS-1$ //$NON-NLS-2$
+               "        <span class=\"message-sender\">" + escapeHtml(msg.sender) + modelBadgeHtml + "</span>\n" + //$NON-NLS-1$ //$NON-NLS-2$
+               copyResponseHtml +
                "    </div>\n" + //$NON-NLS-1$
                "    <div class=\"message-content\">\n" + //$NON-NLS-1$
-               reasoningHtml + contentHtml + "\n" + //$NON-NLS-1$
+               reasoningHtml + contentHtml + attachmentsHtml + "\n" + //$NON-NLS-1$
                "    </div>\n" + //$NON-NLS-1$
                "</div>\n"; //$NON-NLS-1$
     }
@@ -849,6 +911,58 @@ public class BrowserChatPanel extends Composite {
      */
     private String buildMessageContentHtml(String content) {
         return markdownParser.toHtml(content);
+    }
+
+    private String buildAttachmentsHtml(List<LlmAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return ""; //$NON-NLS-1$
+        }
+        StringBuilder sb = new StringBuilder();
+        boolean hasVisibleAttachments = false;
+        for (LlmAttachment attachment : attachments) {
+            if (attachment == null || !attachment.isImage()) {
+                continue;
+            }
+            if (!hasVisibleAttachments) {
+                sb.append("<div class=\"chat-attachments\">"); //$NON-NLS-1$
+                hasVisibleAttachments = true;
+            }
+            sb.append(buildImageAttachmentHtml(attachment));
+        }
+        if (!hasVisibleAttachments) {
+            return ""; //$NON-NLS-1$
+        }
+        sb.append("</div>"); //$NON-NLS-1$
+        return sb.toString();
+    }
+
+    private String buildImageAttachmentHtml(LlmAttachment attachment) {
+        String src = resolveAttachmentUrl(attachment);
+        String label = escapeHtml(attachment.toDisplayLabel());
+        if (src == null || src.isBlank()) {
+            return "<div class=\"chat-attachment image missing\">" + label + "</div>"; //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        return "<div class=\"chat-attachment image\">" //$NON-NLS-1$
+                + "<img style=\"max-width:240px;max-height:160px;border-radius:8px;display:block;margin-top:8px;\"" //$NON-NLS-1$
+                + " src=\"" + escapeHtml(src) + "\" alt=\"" + label + "\" />" //$NON-NLS-1$ //$NON-NLS-2$
+                + "<div class=\"chat-attachment-label\" style=\"margin-top:4px;font-size:12px;opacity:0.8;\">" //$NON-NLS-1$
+                + label + "</div>" //$NON-NLS-1$
+                + "</div>"; //$NON-NLS-1$
+    }
+
+    private String resolveAttachmentUrl(LlmAttachment attachment) {
+        if (attachment == null || attachment.getEffectivePath() == null || attachment.getEffectivePath().isBlank()) {
+            return null;
+        }
+        try {
+            Path path = Path.of(attachment.getEffectivePath());
+            if (!Files.exists(path)) {
+                return null;
+            }
+            return path.toUri().toString();
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /**

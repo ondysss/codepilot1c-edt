@@ -17,6 +17,7 @@ import java.util.function.Consumer;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.model.LlmMessage;
+import com.codepilot1c.core.model.LlmConversationSanitizer;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
@@ -24,6 +25,8 @@ import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.AbstractLlmProvider;
 import com.codepilot1c.core.provider.LlmProviderException;
+import com.codepilot1c.core.provider.ProviderCapabilities;
+import com.codepilot1c.core.provider.config.ProviderMessageContentSerializer;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -56,6 +59,17 @@ public class OpenAiProvider extends AbstractLlmProvider {
     @Override
     public boolean supportsStreaming() {
         return true;
+    }
+
+    @Override
+    public ProviderCapabilities getCapabilities() {
+        return ProviderCapabilities.builder()
+                .imageInput(true)
+                .documentInput(true)
+                .attachmentMetadata(true)
+                .maxAttachmentBytes(10L * 1024L * 1024L)
+                .maxAttachmentsPerMessage(5)
+                .build();
     }
 
     private String getApiKey() {
@@ -288,6 +302,7 @@ public class OpenAiProvider extends AbstractLlmProvider {
 
     private String buildRequestBody(LlmRequest request, boolean stream) {
         JsonObject body = new JsonObject();
+        ProviderCapabilities caps = getCapabilities();
 
         String model = request.getModel() != null ? request.getModel() : getModel();
         body.addProperty("model", model); //$NON-NLS-1$
@@ -301,8 +316,10 @@ public class OpenAiProvider extends AbstractLlmProvider {
 
         // Build messages array with tool call support
         JsonArray messages = new JsonArray();
-        for (LlmMessage msg : request.getMessages()) {
-            messages.add(serializeMessage(msg));
+        List<LlmMessage> sanitizedMessages = LlmConversationSanitizer
+                .sanitizeForOpenAiToolCalls(request.getMessages());
+        for (LlmMessage msg : sanitizedMessages) {
+            messages.add(serializeMessage(msg, caps));
         }
         body.add("messages", messages); //$NON-NLS-1$
 
@@ -323,7 +340,7 @@ public class OpenAiProvider extends AbstractLlmProvider {
 
         String json = gson.toJson(body);
         LOG.debug("Request: model=%s, messages=%d, tools=%d", //$NON-NLS-1$
-                model, request.getMessages().size(), request.hasTools() ? request.getTools().size() : 0);
+                model, sanitizedMessages.size(), request.hasTools() ? request.getTools().size() : 0);
         // Log request body for debugging (truncate if too long)
         if (json.length() < 5000) {
             LOG.debug("Request body: %s", json); //$NON-NLS-1$
@@ -333,7 +350,7 @@ public class OpenAiProvider extends AbstractLlmProvider {
         return json;
     }
 
-    private JsonObject serializeMessage(LlmMessage msg) {
+    private JsonObject serializeMessage(LlmMessage msg, ProviderCapabilities caps) {
         JsonObject msgObj = new JsonObject();
         msgObj.addProperty("role", msg.getRole().getValue()); //$NON-NLS-1$
 
@@ -364,8 +381,7 @@ public class OpenAiProvider extends AbstractLlmProvider {
             }
             msgObj.add("tool_calls", toolCalls); //$NON-NLS-1$
         } else {
-            // Regular message
-            msgObj.addProperty("content", msg.getContent()); //$NON-NLS-1$
+            msgObj.add("content", ProviderMessageContentSerializer.toOpenAiContent(msg, caps)); //$NON-NLS-1$
         }
 
         return msgObj;
@@ -529,9 +545,28 @@ public class OpenAiProvider extends AbstractLlmProvider {
             if (json.has("error")) { //$NON-NLS-1$
                 JsonObject error = json.getAsJsonObject("error"); //$NON-NLS-1$
                 String type = error.has("type") ? error.get("type").getAsString() : null; //$NON-NLS-1$ //$NON-NLS-2$
+                String code = error.has("code") ? error.get("code").getAsString() : null; //$NON-NLS-1$ //$NON-NLS-2$
                 String message = error.has("message") ? error.get("message").getAsString() //$NON-NLS-1$ //$NON-NLS-2$
                         : "Unknown error"; //$NON-NLS-1$
-                return new LlmProviderException(message, null, response.statusCode(), type);
+                LlmProviderException ex = new LlmProviderException(message, null, response.statusCode(), type, code);
+
+                // Parse rate-limit details if present
+                if (json.has("details")) { //$NON-NLS-1$
+                    try {
+                        JsonObject details = json.getAsJsonObject("details"); //$NON-NLS-1$
+                        long limitCents = details.has("limit_cents") ? details.get("limit_cents").getAsLong() : 0; //$NON-NLS-1$ //$NON-NLS-2$
+                        long usedCents = details.has("used_cents") ? details.get("used_cents").getAsLong() : 0; //$NON-NLS-1$ //$NON-NLS-2$
+                        long attemptedCents = details.has("attempted_cents") ? details.get("attempted_cents").getAsLong() : 0; //$NON-NLS-1$ //$NON-NLS-2$
+                        String window = details.has("window") ? details.get("window").getAsString() : ""; //$NON-NLS-1$ //$NON-NLS-2$
+                        String retryAtLocal = details.has("retry_at_local") ? details.get("retry_at_local").getAsString() : ""; //$NON-NLS-1$ //$NON-NLS-2$
+                        long retryAfterSeconds = details.has("retry_after_seconds") ? details.get("retry_after_seconds").getAsLong() : 0; //$NON-NLS-1$ //$NON-NLS-2$
+                        ex.setRateLimitDetails(new LlmProviderException.RateLimitDetails(
+                                limitCents, usedCents, attemptedCents, window, retryAtLocal, retryAfterSeconds));
+                    } catch (Exception detailsEx) {
+                        LOG.warn("Failed to parse rate-limit details: %s", detailsEx.getMessage()); //$NON-NLS-1$
+                    }
+                }
+                return ex;
             }
         } catch (Exception ignored) {
             // Fall through to default error

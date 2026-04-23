@@ -31,6 +31,8 @@ import com.codepilot1c.core.internal.VibeCorePlugin;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 /**
  * Abstract base class for LLM providers.
@@ -162,12 +164,10 @@ public abstract class AbstractLlmProvider implements ILlmProvider {
                 .sendAsync(request, HttpResponse.BodyHandlers.ofInputStream())
                 .thenAcceptAsync(response -> {
                     if (!isSuccess(response.statusCode())) {
-                        // Read error body
+                        // Read error body and parse structured error
                         try (InputStream is = response.body()) {
                             String errorBody = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-                            errorHandler.accept(new LlmProviderException(
-                                    "HTTP error: " + response.statusCode() + " - " + errorBody, //$NON-NLS-1$ //$NON-NLS-2$
-                                    null, response.statusCode(), null));
+                            errorHandler.accept(parseStreamingError(response.statusCode(), errorBody));
                         } catch (IOException e) {
                             errorHandler.accept(new LlmProviderException(
                                     "HTTP error: " + response.statusCode(), e, response.statusCode(), null)); //$NON-NLS-1$
@@ -208,6 +208,47 @@ public abstract class AbstractLlmProvider implements ILlmProvider {
      */
     protected boolean isSuccess(int statusCode) {
         return statusCode >= 200 && statusCode < 300;
+    }
+
+    /**
+     * Parses a structured error from a streaming HTTP error response body.
+     * Extracts error code, type, message and rate-limit details if present.
+     */
+    protected LlmProviderException parseStreamingError(int statusCode, String errorBody) {
+        try {
+            JsonObject json = JsonParser.parseString(errorBody).getAsJsonObject();
+            if (json.has("error")) { //$NON-NLS-1$
+                JsonObject error = json.getAsJsonObject("error"); //$NON-NLS-1$
+                String type = error.has("type") ? error.get("type").getAsString() : null; //$NON-NLS-1$ //$NON-NLS-2$
+                String code = error.has("code") ? error.get("code").getAsString() : null; //$NON-NLS-1$ //$NON-NLS-2$
+                String message = error.has("message") ? error.get("message").getAsString() //$NON-NLS-1$ //$NON-NLS-2$
+                        : "API error: " + statusCode; //$NON-NLS-1$
+
+                LlmProviderException ex = new LlmProviderException(message, null, statusCode, type, code);
+
+                // Parse rate-limit details if present
+                if (json.has("details")) { //$NON-NLS-1$
+                    try {
+                        JsonObject details = json.getAsJsonObject("details"); //$NON-NLS-1$
+                        long limitCents = details.has("limit_cents") ? details.get("limit_cents").getAsLong() : 0; //$NON-NLS-1$ //$NON-NLS-2$
+                        long usedCents = details.has("used_cents") ? details.get("used_cents").getAsLong() : 0; //$NON-NLS-1$ //$NON-NLS-2$
+                        long attemptedCents = details.has("attempted_cents") ? details.get("attempted_cents").getAsLong() : 0; //$NON-NLS-1$ //$NON-NLS-2$
+                        String window = details.has("window") ? details.get("window").getAsString() : ""; //$NON-NLS-1$ //$NON-NLS-2$
+                        String retryAtLocal = details.has("retry_at_local") ? details.get("retry_at_local").getAsString() : ""; //$NON-NLS-1$ //$NON-NLS-2$
+                        long retryAfterSeconds = details.has("retry_after_seconds") ? details.get("retry_after_seconds").getAsLong() : 0; //$NON-NLS-1$ //$NON-NLS-2$
+                        ex.setRateLimitDetails(new LlmProviderException.RateLimitDetails(
+                                limitCents, usedCents, attemptedCents, window, retryAtLocal, retryAfterSeconds));
+                    } catch (Exception ignored) {
+                        // details parsing is best-effort
+                    }
+                }
+                return ex;
+            }
+        } catch (Exception ignored) {
+            // Fall through to raw error
+        }
+        return new LlmProviderException(
+                "API error: " + statusCode + " - " + errorBody, null, statusCode, null); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     @Override

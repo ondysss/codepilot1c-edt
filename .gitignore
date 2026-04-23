@@ -7,6 +7,8 @@
 .claude/
 .runs/
 tools/__pycache__/
+.planning/local/
+.planning/qwen35-optimization-*.md
 
 # IDE / OS
 .idea/
@@ -26,3 +28,8 @@ CLAUDE.md
 # QA локальная конфигурация и результаты
 tests/qa/qa-config.json
 tests/results/
+.planning/
+.agents/
+_bmad*/
+e2e*
+output/

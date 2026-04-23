@@ -31,6 +31,7 @@ import com._1c.g5.v8.dt.md.extension.adopt.IModelObjectAdopter;
 import com._1c.g5.v8.dt.cli.api.workspace.IImportConfigurationFilesApi;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessManager;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationManager;
+import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseManager;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IRuntimeComponentManager;
 import com._1c.g5.v8.dt.validation.marker.IMarkerManager;
 import com.e1c.g5.dt.applications.IApplicationManager;
@@ -38,12 +39,19 @@ import com.e1c.g5.v8.dt.check.settings.ICheckRepository;
 import com.e1c.g5.v8.dt.platform.standaloneserver.wst.core.IStandaloneServerService;
 import com.codepilot1c.core.http.DefaultHttpClientFactory;
 import com.codepilot1c.core.http.HttpClientFactory;
+import com.codepilot1c.core.backend.BackendConfig;
+import com.codepilot1c.core.backend.BackendService;
 import com.codepilot1c.core.edt.runtime.EdtLaunchProcessRegistry;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.mcp.host.McpHostManager;
 import com.codepilot1c.core.mcp.McpServerManager;
+import com.codepilot1c.core.provider.config.DynamicLlmProvider;
+import com.codepilot1c.core.provider.config.LlmProviderConfig;
+import com.codepilot1c.core.provider.config.ProviderType;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
+import com.codepilot1c.core.remote.IRemoteWorkbenchBridge;
 import com.codepilot1c.core.state.VibeStateService;
+import com.codepilot1c.core.tools.workspace.BackgroundJobRegistry;
 
 /**
  * The activator class controls the plug-in life cycle.
@@ -73,9 +81,11 @@ public class VibeCorePlugin extends Plugin {
     private ServiceTracker<IApplicationManager, IApplicationManager> applicationManagerTracker;
     private ServiceTracker<IInfobaseAssociationManager, IInfobaseAssociationManager> infobaseAssociationManagerTracker;
     private ServiceTracker<IInfobaseAccessManager, IInfobaseAccessManager> infobaseAccessManagerTracker;
+    private ServiceTracker<IInfobaseManager, IInfobaseManager> infobaseManagerTracker;
     private ServiceTracker<IRuntimeComponentManager, IRuntimeComponentManager> runtimeComponentManagerTracker;
     private ServiceTracker<IImportConfigurationFilesApi, IImportConfigurationFilesApi> importConfigurationFilesApiTracker;
     private ServiceTracker<IStandaloneServerService, IStandaloneServerService> standaloneServerServiceTracker;
+    private ServiceTracker<IRemoteWorkbenchBridge, IRemoteWorkbenchBridge> remoteWorkbenchBridgeTracker;
 
     @Override
     public void start(BundleContext context) throws Exception {
@@ -97,17 +107,25 @@ public class VibeCorePlugin extends Plugin {
 
         WorkspaceProjectBootstrap.importConfiguredProjects();
 
+        // Initialize persistent memory subsystem (contributor pipeline)
+        com.codepilot1c.core.memory.MemoryService.initialize();
+
         // Initialize LLM providers and set initial state.
         // If no providers are configured, plugin still starts but shows NOT_CONFIGURED.
         try {
             LlmProviderRegistry registry = LlmProviderRegistry.getInstance();
             registry.initialize();
+            BackendService backendService = BackendService.getInstance();
+            if (backendService.isConfigured()) {
+                initializeLlmProvider(backendService.getApiKey());
+                CompletableFuture.runAsync(backendService::refreshUsage);
+            }
             var active = registry.getActiveProvider();
             if (active != null && active.isConfigured()) {
                 VibeStateService.getInstance().setIdle();
             } else {
                 VibeStateService.getInstance().setNotConfigured(
-                        "No LLM providers configured. Configure one in Preferences."); //$NON-NLS-1$
+                        "No LLM providers configured. Configure one in Preferences or sign in."); //$NON-NLS-1$
             }
         } catch (Exception e) {
             VibeStateService.getInstance().setError(e.getMessage());
@@ -165,12 +183,16 @@ public class VibeCorePlugin extends Plugin {
         infobaseAssociationManagerTracker.open();
         infobaseAccessManagerTracker = new ServiceTracker<>(context, IInfobaseAccessManager.class, null);
         infobaseAccessManagerTracker.open();
+        infobaseManagerTracker = new ServiceTracker<>(context, IInfobaseManager.class, null);
+        infobaseManagerTracker.open();
         runtimeComponentManagerTracker = new ServiceTracker<>(context, IRuntimeComponentManager.class, null);
         runtimeComponentManagerTracker.open();
         importConfigurationFilesApiTracker = new ServiceTracker<>(context, IImportConfigurationFilesApi.class, null);
         importConfigurationFilesApiTracker.open();
         standaloneServerServiceTracker = new ServiceTracker<>(context, IStandaloneServerService.class, null);
         standaloneServerServiceTracker.open();
+        remoteWorkbenchBridgeTracker = new ServiceTracker<>(context, IRemoteWorkbenchBridge.class, null);
+        remoteWorkbenchBridgeTracker.open();
     }
 
     @Override
@@ -193,6 +215,11 @@ public class VibeCorePlugin extends Plugin {
         } catch (Exception e) {
             logWarn("Error cleaning EDT launch processes", e); //$NON-NLS-1$
         }
+        try {
+            BackgroundJobRegistry.getInstance().shutdown();
+        } catch (Exception e) {
+            logWarn("Error shutting down background job registry", e); //$NON-NLS-1$
+        }
 
         // Dispose HTTP client factory
         if (httpClientFactory != null) {
@@ -208,6 +235,11 @@ public class VibeCorePlugin extends Plugin {
             LlmProviderRegistry.getInstance().dispose();
         } catch (Exception e) {
             logWarn("Error disposing LLM provider registry", e); //$NON-NLS-1$
+        }
+        try {
+            BackendService.getInstance().dispose();
+        } catch (Exception e) {
+            logWarn("Error disposing backend service", e); //$NON-NLS-1$
         }
 
         closeTracker(configurationProviderTracker);
@@ -242,12 +274,16 @@ public class VibeCorePlugin extends Plugin {
         infobaseAssociationManagerTracker = null;
         closeTracker(infobaseAccessManagerTracker);
         infobaseAccessManagerTracker = null;
+        closeTracker(infobaseManagerTracker);
+        infobaseManagerTracker = null;
         closeTracker(runtimeComponentManagerTracker);
         runtimeComponentManagerTracker = null;
         closeTracker(importConfigurationFilesApiTracker);
         importConfigurationFilesApiTracker = null;
         closeTracker(standaloneServerServiceTracker);
         standaloneServerServiceTracker = null;
+        closeTracker(remoteWorkbenchBridgeTracker);
+        remoteWorkbenchBridgeTracker = null;
 
         plugin = null;
         super.stop(context);
@@ -345,6 +381,10 @@ public class VibeCorePlugin extends Plugin {
         return getTrackedService(infobaseAccessManagerTracker, "IInfobaseAccessManager"); //$NON-NLS-1$
     }
 
+    public IInfobaseManager getInfobaseManager() {
+        return getTrackedService(infobaseManagerTracker, "IInfobaseManager"); //$NON-NLS-1$
+    }
+
     public IRuntimeComponentManager getRuntimeComponentManager() {
         return getTrackedService(runtimeComponentManagerTracker, "IRuntimeComponentManager"); //$NON-NLS-1$
     }
@@ -355,6 +395,25 @@ public class VibeCorePlugin extends Plugin {
 
     public IStandaloneServerService getStandaloneServerService() {
         return getTrackedService(standaloneServerServiceTracker, "IStandaloneServerService"); //$NON-NLS-1$
+    }
+
+    /**
+     * Returns the currently-tracked {@link IStandaloneServerService}, or {@code null} if the
+     * service is not registered at the moment of the call. In contrast to
+     * {@link #getStandaloneServerService()} this method never blocks waiting for the service to
+     * appear, making it safe to call from latency-sensitive code paths (e.g. agent tool
+     * dispatch) where a missing standalone binding is an expected, non-fatal condition.
+     */
+    public IStandaloneServerService peekStandaloneServerService() {
+        ServiceTracker<IStandaloneServerService, IStandaloneServerService> tracker = standaloneServerServiceTracker;
+        if (tracker == null) {
+            return null;
+        }
+        return tracker.getService();
+    }
+
+    public IRemoteWorkbenchBridge getRemoteWorkbenchBridge() {
+        return getTrackedService(remoteWorkbenchBridgeTracker, "IRemoteWorkbenchBridge"); //$NON-NLS-1$
     }
 
     private <T> T getTrackedService(ServiceTracker<T, T> tracker, String serviceName) {
@@ -418,6 +477,47 @@ public class VibeCorePlugin extends Plugin {
      */
     public static void logError(Throwable e) {
         logError(e.getMessage(), e);
+    }
+
+    /**
+     * Initializes the transient backend LLM provider from a registration/login API key.
+     *
+     * @param apiKey backend API key
+     */
+    public static void initializeLlmProvider(String apiKey) {
+        initializeLlmProvider(apiKey, false);
+    }
+
+    /**
+     * Initializes the transient backend LLM provider from a registration/login API key.
+     *
+     * @param apiKey backend API key
+     * @param activateIfNoConfiguredProvider activate backend provider only when nothing usable is configured
+     */
+    public static void initializeLlmProvider(String apiKey, boolean activateIfNoConfiguredProvider) {
+        LlmProviderRegistry registry = LlmProviderRegistry.getInstance();
+        var previousActive = activateIfNoConfiguredProvider ? registry.getActiveProvider() : null;
+        LlmProviderConfig config = new LlmProviderConfig(
+                "backend", //$NON-NLS-1$
+                "CodePilot Account", //$NON-NLS-1$
+                ProviderType.CODEPILOT_BACKEND,
+                BackendConfig.LITELLM_BASE_URL,
+                apiKey,
+                "auto", //$NON-NLS-1$
+                4096);
+        config.setStreamingEnabled(true);
+        registry.setBackendProvider(new DynamicLlmProvider(config));
+        if (activateIfNoConfiguredProvider
+                && (previousActive == null || !previousActive.isConfigured())) {
+            registry.setActiveProvider("backend"); //$NON-NLS-1$
+        }
+    }
+
+    /**
+     * Clears the transient backend LLM provider.
+     */
+    public static void clearBackendLlmProvider() {
+        LlmProviderRegistry.getInstance().clearBackendProvider();
     }
 
     /**

@@ -10,6 +10,7 @@ import java.util.Map;
 import org.junit.Assume;
 import org.junit.Test;
 
+import com.codepilot1c.core.tools.git.GitCloneAndImportProjectTool;
 import com.codepilot1c.core.git.GitService;
 import com.codepilot1c.core.workspace.WorkspaceProjectImportResult;
 import com.codepilot1c.core.workspace.WorkspaceProjectImportService;

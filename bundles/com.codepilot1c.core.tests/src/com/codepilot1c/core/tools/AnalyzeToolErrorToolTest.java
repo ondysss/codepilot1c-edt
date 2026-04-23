@@ -10,6 +10,7 @@ import java.util.Map;
 
 import org.junit.Test;
 
+import com.codepilot1c.core.tools.diagnostics.AnalyzeToolErrorTool;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -17,9 +18,9 @@ import com.google.gson.JsonParser;
 public class AnalyzeToolErrorToolTest {
 
     @Test
-    public void analyzesEdtRuntimeErrorAndSuggestsQaStatus() throws Exception {
+    public void analyzesEdtRuntimeErrorAndSuggestsQaInspectStatus() throws Exception {
         File workspaceRoot = Files.createTempDirectory("analyze-tool-error").toFile(); //$NON-NLS-1$
-        File logFile = new File(workspaceRoot, ".codepilot/runs/edt_launch_app/op-1/launch.log"); //$NON-NLS-1$
+        File logFile = new File(workspaceRoot, ".codepilot/runs/edt_diagnostics/op-1/launch.log"); //$NON-NLS-1$
         logFile.getParentFile().mkdirs();
         Files.writeString(logFile.toPath(), "line1\nline2\nline3\n", StandardCharsets.UTF_8); //$NON-NLS-1$
 
@@ -35,7 +36,7 @@ public class AnalyzeToolErrorToolTest {
                 """.formatted(logFile.getAbsolutePath().replace("\\", "\\\\")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 
         ToolResult result = tool.execute(Map.of(
-                "tool_name", "edt_launch_app", //$NON-NLS-1$ //$NON-NLS-2$
+                "tool_name", "edt_diagnostics", //$NON-NLS-1$ //$NON-NLS-2$
                 "tool_result", rawError, //$NON-NLS-1$
                 "max_log_lines", Integer.valueOf(2) //$NON-NLS-1$
         )).join();
@@ -48,7 +49,9 @@ public class AnalyzeToolErrorToolTest {
 
         JsonArray calls = json.getAsJsonArray("suggested_tool_calls"); //$NON-NLS-1$
         assertEquals(1, calls.size());
-        assertEquals("qa_status", calls.get(0).getAsJsonObject().get("tool").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
+        JsonObject call = calls.get(0).getAsJsonObject();
+        assertEquals("qa_inspect", call.get("tool").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals("status", call.getAsJsonObject("arguments").get("command").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     @Test
@@ -56,7 +59,7 @@ public class AnalyzeToolErrorToolTest {
         AnalyzeToolErrorTool tool = new TestAnalyzeToolErrorTool(new File(System.getProperty("java.io.tmpdir"))); //$NON-NLS-1$
 
         ToolResult result = tool.execute(Map.of(
-                "tool_name", "edt_update_infobase", //$NON-NLS-1$ //$NON-NLS-2$
+                "tool_name", "edt_diagnostics", //$NON-NLS-1$ //$NON-NLS-2$
                 "tool_result", "Error: [PROJECT_NOT_FOUND] EDT project not found: Demo" //$NON-NLS-1$ //$NON-NLS-2$
         )).join();
 

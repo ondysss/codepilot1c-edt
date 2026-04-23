@@ -1,0 +1,12 @@
+Managed form patterns:
+- Client/server boundary: minimize server calls; batch data retrieval
+- Form attributes: use DataCompositionSchema for complex data display
+- Conditional appearance: use form.ConditionalAppearance for dynamic styling
+- Commands: bind commands to form elements, not to code blocks
+- Event handlers: ПриИзменении (OnChange) fires after value commit, not during typing
+- Table interaction: use ТекущиеДанные (CurrentData) for current row access
+- Dynamic list: set MainTable and CustomQuery for optimal performance
+- Form opening: use ОткрытьФорму with parameters structure, avoid direct form creation
+- Data locking: use FormDataToValue/ValueToFormData for object-level operations
+- Notifications: use Оповестить/ОбработкаОповещения for inter-form communication
+- Do not store large data in form attributes; use temporary storage (PutToTempStorage)

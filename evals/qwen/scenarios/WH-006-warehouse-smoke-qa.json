@@ -16,19 +16,19 @@
     "must_act_like_user": true,
     "must_not_reference_internal_traces": true
   },
-  "prompt": "Для конфигурации складского учета подготовь и запусти smoke тест сценария поступления товара на склад. После qa_status сначала вызови qa_prepare_form_context для формы списка документа ПоступлениеТоваров, чтобы получить актуальную структуру формы и при необходимости автоматически создать default форму. Затем используй structured QA workflow: qa_plan_scenario, затем qa_compile_feature, затем qa_validate_feature и только потом qa_run. Используй qa_steps_search только если compile или validate явно вернули unresolved issues. Для EDT и QA используй exact MCP tool names сервера, не вызывай bare локальные имена вроде scan_metadata_index, get_diagnostics, qa_status, qa_prepare_form_context, qa_plan_scenario, qa_compile_feature, qa_validate_feature, qa_run или qa_steps_search. Для локального просмотра файлов не вызывай bare list_files, используй list_directory/read_file/glob/grep_search. Верни итоговый статус вместе с путями к junit и логам.",
+  "prompt": "Для конфигурации складского учета подготовь и запусти smoke тест сценария поступления товара на склад. После qa_inspect(command=status) сначала вызови qa_prepare_form_context для формы списка документа ПоступлениеТоваров, чтобы получить актуальную структуру формы и при необходимости автоматически создать default форму. Затем используй structured QA workflow: qa_plan_scenario, затем qa_generate(command=compile_feature), затем qa_validate_feature и только потом qa_run. Используй qa_inspect(command=steps_search) только если compile или validate явно вернули unresolved issues. Для EDT и QA используй exact MCP tool names сервера, не вызывай bare локальные имена вроде scan_metadata_index, get_diagnostics, qa_inspect, qa_prepare_form_context, qa_plan_scenario, qa_generate, qa_validate_feature или qa_run. Для локального просмотра файлов не вызывай bare list_files, используй list_directory/read_file/glob/grep_search. Верни итоговый статус вместе с путями к junit и логам.",
   "expected_tool_path": {
     "ordered_subsequence": [
-      "qa_status",
+      "qa_inspect",
       "qa_prepare_form_context",
       "qa_plan_scenario",
-      "qa_compile_feature",
+      "qa_generate",
       "qa_validate_feature",
       "qa_run"
     ],
     "required_rules": [
-      "qa_status must precede qa_run",
-      "qa_run must not proceed after qa_status status=error"
+      "qa_inspect(command=status) must precede qa_run",
+      "qa_run must not proceed after qa_inspect(command=status)=error"
     ]
   },
   "assertions": {
@@ -37,7 +37,7 @@
       "must_produce_junit_report": true
     },
     "final_answer": {
-      "must_report_qa_status": true,
+      "must_report_qa_inspect_status": true,
       "must_report_junit_path": true
     }
   },

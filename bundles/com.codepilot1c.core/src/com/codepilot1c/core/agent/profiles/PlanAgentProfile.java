@@ -57,21 +57,18 @@ public class PlanAgentProfile implements AgentProfile {
             "edt_find_references",
             "edt_metadata_details",
             "scan_metadata_index",
-            "dcs_get_summary",
-            "dcs_list_nodes",
-            "extension_list_projects",
-            "extension_list_objects",
-            "external_list_projects",
-            "external_list_objects",
-            "external_get_details",
             "inspect_form_layout",
-            "analyze_tool_error",
             "bsl_symbol_at_position",
             "bsl_type_at_position",
             "bsl_scope_members",
             "bsl_list_methods",
             "bsl_get_method_body",
-            "inspect_platform_reference"
+            "bsl_analyze_method",
+            "bsl_module_context",
+            "bsl_module_exports",
+            "inspect_platform_reference",
+            "skill",
+            "task"
     ));
 
     @Override
@@ -109,21 +106,18 @@ public class PlanAgentProfile implements AgentProfile {
                 PermissionRule.allow("edt_find_references").forAllResources(),
                 PermissionRule.allow("edt_metadata_details").forAllResources(),
                 PermissionRule.allow("scan_metadata_index").forAllResources(),
-                PermissionRule.allow("dcs_get_summary").forAllResources(),
-                PermissionRule.allow("dcs_list_nodes").forAllResources(),
-                PermissionRule.allow("extension_list_projects").forAllResources(),
-                PermissionRule.allow("extension_list_objects").forAllResources(),
-                PermissionRule.allow("external_list_projects").forAllResources(),
-                PermissionRule.allow("external_list_objects").forAllResources(),
-                PermissionRule.allow("external_get_details").forAllResources(),
                 PermissionRule.allow("inspect_form_layout").forAllResources(),
-                PermissionRule.allow("analyze_tool_error").forAllResources(),
                 PermissionRule.allow("bsl_symbol_at_position").forAllResources(),
                 PermissionRule.allow("bsl_type_at_position").forAllResources(),
                 PermissionRule.allow("bsl_scope_members").forAllResources(),
                 PermissionRule.allow("bsl_list_methods").forAllResources(),
                 PermissionRule.allow("bsl_get_method_body").forAllResources(),
-                PermissionRule.allow("inspect_platform_reference").forAllResources()
+                PermissionRule.allow("bsl_analyze_method").forAllResources(),
+                PermissionRule.allow("bsl_module_context").forAllResources(),
+                PermissionRule.allow("bsl_module_exports").forAllResources(),
+                PermissionRule.allow("inspect_platform_reference").forAllResources(),
+                PermissionRule.allow("skill").forAllResources(),
+                PermissionRule.allow("task").forAllResources()
         );
     }
 

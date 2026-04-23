@@ -256,7 +256,7 @@ public class VibeStatusBarControl extends ContributionItem
             if (window != null) {
                 org.eclipse.ui.dialogs.PreferencesUtil.createPreferenceDialogOn(
                         window.getShell(),
-                        "com.codepilot1c.ui.preferences.VibePreferencePage", //$NON-NLS-1$
+                        "com.codepilot1c.ui.preferences.AccountPreferencePage", //$NON-NLS-1$
                         null, null).open();
             }
         } catch (Exception e) {

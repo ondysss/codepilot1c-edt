@@ -61,14 +61,10 @@ final class LangGraphAgentRunContext {
         this.studioMode = studioMode;
     }
 
-    LangGraphAgentDomain resolveDomain(String prompt) {
-        return LangGraphAgentDomain.fromPrompt(prompt);
-    }
-
-    Map<String, Object> runDomain(LangGraphAgentDomain domain, String prompt) {
+    Map<String, Object> run(String prompt) {
         Map<String, Object> output = new HashMap<>();
-        output.put("agentId", domain.getId()); //$NON-NLS-1$
-        output.put("agentName", domain.getDisplayName()); //$NON-NLS-1$
+        output.put("agentId", "agent"); //$NON-NLS-1$ //$NON-NLS-2$
+        output.put("agentName", "Agent"); //$NON-NLS-1$ //$NON-NLS-2$
 
         if (studioMode) {
             output.put("status", "STUDIO_PREVIEW"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -84,7 +80,6 @@ final class LangGraphAgentRunContext {
             return output;
         }
 
-        AgentConfig domainConfig = LangGraphAgentConfigFactory.buildDomainConfig(baseConfig, domain);
         AgentRunner runner = new AgentRunner(provider, toolRegistry, baseSystemPrompt);
         if (listeners != null) {
             for (IAgentEventListener listener : listeners) {
@@ -98,10 +93,10 @@ final class LangGraphAgentRunContext {
         long start = System.currentTimeMillis();
         try {
             CompletableFuture<AgentResult> future = history == null || history.isEmpty()
-                    ? runner.run(prompt, domainConfig)
-                    : runner.run(prompt, history, domainConfig);
+                    ? runner.run(prompt, baseConfig)
+                    : runner.run(prompt, history, baseConfig);
 
-            AgentResult result = future.get(domainConfig.getTimeoutMs() + EXTRA_WAIT_MS, TimeUnit.MILLISECONDS);
+            AgentResult result = future.get(baseConfig.getTimeoutMs() + EXTRA_WAIT_MS, TimeUnit.MILLISECONDS);
             lastResult.set(result);
 
             output.put("status", result.getFinalState().name()); //$NON-NLS-1$

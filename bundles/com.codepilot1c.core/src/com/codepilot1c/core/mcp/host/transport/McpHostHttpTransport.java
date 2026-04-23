@@ -26,6 +26,7 @@ import com.codepilot1c.core.mcp.host.session.McpHostSession;
 import com.codepilot1c.core.mcp.model.McpError;
 import com.codepilot1c.core.mcp.model.McpMessage;
 import com.codepilot1c.core.mcp.host.transport.McpHostOAuthService.OAuthResponse;
+import com.codepilot1c.core.remote.AgentSessionController;
 
 /**
  * Embedded HTTP endpoint for inbound MCP requests.
@@ -41,6 +42,7 @@ public class McpHostHttpTransport implements IMcpHostTransport {
     private final com.codepilot1c.core.mcp.host.McpHostConfig.AuthMode authMode;
     private final Gson gson = new Gson();
     private final Map<String, McpHostSession> sessions = new ConcurrentHashMap<>();
+    private final RemoteWebController remoteWebController;
 
     private HttpServer server;
     private volatile boolean running;
@@ -52,6 +54,7 @@ public class McpHostHttpTransport implements IMcpHostTransport {
         this.oauthService = oauthService;
         this.router = router;
         this.authMode = authMode != null ? authMode : com.codepilot1c.core.mcp.host.McpHostConfig.AuthMode.OAUTH_OR_BEARER;
+        this.remoteWebController = new RemoteWebController(oauthService, this.authMode, AgentSessionController.getInstance());
     }
 
     @Override
@@ -73,6 +76,9 @@ public class McpHostHttpTransport implements IMcpHostTransport {
             server.createContext("/authorize", new AuthorizeHandler()); //$NON-NLS-1$
             server.createContext("/oauth/token", new TokenHandler()); //$NON-NLS-1$
             server.createContext("/token", new TokenHandler()); //$NON-NLS-1$
+            server.createContext("/remote/api", remoteWebController.apiHandler()); //$NON-NLS-1$
+            server.createContext("/remote/", remoteWebController.staticHandler()); //$NON-NLS-1$
+            server.createContext("/remote", remoteWebController.staticHandler()); //$NON-NLS-1$
             server.createContext("/.well-known/", new NotFoundHandler()); //$NON-NLS-1$
             // Catch-all context to force JSON 404 for unknown endpoints (no HTML fallback).
             server.createContext("/", new NotFoundHandler()); //$NON-NLS-1$
@@ -97,6 +103,7 @@ public class McpHostHttpTransport implements IMcpHostTransport {
         }
         sessions.values().forEach(this::closeTraceSession);
         sessions.clear();
+        remoteWebController.dispose();
     }
 
     @Override

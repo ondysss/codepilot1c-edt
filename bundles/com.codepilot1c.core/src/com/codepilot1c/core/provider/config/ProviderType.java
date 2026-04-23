@@ -32,7 +32,17 @@ public enum ProviderType {
      * Endpoint: POST /api/chat
      * Models endpoint: GET /api/tags
      */
-    OLLAMA("ollama", "Ollama (Local)"); //$NON-NLS-1$ //$NON-NLS-2$
+    OLLAMA("ollama", "Ollama (Local)"), //$NON-NLS-1$ //$NON-NLS-2$
+
+    /**
+     * 1C CodePilot hosted backend.
+     *
+     * <p>This remains wire-compatible with the OpenAI chat completions API, but
+     * it needs a distinct type so backend-only routing and prompt/tool-surface
+     * policies can be keyed on an explicit provider type instead of URL
+     * heuristics.</p>
+     */
+    CODEPILOT_BACKEND("codepilot_backend", "1C CodePilot Backend"); //$NON-NLS-1$ //$NON-NLS-2$
 
     private final String id;
     private final String displayName;

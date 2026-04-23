@@ -15,10 +15,28 @@
             class="com.codepilot1c.ui.preferences.PromptsPreferencePage">
         </page>
         <page
+            id="com.codepilot1c.ui.preferences.AccountPreferencePage"
+            name="%preferences.account.name"
+            category="com.codepilot1c.ui.preferences.VibePreferencePage"
+            class="com.codepilot1c.ui.preferences.AccountPreferencePage">
+        </page>
+        <page
             id="com.codepilot1c.ui.preferences.ProvidersPreferencePage"
             name="%preferences.providers.name"
             category="com.codepilot1c.ui.preferences.VibePreferencePage"
             class="com.codepilot1c.ui.preferences.ProvidersPreferencePage">
+        </page>
+        <page
+            id="com.codepilot1c.ui.preferences.SkillsPreferencePage"
+            name="%preferences.skills.name"
+            category="com.codepilot1c.ui.preferences.VibePreferencePage"
+            class="com.codepilot1c.ui.preferences.SkillsPreferencePage">
+        </page>
+        <page
+            id="com.codepilot1c.ui.preferences.ProfilesPreferencePage"
+            name="%preferences.profiles.name"
+            category="com.codepilot1c.ui.preferences.VibePreferencePage"
+            class="com.codepilot1c.ui.preferences.ProfilesPreferencePage">
         </page>
         <page
             id="com.codepilot1c.ui.preferences.McpServersPreferencePage"
@@ -31,6 +49,15 @@
             name="%preferences.mcpHost.name"
             category="com.codepilot1c.ui.preferences.VibePreferencePage"
             class="com.codepilot1c.ui.preferences.McpHostPreferencePage">
+        </page>
+    </extension>
+
+    <extension point="org.eclipse.ui.propertyPages">
+        <page
+            id="com.codepilot1c.ui.properties.QaProjectPropertyPage"
+            name="%properties.qa.name"
+            class="com.codepilot1c.ui.preferences.QaProjectPropertyPage"
+            objectClass="org.eclipse.core.resources.IProject">
         </page>
     </extension>
 
@@ -60,6 +87,14 @@
             class="com.codepilot1c.ui.views.GraphStudioView"
             allowMultiple="false">
         </view>
+        <view
+            id="com.codepilot1c.ui.views.MemoryInspectorView"
+            name="%view.memoryInspector.name"
+            icon="icons/vibe16.png"
+            category="com.codepilot1c.ui.category"
+            class="com.codepilot1c.ui.views.MemoryInspectorView"
+            allowMultiple="false">
+        </view>
     </extension>
 
     <!-- Perspective extensions -->
@@ -67,6 +102,7 @@
         <perspectiveExtension targetID="*">
             <viewShortcut id="com.codepilot1c.ui.views.ChatView"/>
             <viewShortcut id="com.codepilot1c.ui.views.GraphStudioView"/>
+            <viewShortcut id="com.codepilot1c.ui.views.MemoryInspectorView"/>
         </perspectiveExtension>
     </extension>
 
@@ -130,6 +166,12 @@
             description="%command.dumpEdtDiagnostics.description"
             categoryId="com.codepilot1c.ui.commands.category">
         </command>
+        <command
+            id="com.codepilot1c.ui.commands.Register"
+            name="%command.register.name"
+            description="%command.register.description"
+            categoryId="com.codepilot1c.ui.commands.category">
+        </command>
     </extension>
 
     <!-- Handlers -->
@@ -169,6 +211,10 @@
         <handler
             commandId="com.codepilot1c.ui.commands.DumpEdtDiagnostics"
             class="com.codepilot1c.ui.handlers.DumpEdtDiagnosticsHandler">
+        </handler>
+        <handler
+            commandId="com.codepilot1c.ui.commands.Register"
+            class="com.codepilot1c.ui.handlers.RegisterHandler">
         </handler>
     </extension>
 
@@ -212,6 +258,10 @@
                 mnemonic="V">
                 <command
                     commandId="com.codepilot1c.ui.commands.OpenChat"
+                    style="push">
+                </command>
+                <command
+                    commandId="com.codepilot1c.ui.commands.Register"
                     style="push">
                 </command>
                 <command

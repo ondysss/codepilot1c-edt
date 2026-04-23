@@ -24,12 +24,15 @@ import com.codepilot1c.core.edt.metadata.AddMetadataChildRequest;
 import com.codepilot1c.core.edt.metadata.CreateMetadataRequest;
 import com.codepilot1c.core.edt.metadata.DeleteMetadataRequest;
 import com.codepilot1c.core.edt.metadata.EdtMetadataGateway;
+import com.codepilot1c.core.edt.metadata.EnsureModuleArtifactRequest;
 import com.codepilot1c.core.edt.metadata.MetadataChildKind;
 import com.codepilot1c.core.edt.metadata.MetadataKind;
 import com.codepilot1c.core.edt.metadata.MetadataOperationCode;
+import com.codepilot1c.core.edt.metadata.RenderTemplateRequest;
 import com.codepilot1c.core.edt.metadata.MetadataOperationException;
 import com.codepilot1c.core.edt.metadata.MetadataProjectReadinessChecker;
 import com.codepilot1c.core.edt.metadata.MetadataNameValidator;
+import com.codepilot1c.core.edt.metadata.ModuleArtifactKind;
 import com.codepilot1c.core.edt.metadata.UpdateMetadataRequest;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
@@ -230,6 +233,11 @@ public class MetadataRequestValidationService {
             String purpose,
             String compatibilityMode
     ) {
+        if (projectName == null || projectName.isBlank()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.PROJECT_NOT_FOUND,
+                    "project name is required", false); //$NON-NLS-1$
+        }
         String effectiveBaseProject = baseProject == null || baseProject.isBlank() ? projectName : baseProject.trim();
         if (!projectName.equals(effectiveBaseProject)) {
             throw new MetadataOperationException(
@@ -351,6 +359,11 @@ public class MetadataRequestValidationService {
             String sourceObjectFqn,
             Boolean updateIfExists
     ) {
+        if (projectName == null || projectName.isBlank()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.PROJECT_NOT_FOUND,
+                    "project name is required", false); //$NON-NLS-1$
+        }
         String effectiveBaseProject = baseProject == null || baseProject.isBlank() ? projectName : baseProject.trim();
         if (!projectName.equals(effectiveBaseProject)) {
             throw new MetadataOperationException(
@@ -382,6 +395,11 @@ public class MetadataRequestValidationService {
             String propertyName,
             String state
     ) {
+        if (projectName == null || projectName.isBlank()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.PROJECT_NOT_FOUND,
+                    "project name is required", false); //$NON-NLS-1$
+        }
         String effectiveBaseProject = baseProject == null || baseProject.isBlank() ? projectName : baseProject.trim();
         if (!projectName.equals(effectiveBaseProject)) {
             throw new MetadataOperationException(
@@ -555,6 +573,45 @@ public class MetadataRequestValidationService {
         return payload;
     }
 
+    public Map<String, Object> normalizeEnsureModuleArtifactPayload(
+            String projectName,
+            String objectFqn,
+            String moduleKindValue,
+            Boolean createIfMissing,
+            String initialContent
+    ) {
+        ModuleArtifactTarget target = normalizeModuleArtifactTarget(objectFqn, moduleKindValue);
+        EnsureModuleArtifactRequest request = new EnsureModuleArtifactRequest(
+                projectName,
+                target.objectFqn(),
+                target.moduleKind(),
+                createIfMissing == null ? true : createIfMissing.booleanValue(),
+                initialContent);
+        request.validate();
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("project", projectName); //$NON-NLS-1$
+        payload.put("object_fqn", target.objectFqn()); //$NON-NLS-1$
+        payload.put("module_kind", target.moduleKind().name()); //$NON-NLS-1$
+        payload.put("create_if_missing", Boolean.valueOf(request.createIfMissing())); //$NON-NLS-1$
+        if (initialContent != null && !initialContent.isBlank()) {
+            payload.put("initial_content", initialContent); //$NON-NLS-1$
+        }
+        return payload;
+    }
+
+    Map<String, Object> normalizeEnsureModuleArtifactPayload(
+            String projectName,
+            Map<String, Object> rawPayload
+    ) {
+        return normalizeEnsureModuleArtifactPayload(
+                projectName,
+                asString(firstValue(rawPayload, "object_fqn", "objectFqn")), //$NON-NLS-1$ //$NON-NLS-2$
+                asOptionalString(firstValue(rawPayload, "module_kind", "moduleType", "moduleKind")), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                asOptionalBoolean(firstValue(rawPayload, "create_if_missing", "createIfMissing")), //$NON-NLS-1$ //$NON-NLS-2$
+                asOptionalString(firstValue(rawPayload, "initial_content", "initialContent"))); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
     public Map<String, Object> normalizeDeletePayload(
             String projectName,
             String targetFqn,
@@ -592,6 +649,21 @@ public class MetadataRequestValidationService {
         payload.put("project", projectName); //$NON-NLS-1$
         payload.put("form_fqn", formFqn); //$NON-NLS-1$
         payload.put("operations", operations == null ? List.of() : new ArrayList<>(operations)); //$NON-NLS-1$
+        return payload;
+    }
+
+    public Map<String, Object> normalizeRenderTemplatePayload(
+            String projectName,
+            String templateFqn,
+            List<Map<String, Object>> sections
+    ) {
+        RenderTemplateRequest request = new RenderTemplateRequest(projectName, templateFqn, sections);
+        request.validate();
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("project", projectName); //$NON-NLS-1$
+        payload.put("template_fqn", templateFqn); //$NON-NLS-1$
+        payload.put("sections", sections == null ? List.of() : new ArrayList<>(sections)); //$NON-NLS-1$
         return payload;
     }
 
@@ -979,6 +1051,12 @@ public class MetadataRequestValidationService {
                 yield payload;
             }
             case ADD_METADATA_CHILD -> {
+                Map<String, Object> childProps = new java.util.LinkedHashMap<>(asMap(request.payload().get("properties"))); //$NON-NLS-1$
+                // Merge template_type from top-level payload into properties if not already present
+                Object templateTypeVal = request.payload().get("template_type"); //$NON-NLS-1$
+                if (templateTypeVal != null && !childProps.containsKey("template_type")) { //$NON-NLS-1$
+                    childProps.put("template_type", templateTypeVal); //$NON-NLS-1$
+                }
                 Map<String, Object> payload = normalizeAddChildPayload(
                         coalesceProject(request.projectName(), request.payload()),
                         asString(request.payload().get("parent_fqn")), //$NON-NLS-1$
@@ -986,7 +1064,7 @@ public class MetadataRequestValidationService {
                         asString(request.payload().get("name")), //$NON-NLS-1$
                         asOptionalString(request.payload().get("synonym")), //$NON-NLS-1$
                         asOptionalString(request.payload().get("comment")), //$NON-NLS-1$
-                        asMap(request.payload().get("properties"))); //$NON-NLS-1$
+                        childProps);
                 checks.add("Операция add_metadata_child валидирована по обязательным полям и имени."); //$NON-NLS-1$
                 yield payload;
             }
@@ -996,6 +1074,13 @@ public class MetadataRequestValidationService {
                         asString(request.payload().get("target_fqn")), //$NON-NLS-1$
                         asMap(request.payload().get("changes"))); //$NON-NLS-1$
                 checks.add("Операция update_metadata валидирована по обязательным полям."); //$NON-NLS-1$
+                yield payload;
+            }
+            case ENSURE_MODULE_ARTIFACT -> {
+                Map<String, Object> payload = normalizeEnsureModuleArtifactPayload(
+                        coalesceProject(request.projectName(), request.payload()),
+                        request.payload());
+                checks.add("Операция ensure_module_artifact валидирована по проекту, FQN и типу модуля."); //$NON-NLS-1$
                 yield payload;
             }
             case DELETE_METADATA -> {
@@ -1017,6 +1102,14 @@ public class MetadataRequestValidationService {
                         asString(request.payload().get("form_fqn")), //$NON-NLS-1$
                         asListOfMaps(request.payload().get("operations"))); //$NON-NLS-1$
                 checks.add("Операция mutate_form_model валидирована по обязательным полям."); //$NON-NLS-1$
+                yield payload;
+            }
+            case RENDER_TEMPLATE -> {
+                Map<String, Object> payload = normalizeRenderTemplatePayload(
+                        coalesceProject(request.projectName(), request.payload()),
+                        asString(request.payload().get("template_fqn")), //$NON-NLS-1$
+                        asListOfMaps(request.payload().get("sections"))); //$NON-NLS-1$
+                checks.add("Операция render_template валидирована по обязательным полям."); //$NON-NLS-1$
                 yield payload;
             }
         };
@@ -1047,6 +1140,63 @@ public class MetadataRequestValidationService {
                     "payload.project must match project", false); //$NON-NLS-1$
         }
         return topLevelProject;
+    }
+
+    private Object firstValue(Map<String, Object> payload, String... keys) {
+        for (String key : keys) {
+            if (payload.containsKey(key)) {
+                return payload.get(key);
+            }
+        }
+        return null;
+    }
+
+    private ModuleArtifactTarget normalizeModuleArtifactTarget(String objectFqn, String moduleKindValue) {
+        String normalizedObjectFqn = objectFqn == null ? null : objectFqn.trim().replace('/', '.'); //$NON-NLS-1$
+        String effectiveModuleKind = moduleKindValue;
+        if (normalizedObjectFqn != null) {
+            ModuleSuffixMatch suffixMatch = ModuleSuffixMatch.match(normalizedObjectFqn);
+            if (suffixMatch != null) {
+                normalizedObjectFqn = suffixMatch.strip(normalizedObjectFqn);
+                if (effectiveModuleKind == null || effectiveModuleKind.isBlank()) {
+                    effectiveModuleKind = suffixMatch.moduleKindValue;
+                }
+            }
+        }
+        return new ModuleArtifactTarget(
+                normalizedObjectFqn,
+                ModuleArtifactKind.fromString(effectiveModuleKind));
+    }
+
+    private record ModuleArtifactTarget(String objectFqn, ModuleArtifactKind moduleKind) {
+    }
+
+    private enum ModuleSuffixMatch {
+        OBJECT(".ObjectModule", "object"), //$NON-NLS-1$ //$NON-NLS-2$
+        MANAGER(".ManagerModule", "manager"), //$NON-NLS-1$ //$NON-NLS-2$
+        MODULE(".FormModule", "module"), //$NON-NLS-1$ //$NON-NLS-2$
+        GENERIC_MODULE(".Module", "module"); //$NON-NLS-1$ //$NON-NLS-2$
+
+        private final String suffix;
+        private final String moduleKindValue;
+
+        ModuleSuffixMatch(String suffix, String moduleKindValue) {
+            this.suffix = suffix;
+            this.moduleKindValue = moduleKindValue;
+        }
+
+        static ModuleSuffixMatch match(String value) {
+            for (ModuleSuffixMatch candidate : values()) {
+                if (value.endsWith(candidate.suffix)) {
+                    return candidate;
+                }
+            }
+            return null;
+        }
+
+        String strip(String value) {
+            return value.substring(0, value.length() - suffix.length());
+        }
     }
 
     private String asString(Object value) {

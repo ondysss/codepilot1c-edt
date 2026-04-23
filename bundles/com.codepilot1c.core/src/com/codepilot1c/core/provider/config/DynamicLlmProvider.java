@@ -12,8 +12,11 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -26,7 +29,9 @@ import org.eclipse.core.runtime.preferences.InstanceScope;
 import com.codepilot1c.core.internal.VibeCorePlugin;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
+import com.codepilot1c.core.model.LlmAttachment;
 import com.codepilot1c.core.model.LlmMessage;
+import com.codepilot1c.core.model.LlmConversationSanitizer;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
@@ -34,6 +39,8 @@ import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderException;
+import com.codepilot1c.core.provider.ProviderCapabilities;
+import com.codepilot1c.core.provider.ProviderUtils;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -50,9 +57,20 @@ import com.google.gson.JsonParser;
 public class DynamicLlmProvider implements ILlmProvider {
 
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(DynamicLlmProvider.class);
+    private static final String HEADER_CODEPILOT_PROMPT_CACHE = "X-CodePilot-Prompt-Cache"; //$NON-NLS-1$
+    private static final int OUTBOUND_TOOL_RESULT_CHAR_LIMIT = 50_000;
+    private static final int OUTBOUND_TOOL_RESULT_HEAD_CHARS = 30_000;
+    private static final int OUTBOUND_TOOL_RESULT_TAIL_CHARS = 15_000;
+    private static final int LARGE_REQUEST_TIMEOUT_THRESHOLD_CHARS = 80_000;
+    private static final int VERY_LARGE_REQUEST_TIMEOUT_THRESHOLD_CHARS = 200_000;
+    private static final int LARGE_REQUEST_TIMEOUT_SECONDS = 120;
+    private static final int VERY_LARGE_REQUEST_TIMEOUT_SECONDS = 180;
 
     private final LlmProviderConfig config;
-    private final HttpClient httpClient;
+    private final OpenAiModelCompatibilityPolicy openAiCompatibilityPolicy;
+    private final OpenAiStreamingToolCallParser streamingToolCallParser;
+    private final QwenFunctionCallingTransport qwenTransport;
+    private final ProviderHttpTransport httpTransport;
     private final Gson gson;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private CompletableFuture<?> currentRequest;
@@ -63,14 +81,29 @@ public class DynamicLlmProvider implements ILlmProvider {
      */
     public DynamicLlmProvider(LlmProviderConfig config) {
         this.config = config;
-        this.httpClient = HttpClient.newBuilder()
+        this.openAiCompatibilityPolicy = new OpenAiModelCompatibilityPolicy();
+        this.gson = new Gson();
+
+        // Select parser based on provider capabilities:
+        // Qwen backend gets enhanced parser with DashScope quirk handling
+        ProviderCapabilities caps = ProviderUtils.capabilitiesFor(config);
+        if (caps.isQwenNative()) {
+            this.streamingToolCallParser = new QwenStreamingToolCallParser();
+            this.qwenTransport = new QwenFunctionCallingTransport(gson);
+            LOG.info("Qwen transport activated: family=%s", caps.getResolvedModelFamily()); //$NON-NLS-1$
+        } else {
+            this.streamingToolCallParser = new OpenAiStreamingToolCallParser();
+            this.qwenTransport = null;
+        }
+
+        HttpClient client = HttpClient.newBuilder()
                 // vLLM/uvicorn deployments are commonly exposed over plain HTTP and can fail
                 // with Java HttpClient HTTP/2 (h2c) by not parsing the request body.
                 // HTTP/1.1 is the most compatible default for OpenAI-compatible endpoints.
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(30))
                 .build();
-        this.gson = new Gson();
+        this.httpTransport = new ProviderHttpTransport(client);
     }
 
     @Override
@@ -91,6 +124,11 @@ public class DynamicLlmProvider implements ILlmProvider {
     @Override
     public boolean supportsStreaming() {
         return config.isStreamingEnabled();
+    }
+
+    @Override
+    public ProviderCapabilities getCapabilities() {
+        return ProviderUtils.capabilitiesFor(config);
     }
 
     /**
@@ -117,52 +155,8 @@ public class DynamicLlmProvider implements ILlmProvider {
         LOG.info("[%s] DynamicProvider complete: provider=%s, model=%s, messages=%d", //$NON-NLS-1$
                 correlationId, config.getName(), config.getModel(), request.getMessages().size());
 
-        String requestBody = buildRequestBody(request, false);
-        LOG.debug("[%s] Request body: %s", correlationId, //$NON-NLS-1$
-                requestBody.length() < 5000 ? requestBody : "(truncated, length=" + requestBody.length() + ")"); //$NON-NLS-1$
-
-        HttpRequest httpRequest = buildHttpRequest(requestBody);
-
-        currentRequest = httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
-                .thenApply(response -> {
-                    if (cancelled.get()) {
-                        throw new CancellationException("Request cancelled"); //$NON-NLS-1$
-                    }
-                    long duration = System.currentTimeMillis() - startTime;
-                    LOG.debug("[%s] Response status: %d in %s", correlationId, response.statusCode(), //$NON-NLS-1$
-                            LogSanitizer.formatDuration(duration));
-                    LOG.debug("[%s] Response body: %s", correlationId, //$NON-NLS-1$
-                            response.body().length() < 5000 ? response.body() : "(truncated, length=" + response.body().length() + ")"); //$NON-NLS-1$
-                    return parseResponse(response);
-                })
-                .whenComplete((result, error) -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    if (error != null) {
-                        LOG.error("[%s] DynamicProvider request failed after %s: %s", //$NON-NLS-1$
-                                correlationId, LogSanitizer.formatDuration(duration), error.getMessage());
-                    } else {
-                        LOG.info("[%s] DynamicProvider response received in %s", //$NON-NLS-1$
-                                correlationId, LogSanitizer.formatDuration(duration));
-                    }
-                });
-
-        return currentRequest.thenApply(obj -> (LlmResponse) obj);
-    }
-
-    /** Accumulated tool calls during streaming, indexed by tool call index */
-    private final java.util.Map<Integer, StreamingToolCall> streamingToolCalls = new java.util.concurrent.ConcurrentHashMap<>();
-
-    /**
-     * Helper class to accumulate tool call data during streaming.
-     */
-    private static class StreamingToolCall {
-        String id = ""; //$NON-NLS-1$
-        String name = ""; //$NON-NLS-1$
-        StringBuilder arguments = new StringBuilder();
-
-        ToolCall toToolCall() {
-            return new ToolCall(id, name, arguments.toString());
-        }
+        ProviderExecutionPlan executionPlan = buildExecutionPlan(request, false);
+        return completeWithPlan(request, executionPlan, startTime, correlationId);
     }
 
     @Override
@@ -176,18 +170,38 @@ public class DynamicLlmProvider implements ILlmProvider {
         }
 
         cancelled.set(false);
-        streamingToolCalls.clear(); // Reset accumulated tool calls
+        currentLlmRequest = request;
+        streamingToolCallParser.clear();
+        ProviderExecutionPlan executionPlan = buildExecutionPlan(request, true);
+        // CODEPILOT_BACKEND is wire-compatible with OpenAI — use OpenAiStreamingSession for both
+        boolean useOpenAiStreaming = config.getType() == ProviderType.OPENAI_COMPATIBLE
+                || config.getType() == ProviderType.CODEPILOT_BACKEND;
+        OpenAiStreamingSession openAiSession = useOpenAiStreaming
+                ? new OpenAiStreamingSession(
+                        correlationId,
+                        request.hasTools(),
+                        streamingToolCallParser,
+                        getCapabilities().needsContentToolCallFallback() && request.hasTools())
+                : null;
+        ProviderStreamProcessingSummary summary = openAiSession != null
+                ? openAiSession.getSummary()
+                : new ProviderStreamProcessingSummary(correlationId, request.hasTools());
 
         LOG.info("[%s] DynamicProvider streamComplete: provider=%s, model=%s, messages=%d", //$NON-NLS-1$
                 correlationId, config.getName(), config.getModel(), request.getMessages().size());
+        if (!executionPlan.isStreaming()) {
+            LOG.info("[%s] Using non-stream execution plan for streaming request: %s", correlationId, //$NON-NLS-1$
+                    executionPlan.getReason() != null ? executionPlan.getReason() : "compatibility policy"); //$NON-NLS-1$
+            replayResponseAsStream(request, consumer, correlationId, executionPlan);
+            return;
+        }
 
-        String requestBody = buildRequestBody(request, true);
+        String requestBody = buildRequestBody(request, executionPlan);
         HttpRequest httpRequest = buildHttpRequest(requestBody);
 
         try {
             // Use BodyHandlers.ofLines() for true SSE streaming
-            HttpResponse<java.util.stream.Stream<String>> response =
-                    httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines());
+            HttpResponse<java.util.stream.Stream<String>> response = httpTransport.sendStreamingLines(httpRequest);
 
             if (cancelled.get()) {
                 LOG.debug("[%s] Stream cancelled before processing", correlationId); //$NON-NLS-1$
@@ -202,54 +216,59 @@ public class DynamicLlmProvider implements ILlmProvider {
             }
 
             // Track finish reason from stream
-            final String[] streamFinishReason = { "stop" }; //$NON-NLS-1$
+            final String[] streamFinishReason = { LlmResponse.FINISH_REASON_STOP };
 
             // Process lines as they arrive
             response.body().forEach(line -> {
                 if (cancelled.get()) {
                     return;
                 }
-                String finishReason = processStreamLine(line, consumer);
+                String finishReason = processStreamLine(line, consumer, summary, openAiSession);
                 if (finishReason != null) {
                     streamFinishReason[0] = finishReason;
                 }
             });
 
-            // If we accumulated tool calls, send them as a final chunk
-            if (!streamingToolCalls.isEmpty() && !cancelled.get()) {
-                List<ToolCall> toolCalls = new ArrayList<>();
-                // Sort by index to maintain order, filter out invalid tool calls (empty name)
-                streamingToolCalls.entrySet().stream()
-                        .sorted(java.util.Map.Entry.comparingByKey())
-                        .forEach(entry -> {
-                            ToolCall tc = entry.getValue().toToolCall();
-                            // Skip tool calls with empty or invalid name (can happen with some models)
-                            if (tc.getName() == null || tc.getName().trim().isEmpty()) {
-                                LOG.warn("[%s] Skipping invalid tool call with empty name at index %d, args: %s", //$NON-NLS-1$
-                                        correlationId, entry.getKey(), tc.getArguments());
-                                return;
-                            }
-                            toolCalls.add(tc);
-                        });
-
-                if (!toolCalls.isEmpty()) {
-                    LOG.debug("[%s] Stream completed with %d valid tool calls", correlationId, toolCalls.size()); //$NON-NLS-1$
-                    for (ToolCall tc : toolCalls) {
-                        LOG.debug("[%s]   Tool call: %s(%s)", correlationId, tc.getName(), //$NON-NLS-1$
-                                tc.getArguments().length() > 100 ? tc.getArguments().substring(0, 100) + "..." : tc.getArguments()); //$NON-NLS-1$
-                    }
-                    consumer.accept(LlmStreamChunk.toolCalls(toolCalls));
-                } else {
-                    LOG.warn("[%s] All %d streamed tool calls were invalid, ignoring", correlationId, streamingToolCalls.size()); //$NON-NLS-1$
+            if (!cancelled.get() && openAiSession != null) {
+                String completionFinishReason = openAiSession.completePendingToolCalls(consumer);
+                if (completionFinishReason != null) {
+                    streamFinishReason[0] = completionFinishReason;
                 }
+                // Qwen finish_reason override: DashScope may report "stop" when tool calls are pending
+                if (streamingToolCallParser instanceof QwenStreamingToolCallParser) {
+                    QwenStreamingToolCallParser qwenParser = (QwenStreamingToolCallParser) streamingToolCallParser;
+                    if (qwenParser.shouldOverrideFinishReason(streamFinishReason[0])) {
+                        streamFinishReason[0] = LlmResponse.FINISH_REASON_TOOL_USE;
+                    }
+                }
+            }
+
+            if (!cancelled.get() && summary.hasTerminalError()) {
+                logStreamSummary(summary, openAiSession);
+                LOG.warn("[%s] Structured stream error: %s", correlationId, summary.getTerminalErrorMessage()); //$NON-NLS-1$
+                return;
+            }
+
+            if (!cancelled.get() && summary.shouldFallbackToNonStreaming()) {
+                if (summary.isReasoningOnlyResponse()) {
+                    LOG.warn("[%s] Reasoning-only response detected (reasoning=%d, content=0, toolCalls=0) — retrying as non-streaming", //$NON-NLS-1$
+                            correlationId, summary.getReasoningChunks().get());
+                } else {
+                    LOG.warn("[%s] Falling back to non-streaming response handling: parseFailures=%d, opaqueChunks=%d", //$NON-NLS-1$
+                            correlationId, summary.getParseFailures().get(), summary.getOpaqueChunks().get());
+                }
+                streamingToolCallParser.clear();
+                replayNonStreamingFallback(request, consumer, correlationId);
+                return;
             }
 
             // Send final chunk if not already done
             if (!cancelled.get()) {
-                consumer.accept(LlmStreamChunk.complete(streamFinishReason[0]));
+                consumer.accept(LlmStreamChunk.complete(normalizeFinishReason(streamFinishReason[0])));
             }
 
             long duration = System.currentTimeMillis() - startTime;
+            logStreamSummary(summary, openAiSession);
             LOG.info("[%s] DynamicProvider stream completed in %s", correlationId, LogSanitizer.formatDuration(duration)); //$NON-NLS-1$
 
         } catch (IOException | InterruptedException e) {
@@ -267,7 +286,8 @@ public class DynamicLlmProvider implements ILlmProvider {
      *
      * @return the finish_reason if found, null otherwise
      */
-    private String processStreamLine(String line, Consumer<LlmStreamChunk> consumer) {
+    private String processStreamLine(String line, Consumer<LlmStreamChunk> consumer,
+            ProviderStreamProcessingSummary summary, OpenAiStreamingSession openAiSession) {
         if (line == null || line.isEmpty()) {
             return null;
         }
@@ -280,120 +300,120 @@ public class DynamicLlmProvider implements ILlmProvider {
             }
 
             try {
+                // CODEPILOT_BACKEND is wire-compatible with OpenAI — route through same session
+                if ((config.getType() == ProviderType.OPENAI_COMPATIBLE
+                        || config.getType() == ProviderType.CODEPILOT_BACKEND) && openAiSession != null) {
+                    return openAiSession.processLine(line, consumer);
+                }
                 // Some providers send heartbeat chunks like "null". Ignore non-object payloads.
                 JsonElement parsed = JsonParser.parseString(data);
                 if (parsed == null || parsed.isJsonNull() || !parsed.isJsonObject()) {
+                    summary.getNullPayloads().incrementAndGet();
                     return null;
                 }
                 JsonObject json = parsed.getAsJsonObject();
-
-                // Extract and send text content
-                String chunk = extractChunkContent(json);
-                if (chunk != null && !chunk.isEmpty()) {
-                    consumer.accept(LlmStreamChunk.content(chunk));
-                }
-
-                // Extract and accumulate tool calls
-                extractAndAccumulateToolCalls(json);
-
-                // Return finish_reason if present
-                return extractFinishReason(json);
+                return processLegacyStreamChunk(json, consumer, summary);
 
             } catch (Exception e) {
-                VibeCorePlugin.logWarn("Failed to parse stream chunk: " + e.getMessage()); //$NON-NLS-1$
+                summary.getParseFailures().incrementAndGet();
+                LOG.debug("[%s] Failed to parse stream chunk: %s", summary.getCorrelationId(), e.getMessage()); //$NON-NLS-1$
             }
         }
         return null;
     }
 
-    /**
-     * Extracts and accumulates tool calls from a streaming chunk.
-     * Tool calls come in pieces: first chunk has id and name, subsequent chunks have argument fragments.
-     */
-    private void extractAndAccumulateToolCalls(JsonObject json) {
-        JsonArray choices = json.getAsJsonArray("choices"); //$NON-NLS-1$
+    private String processLegacyStreamChunk(JsonObject json, Consumer<LlmStreamChunk> consumer,
+            ProviderStreamProcessingSummary summary) {
+        String chunk = extractChunkContent(json);
+        if (chunk != null && !chunk.isEmpty()) {
+            summary.getContentChunks().incrementAndGet();
+            consumer.accept(LlmStreamChunk.content(chunk));
+        }
+
+        String reasoningChunk = extractReasoningChunk(json);
+        if (reasoningChunk != null && !reasoningChunk.isEmpty()) {
+            summary.getReasoningChunks().incrementAndGet();
+            consumer.accept(LlmStreamChunk.reasoning(reasoningChunk));
+        }
+
+        String finishReason = extractFinishReason(json);
+        JsonArray choices = getArray(json, "choices"); //$NON-NLS-1$
         if (choices == null || choices.size() == 0) {
-            return;
+            summary.getMetadataChunks().incrementAndGet();
+        } else if (chunk == null && reasoningChunk == null && finishReason == null) {
+            summary.getOpaqueChunks().incrementAndGet();
         }
-
-        JsonObject choice = choices.get(0).getAsJsonObject();
-        // OpenAI streaming format: choices[0].delta.tool_calls
-        // Some OpenAI-compatible providers may put tool_calls under choices[0].message.tool_calls.
-        JsonArray toolCallsArray = null;
-        JsonObject delta = choice.getAsJsonObject("delta"); //$NON-NLS-1$
-        if (delta != null && delta.has("tool_calls")) { //$NON-NLS-1$
-            toolCallsArray = delta.getAsJsonArray("tool_calls"); //$NON-NLS-1$
-        } else {
-            JsonObject message = choice.getAsJsonObject("message"); //$NON-NLS-1$
-            if (message != null && message.has("tool_calls")) { //$NON-NLS-1$
-                toolCallsArray = message.getAsJsonArray("tool_calls"); //$NON-NLS-1$
-            }
-        }
-
-        if (toolCallsArray == null) {
-            return;
-        }
-
-        for (JsonElement element : toolCallsArray) {
-            JsonObject tcObj = element.getAsJsonObject();
-
-            // Get index (required for tracking multiple parallel tool calls)
-            int index = tcObj.has("index") ? tcObj.get("index").getAsInt() : 0; //$NON-NLS-1$
-
-            // Get or create accumulator for this index
-            StreamingToolCall accumulator = streamingToolCalls.computeIfAbsent(index, k -> new StreamingToolCall());
-
-            // Accumulate id (usually in first chunk)
-            if (tcObj.has("id") && !tcObj.get("id").isJsonNull()) { //$NON-NLS-1$ //$NON-NLS-2$
-                accumulator.id = mergeStableField(accumulator.id, tcObj.get("id").getAsString()); //$NON-NLS-1$
-            }
-
-            // Accumulate function name and arguments
-            if (tcObj.has("function")) { //$NON-NLS-1$
-                JsonObject function = tcObj.getAsJsonObject("function"); //$NON-NLS-1$
-
-                if (function.has("name") && !function.get("name").isJsonNull()) { //$NON-NLS-1$ //$NON-NLS-2$
-                    accumulator.name = mergeStableField(accumulator.name, function.get("name").getAsString()); //$NON-NLS-1$
-                }
-
-                if (function.has("arguments") && !function.get("arguments").isJsonNull()) { //$NON-NLS-1$ //$NON-NLS-2$
-                    accumulator.arguments.append(function.get("arguments").getAsString()); //$NON-NLS-1$
-                }
-            }
-        }
-    }
-
-    private String mergeStableField(String current, String incoming) {
-        if (incoming == null || incoming.isBlank()) {
-            return current;
-        }
-        if (current == null || current.isBlank()) {
-            return incoming;
-        }
-        if (current.equals(incoming) || current.endsWith(incoming)) {
-            return current;
-        }
-        if (incoming.endsWith(current)) {
-            return incoming;
-        }
-        // Some providers resend full value in later chunks; prefer the latest stable value.
-        return incoming;
+        return finishReason;
     }
 
     /**
      * Extracts finish_reason from a streaming chunk.
      */
     private String extractFinishReason(JsonObject json) {
-        JsonArray choices = json.getAsJsonArray("choices"); //$NON-NLS-1$
+        JsonArray choices = getArray(json, "choices"); //$NON-NLS-1$
         if (choices == null || choices.size() == 0) {
             return null;
         }
 
-        JsonObject choice = choices.get(0).getAsJsonObject();
+        JsonObject choice = getObject(choices.get(0));
+        if (choice == null) {
+            return null;
+        }
         if (choice.has("finish_reason") && !choice.get("finish_reason").isJsonNull()) { //$NON-NLS-1$ //$NON-NLS-2$
-            return choice.get("finish_reason").getAsString(); //$NON-NLS-1$
+            return normalizeFinishReason(choice.get("finish_reason").getAsString()); //$NON-NLS-1$
         }
         return null;
+    }
+
+    private String normalizeFinishReason(String finishReason) {
+        if (finishReason == null || finishReason.isBlank()) {
+            return LlmResponse.FINISH_REASON_STOP;
+        }
+        if ("tool_calls".equals(finishReason)) { //$NON-NLS-1$
+            return LlmResponse.FINISH_REASON_TOOL_USE;
+        }
+        return finishReason;
+    }
+
+    private void replayNonStreamingFallback(LlmRequest request, Consumer<LlmStreamChunk> consumer, String correlationId) {
+        replayResponseAsStream(buildNonStreamingFallbackRequest(request), consumer, correlationId,
+                buildExecutionPlan(buildNonStreamingFallbackRequest(request), false));
+    }
+
+    private LlmRequest buildNonStreamingFallbackRequest(LlmRequest request) {
+        LlmRequest.Builder builder = LlmRequest.builder()
+                .messages(request.getMessages())
+                .model(request.getModel())
+                .maxTokens(request.getMaxTokens())
+                .temperature(request.getTemperature())
+                .stream(false)
+                .toolChoice(request.getToolChoice());
+        if (request.hasTools()) {
+            builder.tools(request.getTools());
+        }
+        return builder.build();
+    }
+
+    private void logStreamSummary(ProviderStreamProcessingSummary summary, OpenAiStreamingSession openAiSession) {
+        if (openAiSession != null) {
+            openAiSession.logSummary(LOG);
+            return;
+        }
+        if (summary.getNullPayloads().get() == 0
+                && summary.getMetadataChunks().get() == 0
+                && summary.getOpaqueChunks().get() == 0
+                && summary.getParseFailures().get() == 0) {
+            return;
+        }
+        LOG.debug("[%s] Stream summary: nullPayloads=%d, metadataChunks=%d, opaqueChunks=%d, parseFailures=%d, contentChunks=%d, reasoningChunks=%d, toolCallChunks=%d", //$NON-NLS-1$
+                summary.getCorrelationId(),
+                summary.getNullPayloads().get(),
+                summary.getMetadataChunks().get(),
+                summary.getOpaqueChunks().get(),
+                summary.getParseFailures().get(),
+                summary.getContentChunks().get(),
+                summary.getReasoningChunks().get(),
+                summary.getToolCallFragments().get());
     }
 
     @Override
@@ -414,7 +434,7 @@ public class DynamicLlmProvider implements ILlmProvider {
      */
     private HttpRequest buildHttpRequest(String body) {
         String url = config.getChatEndpointUrl();
-        int timeoutSeconds = getRequestTimeoutSeconds();
+        int timeoutSeconds = resolveRequestTimeoutSeconds(body);
 
         LOG.info("=== HTTP REQUEST BUILD ==="); //$NON-NLS-1$
         LOG.info("URL: %s", url); //$NON-NLS-1$
@@ -449,6 +469,10 @@ public class DynamicLlmProvider implements ILlmProvider {
             LOG.warn("No API key configured!"); //$NON-NLS-1$
         }
 
+        if (ProviderUtils.supportsPromptCacheHeaders(config)) {
+            builder.header(HEADER_CODEPILOT_PROMPT_CACHE, "prefer"); //$NON-NLS-1$
+        }
+
         // Add custom headers
         config.getCustomHeaders().forEach((key, value) -> {
             LOG.info("Custom header: %s = %s", key, value); //$NON-NLS-1$
@@ -465,37 +489,143 @@ public class DynamicLlmProvider implements ILlmProvider {
         return prefs.getInt(VibePreferenceConstants.PREF_REQUEST_TIMEOUT, 60);
     }
 
+    private int resolveRequestTimeoutSeconds(String body) {
+        int baseTimeout = getRequestTimeoutSeconds();
+        if (body == null) {
+            return baseTimeout;
+        }
+        if (body.length() >= VERY_LARGE_REQUEST_TIMEOUT_THRESHOLD_CHARS) {
+            return Math.max(baseTimeout, VERY_LARGE_REQUEST_TIMEOUT_SECONDS);
+        }
+        if (body.length() >= LARGE_REQUEST_TIMEOUT_THRESHOLD_CHARS) {
+            return Math.max(baseTimeout, LARGE_REQUEST_TIMEOUT_SECONDS);
+        }
+        return baseTimeout;
+    }
+
+    private CompletableFuture<LlmResponse> completeWithPlan(LlmRequest request,
+            ProviderExecutionPlan executionPlan, long startTime, String correlationId) {
+        if (executionPlan.getReason() != null) {
+            LOG.debug("[%s] Provider execution plan: stream=%b, reason=%s", correlationId, //$NON-NLS-1$
+                    executionPlan.isStreaming(), executionPlan.getReason());
+        }
+
+        String requestBody = buildRequestBody(request, executionPlan);
+        LOG.debug("[%s] Request body: %s", correlationId, //$NON-NLS-1$
+                requestBody.length() < 5000 ? requestBody : "(truncated, length=" + requestBody.length() + ")"); //$NON-NLS-1$
+
+        HttpRequest httpRequest = buildHttpRequest(requestBody);
+
+        currentRequest = httpTransport.sendStringAsync(httpRequest)
+                .thenApply(response -> {
+                    if (cancelled.get()) {
+                        throw new CancellationException("Request cancelled"); //$NON-NLS-1$
+                    }
+                    long duration = System.currentTimeMillis() - startTime;
+                    LOG.debug("[%s] Response status: %d in %s", correlationId, response.statusCode(), //$NON-NLS-1$
+                            LogSanitizer.formatDuration(duration));
+                    LOG.debug("[%s] Response body: %s", correlationId, //$NON-NLS-1$
+                            response.body().length() < 5000 ? response.body() : "(truncated, length=" + response.body().length() + ")"); //$NON-NLS-1$
+                    return parseResponse(response);
+                })
+                .whenComplete((result, error) -> {
+                    long duration = System.currentTimeMillis() - startTime;
+                    if (error != null) {
+                        LOG.error("[%s] DynamicProvider request failed after %s: %s", //$NON-NLS-1$
+                                correlationId, LogSanitizer.formatDuration(duration), error.getMessage());
+                    } else {
+                        LOG.info("[%s] DynamicProvider response received in %s", //$NON-NLS-1$
+                                correlationId, LogSanitizer.formatDuration(duration));
+                    }
+                });
+
+        return currentRequest.thenApply(obj -> (LlmResponse) obj);
+    }
+
+    private ProviderExecutionPlan buildExecutionPlan(LlmRequest request, boolean requestedStreaming) {
+        // Both OPENAI_COMPATIBLE and CODEPILOT_BACKEND use the same compatibility policy
+        // since CODEPILOT_BACKEND is wire-compatible with OpenAI
+        if (config.getType() == ProviderType.OPENAI_COMPATIBLE
+                || config.getType() == ProviderType.CODEPILOT_BACKEND) {
+            return openAiCompatibilityPolicy.plan(config, request, requestedStreaming);
+        }
+        return ProviderExecutionPlan.streaming(requestedStreaming && config.isStreamingEnabled());
+    }
+
+    private void replayResponseAsStream(LlmRequest request, Consumer<LlmStreamChunk> consumer,
+            String correlationId, ProviderExecutionPlan executionPlan) {
+        if (cancelled.get()) {
+            return;
+        }
+
+        long fallbackStartTime = System.currentTimeMillis();
+        LlmResponse response = completeWithPlan(request, executionPlan, fallbackStartTime,
+                correlationId + "-replay").join(); //$NON-NLS-1$
+
+        if (cancelled.get()) {
+            return;
+        }
+
+        LOG.info("[%s] Non-stream replay completed: hasContent=%b, toolCalls=%d, finishReason=%s", //$NON-NLS-1$
+                correlationId,
+                response.getContent() != null && !response.getContent().isEmpty(),
+                response.getToolCalls().size(),
+                response.getFinishReason());
+
+        if (response.hasReasoning() && !cancelled.get()) {
+            consumer.accept(LlmStreamChunk.reasoning(response.getReasoningContent()));
+        }
+        if (response.getContent() != null && !response.getContent().isEmpty() && !cancelled.get()) {
+            consumer.accept(LlmStreamChunk.content(response.getContent()));
+        }
+        if (response.hasToolCalls() && !cancelled.get()) {
+            consumer.accept(LlmStreamChunk.toolCalls(response.getToolCalls()));
+        }
+        if (!cancelled.get()) {
+            consumer.accept(LlmStreamChunk.complete(normalizeFinishReason(response.getFinishReason())));
+        }
+    }
+
     /**
      * Builds the request body based on provider type.
      */
-    private String buildRequestBody(LlmRequest request, boolean stream) {
-        JsonObject body = new JsonObject();
-
+    private String buildRequestBody(LlmRequest request, ProviderExecutionPlan executionPlan) {
         switch (config.getType()) {
             case ANTHROPIC:
-                return buildAnthropicRequestBody(request, stream);
+                return buildAnthropicRequestBody(request, executionPlan.isStreaming());
             case OLLAMA:
-                return buildOllamaRequestBody(request, stream);
+                return buildOllamaRequestBody(request, executionPlan.isStreaming());
+            case CODEPILOT_BACKEND:
+                // Route through Qwen transport if available (CodePilot Account with Qwen model)
+                if (qwenTransport != null) {
+                    ProviderCapabilities caps = getCapabilities();
+                    return qwenTransport.buildRequestBody(request, executionPlan, config, caps);
+                }
+                // Fall through to standard OpenAI path if not Qwen native
+                return buildOpenAiRequestBody(request, executionPlan);
             case OPENAI_COMPATIBLE:
             default:
-                return buildOpenAiRequestBody(request, stream);
+                return buildOpenAiRequestBody(request, executionPlan);
         }
     }
 
     /**
      * Builds OpenAI-compatible request body.
      */
-    private String buildOpenAiRequestBody(LlmRequest request, boolean stream) {
+    private String buildOpenAiRequestBody(LlmRequest request, ProviderExecutionPlan executionPlan) {
         JsonObject body = new JsonObject();
-        body.addProperty("model", config.getModel()); //$NON-NLS-1$
-        body.addProperty("max_tokens", config.getMaxTokens()); //$NON-NLS-1$
-        body.addProperty("stream", stream); //$NON-NLS-1$
+        body.addProperty("model", resolveModelName(request)); //$NON-NLS-1$
+        body.addProperty("max_tokens", request.getMaxTokens() > 0 ? request.getMaxTokens() : config.getMaxTokens()); //$NON-NLS-1$
+        body.addProperty("stream", executionPlan.isStreaming()); //$NON-NLS-1$
+        ProviderCapabilities caps = getCapabilities();
 
         JsonArray messages = new JsonArray();
 
         // Add all messages (including system messages and tool results)
-        for (LlmMessage msg : request.getMessages()) {
-            messages.add(serializeMessage(msg));
+        List<LlmMessage> sanitizedMessages = LlmConversationSanitizer
+                .sanitizeForOpenAiToolCalls(request.getMessages());
+        for (LlmMessage msg : sanitizedMessages) {
+            messages.add(serializeMessage(msg, caps));
         }
 
         body.add("messages", messages); //$NON-NLS-1$
@@ -516,26 +646,36 @@ public class DynamicLlmProvider implements ILlmProvider {
             }
         }
 
+        executionPlan.getRequestOverrides().entrySet()
+                .forEach(entry -> body.add(entry.getKey(), entry.getValue().deepCopy()));
+
         return gson.toJson(body);
     }
 
     /**
      * Serializes a message to JSON, handling tool calls and tool results.
      */
-    private JsonObject serializeMessage(LlmMessage msg) {
+    private JsonObject serializeMessage(LlmMessage msg, ProviderCapabilities caps) {
         JsonObject msgObj = new JsonObject();
         msgObj.addProperty("role", msg.getRole().getValue()); //$NON-NLS-1$
 
         if (msg.getRole() == LlmMessage.Role.TOOL) {
             // Tool result message
             msgObj.addProperty("tool_call_id", msg.getToolCallId()); //$NON-NLS-1$
-            msgObj.addProperty("content", msg.getContent()); //$NON-NLS-1$
+            msgObj.addProperty("content", limitOutboundToolResultContent(msg)); //$NON-NLS-1$
         } else if (msg.hasToolCalls()) {
             // Assistant message with tool calls
             if (msg.getContent() != null && !msg.getContent().isEmpty()) {
                 msgObj.addProperty("content", msg.getContent()); //$NON-NLS-1$
             } else {
                 msgObj.add("content", null); //$NON-NLS-1$
+            }
+
+            // Moonshot/Kimi API requires reasoning_content to be preserved in assistant messages
+            // with tool calls. Without it, follow-up responses degrade to reasoning-only (contentChunks=0).
+            // See: https://github.com/BerriAI/litellm/issues/21672
+            if (msg.hasReasoningContent()) {
+                msgObj.addProperty("reasoning_content", msg.getReasoningContent()); //$NON-NLS-1$
             }
 
             JsonArray toolCalls = new JsonArray();
@@ -553,11 +693,38 @@ public class DynamicLlmProvider implements ILlmProvider {
             }
             msgObj.add("tool_calls", toolCalls); //$NON-NLS-1$
         } else {
-            // Regular message
-            msgObj.addProperty("content", msg.getContent()); //$NON-NLS-1$
+            JsonElement content = ProviderMessageContentSerializer.toOpenAiContent(msg, caps);
+            msgObj.add("content", content); //$NON-NLS-1$
         }
 
         return msgObj;
+    }
+
+    private String limitOutboundToolResultContent(LlmMessage message) {
+        String content = message.getContent();
+        if (content == null || content.length() <= OUTBOUND_TOOL_RESULT_CHAR_LIMIT) {
+            return content;
+        }
+
+        int headChars = Math.min(OUTBOUND_TOOL_RESULT_HEAD_CHARS, content.length());
+        int remaining = Math.max(0, content.length() - headChars);
+        int tailChars = Math.min(OUTBOUND_TOOL_RESULT_TAIL_CHARS, remaining);
+
+        StringBuilder builder = new StringBuilder();
+        builder.append("[tool result truncated by CodePilot1C]\n"); //$NON-NLS-1$
+        builder.append("tool_call_id: ").append(message.getToolCallId()).append('\n'); //$NON-NLS-1$
+        builder.append("original_length_chars: ").append(content.length()).append('\n'); //$NON-NLS-1$
+        builder.append("included_head_chars: ").append(headChars).append('\n'); //$NON-NLS-1$
+        builder.append("included_tail_chars: ").append(tailChars).append("\n\n"); //$NON-NLS-1$
+        builder.append(content, 0, headChars);
+        if (tailChars > 0) {
+            builder.append("\n\n...[truncated middle]...\n\n"); //$NON-NLS-1$
+            builder.append(content, content.length() - tailChars, content.length());
+        }
+
+        LOG.info("Truncated outbound tool result for %s: original=%d chars, outbound=%d chars", //$NON-NLS-1$
+                message.getToolCallId(), content.length(), builder.length());
+        return builder.toString();
     }
 
     /**
@@ -605,9 +772,10 @@ public class DynamicLlmProvider implements ILlmProvider {
      */
     private String buildAnthropicRequestBody(LlmRequest request, boolean stream) {
         JsonObject body = new JsonObject();
-        body.addProperty("model", config.getModel()); //$NON-NLS-1$
+        body.addProperty("model", resolveModelName(request)); //$NON-NLS-1$
         body.addProperty("max_tokens", config.getMaxTokens()); //$NON-NLS-1$
         body.addProperty("stream", stream); //$NON-NLS-1$
+        ProviderCapabilities caps = getCapabilities();
 
         // Extract system message (Anthropic uses separate "system" field)
         JsonArray messages = new JsonArray();
@@ -616,10 +784,7 @@ public class DynamicLlmProvider implements ILlmProvider {
                 // System message is a separate field in Anthropic API
                 body.addProperty("system", msg.getContent()); //$NON-NLS-1$
             } else {
-                JsonObject msgObj = new JsonObject();
-                msgObj.addProperty("role", msg.getRole().getValue()); //$NON-NLS-1$
-                msgObj.addProperty("content", msg.getContent()); //$NON-NLS-1$
-                messages.add(msgObj);
+                messages.add(serializeAnthropicMessage(msg, caps));
             }
         }
 
@@ -627,12 +792,53 @@ public class DynamicLlmProvider implements ILlmProvider {
         return gson.toJson(body);
     }
 
+    private JsonObject serializeAnthropicMessage(LlmMessage msg, ProviderCapabilities caps) {
+        JsonObject msgObj = new JsonObject();
+        msgObj.addProperty("role", msg.getRole().getValue()); //$NON-NLS-1$
+
+        if (msg.getRole() == LlmMessage.Role.TOOL) {
+            JsonArray contentArray = new JsonArray();
+            JsonObject toolResult = new JsonObject();
+            toolResult.addProperty("type", "tool_result"); //$NON-NLS-1$ //$NON-NLS-2$
+            toolResult.addProperty("tool_use_id", msg.getToolCallId()); //$NON-NLS-1$
+            toolResult.addProperty("content", msg.getContent()); //$NON-NLS-1$
+            contentArray.add(toolResult);
+            msgObj.add("content", contentArray); //$NON-NLS-1$
+            msgObj.addProperty("role", "user"); //$NON-NLS-1$ //$NON-NLS-2$
+        } else if (msg.hasToolCalls()) {
+            JsonArray contentArray = new JsonArray();
+            if (msg.getContent() != null && !msg.getContent().isEmpty()) {
+                JsonObject textBlock = new JsonObject();
+                textBlock.addProperty("type", "text"); //$NON-NLS-1$ //$NON-NLS-2$
+                textBlock.addProperty("text", msg.getContent()); //$NON-NLS-1$
+                contentArray.add(textBlock);
+            }
+            for (ToolCall call : msg.getToolCalls()) {
+                JsonObject toolUse = new JsonObject();
+                toolUse.addProperty("type", "tool_use"); //$NON-NLS-1$ //$NON-NLS-2$
+                toolUse.addProperty("id", call.getId()); //$NON-NLS-1$
+                toolUse.addProperty("name", call.getName()); //$NON-NLS-1$
+                try {
+                    JsonElement input = JsonParser.parseString(call.getArguments());
+                    toolUse.add("input", input); //$NON-NLS-1$
+                } catch (Exception e) {
+                    toolUse.add("input", new JsonObject()); //$NON-NLS-1$
+                }
+                contentArray.add(toolUse);
+            }
+            msgObj.add("content", contentArray); //$NON-NLS-1$
+        } else {
+            msgObj.add("content", ProviderMessageContentSerializer.toAnthropicContent(msg, caps)); //$NON-NLS-1$
+        }
+        return msgObj;
+    }
+
     /**
      * Builds Ollama API request body.
      */
     private String buildOllamaRequestBody(LlmRequest request, boolean stream) {
         JsonObject body = new JsonObject();
-        body.addProperty("model", config.getModel()); //$NON-NLS-1$
+        body.addProperty("model", resolveModelName(request)); //$NON-NLS-1$
         body.addProperty("stream", stream); //$NON-NLS-1$
 
         JsonArray messages = new JsonArray();
@@ -641,12 +847,52 @@ public class DynamicLlmProvider implements ILlmProvider {
         for (LlmMessage msg : request.getMessages()) {
             JsonObject msgObj = new JsonObject();
             msgObj.addProperty("role", msg.getRole().getValue()); //$NON-NLS-1$
-            msgObj.addProperty("content", msg.getContent()); //$NON-NLS-1$
+            msgObj.addProperty("content", msg.hasContentParts()
+                    ? msg.getTextualContentFallback()
+                    : msg.getContent() != null ? msg.getContent() : ""); //$NON-NLS-1$ //$NON-NLS-2$
+            JsonArray images = buildOllamaImages(msg);
+            if (images.size() > 0) {
+                msgObj.add("images", images); //$NON-NLS-1$
+            }
             messages.add(msgObj);
         }
 
         body.add("messages", messages); //$NON-NLS-1$
         return gson.toJson(body);
+    }
+
+    private JsonArray buildOllamaImages(LlmMessage message) {
+        JsonArray images = new JsonArray();
+        for (LlmAttachment attachment : message.getAttachments()) {
+            if (!attachment.isImage()) {
+                continue;
+            }
+            String encoded = encodeAttachmentBase64(attachment);
+            if (encoded != null) {
+                images.add(encoded);
+            }
+        }
+        return images;
+    }
+
+    private String encodeAttachmentBase64(LlmAttachment attachment) {
+        String effectivePath = attachment.getEffectivePath();
+        if (effectivePath == null || effectivePath.isBlank()) {
+            return null;
+        }
+        try {
+            return Base64.getEncoder().encodeToString(Files.readAllBytes(Path.of(effectivePath)));
+        } catch (IOException | RuntimeException e) {
+            LOG.warn("Failed to read Ollama image attachment %s: %s", effectivePath, e.getMessage()); //$NON-NLS-1$
+            return null;
+        }
+    }
+
+    private String resolveModelName(LlmRequest request) {
+        if (request.getModel() != null && !request.getModel().isBlank()) {
+            return request.getModel();
+        }
+        return config.getModel();
     }
 
     /**
@@ -678,13 +924,19 @@ public class DynamicLlmProvider implements ILlmProvider {
      * Parses OpenAI-compatible response.
      */
     private LlmResponse parseOpenAiResponse(JsonObject json) {
-        JsonArray choices = json.getAsJsonArray("choices"); //$NON-NLS-1$
+        JsonArray choices = getArray(json, "choices"); //$NON-NLS-1$
         if (choices == null || choices.size() == 0) {
             throw new LlmProviderException("No choices in response"); //$NON-NLS-1$
         }
 
-        JsonObject choice = choices.get(0).getAsJsonObject();
-        JsonObject message = choice.getAsJsonObject("message"); //$NON-NLS-1$
+        JsonObject choice = getObject(choices.get(0));
+        if (choice == null) {
+            throw new LlmProviderException("First choice is not an object"); //$NON-NLS-1$
+        }
+        JsonObject message = getObject(choice, "message"); //$NON-NLS-1$
+        if (message == null) {
+            throw new LlmProviderException("No message in response choice"); //$NON-NLS-1$
+        }
 
         // Log message structure for debugging
         LOG.debug("Message keys: %s", message.keySet()); //$NON-NLS-1$
@@ -695,8 +947,18 @@ public class DynamicLlmProvider implements ILlmProvider {
             content = message.get("content").getAsString(); //$NON-NLS-1$
         }
 
+        // Preserve reasoning_content for Kimi/Moonshot models.
+        // This is critical for multi-turn tool usage: without reasoning_content
+        // in assistant messages, follow-up responses degrade to reasoning-only.
+        String reasoningContent = null;
+        if (message.has("reasoning_content") && !message.get("reasoning_content").isJsonNull()) { //$NON-NLS-1$ //$NON-NLS-2$
+            reasoningContent = message.get("reasoning_content").getAsString(); //$NON-NLS-1$
+        }
+
         String finishReason = choice.has("finish_reason") && !choice.get("finish_reason").isJsonNull() ? //$NON-NLS-1$ //$NON-NLS-2$
-                choice.get("finish_reason").getAsString() : "stop"; //$NON-NLS-1$ //$NON-NLS-2$
+                normalizeFinishReason(choice.get("finish_reason").getAsString()) : LlmResponse.FINISH_REASON_STOP; //$NON-NLS-1$
+        String responseModel = getString(json, "model"); //$NON-NLS-1$
+        LlmResponse.Usage usage = parseUsage(json);
 
         // Parse tool calls if present
         List<ToolCall> toolCalls = null;
@@ -711,7 +973,7 @@ public class DynamicLlmProvider implements ILlmProvider {
             }
 
             // Set finish reason to tool_use if we have tool calls
-            if (!toolCalls.isEmpty() && !"tool_calls".equals(finishReason)) { //$NON-NLS-1$
+            if (!toolCalls.isEmpty() && !LlmResponse.FINISH_REASON_TOOL_USE.equals(finishReason)) { //$NON-NLS-1$
                 finishReason = LlmResponse.FINISH_REASON_TOOL_USE;
             }
         } else {
@@ -723,21 +985,65 @@ public class DynamicLlmProvider implements ILlmProvider {
             //
             // We only use this fallback when there are no tool calls (i.e., final answer).
             if ((content == null || content.isEmpty())
-                    && message.has("reasoning_content") //$NON-NLS-1$
-                    && !message.get("reasoning_content").isJsonNull()) { //$NON-NLS-1$
-                String rc = message.get("reasoning_content").getAsString(); //$NON-NLS-1$
-                if (rc != null && !rc.isEmpty()) {
-                    LOG.debug("Using reasoning_content as content fallback (provider returned empty content)"); //$NON-NLS-1$
-                    content = rc;
-                }
+                    && reasoningContent != null && !reasoningContent.isEmpty()) {
+                LOG.debug("Using reasoning_content as content fallback (provider returned empty content)"); //$NON-NLS-1$
+                content = reasoningContent;
             }
         }
 
-        LOG.debug("Response parsed: finishReason=%s, hasContent=%b, toolCalls=%d", //$NON-NLS-1$
+        // Content tool call fallback: if no structured tool_calls were found but content
+        // or reasoning_content contains tool call markers (Qwen XML or Kimi special tokens),
+        // extract them. This is a safety net for when the model emits tool calls as text
+        // instead of using the structured API.
+        // Check both content and reasoning_content — kimi-k2.5 may place tool calls in reasoning.
+        String contentToCheck = content;
+        if ((contentToCheck == null || contentToCheck.isEmpty()) && reasoningContent != null) {
+            contentToCheck = reasoningContent;
+        }
+        if ((toolCalls == null || toolCalls.isEmpty())
+                && getCapabilities().needsContentToolCallFallback()
+                && QwenContentToolCallParser.hasToolCallMarkers(contentToCheck)) {
+            List<ToolCall> fallbackCalls = QwenContentToolCallParser.extractFromContent(contentToCheck);
+            if (!fallbackCalls.isEmpty()) {
+                LOG.info("Content fallback: extracted %d tool call(s) from %s", //$NON-NLS-1$
+                        fallbackCalls.size(),
+                        contentToCheck == reasoningContent ? "reasoning_content" : "content"); //$NON-NLS-1$ //$NON-NLS-2$
+                toolCalls = fallbackCalls;
+                finishReason = LlmResponse.FINISH_REASON_TOOL_USE;
+                // Strip tool call blocks from whichever field contained them
+                if (contentToCheck == content) {
+                    content = QwenContentToolCallParser.stripToolCallBlocks(content);
+                }
+                // Don't strip reasoning_content — it should be preserved as-is for history
+            }
+        }
+
+        LOG.debug("Response parsed: finishReason=%s, hasContent=%b, hasReasoning=%b, toolCalls=%d", //$NON-NLS-1$
                 finishReason, content != null && !content.isEmpty(),
+                reasoningContent != null && !reasoningContent.isEmpty(),
                 toolCalls != null ? toolCalls.size() : 0);
 
-        return new LlmResponse(content, config.getModel(), null, finishReason, toolCalls);
+        return new LlmResponse(content, resolveRequestedModel(), responseModel, usage, finishReason, toolCalls, reasoningContent);
+    }
+
+    private String resolveRequestedModel() {
+        if (currentLlmRequest != null && currentLlmRequest.getModel() != null && !currentLlmRequest.getModel().isBlank()) {
+            return currentLlmRequest.getModel();
+        }
+        return config.getModel();
+    }
+
+    private LlmResponse.Usage parseUsage(JsonObject json) {
+        JsonObject usageJson = getObject(json, "usage"); //$NON-NLS-1$
+        if (usageJson == null) {
+            return null;
+        }
+        int promptTokens = getInt(usageJson, "prompt_tokens", 0); //$NON-NLS-1$
+        int completionTokens = getInt(usageJson, "completion_tokens", 0); //$NON-NLS-1$
+        int totalTokens = getInt(usageJson, "total_tokens", 0); //$NON-NLS-1$
+        JsonObject promptDetails = getObject(usageJson, "prompt_tokens_details"); //$NON-NLS-1$
+        int cachedPromptTokens = promptDetails != null ? getInt(promptDetails, "cached_tokens", 0) : 0; //$NON-NLS-1$
+        return new LlmResponse.Usage(promptTokens, cachedPromptTokens, completionTokens, totalTokens);
     }
 
     /**
@@ -745,13 +1051,25 @@ public class DynamicLlmProvider implements ILlmProvider {
      */
     private List<ToolCall> parseToolCalls(JsonArray toolCallsJson) {
         List<ToolCall> toolCalls = new ArrayList<>();
+        if (toolCallsJson == null) {
+            return toolCalls;
+        }
         for (JsonElement element : toolCallsJson) {
-            JsonObject callObj = element.getAsJsonObject();
-            String id = callObj.get("id").getAsString(); //$NON-NLS-1$
-            JsonObject function = callObj.getAsJsonObject("function"); //$NON-NLS-1$
-            String name = function.get("name").getAsString(); //$NON-NLS-1$
-            String arguments = function.get("arguments").getAsString(); //$NON-NLS-1$
-            toolCalls.add(new ToolCall(id, name, arguments));
+            JsonObject callObj = getObject(element);
+            if (callObj == null) {
+                continue;
+            }
+            String id = getString(callObj, "id"); //$NON-NLS-1$
+            JsonObject function = getObject(callObj, "function"); //$NON-NLS-1$
+            if (id == null || function == null) {
+                continue;
+            }
+            String name = getString(function, "name"); //$NON-NLS-1$
+            String arguments = getString(function, "arguments"); //$NON-NLS-1$
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            toolCalls.add(new ToolCall(id, name, arguments != null ? arguments : "{}")); //$NON-NLS-1$
         }
         return toolCalls;
     }
@@ -776,7 +1094,7 @@ public class DynamicLlmProvider implements ILlmProvider {
         String stopReason = json.has("stop_reason") ? //$NON-NLS-1$
                 json.get("stop_reason").getAsString() : "end_turn"; //$NON-NLS-1$ //$NON-NLS-2$
 
-        return new LlmResponse(sb.toString(), config.getModel(), null, stopReason);
+        return new LlmResponse(sb.toString(), resolveRequestedModel(), config.getModel(), null, stopReason, null);
     }
 
     /**
@@ -787,7 +1105,8 @@ public class DynamicLlmProvider implements ILlmProvider {
         String content = message.get("content").getAsString(); //$NON-NLS-1$
 
         boolean done = json.has("done") && json.get("done").getAsBoolean(); //$NON-NLS-1$ //$NON-NLS-2$
-        return new LlmResponse(content, config.getModel(), null, done ? "stop" : "length"); //$NON-NLS-1$ //$NON-NLS-2$
+        return new LlmResponse(content, resolveRequestedModel(), config.getModel(), null,
+                done ? "stop" : "length", null); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     /**
@@ -813,20 +1132,75 @@ public class DynamicLlmProvider implements ILlmProvider {
                 break;
             case OPENAI_COMPATIBLE:
             default:
-                if (json.has("choices")) { //$NON-NLS-1$
-                    JsonArray choices = json.getAsJsonArray("choices"); //$NON-NLS-1$
-                    if (choices.size() > 0) {
-                        JsonObject choice = choices.get(0).getAsJsonObject();
-                        if (choice.has("delta")) { //$NON-NLS-1$
-                            JsonObject delta = choice.getAsJsonObject("delta"); //$NON-NLS-1$
-                            if (delta.has("content")) { //$NON-NLS-1$
-                                return delta.get("content").getAsString(); //$NON-NLS-1$
-                            }
-                        }
+                JsonArray choices = getArray(json, "choices"); //$NON-NLS-1$
+                if (choices != null && choices.size() > 0) {
+                    JsonObject choice = getObject(choices.get(0));
+                    JsonObject delta = getObject(choice, "delta"); //$NON-NLS-1$
+                    String content = getString(delta, "content"); //$NON-NLS-1$
+                    if (content != null) {
+                        return content;
                     }
                 }
                 break;
         }
         return null;
+    }
+
+    private String extractReasoningChunk(JsonObject json) {
+        switch (config.getType()) {
+            case OPENAI_COMPATIBLE:
+                JsonArray choices = getArray(json, "choices"); //$NON-NLS-1$
+                if (choices == null || choices.size() == 0) {
+                    return null;
+                }
+                JsonObject choice = getObject(choices.get(0));
+                JsonObject delta = getObject(choice, "delta"); //$NON-NLS-1$
+                String reasoning = getString(delta, "reasoning_content"); //$NON-NLS-1$
+                if (reasoning != null) {
+                    return reasoning;
+                }
+                return getString(delta, "reasoning"); //$NON-NLS-1$
+            default:
+                return null;
+        }
+    }
+
+    private JsonArray getArray(JsonObject object, String propertyName) {
+        if (object == null || propertyName == null || !object.has(propertyName) || object.get(propertyName).isJsonNull()) {
+            return null;
+        }
+        JsonElement element = object.get(propertyName);
+        return element.isJsonArray() ? element.getAsJsonArray() : null;
+    }
+
+    private JsonObject getObject(JsonObject object, String propertyName) {
+        if (object == null || propertyName == null || !object.has(propertyName) || object.get(propertyName).isJsonNull()) {
+            return null;
+        }
+        JsonElement element = object.get(propertyName);
+        return getObject(element);
+    }
+
+    private JsonObject getObject(JsonElement element) {
+        if (element == null || element.isJsonNull() || !element.isJsonObject()) {
+            return null;
+        }
+        return element.getAsJsonObject();
+    }
+
+    private String getString(JsonObject object, String propertyName) {
+        if (object == null || propertyName == null || !object.has(propertyName) || object.get(propertyName).isJsonNull()) {
+            return null;
+        }
+        JsonElement element = object.get(propertyName);
+        return element.isJsonPrimitive() ? element.getAsString() : null;
+    }
+
+    private int getInt(JsonObject object, String propertyName, int defaultValue) {
+        if (object == null || propertyName == null || !object.has(propertyName) || object.get(propertyName).isJsonNull()) {
+            return defaultValue;
+        }
+        JsonElement element = object.get(propertyName);
+        return element.isJsonPrimitive() ? element.getAsInt() : defaultValue;
     }
 }

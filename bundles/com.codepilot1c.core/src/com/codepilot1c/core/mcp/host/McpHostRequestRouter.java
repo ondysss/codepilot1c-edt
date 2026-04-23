@@ -28,9 +28,11 @@ import com.codepilot1c.core.mcp.model.McpResourceContent;
 import com.codepilot1c.core.permissions.PermissionDecision;
 import com.codepilot1c.core.permissions.PermissionManager;
 import com.codepilot1c.core.evaluation.trace.TraceEventType;
+import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
+import com.codepilot1c.core.tools.surface.ToolSurfaceContext;
 
 /**
  * JSON-RPC method router for inbound MCP host requests.
@@ -228,14 +230,18 @@ public class McpHostRequestRouter {
 
     private List<Map<String, Object>> listTools() {
         List<Map<String, Object>> out = new ArrayList<>();
-        for (ITool tool : ToolRegistry.getInstance().getAllTools()) {
+        ToolRegistry registry = ToolRegistry.getInstance();
+        ToolSurfaceContext surfaceContext = registry.createRuntimeSurfaceContext(
+                ToolSurfaceContext.defaultProfile());
+        for (ITool tool : registry.getAllTools()) {
             if (!exposurePolicy.isExposed(tool.getName())) {
                 continue;
             }
+            var effectiveTool = registry.getToolDefinition(tool, surfaceContext);
             Map<String, Object> item = new HashMap<>();
             item.put("name", tool.getName()); //$NON-NLS-1$
-            item.put("description", tool.getDescription()); //$NON-NLS-1$
-            item.put("inputSchema", parseSchema(tool.getParameterSchema())); //$NON-NLS-1$
+            item.put("description", effectiveTool.getDescription()); //$NON-NLS-1$
+            item.put("inputSchema", parseSchema(effectiveTool.getParametersSchema())); //$NON-NLS-1$
             out.add(item);
         }
         return out;

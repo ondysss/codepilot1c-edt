@@ -114,4 +114,12 @@ public final class VibePreferenceConstants {
     public static final String PREF_MCP_HOST_POLICY_DEFAULT_MUTATION_DECISION =
         "mcp.host.policy.defaultMutationDecision"; //$NON-NLS-1$
     public static final String PREF_MCP_HOST_POLICY_EXPOSED_TOOLS = "mcp.host.policy.exposedTools"; //$NON-NLS-1$
+
+    // Feature flags
+    /** Feature flag: enable LLM-based history compaction instead of lossy truncation. */
+    public static final String PREF_ENABLE_LLM_COMPACTION = "codepilot.feature.llm_compaction"; //$NON-NLS-1$
+
+    /** Model ID used for background memory extraction (Channel A). Default: kimi-k2.5. */
+    public static final String PREF_MEMORY_EXTRACTION_MODEL = "codepilot.memory.extraction_model"; //$NON-NLS-1$
+    public static final String PREF_MEMORY_EXTRACTION_MODEL_DEFAULT = "kimi-k2.5"; //$NON-NLS-1$
 }

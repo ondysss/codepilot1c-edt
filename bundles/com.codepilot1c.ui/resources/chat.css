@@ -714,6 +714,119 @@ body.dark .reasoning-content {
     margin-top: 8px;
 }
 
+/* Model badge on assistant messages */
+.model-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 7px;
+    background: var(--accent);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 3px;
+    opacity: 0.85;
+    vertical-align: middle;
+    letter-spacing: 0.2px;
+}
+
+body.dark .model-badge {
+    background: rgba(59, 130, 246, 0.35);
+    color: #93c5fd;
+}
+
+/* Copy response button */
+.copy-response-btn {
+    margin-left: auto;
+    padding: 2px 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s;
+}
+
+.message:hover .copy-response-btn {
+    opacity: 0.6;
+}
+
+.copy-response-btn:hover {
+    opacity: 1 !important;
+    background: var(--btn-bg);
+    border-color: var(--border-color);
+}
+
+.copy-response-btn.copied {
+    opacity: 1 !important;
+    background: var(--success);
+    color: white;
+}
+
+/* Tool calls group (collapsible) */
+.tool-calls-group {
+    margin: 12px 0;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    overflow: hidden;
+}
+
+.tool-calls-group-header {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+    user-select: none;
+    gap: 8px;
+}
+
+.tool-calls-group-header:hover {
+    background: var(--table-row-hover);
+}
+
+.tool-calls-group-icon {
+    font-size: 16px;
+}
+
+.tool-calls-group-label {
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.tool-calls-group-status {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.tool-calls-group-header::after {
+    content: '\25B6';
+    font-size: 10px;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+}
+
+.tool-calls-group.expanded .tool-calls-group-header::after {
+    transform: rotate(90deg);
+}
+
+.tool-calls-group-body {
+    display: none;
+    padding: 4px 0;
+    border-top: 1px solid var(--border-color);
+}
+
+.tool-calls-group.expanded .tool-calls-group-body {
+    display: block;
+}
+
+.tool-calls-group-body .tool-call {
+    margin: 4px 8px;
+    border-radius: 4px;
+}
+
 /* Print styles */
 @media print {
     body {

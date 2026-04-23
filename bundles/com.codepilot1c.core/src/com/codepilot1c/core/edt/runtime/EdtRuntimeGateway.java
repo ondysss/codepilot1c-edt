@@ -6,8 +6,10 @@ import org.eclipse.core.resources.ResourcesPlugin;
 
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessManager;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationManager;
+import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseManager;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IRuntimeComponentManager;
 import com.codepilot1c.core.internal.VibeCorePlugin;
+import com.e1c.g5.v8.dt.platform.standaloneserver.wst.core.IStandaloneServerService;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceReference;
 
@@ -39,6 +41,24 @@ public class EdtRuntimeGateway {
         return service;
     }
 
+    public IInfobaseManager getInfobaseManager() {
+        VibeCorePlugin plugin = requirePlugin();
+        IInfobaseManager service = plugin.getInfobaseManager();
+        if (service == null) {
+            throw serviceUnavailable("IInfobaseManager"); //$NON-NLS-1$
+        }
+        return service;
+    }
+
+    public IStandaloneServerService getStandaloneServerService() {
+        VibeCorePlugin plugin = requirePlugin();
+        IStandaloneServerService service = plugin.getStandaloneServerService();
+        if (service == null) {
+            throw serviceUnavailable("IStandaloneServerService"); //$NON-NLS-1$
+        }
+        return service;
+    }
+
     public Object getInfobaseSynchronizationManager() {
         VibeCorePlugin plugin = requirePlugin();
         BundleContext context = plugin.getBundle() == null ? null : plugin.getBundle().getBundleContext();
@@ -64,6 +84,41 @@ public class EdtRuntimeGateway {
             throw serviceUnavailable("IRuntimeComponentManager"); //$NON-NLS-1$
         }
         return service;
+    }
+
+    /**
+     * Returns the standalone-server service if available, or {@code null} if the service is
+     * not registered. Standalone-server binding is an optional fallback path, so the service
+     * may legitimately be unavailable (e.g. during tests or when the EDT component is missing);
+     * callers must handle a {@code null} return value.
+     *
+     * <p><b>Warning:</b> this accessor delegates to the waiting lookup in
+     * {@link VibeCorePlugin#getStandaloneServerService()}, which blocks the calling thread for
+     * up to {@code EDT_SERVICE_WAIT_TOTAL_MS} milliseconds if the service has not been
+     * registered yet. For latency-sensitive code paths that can tolerate a missing service,
+     * prefer {@link #peekStandaloneServerService()} instead.
+     */
+    public IStandaloneServerService getStandaloneServerServiceOrNull() {
+        VibeCorePlugin plugin = VibeCorePlugin.getDefault();
+        if (plugin == null) {
+            return null;
+        }
+        return plugin.getStandaloneServerService();
+    }
+
+    /**
+     * Non-blocking variant of {@link #getStandaloneServerServiceOrNull()}: returns the
+     * currently-registered standalone-server service, or {@code null} immediately if the
+     * service is not available. Safe to call from code paths (such as
+     * {@code EdtRuntimeService.resolveDefaultInfobase}) where a missing standalone binding is
+     * an expected fallback outcome and a 30-second wait would stall the agent tool dispatcher.
+     */
+    public IStandaloneServerService peekStandaloneServerService() {
+        VibeCorePlugin plugin = VibeCorePlugin.getDefault();
+        if (plugin == null) {
+            return null;
+        }
+        return plugin.peekStandaloneServerService();
     }
 
     private VibeCorePlugin requirePlugin() {

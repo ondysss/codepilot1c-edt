@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+import com.codepilot1c.core.model.LlmContentPart;
 import com.codepilot1c.core.model.ToolCall;
 
 /**
@@ -48,6 +49,7 @@ public class SessionMessage {
     private final String id;
     private final MessageType type;
     private final String content;
+    private final List<LlmContentPart> contentParts;
     private final Instant timestamp;
     private final List<ToolCall> toolCalls;
     private final String toolCallId;
@@ -58,6 +60,9 @@ public class SessionMessage {
         this.id = builder.id != null ? builder.id : UUID.randomUUID().toString();
         this.type = Objects.requireNonNull(builder.type, "type");
         this.content = builder.content;
+        this.contentParts = builder.contentParts != null
+                ? Collections.unmodifiableList(builder.contentParts)
+                : Collections.emptyList();
         this.timestamp = builder.timestamp != null ? builder.timestamp : Instant.now();
         this.toolCalls = builder.toolCalls != null
                 ? Collections.unmodifiableList(builder.toolCalls)
@@ -88,6 +93,10 @@ public class SessionMessage {
         return content;
     }
 
+    public List<LlmContentPart> getContentParts() {
+        return contentParts;
+    }
+
     /**
      * Время создания сообщения.
      */
@@ -107,6 +116,10 @@ public class SessionMessage {
      */
     public boolean hasToolCalls() {
         return !toolCalls.isEmpty();
+    }
+
+    public boolean hasContentParts() {
+        return !contentParts.isEmpty();
     }
 
     /**
@@ -139,6 +152,14 @@ public class SessionMessage {
         return builder()
                 .type(MessageType.USER)
                 .content(content)
+                .build();
+    }
+
+    public static SessionMessage user(String content, List<LlmContentPart> contentParts) {
+        return builder()
+                .type(MessageType.USER)
+                .content(content)
+                .contentParts(contentParts)
                 .build();
     }
 
@@ -222,6 +243,7 @@ public class SessionMessage {
         private String id;
         private MessageType type;
         private String content;
+        private List<LlmContentPart> contentParts;
         private Instant timestamp;
         private List<ToolCall> toolCalls;
         private String toolCallId;
@@ -240,6 +262,11 @@ public class SessionMessage {
 
         public Builder content(String content) {
             this.content = content;
+            return this;
+        }
+
+        public Builder contentParts(List<LlmContentPart> contentParts) {
+            this.contentParts = contentParts;
             return this;
         }
 

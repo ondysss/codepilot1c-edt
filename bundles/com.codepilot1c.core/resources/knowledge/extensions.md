@@ -1,0 +1,12 @@
+Extension development patterns:
+- Extension purpose: ADD_ON for new functionality, PATCH for fixes, CUSTOMIZATION for UI changes
+- Adopted objects: borrow base config objects before modifying; check adoption state
+- Module extension: use &Перед, &После, &Вместо annotations for procedure interception
+- Safe mode: extensions run in safe mode by default; request permissions explicitly
+- Compatibility: match extension compatibility mode to base config version
+- Object naming: prefix extension objects with a unique 2-3 letter prefix to avoid conflicts
+- Form extension: extend existing forms via adopted form items, not by recreating forms
+- Rights: extension roles are additive; they cannot remove permissions from base roles
+- Update safety: avoid modifying adopted object structure if base config updates are expected
+- Testing: test with both clean base config and configs with other extensions installed
+- Do not adopt objects unnecessarily; only adopt what the extension actually modifies

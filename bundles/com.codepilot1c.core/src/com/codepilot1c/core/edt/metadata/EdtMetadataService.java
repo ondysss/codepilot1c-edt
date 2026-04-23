@@ -57,10 +57,14 @@ import com._1c.g5.v8.dt.core.platform.IDtProject;
 import com._1c.g5.v8.dt.core.platform.IDtProjectManager;
 import com._1c.g5.v8.dt.form.model.AbstractDataPath;
 import com._1c.g5.v8.dt.form.model.AbstractFormAttribute;
+import com._1c.g5.v8.dt.form.model.Button;
+import com._1c.g5.v8.dt.form.model.CommandHandler;
 import com._1c.g5.v8.dt.form.model.DataPath;
 import com._1c.g5.v8.dt.form.model.DynamicListExtInfo;
 import com._1c.g5.v8.dt.form.model.Form;
 import com._1c.g5.v8.dt.form.model.FormAttribute;
+import com._1c.g5.v8.dt.form.model.FormCommand;
+import com._1c.g5.v8.dt.form.model.FormCommandHandlerContainer;
 import com._1c.g5.v8.dt.form.model.FormFactory;
 import com._1c.g5.v8.dt.form.model.FormField;
 import com._1c.g5.v8.dt.form.model.ButtonGroupExtInfo;
@@ -68,6 +72,7 @@ import com._1c.g5.v8.dt.form.model.CommandBarExtInfo;
 import com._1c.g5.v8.dt.form.model.ColumnGroupExtInfo;
 import com._1c.g5.v8.dt.form.model.FormGroup;
 import com._1c.g5.v8.dt.form.model.GroupExtInfo;
+import com._1c.g5.v8.dt.form.model.ManagedFormButtonType;
 import com._1c.g5.v8.dt.form.model.ManagedFormGroupType;
 import com._1c.g5.v8.dt.form.model.PageGroupExtInfo;
 import com._1c.g5.v8.dt.form.model.PagesGroupExtInfo;
@@ -78,6 +83,9 @@ import com._1c.g5.v8.dt.form.model.FormItem;
 import com._1c.g5.v8.dt.form.model.FormItemContainer;
 import com._1c.g5.v8.dt.form.model.Titled;
 import com._1c.g5.v8.dt.form.model.Visible;
+import com._1c.g5.v8.dt.mcore.Command;
+import com._1c.g5.v8.dt.form.service.item.FormNewItemDescriptor;
+import com._1c.g5.v8.dt.form.service.item.IFormItemManagementService;
 import com._1c.g5.v8.dt.mcore.DateQualifiers;
 import com._1c.g5.v8.dt.mcore.DateFractions;
 import com._1c.g5.v8.dt.mcore.McoreFactory;
@@ -90,10 +98,12 @@ import com._1c.g5.v8.dt.mcore.TypeItem;
 import com._1c.g5.v8.dt.mcore.util.McoreUtil;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicFeature;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicForm;
+import com._1c.g5.v8.dt.metadata.mdclass.BasicTemplate;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
 import com._1c.g5.v8.dt.metadata.mdclass.DataProcessor;
 import com._1c.g5.v8.dt.metadata.mdclass.Document;
 import com._1c.g5.v8.dt.metadata.mdclass.FormType;
+import com._1c.g5.v8.dt.metadata.mdclass.TemplateType;
 import com._1c.g5.v8.dt.metadata.mdclass.AdjustableBoolean;
 import com._1c.g5.v8.dt.platform.core.typeinfo.TypeDescriptionInfoWithTypeInfo;
 import com._1c.g5.v8.dt.platform.core.typeinfo.TypeInfo;
@@ -102,6 +112,19 @@ import com._1c.g5.v8.dt.metadata.mdclass.ScriptVariant;
 import com._1c.g5.v8.dt.metadata.mdclass.MdClassPackage;
 import com._1c.g5.v8.dt.metadata.mdclass.MdClassFactory;
 import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
+import com._1c.g5.v8.dt.moxel.Cell;
+import com._1c.g5.v8.dt.moxel.Column;
+import com._1c.g5.v8.dt.moxel.Columns;
+import com._1c.g5.v8.dt.moxel.Format;
+import com._1c.g5.v8.dt.moxel.Merge;
+import com._1c.g5.v8.dt.moxel.MoxelFactory;
+import com._1c.g5.v8.dt.moxel.MoxelResourceFactory;
+import com._1c.g5.v8.dt.moxel.MoxelResourceMxl;
+import com._1c.g5.v8.dt.moxel.NamedItemCells;
+import com._1c.g5.v8.dt.moxel.Rect;
+import com._1c.g5.v8.dt.moxel.Row;
+import com._1c.g5.v8.dt.moxel.RowsArea;
+import com._1c.g5.v8.dt.moxel.SpreadsheetDocument;
 import com.codepilot1c.core.edt.forms.CreateFormRequest;
 import com.codepilot1c.core.edt.forms.CreateFormResult;
 import com.codepilot1c.core.edt.forms.FormOwnerStrategy;
@@ -113,6 +136,7 @@ import com.codepilot1c.core.edt.forms.InspectFormLayoutRequest;
 import com.codepilot1c.core.edt.forms.InspectFormLayoutResult;
 import com.codepilot1c.core.edt.forms.UpdateFormModelRequest;
 import com.codepilot1c.core.edt.forms.UpdateFormModelResult;
+import com.codepilot1c.core.edt.BmObjectHelper;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
 import org.osgi.framework.Bundle;
@@ -156,7 +180,10 @@ public class EdtMetadataService {
             "parentitemid", //$NON-NLS-1$
             "index", //$NON-NLS-1$
             "set", //$NON-NLS-1$
-            "properties" //$NON-NLS-1$
+            "properties", //$NON-NLS-1$
+            "action", //$NON-NLS-1$
+            "commandname", //$NON-NLS-1$
+            "command" //$NON-NLS-1$
     );
 
     private final EdtMetadataGateway gateway;
@@ -637,6 +664,8 @@ public class EdtMetadataService {
                     0,
                     request,
                     state);
+            String mutationHint = buildFormMutationHint(request.formFqn());
+            List<InspectFormLayoutResult.FormCommandNode> commandNodes = collectFormCommandNodes(formModel);
             return new InspectFormLayoutResult(
                     request.projectName(),
                     request.formFqn(),
@@ -644,7 +673,9 @@ public class EdtMetadataService {
                     formProperties,
                     state.visited(),
                     state.truncated(),
-                    nodes);
+                    mutationHint,
+                    nodes,
+                    commandNodes);
         });
 
         LOG.info("[%s] inspectFormLayout SUCCESS in %s form=%s items=%d truncated=%s", //$NON-NLS-1$
@@ -716,17 +747,27 @@ public class EdtMetadataService {
             return createGenericChild(txConfiguration, request, transaction, capturedTypes);
         });
         verifyObjectPersisted(project, childFqn, opId);
+
+        String templateArtifactPath = null;
+        if (request.childKind() == MetadataChildKind.TEMPLATE) {
+            TemplateType requestedType = resolveTemplateType(request.properties());
+            templateArtifactPath = ensureTemplateArtifact(project, request.parentFqn(), request.name(), requestedType, opId);
+        }
+
         LOG.info("[%s] addMetadataChild SUCCESS in %s fqn=%s", opId, // $NON-NLS-1$
                 LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),
                 childFqn);
 
+        String message = templateArtifactPath != null
+                ? "Metadata child object created successfully. Template artifact: " + templateArtifactPath //$NON-NLS-1$
+                : "Metadata child object created successfully"; //$NON-NLS-1$
         return new MetadataOperationResult(
                 true,
                 request.projectName(),
                 request.childKind().name(),
                 extractNameFromFqn(childFqn),
                 childFqn,
-                "Metadata child object created successfully"); //$NON-NLS-1$
+                message);
     }
 
     private Form resolveManagedFormModel(BasicForm basicForm, String formFqn) {
@@ -745,9 +786,12 @@ public class EdtMetadataService {
 
     private List<String> applyFormModelOperations(Form formModel, List<Map<String, Object>> operations) {
         List<String> summaries = new ArrayList<>();
+        IFormItemManagementService itemManagementService = resolveOptionalFormItemManagementService();
         int operationIndex = 1;
         for (Map<String, Object> operation : operations) {
             String rawOp = asString(operation.get("op")); //$NON-NLS-1$
+            // Early validation: detect common LLM hallucinations and give actionable errors
+            validateFormOperationParams(operation, rawOp);
             String op = normalizeToken(rawOp);
             switch (op) {
                 case "setformprops", "setformproperties", "setform" -> {
@@ -768,24 +812,25 @@ public class EdtMetadataService {
                                 MetadataOperationCode.INVALID_METADATA_NAME,
                                 "Invalid group name: " + name, false); //$NON-NLS-1$
                     }
-                    FormGroup group = FormFactory.eINSTANCE.createFormGroup();
-                    group.setId(nextFormItemId(formModel));
-                    group.setName(name);
-                    applyTitleValue(group, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
                     Map<String, Object> set = asMap(operation.get("set")); //$NON-NLS-1$
-                    if (!set.isEmpty()) {
-                        applyFormPropertySet(group, set);
+                    ManagedFormGroupType groupType = resolveRequestedGroupType(operation, set);
+                    Integer index = asOptionalInteger(operation.get("index"), "index"); //$NON-NLS-1$ //$NON-NLS-2$
+                    FormGroup group = addGroupItem(
+                            formModel,
+                            parentContainer,
+                            operation,
+                            name,
+                            groupType,
+                            index,
+                            itemManagementService);
+                    Map<String, Object> effectiveSet = stripMapKeysIgnoreCase(set, "name", "title", "group_type"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    if (!effectiveSet.isEmpty()) {
+                        applyFormPropertySet(group, effectiveSet);
                     }
-                    applyDefaultVisibility(group, set);
-                    if (hasMapKeyIgnoreCase(operation, "group_type")) { //$NON-NLS-1$
-                        applySimpleFeatureValue(group, "type", getMapValueIgnoreCase(operation, "group_type")); //$NON-NLS-1$ //$NON-NLS-2$
-                    } else if (!hasMapKeyIgnoreCase(set, "type")) { //$NON-NLS-1$
-                        // Safe default for managed form groups in external reports/processings.
-                        applySimpleFeatureValue(group, "type", "USUAL_GROUP"); //$NON-NLS-1$ //$NON-NLS-2$
-                    }
+                    applyDefaultVisibility(group, effectiveSet);
                     ensureFormGroupExtInfo(group);
-                    insertItemIntoContainer(parentContainer, group, asOptionalInteger(operation.get("index"), "index")); //$NON-NLS-1$ //$NON-NLS-2$
-                    summaries.add("add_group[" + operationIndex + "]: name=" + name + ", id=" + group.getId()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    summaries.add("add_group[" + operationIndex + "]: name=" + group.getName() + ", id=" //$NON-NLS-1$ //$NON-NLS-2$
+                            + safeItemId(group)); //$NON-NLS-1$
                 }
                 case "addfield", "createfield" -> {
                     FormItemContainer parentContainer = resolveTargetContainer(formModel, operation);
@@ -795,16 +840,22 @@ public class EdtMetadataService {
                                 MetadataOperationCode.INVALID_METADATA_NAME,
                                 "Invalid field name: " + name, false); //$NON-NLS-1$
                     }
-                    FormField field = FormFactory.eINSTANCE.createFormField();
-                    field.setId(nextFormItemId(formModel));
-                    field.setName(name);
                     Map<String, Object> set = extractAddFieldSet(operation);
-                    if (!set.isEmpty()) {
-                        applyFormPropertySet(field, set);
+                    Integer index = asOptionalInteger(operation.get("index"), "index"); //$NON-NLS-1$ //$NON-NLS-2$
+                    FormField field = addFieldItem(
+                            formModel,
+                            parentContainer,
+                            operation,
+                            name,
+                            index,
+                            itemManagementService);
+                    Map<String, Object> effectiveSet = stripMapKeysIgnoreCase(set, "name", "title"); //$NON-NLS-1$ //$NON-NLS-2$
+                    if (!effectiveSet.isEmpty()) {
+                        applyFormPropertySet(field, effectiveSet);
                     }
-                    applyDefaultVisibility(field, set);
-                    insertItemIntoContainer(parentContainer, field, asOptionalInteger(operation.get("index"), "index")); //$NON-NLS-1$ //$NON-NLS-2$
-                    summaries.add("add_field[" + operationIndex + "]: name=" + name + ", id=" + field.getId()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    applyDefaultVisibility(field, effectiveSet);
+                    summaries.add("add_field[" + operationIndex + "]: name=" + field.getName() + ", id=" //$NON-NLS-1$ //$NON-NLS-2$
+                            + safeItemId(field)); //$NON-NLS-1$
                 }
                 case "setitemprops", "setitem", "updateitem", "set" -> {
                     FormItem item = resolveRequiredItem(formModel, operation);
@@ -840,6 +891,71 @@ public class EdtMetadataService {
                     source.getItems().remove(item);
                     insertItemIntoContainer(target, item, asOptionalInteger(operation.get("index"), "index")); //$NON-NLS-1$ //$NON-NLS-2$
                     summaries.add("move_item[" + operationIndex + "]: id=" + item.getId()); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                case "addcommand", "createcommand" -> {
+                    String name = asString(getMapValueIgnoreCase(operation, "name")); //$NON-NLS-1$
+                    if (!MetadataNameValidator.isValidName(name)) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_NAME,
+                                "Invalid command name: " + name, false); //$NON-NLS-1$
+                    }
+                    // Check for duplicate command name
+                    for (FormCommand existing : formModel.getFormCommands()) {
+                        if (existing != null && name.equalsIgnoreCase(existing.getName())) {
+                            throw new MetadataOperationException(
+                                    MetadataOperationCode.METADATA_ALREADY_EXISTS,
+                                    "Form command already exists: " + name, false); //$NON-NLS-1$
+                        }
+                    }
+                    String actionHandler = asString(getMapValueIgnoreCase(operation, "action")); //$NON-NLS-1$
+                    if (actionHandler == null || actionHandler.isBlank()) {
+                        actionHandler = name; // Default handler name = command name
+                    }
+                    FormCommand formCommand = addCommandToForm(formModel, name, actionHandler, operation);
+                    summaries.add("add_command[" + operationIndex + "]: name=" + formCommand.getName() //$NON-NLS-1$ //$NON-NLS-2$
+                            + ", id=" + formCommand.getId() + ", action=" + actionHandler); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                case "addbutton", "createbutton" -> {
+                    FormItemContainer parentContainer = resolveButtonParentContainer(formModel, operation);
+                    String name = asString(getMapValueIgnoreCase(operation, "name")); //$NON-NLS-1$
+                    if (!MetadataNameValidator.isValidName(name)) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_NAME,
+                                "Invalid button name: " + name, false); //$NON-NLS-1$
+                    }
+                    // Resolve the command reference
+                    String commandRef = asString(getMapValueIgnoreCase(operation, "command_name")); //$NON-NLS-1$
+                    if (commandRef == null) {
+                        commandRef = asString(getMapValueIgnoreCase(operation, "command")); //$NON-NLS-1$
+                    }
+                    Command resolvedCommand = null;
+                    if (commandRef != null && !commandRef.isBlank()) {
+                        resolvedCommand = findFormCommandByName(formModel, commandRef);
+                        if (resolvedCommand == null) {
+                            throw new MetadataOperationException(
+                                    MetadataOperationCode.METADATA_NOT_FOUND,
+                                    "Form command not found: \"" + commandRef //$NON-NLS-1$
+                                            + "\". Use add_command first to create it.", false); //$NON-NLS-1$
+                        }
+                    }
+                    Integer index = asOptionalInteger(operation.get("index"), "index"); //$NON-NLS-1$ //$NON-NLS-2$
+                    Button button = addButtonItem(
+                            formModel,
+                            parentContainer,
+                            operation,
+                            name,
+                            resolvedCommand,
+                            index,
+                            itemManagementService);
+                    Map<String, Object> set = extractOperationSet(operation);
+                    Map<String, Object> effectiveSet = stripMapKeysIgnoreCase(set, "name", "title", "command_name", "command"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                    if (!effectiveSet.isEmpty()) {
+                        applyFormPropertySet(button, effectiveSet);
+                    }
+                    applyDefaultVisibility(button, effectiveSet);
+                    summaries.add("add_button[" + operationIndex + "]: name=" + button.getName() //$NON-NLS-1$ //$NON-NLS-2$
+                            + ", id=" + safeItemId(button) //$NON-NLS-1$
+                            + (commandRef != null ? ", command=" + commandRef : "")); //$NON-NLS-1$ //$NON-NLS-2$
                 }
                 default -> throw new MetadataOperationException(
                         MetadataOperationCode.INVALID_METADATA_CHANGE,
@@ -887,6 +1003,244 @@ public class EdtMetadataService {
             set.put("type", fieldType); //$NON-NLS-1$
         }
         return set;
+    }
+
+    private IFormItemManagementService resolveOptionalFormItemManagementService() {
+        try {
+            Bundle formBundle = requireBundle(FORM_BUNDLE_ID);
+            Object injector = resolveFormInjector(formBundle);
+            return (IFormItemManagementService) resolveInjectorService(injector, IFormItemManagementService.class);
+        } catch (MetadataOperationException | ReflectiveOperationException e) {
+            LOG.warn("IFormItemManagementService unavailable, using legacy form item creation path: %s", //$NON-NLS-1$
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    private FormGroup addGroupItem(
+            Form formModel,
+            FormItemContainer parentContainer,
+            Map<String, Object> operation,
+            String name,
+            ManagedFormGroupType groupType,
+            Integer index,
+            IFormItemManagementService itemManagementService) {
+        FormNewItemDescriptor descriptor = buildFormNewItemDescriptor(operation, name);
+        if (itemManagementService != null) {
+            if (index != null && index.intValue() >= 0 && index.intValue() <= parentContainer.getItems().size()) {
+                return itemManagementService.addGroup(parentContainer, index.intValue(), groupType, formModel, descriptor);
+            }
+            return itemManagementService.addGroup(parentContainer, groupType, formModel, descriptor);
+        }
+        FormGroup group = FormFactory.eINSTANCE.createFormGroup();
+        group.setId(nextFormItemId(formModel));
+        group.setName(name);
+        applyTitleValue(group, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
+        applySimpleFeatureValue(group, "type", groupType.name()); //$NON-NLS-1$
+        insertItemIntoContainer(parentContainer, group, index);
+        return group;
+    }
+
+    private FormField addFieldItem(
+            Form formModel,
+            FormItemContainer parentContainer,
+            Map<String, Object> operation,
+            String name,
+            Integer index,
+            IFormItemManagementService itemManagementService) {
+        FormNewItemDescriptor descriptor = buildFormNewItemDescriptor(operation, name);
+        if (itemManagementService != null) {
+            if (index != null && index.intValue() >= 0 && index.intValue() <= parentContainer.getItems().size()) {
+                return itemManagementService.addField(parentContainer, index.intValue(), formModel, descriptor);
+            }
+            return itemManagementService.addField(parentContainer, formModel, descriptor);
+        }
+        FormField field = FormFactory.eINSTANCE.createFormField();
+        field.setId(nextFormItemId(formModel));
+        field.setName(name);
+        applyTitleValue(field, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
+        insertItemIntoContainer(parentContainer, field, index);
+        return field;
+    }
+
+    private FormCommand addCommandToForm(
+            Form formModel,
+            String name,
+            String actionHandler,
+            Map<String, Object> operation) {
+        FormCommand formCommand = FormFactory.eINSTANCE.createFormCommand();
+        formCommand.setName(name);
+        // Assign a unique command ID (separate namespace from form items, but we reuse nextFormItemId for safety)
+        int cmdId = nextFormCommandId(formModel);
+        formCommand.setId(cmdId);
+        // Set title
+        applyTitleValue(formCommand, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
+        // If no title was set, use command name as default title
+        if (formCommand.getTitle().isEmpty()) {
+            formCommand.getTitle().put(RU_LANGUAGE, name);
+        }
+        // Build action handler chain: FormCommand -> FormCommandHandlerContainer -> CommandHandler
+        CommandHandler handler = FormFactory.eINSTANCE.createCommandHandler();
+        handler.setName(actionHandler);
+        FormCommandHandlerContainer handlerContainer = FormFactory.eINSTANCE.createFormCommandHandlerContainer();
+        handlerContainer.setHandler(handler);
+        formCommand.setAction(handlerContainer);
+        // Apply optional properties
+        Map<String, Object> set = extractOperationSet(operation);
+        Object modifiesStoredData = getMapValueIgnoreCase(set, "modifiesStoredData"); //$NON-NLS-1$
+        if (modifiesStoredData instanceof Boolean b) {
+            formCommand.setModifiesStoredData(b.booleanValue());
+        }
+        formModel.getFormCommands().add(formCommand);
+        return formCommand;
+    }
+
+    private Button addButtonItem(
+            Form formModel,
+            FormItemContainer parentContainer,
+            Map<String, Object> operation,
+            String name,
+            Command command,
+            Integer index,
+            IFormItemManagementService itemManagementService) {
+        FormNewItemDescriptor descriptor = buildFormNewItemDescriptor(operation, name);
+        if (itemManagementService != null && command != null) {
+            try {
+                if (index != null && index.intValue() >= 0 && index.intValue() <= parentContainer.getItems().size()) {
+                    return itemManagementService.addButton(parentContainer, index.intValue(), command, null, formModel, descriptor);
+                }
+                return itemManagementService.addButton(parentContainer, command, null, formModel, descriptor);
+            } catch (Exception e) {
+                LOG.warn("IFormItemManagementService.addButton() failed, using manual path: %s", e.getMessage()); //$NON-NLS-1$
+            }
+        }
+        // Manual / fallback path
+        Button button = FormFactory.eINSTANCE.createButton();
+        button.setId(nextFormItemId(formModel));
+        button.setName(name);
+        applyTitleValue(button, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
+        if (command != null) {
+            button.setCommandName(command);
+        }
+        // Resolve button type
+        ManagedFormButtonType buttonType = resolveButtonType(operation);
+        button.setType(buttonType);
+        insertItemIntoContainer(parentContainer, button, index);
+        return button;
+    }
+
+    private FormCommand findFormCommandByName(Form formModel, String name) {
+        if (formModel == null || name == null) {
+            return null;
+        }
+        for (FormCommand cmd : formModel.getFormCommands()) {
+            if (cmd != null && name.equalsIgnoreCase(cmd.getName())) {
+                return cmd;
+            }
+        }
+        return null;
+    }
+
+    private int nextFormCommandId(Form formModel) {
+        int maxId = 0;
+        for (FormCommand cmd : formModel.getFormCommands()) {
+            if (cmd != null) {
+                maxId = Math.max(maxId, cmd.getId());
+            }
+        }
+        // Also consider form item IDs to avoid conflicts
+        maxId = Math.max(maxId, nextFormItemId(formModel) - 1);
+        return maxId + 1;
+    }
+
+    private ManagedFormButtonType resolveButtonType(Map<String, Object> operation) {
+        String typeStr = asString(getMapValueIgnoreCase(operation, "button_type")); //$NON-NLS-1$
+        if (typeStr == null) {
+            typeStr = asString(getMapValueIgnoreCase(operation, "type")); //$NON-NLS-1$
+        }
+        if (typeStr != null) {
+            String normalized = normalizeToken(typeStr);
+            return switch (normalized) {
+                case "usualbutton", "usual" -> ManagedFormButtonType.USUAL_BUTTON; //$NON-NLS-1$ //$NON-NLS-2$
+                case "hyperlink" -> ManagedFormButtonType.HYPERLINK; //$NON-NLS-1$
+                case "commandbarhyperlink" -> ManagedFormButtonType.COMMAND_BAR_HYPERLINK; //$NON-NLS-1$
+                default -> ManagedFormButtonType.COMMAND_BAR_BUTTON;
+            };
+        }
+        return ManagedFormButtonType.COMMAND_BAR_BUTTON;
+    }
+
+    private FormNewItemDescriptor buildFormNewItemDescriptor(Map<String, Object> operation, String name) {
+        return new FormNewItemDescriptor(name, extractTitleMap(getMapValueIgnoreCase(operation, "title")), false); //$NON-NLS-1$
+    }
+
+    private Map<String, String> extractTitleMap(Object value) {
+        if (value == null) {
+            return Map.of();
+        }
+        Map<String, String> titles = new LinkedHashMap<>();
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) {
+                    continue;
+                }
+                String language = String.valueOf(entry.getKey()).trim();
+                String title = String.valueOf(entry.getValue()).trim();
+                if (!language.isBlank() && !title.isBlank()) {
+                    titles.put(language, title);
+                }
+            }
+            return titles;
+        }
+        String title = asString(value);
+        if (title != null && !title.isBlank()) {
+            titles.put(RU_LANGUAGE, title);
+        }
+        return titles;
+    }
+
+    private ManagedFormGroupType resolveRequestedGroupType(Map<String, Object> operation, Map<String, Object> set) {
+        Object rawType = hasMapKeyIgnoreCase(operation, "group_type") //$NON-NLS-1$
+                ? getMapValueIgnoreCase(operation, "group_type") //$NON-NLS-1$
+                : getMapValueIgnoreCase(set, "type"); //$NON-NLS-1$
+        if (rawType instanceof ManagedFormGroupType groupType) {
+            return groupType;
+        }
+        if (rawType != null) {
+            String normalized = String.valueOf(rawType).trim().toUpperCase(Locale.ROOT);
+            try {
+                return ManagedFormGroupType.valueOf(normalized);
+            } catch (IllegalArgumentException e) {
+                LOG.warn("Unknown managed form group type '%s', using USUAL_GROUP", rawType); //$NON-NLS-1$
+            }
+        }
+        return ManagedFormGroupType.USUAL_GROUP;
+    }
+
+    private Map<String, Object> stripMapKeysIgnoreCase(Map<String, Object> source, String... keysToRemove) {
+        if (source == null || source.isEmpty()) {
+            return Map.of();
+        }
+        Set<String> normalizedKeys = new HashSet<>();
+        for (String key : keysToRemove) {
+            if (key != null && !key.isBlank()) {
+                normalizedKeys.add(normalizeToken(key));
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            String key = entry.getKey();
+            if (key == null || normalizedKeys.contains(normalizeToken(key))) {
+                continue;
+            }
+            result.put(key, entry.getValue());
+        }
+        return result;
+    }
+
+    private int safeItemId(Object item) {
+        Integer id = BmObjectHelper.safeId(item);
+        return id != null ? id.intValue() : 0;
     }
 
     private void applyDefaultVisibility(EObject target, Map<String, Object> set) {
@@ -988,8 +1342,19 @@ public class EdtMetadataService {
     }
 
     private FormItemContainer resolveTargetContainer(Form formModel, Map<String, Object> operation) {
+        // Accept parent_item_id (canonical) or parent_id/parentId (common LLM hallucination aliases)
         Integer parentItemId = asOptionalInteger(getMapValueIgnoreCase(operation, "parent_item_id"), "parent_item_id"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (parentItemId == null) {
+            parentItemId = asOptionalInteger(getMapValueIgnoreCase(operation, "parent_id"), "parent_id"); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if (parentItemId == null) {
+            parentItemId = asOptionalInteger(getMapValueIgnoreCase(operation, "parentId"), "parentId"); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        // Accept parent_item_name (canonical) or parent (common LLM hallucination alias)
         String parentItemName = asString(getMapValueIgnoreCase(operation, "parent_item_name")); //$NON-NLS-1$
+        if (parentItemName == null) {
+            parentItemName = asString(getMapValueIgnoreCase(operation, "parent")); //$NON-NLS-1$
+        }
         if (parentItemId == null && parentItemName == null) {
             return formModel;
         }
@@ -1002,8 +1367,59 @@ public class EdtMetadataService {
         return container;
     }
 
+    /**
+     * Resolves the parent container for add_button. If no parent is specified,
+     * automatically finds the top-level COMMAND_BAR group instead of defaulting
+     * to the form root (which would create a standalone button outside any bar).
+     */
+    private FormItemContainer resolveButtonParentContainer(Form formModel, Map<String, Object> operation) {
+        // Check if parent is explicitly specified
+        Integer parentItemId = asOptionalInteger(getMapValueIgnoreCase(operation, "parent_item_id"), "parent_item_id"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (parentItemId == null) {
+            parentItemId = asOptionalInteger(getMapValueIgnoreCase(operation, "parent_id"), "parent_id"); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if (parentItemId == null) {
+            parentItemId = asOptionalInteger(getMapValueIgnoreCase(operation, "parentId"), "parentId"); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        String parentItemName = asString(getMapValueIgnoreCase(operation, "parent_item_name")); //$NON-NLS-1$
+        if (parentItemName == null) {
+            parentItemName = asString(getMapValueIgnoreCase(operation, "parent")); //$NON-NLS-1$
+        }
+        if (parentItemId != null || parentItemName != null) {
+            return resolveTargetContainer(formModel, operation);
+        }
+        // No parent specified — find the top-level COMMAND_BAR automatically
+        FormGroup commandBar = findTopLevelCommandBar(formModel);
+        if (commandBar != null) {
+            return commandBar;
+        }
+        // Fallback to form root
+        return formModel;
+    }
+
+    /**
+     * Finds the first top-level COMMAND_BAR or AUTO_COMMAND_BAR group in the form.
+     */
+    private FormGroup findTopLevelCommandBar(FormItemContainer container) {
+        if (container == null) {
+            return null;
+        }
+        for (FormItem item : container.getItems()) {
+            if (item instanceof FormGroup group
+                    && (group.getType() == ManagedFormGroupType.COMMAND_BAR
+                            || group.getType() == ManagedFormGroupType.AUTO_COMMAND_BAR)) {
+                return group;
+            }
+        }
+        return null;
+    }
+
     private FormItem resolveRequiredItem(Form formModel, Map<String, Object> operation) {
+        // Accept item_id (canonical) or id (common LLM hallucination alias)
         Integer itemId = asOptionalInteger(getMapValueIgnoreCase(operation, "item_id"), "item_id"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (itemId == null) {
+            itemId = asOptionalInteger(getMapValueIgnoreCase(operation, "id"), "id"); //$NON-NLS-1$ //$NON-NLS-2$
+        }
         String itemName = asString(getMapValueIgnoreCase(operation, "item_name")); //$NON-NLS-1$
         if (itemName == null) {
             itemName = asString(getMapValueIgnoreCase(operation, "name")); //$NON-NLS-1$
@@ -1874,6 +2290,60 @@ public class EdtMetadataService {
         return null;
     }
 
+    /**
+     * Early validation of form operation parameters to detect common LLM hallucinations
+     * and provide actionable error messages instead of cryptic BM errors.
+     */
+    private void validateFormOperationParams(Map<String, Object> operation, String rawOp) {
+        if (rawOp == null || rawOp.isBlank()) {
+            // Check if the model used "action" instead of "op"
+            String action = asString(getMapValueIgnoreCase(operation, "action")); //$NON-NLS-1$
+            if (action != null && !action.isBlank()) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Use \"op\" field instead of \"action\". Example: {\"op\":\"add_field\",...}", false); //$NON-NLS-1$
+            }
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Operation requires \"op\" field. Valid values: add_field, add_group, add_command, " //$NON-NLS-1$
+                            + "add_button, set_item, remove_item, move_item, set_form_props", false); //$NON-NLS-1$
+        }
+
+        // Detect "type":"field" hallucination — model should use op:"add_field"
+        String normalized = normalizeToken(rawOp);
+        if ("add".equals(normalized)) { //$NON-NLS-1$
+            String type = asString(getMapValueIgnoreCase(operation, "type")); //$NON-NLS-1$
+            if ("field".equalsIgnoreCase(type)) { //$NON-NLS-1$
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Use {\"op\":\"add_field\"} instead of {\"op\":\"add\",\"type\":\"field\"}. " //$NON-NLS-1$
+                                + "Valid field_type values: INPUT_FIELD, LABEL_FIELD. For buttons use {\"op\":\"add_button\"}", false); //$NON-NLS-1$
+            }
+            if ("group".equalsIgnoreCase(type)) { //$NON-NLS-1$
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Use {\"op\":\"add_group\"} instead of {\"op\":\"add\",\"type\":\"group\"}", false); //$NON-NLS-1$
+            }
+        }
+    }
+
+    /**
+     * Builds a concise mutation hint string that is embedded in the inspect_form_layout
+     * output. LLMs read this hint before calling mutate_form_model, which dramatically
+     * reduces parameter name hallucinations (parent_id vs parent_item_id, etc.).
+     */
+    private String buildFormMutationHint(String formFqn) {
+        return "To mutate this form with mutate_form_model, use: " //$NON-NLS-1$
+                + "form_fqn=\"" + formFqn + "\", operations:[{op:\"add_field\", name:\"...\", " //$NON-NLS-1$ //$NON-NLS-2$
+                + "parent_item_id:<id from items above>, data_path:\"...\", field_type:\"LABEL_FIELD\"}]. " //$NON-NLS-1$
+                + "For set_item use item_id:<id> (NOT id). " //$NON-NLS-1$
+                + "For move_item use parent_item_id:<id> (NOT parent_id or parent). " //$NON-NLS-1$
+                + "For commands: {op:\"add_command\", name:\"CmdName\", action:\"HandlerProc\", title:\"Button Title\"}, " //$NON-NLS-1$
+                + "then {op:\"add_button\", name:\"BtnName\", command_name:\"CmdName\"} — parent defaults to existing CommandBar. " //$NON-NLS-1$
+                + "DO NOT create a new CommandBar group — the form already has one. DO NOT use add_group for command bars. " //$NON-NLS-1$
+                + "Valid ops: add_field, add_group, add_command, add_button, set_item, remove_item, move_item, set_form_props."; //$NON-NLS-1$
+    }
+
     private Map<String, Object> collectFormRootProperties(
             Form formModel,
             boolean includeProperties,
@@ -1958,22 +2428,61 @@ public class EdtMetadataService {
                 }
             }
 
+            // Enrich kind with group type (COMMAND_BAR, USUAL_GROUP, etc.) so LLMs
+            // can distinguish the real command bar from regular groups.
+            String kind = item.eClass().getName();
+            if (item instanceof FormGroup formGroup && formGroup.getType() != null) {
+                kind = kind + ":" + formGroup.getType().getName(); //$NON-NLS-1$
+            }
+            // For buttons, include the command reference in kind
+            String commandRef = null;
+            if (item instanceof Button buttonItem && buttonItem.getCommandName() != null) {
+                Command cmd = buttonItem.getCommandName();
+                if (cmd instanceof NamedElement namedCmd) {
+                    commandRef = namedCmd.getName();
+                }
+            }
+
             result.add(new InspectFormLayoutResult.FormItemNode(
                     item.getId(),
                     parentId,
                     index,
                     path,
                     name,
-                    item.eClass().getName(),
+                    kind,
                     title,
                     visible,
                     enabled,
                     readOnly,
                     dataPath,
                     fieldType,
+                    commandRef,
                     properties,
                     children));
             index++;
+        }
+        return result;
+    }
+
+    private List<InspectFormLayoutResult.FormCommandNode> collectFormCommandNodes(Form formModel) {
+        List<InspectFormLayoutResult.FormCommandNode> result = new ArrayList<>();
+        if (formModel == null) {
+            return result;
+        }
+        for (FormCommand cmd : formModel.getFormCommands()) {
+            if (cmd == null) {
+                continue;
+            }
+            String actionName = null;
+            if (cmd.getAction() instanceof FormCommandHandlerContainer container
+                    && container.getHandler() != null) {
+                actionName = container.getHandler().getName();
+            }
+            result.add(new InspectFormLayoutResult.FormCommandNode(
+                    cmd.getId(),
+                    cmd.getName(),
+                    copyTitleMap(cmd),
+                    actionName));
         }
         return result;
     }
@@ -2503,6 +3012,609 @@ public class EdtMetadataService {
                 true);
     }
 
+    /**
+     * Creates the physical .mxl template artifact file on disk after the Template metadata
+     * has been created in BM. EDT stores SpreadsheetDocument as an external resource file,
+     * not as an embedded BM containment reference.
+     *
+     * Path convention: src/{TopFolder}/{TopName}/Templates/{TemplateName}/Template.mxl
+     */
+    private String ensureTemplateArtifact(IProject project, String parentFqn, String templateName, TemplateType templateType, String opId) {
+        // DCS templates are handled by EdtDcsService — do not create .mxl artifact
+        if (templateType == TemplateType.DATA_COMPOSITION_SCHEMA
+                || templateType == TemplateType.DATA_COMPOSITION_APPEARANCE_TEMPLATE) {
+            LOG.debug("[%s] ensureTemplateArtifact: skipping artifact for DCS template %s", opId, templateName); //$NON-NLS-1$
+            return null;
+        }
+        try {
+            String topKind = topKindFromFqn(parentFqn);
+            String topName = topNameFromFqn(parentFqn);
+            if (topKind == null || topName == null) {
+                LOG.warn("[%s] ensureTemplateArtifact: cannot resolve top-level from parentFqn=%s", opId, parentFqn); //$NON-NLS-1$
+                return null;
+            }
+            String topFolder = tryMapTopFolder(topKind);
+            if (topFolder == null) {
+                LOG.warn("[%s] ensureTemplateArtifact: cannot resolve topFolder for kind=%s", opId, topKind); //$NON-NLS-1$
+                return null;
+            }
+            String templatePath = "src/" + topFolder + "/" + topName //$NON-NLS-1$ //$NON-NLS-2$
+                    + "/Templates/" + templateName + "/Template.mxl"; //$NON-NLS-1$ //$NON-NLS-2$
+            IFile templateFile = project.getFile(templatePath);
+            if (templateFile.exists()) {
+                LOG.debug("[%s] ensureTemplateArtifact: file already exists at %s", opId, templatePath); //$NON-NLS-1$
+                return templatePath;
+            }
+
+            createParentsIfMissing(templateFile);
+
+            // Create empty SpreadsheetDocument and serialize via MoxelResourceMxl (binary MOXCEL format)
+            String mxlCreationResult = createEmptyMxlViaMoxelResource(project, templatePath, opId);
+            if (mxlCreationResult != null) {
+                refreshProjectSafely(project);
+                LOG.info("[%s] ensureTemplateArtifact SUCCESS (MOXCEL): created %s", opId, templatePath); //$NON-NLS-1$
+                return templatePath;
+            }
+
+            // Fallback: write raw MOXCEL minimal binary header if EMF Resource approach fails
+            LOG.warn("[%s] ensureTemplateArtifact: MoxelResource approach failed, using raw MOXCEL fallback", opId); //$NON-NLS-1$
+            byte[] minimalMoxcel = createMinimalMoxcelBytes();
+            try (ByteArrayInputStream source = new ByteArrayInputStream(minimalMoxcel)) {
+                templateFile.create(source, IResource.FORCE, null);
+                templateFile.refreshLocal(IResource.DEPTH_ZERO, null);
+            }
+            refreshProjectSafely(project);
+            LOG.info("[%s] ensureTemplateArtifact SUCCESS (raw fallback): created %s", opId, templatePath); //$NON-NLS-1$
+            return templatePath;
+        } catch (Exception e) {
+            LOG.warn("[%s] ensureTemplateArtifact failed for %s.Template.%s: %s", //$NON-NLS-1$
+                    opId, parentFqn, templateName, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Create an empty .mxl file using MoxelResourceMxl EMF Resource (produces valid binary MOXCEL format).
+     * MoxelResourceMxl implements IDtProjectAware and requires setDtProject for proper serialization.
+     *
+     * @return "ok" on success, null on failure
+     */
+    private String createEmptyMxlViaMoxelResource(IProject project, String templatePath, String opId) {
+        try {
+            // Build minimal SpreadsheetDocument with empty Columns
+            SpreadsheetDocument sheet = MoxelFactory.eINSTANCE.createSpreadsheetDocument();
+            Columns columns = MoxelFactory.eINSTANCE.createColumns();
+            columns.setColumnsId(UUID.randomUUID());
+            columns.setSize(100); // total width in internal units (NOT column count)
+            sheet.setColumns(columns);
+
+            // Serialize via MoxelResourceMxl — this produces binary MOXCEL format
+            URI fileUri = URI.createPlatformResourceURI(project.getName() + "/" + templatePath, true); //$NON-NLS-1$
+            MoxelResourceMxl mxlResource = new MoxelResourceMxl(fileUri);
+
+            // Set IDtProject context if available (required for full serialization fidelity)
+            try {
+                IDtProjectManager projectManager = gateway.getDtProjectManager();
+                IDtProject dtProject = projectManager.getDtProject(project);
+                if (dtProject != null) {
+                    mxlResource.setDtProject(dtProject);
+                    LOG.debug("[%s] createEmptyMxlViaMoxelResource: IDtProject set for %s", opId, project.getName()); //$NON-NLS-1$
+                } else {
+                    LOG.debug("[%s] createEmptyMxlViaMoxelResource: IDtProject is null, proceeding without it", opId); //$NON-NLS-1$
+                }
+            } catch (Exception e) {
+                LOG.debug("[%s] createEmptyMxlViaMoxelResource: could not obtain IDtProject: %s", opId, e.getMessage()); //$NON-NLS-1$
+            }
+
+            mxlResource.getContents().add(sheet);
+            mxlResource.save(Collections.emptyMap());
+            LOG.debug("[%s] createEmptyMxlViaMoxelResource: MoxelResourceMxl.save() succeeded for %s", opId, templatePath); //$NON-NLS-1$
+            return "ok"; //$NON-NLS-1$
+        } catch (Exception e) {
+            LOG.warn("[%s] createEmptyMxlViaMoxelResource failed: %s", opId, e.getMessage()); //$NON-NLS-1$
+            return null;
+        }
+    }
+
+    /**
+     * Creates minimal valid MOXCEL binary bytes as a fallback when MoxelResourceMxl is unavailable.
+     * The MOXCEL format starts with magic bytes "MOXCEL" (0x4D 0x4F 0x58 0x43 0x45 0x4C)
+     * followed by version/header data and an empty spreadsheet structure.
+     *
+     * This produces the smallest valid .mxl that EDT can import without errors.
+     */
+    private byte[] createMinimalMoxcelBytes() {
+        // Minimal MOXCEL binary: magic header + version 8 + empty spreadsheet descriptor
+        // Format: MOXCEL (6 bytes) + version (2 bytes) + flags (2 bytes) + minimal body
+        // The body contains a text-encoded spreadsheet descriptor: {columns,rows,formatCount,...}
+        byte[] header = new byte[] {
+            0x4D, 0x4F, 0x58, 0x43, 0x45, 0x4C, // "MOXCEL" magic
+            0x00, 0x08,                             // version 8
+            0x00, 0x01,                             // flags
+            0x00, 0x04                              // minimal body length indicator
+        };
+        // Empty spreadsheet body: 0 columns, 0 rows, 0 formats
+        byte[] body = "{0}".getBytes(StandardCharsets.UTF_8); //$NON-NLS-1$
+        byte[] result = new byte[header.length + body.length];
+        System.arraycopy(header, 0, result, 0, header.length);
+        System.arraycopy(body, 0, result, header.length, body.length);
+        return result;
+    }
+
+    // ─── render_template: section-based layout generation ──────────────────
+
+    /**
+     * Render a print template from section-based JSON.
+     * Full-layout replacement — generates SpreadsheetDocument from sections,
+     * serializes to binary MOXCEL .mxl via MoxelResourceMxl.
+     */
+    public RenderTemplateResult renderTemplate(RenderTemplateRequest request) {
+        String opId = LogSanitizer.newId("render-tpl"); //$NON-NLS-1$
+        long startedAt = System.currentTimeMillis();
+        request.validate();
+        LOG.info("[%s] renderTemplate START project=%s template=%s sections=%d", //$NON-NLS-1$
+                opId, request.projectName(), request.templateFqn(),
+                Integer.valueOf(request.sections().size()));
+
+        gateway.ensureMutationRuntimeAvailable();
+        IProject project = requireProject(request.projectName());
+        readinessChecker.ensureReady(project);
+
+        // Validate template exists in BM and is SpreadsheetDocument type
+        String templateFqn = request.templateFqn();
+        try {
+            IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
+            Configuration configuration = configurationProvider.getConfiguration(project);
+            if (configuration != null) {
+                MdObject templateMd = resolveByFqn(configuration, templateFqn);
+                if (templateMd == null) {
+                    throw new MetadataOperationException(
+                            MetadataOperationCode.METADATA_NOT_FOUND,
+                            "Template metadata not found in BM: " + templateFqn
+                                    + ". Create it first via add_metadata_child with child_kind=Template", false); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                if (templateMd instanceof BasicTemplate bt) {
+                    TemplateType tt = bt.getTemplateType();
+                    if (tt != null && tt != TemplateType.SPREADSHEET_DOCUMENT) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                                "render_template only supports SpreadsheetDocument templates, got: " + tt.getLiteral(), false); //$NON-NLS-1$
+                    }
+                }
+            }
+        } catch (MetadataOperationException e) {
+            throw e; // re-throw our own exceptions
+        } catch (Exception e) {
+            LOG.debug("[%s] renderTemplate: could not validate template in BM: %s", opId, e.getMessage()); //$NON-NLS-1$
+        }
+
+        // Resolve .mxl path from FQN
+        String mxlPath = resolveTemplateMxlPath(templateFqn);
+        if (mxlPath == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_NAME,
+                    "Cannot resolve .mxl path from FQN: " + templateFqn, false); //$NON-NLS-1$
+        }
+        IFile mxlFile = project.getFile(mxlPath);
+        if (!mxlFile.exists()) {
+            // Create parent dirs and empty file if not exists
+            try {
+                createParentsIfMissing(mxlFile);
+            } catch (CoreException e) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                        "Failed to create parent directories for " + mxlPath + ": " + e.getMessage(), true); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+        }
+
+        // Build SpreadsheetDocument from sections
+        List<String> sectionSummaries = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+        int maxColumns = 0;
+        int totalRows = 0;
+
+        // First pass: calculate max columns across all sections
+        for (Map<String, Object> section : request.sections()) {
+            List<List<String>> rows = extractRows(section);
+            for (List<String> row : rows) {
+                maxColumns = Math.max(maxColumns, row.size());
+            }
+        }
+        if (maxColumns == 0) {
+            maxColumns = 1;
+        }
+
+        // Build SpreadsheetDocument
+        MoxelFactory f = MoxelFactory.eINSTANCE;
+        SpreadsheetDocument sheet = f.createSpreadsheetDocument();
+
+        // Set up columns — size is total width in internal units
+        Columns columns = f.createColumns();
+        columns.setColumnsId(UUID.randomUUID());
+        columns.setSize(maxColumns * 100); // total width = columns * 100 units each
+        for (int c = 0; c < maxColumns; c++) {
+            Column column = f.createColumn();
+            // Column stores formatIndex only — width is derived from Columns.size / count
+            columns.getColumns().put(Integer.valueOf(c), column);
+        }
+        sheet.setColumns(columns);
+
+        // Create formats for different section styles
+        // Format 0: default (no special formatting)
+        Format defaultFormat = f.createFormat();
+        sheet.getFormats().add(defaultFormat);
+        // Format 1: bold (for headers, totals)
+        Format boldFormat = f.createFormat();
+        // Bold is indicated by font index — we just set a distinct format
+        sheet.getFormats().add(boldFormat);
+
+        // Determine if a section is a detail/repeating section
+        java.util.Set<String> detailSections = Set.of(
+                "СтрокаТаблицы", "строкатаблицы", "tablerow", "table-row"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+
+        int currentRow = 0;
+        for (Map<String, Object> section : request.sections()) {
+            String sectionName = String.valueOf(section.get("name")); //$NON-NLS-1$
+            String sectionStyle = section.get("style") != null //$NON-NLS-1$
+                    ? String.valueOf(section.get("style")).trim() //$NON-NLS-1$
+                    : inferStyleFromSectionName(sectionName);
+            List<List<String>> rows = extractRows(section);
+            boolean isDetailSection = detailSections.contains(sectionName.toLowerCase(Locale.ROOT));
+            boolean isBoldStyle = "table-header".equals(sectionStyle) //$NON-NLS-1$
+                    || "total-row".equals(sectionStyle) //$NON-NLS-1$
+                    || "title".equals(sectionStyle); //$NON-NLS-1$
+
+            int sectionStartRow = currentRow;
+
+            for (List<String> rowCells : rows) {
+                Row row = f.createRow();
+                row.setColumns(columns);
+                if (isBoldStyle) {
+                    row.setFormatIndex(1); // bold format
+                }
+
+                for (int c = 0; c < rowCells.size(); c++) {
+                    String cellValue = rowCells.get(c);
+                    Cell cell = f.createCell();
+
+                    if (cellValue != null && cellValue.startsWith("[") && cellValue.endsWith("]")) { //$NON-NLS-1$ //$NON-NLS-2$
+                        // Data binding
+                        String binding = cellValue.substring(1, cellValue.length() - 1).trim();
+                        if (isDetailSection) {
+                            cell.setDetailParameter(binding);
+                        } else {
+                            cell.setParameter(binding);
+                        }
+                    } else if (cellValue != null && !cellValue.isEmpty()) {
+                        // Static text — use moxel content LocalString (EMap<String,String>)
+                        com._1c.g5.v8.dt.moxel.content.LocalString ls =
+                                com._1c.g5.v8.dt.moxel.content.ContentFactory.eINSTANCE.createLocalString();
+                        ls.getContent().put(RU_LANGUAGE, cellValue);
+                        cell.setText(ls);
+                    }
+
+                    if (isBoldStyle) {
+                        cell.setFormatIndex(1);
+                    }
+
+                    row.getCells().put(Integer.valueOf(c), cell);
+                }
+
+                // Handle colspan: if row has fewer cells than max, merge remaining
+                if (rowCells.size() < maxColumns && rowCells.size() > 0) {
+                    // Create merge for the last cell spanning remaining columns
+                    int lastCellIdx = rowCells.size() - 1;
+                    if (lastCellIdx < maxColumns - 1) {
+                        Merge merge = f.createMerge();
+                        Rect rect = f.createRect();
+                        rect.setX(lastCellIdx);
+                        rect.setY(currentRow);
+                        rect.setWidth(maxColumns - lastCellIdx);
+                        rect.setHeight(1);
+                        merge.setPosition(rect);
+                        sheet.getMerges().add(merge);
+                    }
+                }
+
+                sheet.getRows().put(Integer.valueOf(currentRow), row);
+                currentRow++;
+            }
+
+            int sectionEndRow = currentRow - 1;
+
+            // Create named area for this section
+            if (sectionStartRow <= sectionEndRow) {
+                NamedItemCells namedItem = f.createNamedItemCells();
+                RowsArea rowsArea = f.createRowsArea();
+                rowsArea.setBegin(sectionStartRow);
+                rowsArea.setEnd(sectionEndRow);
+                namedItem.setArea(rowsArea);
+                sheet.getNamedItems().put(sectionName, namedItem);
+            }
+
+            sectionSummaries.add(sectionName + " (" + rows.size() + " строк, стиль: " + sectionStyle + ")"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        }
+        totalRows = currentRow;
+
+        // Serialize via MoxelResourceMxl
+        try {
+            URI fileUri = URI.createPlatformResourceURI(project.getName() + "/" + mxlPath, true); //$NON-NLS-1$
+            MoxelResourceMxl mxlResource = new MoxelResourceMxl(fileUri);
+
+            // Set IDtProject context
+            try {
+                IDtProjectManager projectManager = gateway.getDtProjectManager();
+                IDtProject dtProject = projectManager.getDtProject(project);
+                if (dtProject != null) {
+                    mxlResource.setDtProject(dtProject);
+                }
+            } catch (Exception e) {
+                LOG.debug("[%s] renderTemplate: could not set IDtProject: %s", opId, e.getMessage()); //$NON-NLS-1$
+            }
+
+            mxlResource.getContents().add(sheet);
+            mxlResource.save(Collections.emptyMap());
+            LOG.debug("[%s] renderTemplate: MoxelResourceMxl.save() succeeded for %s", opId, mxlPath); //$NON-NLS-1$
+        } catch (Exception e) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Failed to serialize SpreadsheetDocument to .mxl: " + e.getMessage(), true, e); //$NON-NLS-1$
+        }
+
+        // Refresh and wait for importer sync
+        refreshProjectSafely(project);
+        try {
+            IDtProjectManager projectManager = gateway.getDtProjectManager();
+            IDtProject dtProject = projectManager.getDtProject(project);
+            if (dtProject != null) {
+                waitExportDerivedData(dtProject, opId, templateFqn);
+            }
+        } catch (Exception e) {
+            LOG.debug("[%s] renderTemplate: derived data wait skipped: %s", opId, e.getMessage()); //$NON-NLS-1$
+        }
+
+        LOG.info("[%s] renderTemplate SUCCESS in %s template=%s rows=%d cols=%d", opId, //$NON-NLS-1$
+                LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),
+                templateFqn, Integer.valueOf(totalRows), Integer.valueOf(maxColumns));
+
+        return new RenderTemplateResult(
+                request.projectName(),
+                templateFqn,
+                mxlPath,
+                totalRows,
+                maxColumns,
+                sectionSummaries,
+                warnings);
+    }
+
+    /**
+     * Inspect an existing template — read .mxl file and return grid of cells + named areas.
+     */
+    public InspectTemplateResult inspectTemplate(InspectTemplateRequest request) {
+        String opId = LogSanitizer.newId("inspect-tpl"); //$NON-NLS-1$
+        request.validate();
+        LOG.info("[%s] inspectTemplate START project=%s template=%s", //$NON-NLS-1$
+                opId, request.projectName(), request.templateFqn());
+
+        IProject project = requireProject(request.projectName());
+
+        String templateFqn = request.templateFqn();
+        String mxlPath = resolveTemplateMxlPath(templateFqn);
+
+        // Determine template type from metadata
+        String templateType = "SpreadsheetDocument"; //$NON-NLS-1$
+        try {
+            IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
+            Configuration configuration = configurationProvider.getConfiguration(project);
+            if (configuration != null) {
+                MdObject templateMd = resolveByFqn(configuration, templateFqn);
+                if (templateMd instanceof BasicTemplate bt) {
+                    templateType = bt.getTemplateType() != null ? bt.getTemplateType().getLiteral() : "SpreadsheetDocument"; //$NON-NLS-1$
+                }
+            }
+        } catch (Exception e) {
+            LOG.debug("[%s] inspectTemplate: could not resolve template type: %s", opId, e.getMessage()); //$NON-NLS-1$
+        }
+
+        // If DCS template, return minimal info
+        if ("DataCompositionSchema".equals(templateType)) { //$NON-NLS-1$
+            return new InspectTemplateResult(
+                    request.projectName(), templateFqn, templateType,
+                    mxlPath, 0, 0, List.of(), List.of());
+        }
+
+        // Try to load .mxl file via MoxelResourceMxl
+        if (mxlPath == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_NAME,
+                    "Cannot resolve .mxl path from FQN: " + templateFqn, false); //$NON-NLS-1$
+        }
+
+        IFile mxlFile = project.getFile(mxlPath);
+        if (!mxlFile.exists()) {
+            return new InspectTemplateResult(
+                    request.projectName(), templateFqn, templateType,
+                    mxlPath, 0, 0, List.of(), List.of(List.of("(файл не найден)"))); //$NON-NLS-1$
+        }
+
+        // Load SpreadsheetDocument from .mxl
+        SpreadsheetDocument sheet = null;
+        try {
+            URI fileUri = URI.createPlatformResourceURI(project.getName() + "/" + mxlPath, true); //$NON-NLS-1$
+            MoxelResourceMxl mxlResource = new MoxelResourceMxl(fileUri);
+            try {
+                IDtProjectManager projectManager = gateway.getDtProjectManager();
+                IDtProject dtProject = projectManager.getDtProject(project);
+                if (dtProject != null) {
+                    mxlResource.setDtProject(dtProject);
+                }
+            } catch (Exception e) {
+                LOG.debug("[%s] inspectTemplate: could not set IDtProject: %s", opId, e.getMessage()); //$NON-NLS-1$
+            }
+            mxlResource.load(Collections.emptyMap());
+            if (!mxlResource.getContents().isEmpty()
+                    && mxlResource.getContents().get(0) instanceof SpreadsheetDocument sd) {
+                sheet = sd;
+            }
+        } catch (Exception e) {
+            LOG.warn("[%s] inspectTemplate: failed to load .mxl: %s", opId, e.getMessage()); //$NON-NLS-1$
+            return new InspectTemplateResult(
+                    request.projectName(), templateFqn, templateType,
+                    mxlPath, 0, 0, List.of(), List.of(List.of("(ошибка загрузки: " + e.getMessage() + ")"))); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+
+        if (sheet == null) {
+            return new InspectTemplateResult(
+                    request.projectName(), templateFqn, templateType,
+                    mxlPath, 0, 0, List.of(), List.of(List.of("(пустой документ)"))); //$NON-NLS-1$
+        }
+
+        // Extract grid
+        int maxRow = 0;
+        int maxCol = 0;
+        for (Map.Entry<Integer, Row> entry : sheet.getRows()) {
+            int rowIdx = entry.getKey().intValue();
+            maxRow = Math.max(maxRow, rowIdx + 1);
+            Row row = entry.getValue();
+            for (Map.Entry<Integer, Cell> cellEntry : row.getCells()) {
+                maxCol = Math.max(maxCol, cellEntry.getKey().intValue() + 1);
+            }
+        }
+
+        List<List<String>> grid = new ArrayList<>();
+        for (int r = 0; r < maxRow; r++) {
+            Row row = sheet.getRows().get(Integer.valueOf(r));
+            List<String> rowData = new ArrayList<>();
+            for (int c = 0; c < maxCol; c++) {
+                if (row == null) {
+                    rowData.add(""); //$NON-NLS-1$
+                    continue;
+                }
+                Cell cell = row.getCells().get(Integer.valueOf(c));
+                if (cell == null) {
+                    rowData.add(""); //$NON-NLS-1$
+                    continue;
+                }
+                String cellStr = formatCellForInspection(cell);
+                rowData.add(cellStr);
+            }
+            grid.add(rowData);
+        }
+
+        // Extract named areas
+        List<Map<String, Object>> namedAreas = new ArrayList<>();
+        for (Map.Entry<String, ?> entry : sheet.getNamedItems()) {
+            String areaName = entry.getKey();
+            Object namedItem = entry.getValue();
+            Map<String, Object> areaInfo = new LinkedHashMap<>();
+            areaInfo.put("name", areaName); //$NON-NLS-1$
+            if (namedItem instanceof NamedItemCells nic && nic.getArea() instanceof RowsArea ra) {
+                areaInfo.put("begin", Integer.valueOf(ra.getBegin())); //$NON-NLS-1$
+                areaInfo.put("end", Integer.valueOf(ra.getEnd())); //$NON-NLS-1$
+            }
+            namedAreas.add(areaInfo);
+        }
+
+        LOG.info("[%s] inspectTemplate SUCCESS template=%s rows=%d cols=%d areas=%d", //$NON-NLS-1$
+                opId, templateFqn, Integer.valueOf(maxRow), Integer.valueOf(maxCol),
+                Integer.valueOf(namedAreas.size()));
+
+        return new InspectTemplateResult(
+                request.projectName(), templateFqn, templateType,
+                mxlPath, maxRow, maxCol, namedAreas, grid);
+    }
+
+    private String formatCellForInspection(Cell cell) {
+        if (cell.getParameter() != null && !cell.getParameter().isEmpty()) {
+            return "[" + cell.getParameter() + "]"; //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if (cell.getDetailParameter() != null && !cell.getDetailParameter().isEmpty()) {
+            // Use same [Field] syntax as render_template expects — render auto-detects
+            // detail vs document based on section name (СтрокаТаблицы)
+            return "[" + cell.getDetailParameter() + "]"; //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if (cell.getText() != null && cell.getText().getContent() != null
+                && !cell.getText().getContent().isEmpty()) {
+            // LocalString.getContent() is EMap<String, String> (language → text)
+            // Try Russian first, then any available
+            String ruText = cell.getText().getContent().get(RU_LANGUAGE);
+            if (ruText != null && !ruText.isEmpty()) {
+                return ruText;
+            }
+            for (Map.Entry<String, String> entry : cell.getText().getContent()) {
+                if (entry.getValue() != null && !entry.getValue().isEmpty()) {
+                    return entry.getValue();
+                }
+            }
+        }
+        return ""; //$NON-NLS-1$
+    }
+
+    /**
+     * Resolve .mxl file path from template FQN.
+     * FQN format: Document.ПеремещениеТоваров.Template.МакетПеремещения
+     * Path: src/Documents/ПеремещениеТоваров/Templates/МакетПеремещения/Template.mxl
+     */
+    private String resolveTemplateMxlPath(String templateFqn) {
+        if (templateFqn == null || !templateFqn.contains(".Template.")) { //$NON-NLS-1$
+            return null;
+        }
+        int templateIdx = templateFqn.indexOf(".Template."); //$NON-NLS-1$
+        String parentFqn = templateFqn.substring(0, templateIdx);
+        String templateName = templateFqn.substring(templateIdx + ".Template.".length()); //$NON-NLS-1$
+
+        String topKind = topKindFromFqn(parentFqn);
+        String topName = topNameFromFqn(parentFqn);
+        if (topKind == null || topName == null) {
+            return null;
+        }
+        String topFolder = tryMapTopFolder(topKind);
+        if (topFolder == null) {
+            return null;
+        }
+        return "src/" + topFolder + "/" + topName //$NON-NLS-1$ //$NON-NLS-2$
+                + "/Templates/" + templateName + "/Template.mxl"; //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<List<String>> extractRows(Map<String, Object> section) {
+        Object rowsObj = section.get("rows"); //$NON-NLS-1$
+        if (!(rowsObj instanceof List<?> rowsList)) {
+            return List.of();
+        }
+        List<List<String>> result = new ArrayList<>();
+        for (Object rowObj : rowsList) {
+            if (rowObj instanceof List<?> cellList) {
+                List<String> cells = new ArrayList<>();
+                for (Object cell : cellList) {
+                    cells.add(cell == null ? "" : String.valueOf(cell)); //$NON-NLS-1$
+                }
+                result.add(cells);
+            }
+        }
+        return result;
+    }
+
+    private String inferStyleFromSectionName(String name) {
+        if (name == null) {
+            return "default"; //$NON-NLS-1$
+        }
+        String lower = name.toLowerCase(Locale.ROOT);
+        if (lower.contains("шапкатаблицы") || lower.contains("tableheader")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "table-header"; //$NON-NLS-1$
+        }
+        if (lower.contains("строкатаблицы") || lower.contains("tablerow")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "table-row"; //$NON-NLS-1$
+        }
+        if (lower.contains("подвал") || lower.contains("footer")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "total-row"; //$NON-NLS-1$
+        }
+        if (lower.contains("заголовок") || lower.contains("title")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "title"; //$NON-NLS-1$
+        }
+        return "default"; //$NON-NLS-1$
+    }
+
     private List<String> buildModuleCandidates(ModuleTarget target, ModuleArtifactKind requestedKind) {
         LinkedHashSet<String> candidates = new LinkedHashSet<>();
         String topFolder = tryMapTopFolder(target.topKind());
@@ -2805,6 +3917,17 @@ public class EdtMetadataService {
             ownerMdoPath = "src/" + topFolder + "/" + topName + "/" + topName + ".mdo"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         }
         IFile ownerMdoFile = project.getFile(ownerMdoPath);
+
+        // QWEN-307: trigger BM-to-disk export for the owner before polling,
+        // otherwise the form entry may exist only in BM and never appear on disk.
+        try {
+            String topLevelFqn = extractTopLevelFqn(ownerFqn);
+            forceExportTopLevelObject(project, topLevelFqn, opId);
+        } catch (RuntimeException e) {
+            LOG.warn("[%s] pre-poll forceExport failed for %s, will still poll: %s", //$NON-NLS-1$
+                    opId, ownerFqn, e.getMessage());
+        }
+
         long startedAt = System.currentTimeMillis();
         long deadline = startedAt + waitMs;
 
@@ -3075,6 +4198,7 @@ public class EdtMetadataService {
             LOG.debug("createGenericChild created child class=%s", child.eClass().getName()); //$NON-NLS-1$
             setCommonProperties(child, request.name(), request.synonym(), request.comment());
             initializeFormIfNeeded(child);
+            initializeTemplateIfNeeded(child, request.properties());
             ensureUuidsRecursively(child, "child", request.parentFqn()); //$NON-NLS-1$
             addChildToParent(parent, child, effectiveKind);
             applyDefaultTypeIfNeeded(
@@ -3139,6 +4263,47 @@ public class EdtMetadataService {
         if (basicForm.getFormType() == null) {
             basicForm.setFormType(FormType.MANAGED);
         }
+    }
+
+    private void initializeTemplateIfNeeded(MdObject child, Map<String, Object> properties) {
+        if (!(child instanceof BasicTemplate template)) {
+            return;
+        }
+        TemplateType templateType = resolveTemplateType(properties);
+        template.setTemplateType(templateType);
+        LOG.debug("initializeTemplateIfNeeded: type=%s for template %s", templateType, child.getName()); //$NON-NLS-1$
+    }
+
+    private TemplateType resolveTemplateType(Map<String, Object> properties) {
+        if (properties == null || properties.isEmpty()) {
+            return TemplateType.SPREADSHEET_DOCUMENT;
+        }
+        Object raw = properties.get("template_type"); //$NON-NLS-1$
+        if (raw == null) {
+            return TemplateType.SPREADSHEET_DOCUMENT;
+        }
+        String value = String.valueOf(raw).trim().toLowerCase(Locale.ROOT);
+        return switch (value) {
+            case "spreadsheet", "spreadsheet_document", "mxl", "табличныйдокумент" -> //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                    TemplateType.SPREADSHEET_DOCUMENT;
+            case "html", "html_document", "htmlдокумент" -> //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    TemplateType.HTML_DOCUMENT;
+            case "text", "text_document", "текстовыйдокумент" -> //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    TemplateType.TEXT_DOCUMENT;
+            case "binary", "binary_data", "двоичныеданные" -> //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    TemplateType.BINARY_DATA;
+            case "active_document", "activedocument", "активныйдокумент" -> //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    TemplateType.ACTIVE_DOCUMENT;
+            case "geographical_schema", "geographicalschema", "географическаясхема" -> //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    TemplateType.GEOGRAPHICAL_SCHEMA;
+            case "graphical_schema", "graphicalschema", "графическаясхема" -> //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    TemplateType.GRAPHICAL_SCHEMA;
+            case "dcs", "data_composition_schema", "datacompositionschema", "скд" -> //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                    TemplateType.DATA_COMPOSITION_SCHEMA;
+            case "addin", "add_in", "внешняякомпонента" -> //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    TemplateType.ADD_IN;
+            default -> TemplateType.SPREADSHEET_DOCUMENT;
+        };
     }
 
     private void initializeFormForRequest(MdObject child, CreateFormRequest request) {
@@ -3399,7 +4564,7 @@ public class EdtMetadataService {
             if (object == null) {
                 return null;
             }
-            URI uri = object.eResource() != null ? object.eResource().getURI() : null;
+            URI uri = BmObjectHelper.safeUri(object);
             return new ModuleTarget(
                     object.eClass().getName(),
                     toProjectRelativePath(project, uri),
@@ -3416,7 +4581,7 @@ public class EdtMetadataService {
             if (resolved == null) {
                 return null;
             }
-            URI uri = resolved.eResource() != null ? resolved.eResource().getURI() : null;
+            URI uri = BmObjectHelper.safeUri(resolved);
             return new ModuleTarget(
                     resolved.eClass().getName(),
                     toProjectRelativePath(project, uri),
@@ -3763,10 +4928,11 @@ public class EdtMetadataService {
         IExternalObjectProject externalProject = tryResolveExternalProject(project);
         if (externalProject != null) {
             MdObject owner = resolveExternalByFqn(externalProject, ownerFqn);
-            if (owner == null || owner.eResource() == null) {
+            URI ownerUri = BmObjectHelper.safeUri(owner);
+            if (owner == null || ownerUri == null) {
                 return null;
             }
-            String resourcePath = toProjectRelativePath(project, owner.eResource().getURI());
+            String resourcePath = toProjectRelativePath(project, ownerUri);
             if (isUsableMetadataResourcePath(resourcePath) && resourcePath.toLowerCase(Locale.ROOT).endsWith(".mdo")) { //$NON-NLS-1$
                 return resourcePath;
             }
@@ -3783,10 +4949,11 @@ public class EdtMetadataService {
                 return null;
             }
             MdObject owner = resolveByFqn(txConfiguration, ownerFqn);
-            if (owner == null || owner.eResource() == null) {
+            URI ownerUri = BmObjectHelper.safeUri(owner);
+            if (owner == null || ownerUri == null) {
                 return null;
             }
-            return toProjectRelativePath(project, owner.eResource().getURI());
+            return toProjectRelativePath(project, ownerUri);
         });
     }
 
@@ -4020,6 +5187,7 @@ public class EdtMetadataService {
             setCommonProperties(child, name, asString(rawMap.get("synonym")), asString(rawMap.get("comment"))); //$NON-NLS-1$ //$NON-NLS-2$
             @SuppressWarnings("unchecked")
             Map<String, Object> childProperties = (Map<String, Object>) rawMap;
+            initializeTemplateIfNeeded(child, childProperties);
             try {
                 addChildToParent(parent, child, kind);
                 applyDefaultTypeIfNeeded(
@@ -4215,9 +5383,7 @@ public class EdtMetadataService {
             if ("synonym".equalsIgnoreCase(key)) { //$NON-NLS-1$
                 EMap<String, String> synonymMap = target.getSynonym();
                 if (synonymMap != null) {
-                    @SuppressWarnings("unchecked")
-                    Map<Object, Object> typedMap = (Map<Object, Object>) (Map<?, ?>) synonymMap;
-                    applyStringMapPatch(typedMap, entry.getValue(), "synonym"); //$NON-NLS-1$
+                    applyEMapStringPatch(synonymMap, entry.getValue(), "synonym"); //$NON-NLS-1$
                 }
                 continue;
             }
@@ -6272,7 +7438,7 @@ public class EdtMetadataService {
         }
         Object raw = target.eGet(reference);
         if (raw instanceof EMap<?, ?> eMap) {
-            applyStringMapPatch((Map<Object, Object>) eMap, value, reference.getName());
+            applyEMapStringPatch((EMap<String, String>) eMap, value, reference.getName());
             return true;
         }
         if (raw instanceof Map<?, ?> map) {
@@ -6283,7 +7449,7 @@ public class EdtMetadataService {
             // EMF map references are initialized lazily in generated models.
             Object refreshed = target.eGet(reference);
             if (refreshed instanceof EMap<?, ?> refreshedMap) {
-                applyStringMapPatch((Map<Object, Object>) refreshedMap, value, reference.getName());
+                applyEMapStringPatch((EMap<String, String>) refreshedMap, value, reference.getName());
                 return true;
             }
         }
@@ -6343,6 +7509,52 @@ public class EdtMetadataService {
                 String text = String.valueOf(rawText);
                 if (text.isBlank()) {
                     targetMap.remove(language);
+                } else {
+                    targetMap.put(language, text);
+                }
+            }
+            return;
+        }
+        String text = asString(value);
+        if (text == null || text.isBlank()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "Expected string or {lang:text} map for " + fieldName + ": " + value, false); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        targetMap.put(RU_LANGUAGE, text);
+    }
+
+    /**
+     * EMap-safe variant of {@link #applyStringMapPatch} that avoids casting
+     * {@code EBmStoreEcoreEMap} to {@code java.util.Map} (QWEN-305).
+     * The EMap interface provides its own {@code put}/{@code removeKey} methods
+     * that work across OSGi classloader boundaries.
+     */
+    private void applyEMapStringPatch(EMap<String, String> targetMap, Object value, String fieldName) {
+        if (targetMap == null) {
+            return;
+        }
+        if (value == null) {
+            targetMap.removeKey(RU_LANGUAGE);
+            return;
+        }
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() == null) {
+                    continue;
+                }
+                String language = String.valueOf(entry.getKey()).trim();
+                if (language.isBlank()) {
+                    continue;
+                }
+                Object rawText = entry.getValue();
+                if (rawText == null) {
+                    targetMap.removeKey(language);
+                    continue;
+                }
+                String text = String.valueOf(rawText);
+                if (text.isBlank()) {
+                    targetMap.removeKey(language);
                 } else {
                     targetMap.put(language, text);
                 }
@@ -6715,25 +7927,7 @@ public class EdtMetadataService {
     }
 
     private String resolveTopObjectFqn(IBmObject object) {
-        if (object == null) {
-            return ""; //$NON-NLS-1$
-        }
-        try {
-            if (object.bmIsTransient()) {
-                return ""; //$NON-NLS-1$
-            }
-            IBmObject topObject = object;
-            if (!topObject.bmIsTop()) {
-                topObject = topObject.bmGetTopObject();
-            }
-            if (topObject == null || topObject.bmIsTransient() || !topObject.bmIsTop()) {
-                return ""; //$NON-NLS-1$
-            }
-            String fqn = topObject.bmGetFqn();
-            return fqn != null ? fqn : ""; //$NON-NLS-1$
-        } catch (RuntimeException e) {
-            return ""; //$NON-NLS-1$
-        }
+        return BmObjectHelper.safeTopFqn(object);
     }
 
     private record IncomingReferences(int total, List<String> samples) {

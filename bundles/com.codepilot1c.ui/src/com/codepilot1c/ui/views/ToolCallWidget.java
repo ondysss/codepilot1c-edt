@@ -15,9 +15,12 @@ import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Label;
 
+import java.util.Map;
+
 import com.codepilot1c.ui.chat.MessagePart.ToolCallPart;
 import com.codepilot1c.ui.chat.MessagePart.ToolCallPart.ToolCallStatus;
 import com.codepilot1c.ui.chat.MessagePart.ToolResultPart;
+import com.codepilot1c.ui.internal.SkillDisplayInfo;
 import com.codepilot1c.ui.internal.ToolDisplayNames;
 import com.codepilot1c.ui.theme.ThemeManager;
 import com.codepilot1c.ui.theme.VibeTheme;
@@ -31,6 +34,7 @@ public class ToolCallWidget extends Composite {
 
     private final String toolName;
     private final String toolCallId;
+    private final Map<String, Object> arguments;
     private ToolCallStatus status;
     private String resultContent;
     private boolean resultSuccess;
@@ -52,6 +56,7 @@ public class ToolCallWidget extends Composite {
         super(parent, SWT.NONE);
         this.toolName = toolCall.toolName();
         this.toolCallId = toolCall.toolCallId();
+        this.arguments = toolCall.arguments() != null ? toolCall.arguments() : Map.of();
         this.status = toolCall.status();
         this.theme = ThemeManager.getInstance().getTheme();
 
@@ -70,6 +75,7 @@ public class ToolCallWidget extends Composite {
         super(parent, SWT.NONE);
         this.toolName = toolName;
         this.toolCallId = toolCallId;
+        this.arguments = Map.of();
         this.status = status;
         this.theme = ThemeManager.getInstance().getTheme();
 
@@ -111,12 +117,14 @@ public class ToolCallWidget extends Composite {
             updateContentVisibility();
         });
 
-        // Tool name with icon
+        // Tool name with icon — skill/task tools get specialized display
         Label nameLabel = new Label(header, SWT.NONE);
         nameLabel.setBackground(header.getBackground());
-        nameLabel.setForeground(theme.getText());
         nameLabel.setFont(theme.getFontBold());
-        nameLabel.setText("\uD83D\uDD27 " + getToolDisplayName(toolName)); // 🔧 //$NON-NLS-1$
+        String displayText = resolveDisplayText();
+        org.eclipse.swt.graphics.Color nameColor = resolveNameColor();
+        nameLabel.setText(displayText);
+        nameLabel.setForeground(nameColor);
         nameLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
 
         // Status indicator
@@ -227,6 +235,65 @@ public class ToolCallWidget extends Composite {
 
         statusLabel.setText(statusText);
         statusLabel.setForeground(color);
+    }
+
+    /**
+     * Resolves the display text for the tool call header.
+     * For skill/task/delegate tools, shows the specific skill or profile name
+     * with a corresponding icon instead of the generic tool name.
+     */
+    private String resolveDisplayText() {
+        if ("skill".equals(toolName)) { //$NON-NLS-1$
+            String skillName = getArgString("name"); //$NON-NLS-1$
+            if (skillName != null && !skillName.isBlank()) {
+                return SkillDisplayInfo.getSkillIcon(skillName) + " " //$NON-NLS-1$
+                        + SkillDisplayInfo.getSkillLabel(skillName);
+            }
+            return "\u2728 \u0421\u043A\u0438\u043B\u043B"; // ✨ Скилл //$NON-NLS-1$
+        }
+        if ("task".equals(toolName)) { //$NON-NLS-1$
+            String profile = getArgString("profile"); //$NON-NLS-1$
+            String description = getArgString("description"); //$NON-NLS-1$
+            StringBuilder sb = new StringBuilder();
+            if (profile != null && !profile.isBlank()) {
+                sb.append(SkillDisplayInfo.getProfileIcon(profile));
+                sb.append(' ');
+                sb.append(SkillDisplayInfo.getProfileLabel(profile));
+            } else {
+                sb.append("\uD83E\uDD16 \u041F\u043E\u0434\u0430\u0433\u0435\u043D\u0442"); // 🤖 Подагент //$NON-NLS-1$
+            }
+            if (description != null && !description.isBlank()) {
+                sb.append(": ").append(description); //$NON-NLS-1$
+            }
+            return sb.toString();
+        }
+        if ("delegate_to_agent".equals(toolName)) { //$NON-NLS-1$
+            String agentType = getArgString("agentType"); //$NON-NLS-1$
+            if (agentType != null && !agentType.isBlank()) {
+                return SkillDisplayInfo.getProfileIcon(agentType) + " " //$NON-NLS-1$
+                        + SkillDisplayInfo.getProfileLabel(agentType);
+            }
+            return "\uD83C\uDFAF \u0414\u0435\u043B\u0435\u0433\u0438\u0440\u043E\u0432\u0430\u043D\u0438\u0435"; // 🎯 Делегирование //$NON-NLS-1$
+        }
+        return "\uD83D\uDD27 " + getToolDisplayName(toolName); // 🔧 + tool name //$NON-NLS-1$
+    }
+
+    /**
+     * Returns a theme color appropriate for the skill/agent type.
+     */
+    private org.eclipse.swt.graphics.Color resolveNameColor() {
+        if ("skill".equals(toolName)) { //$NON-NLS-1$
+            return theme.getAccent();
+        }
+        if ("task".equals(toolName) || "delegate_to_agent".equals(toolName)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return theme.getSuccess();
+        }
+        return theme.getText();
+    }
+
+    private String getArgString(String key) {
+        Object value = arguments.get(key);
+        return value != null ? value.toString() : null;
     }
 
     private String getToolDisplayName(String name) {

@@ -35,6 +35,7 @@ import com._1c.g5.v8.dt.mcore.Parameter;
 import com._1c.g5.v8.dt.mcore.Property;
 import com._1c.g5.v8.dt.mcore.Type;
 import com._1c.g5.v8.dt.mcore.TypeItem;
+import com.codepilot1c.core.edt.BmObjectHelper;
 import com.codepilot1c.core.edt.metadata.EdtMetadataGateway;
 
 /**
@@ -603,20 +604,7 @@ public class EdtPlatformDocumentationService {
 
     private String safeFqn(Type type) {
         if (type instanceof IBmObject bmObject) {
-            try {
-                if (!bmObject.bmIsTransient()) {
-                    IBmObject top = bmObject;
-                    if (!top.bmIsTop()) {
-                        top = top.bmGetTopObject();
-                    }
-                    if (top != null && !top.bmIsTransient() && top.bmIsTop()) {
-                        String fqn = top.bmGetFqn();
-                        return fqn != null ? fqn : ""; //$NON-NLS-1$
-                    }
-                }
-            } catch (RuntimeException e) {
-                // Detached BM object may throw on bmGetFqn()/bmGetTopObject(); return empty FQN.
-            }
+            return BmObjectHelper.safeTopFqn(bmObject);
         }
         return ""; //$NON-NLS-1$
     }

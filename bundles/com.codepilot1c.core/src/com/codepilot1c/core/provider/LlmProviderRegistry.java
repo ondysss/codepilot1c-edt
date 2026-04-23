@@ -50,6 +50,9 @@ public final class LlmProviderRegistry {
     /** Dynamic providers from configuration store */
     private final Map<String, DynamicLlmProvider> dynamicProviders = new LinkedHashMap<>();
 
+    /** Backend provider injected at runtime after plugin account login */
+    private DynamicLlmProvider backendProvider;
+
     private boolean initialized = false;
 
     private LlmProviderConfigStore configStore;
@@ -208,6 +211,9 @@ public final class LlmProviderRegistry {
     public Collection<ILlmProvider> getProviders() {
         initialize();
         List<ILlmProvider> all = new ArrayList<>();
+        if (backendProvider != null) {
+            all.add(backendProvider);
+        }
         all.addAll(dynamicProviders.values());
         all.addAll(legacyProviders.values());
         return Collections.unmodifiableCollection(all);
@@ -243,6 +249,10 @@ public final class LlmProviderRegistry {
     public ILlmProvider getProvider(String id) {
         initialize();
 
+        if (backendProvider != null && backendProvider.getId().equals(id)) {
+            return backendProvider;
+        }
+
         // Check dynamic providers first (new system)
         DynamicLlmProvider dynamic = dynamicProviders.get(id);
         if (dynamic != null) {
@@ -262,19 +272,18 @@ public final class LlmProviderRegistry {
     public ILlmProvider getActiveProvider() {
         initialize();
 
-        // First check new config system
-        if (configStore != null && configStore.hasConfiguredProviders()) {
-            Optional<LlmProviderConfig> activeConfig = configStore.getActiveProvider();
-            if (activeConfig.isPresent()) {
-                DynamicLlmProvider provider = dynamicProviders.get(activeConfig.get().getId());
-                if (provider != null && provider.isConfigured()) {
-                    return provider;
-                }
+        String explicitProviderId = configStore != null ? configStore.getActiveProviderId() : null;
+        if (explicitProviderId != null && !explicitProviderId.isBlank()) {
+            ILlmProvider explicitProvider = getProvider(explicitProviderId);
+            if (explicitProvider != null && explicitProvider.isConfigured()) {
+                return explicitProvider;
             }
+        }
 
-            // If no active set, return first configured dynamic provider
+        // Only fall back to non-backend dynamic providers when no explicit selection exists.
+        if (configStore != null && configStore.hasConfiguredProviders()) {
             for (DynamicLlmProvider provider : dynamicProviders.values()) {
-                if (provider.isConfigured()) {
+                if (provider.isConfigured() && !ProviderSelectionGate.isCodePilotBackend(provider)) {
                     return provider;
                 }
             }
@@ -299,12 +308,53 @@ public final class LlmProviderRegistry {
     }
 
     /**
+     * Sets a transient backend provider managed by CodePilot account authentication.
+     */
+    public synchronized void setBackendProvider(DynamicLlmProvider provider) {
+        initialize();
+        if (backendProvider != null && backendProvider != provider) {
+            try {
+                backendProvider.dispose();
+            } catch (Exception e) {
+                VibeCorePlugin.logWarn("Error disposing backend provider", e); //$NON-NLS-1$
+            }
+        }
+        backendProvider = provider;
+        updateConfigurationState();
+    }
+
+    /**
+     * Clears the transient backend provider.
+     */
+    public synchronized void clearBackendProvider() {
+        if (backendProvider != null) {
+            try {
+                backendProvider.dispose();
+            } catch (Exception e) {
+                VibeCorePlugin.logWarn("Error disposing backend provider", e); //$NON-NLS-1$
+            }
+            backendProvider = null;
+        }
+        if (configStore != null && "backend".equals(configStore.getActiveProviderId())) { //$NON-NLS-1$
+            String fallbackProviderId = findFallbackProviderId();
+            configStore.setActiveProviderId(fallbackProviderId != null ? fallbackProviderId : ""); //$NON-NLS-1$
+        }
+        updateConfigurationState();
+    }
+
+    /**
      * Sets the active provider.
      *
      * @param id the provider ID
      */
     public void setActiveProvider(String id) {
         initialize();
+
+        if (backendProvider != null && backendProvider.isConfigured() && backendProvider.getId().equals(id)) {
+            configStore.setActiveProviderId(id);
+            updateConfigurationState();
+            return;
+        }
 
         // Check if it's a dynamic provider
         if (dynamicProviders.containsKey(id)) {
@@ -325,7 +375,51 @@ public final class LlmProviderRegistry {
         } catch (BackingStoreException e) {
             VibeCorePlugin.logWarn("Failed to persist provider preference", e); //$NON-NLS-1$
         }
+        configStore.setActiveProviderId(id);
         updateConfigurationState();
+    }
+
+    /**
+     * Returns the configured backend provider, if available.
+     *
+     * @return backend provider or {@code null}
+     */
+    public ILlmProvider getBackendProvider() {
+        initialize();
+        return backendProvider;
+    }
+
+    /**
+     * Returns the effective active provider ID.
+     *
+     * @return active provider ID or {@code null}
+     */
+    public String getEffectiveActiveProviderId() {
+        ILlmProvider provider = getActiveProvider();
+        return provider != null ? provider.getId() : null;
+    }
+
+    private String findFallbackProviderId() {
+        for (DynamicLlmProvider provider : dynamicProviders.values()) {
+            if (provider.isConfigured()) {
+                return provider.getId();
+            }
+        }
+
+        IEclipsePreferences prefs = InstanceScope.INSTANCE.getNode(VibeCorePlugin.PLUGIN_ID);
+        String legacyPreferredId = prefs.get(VibePreferenceConstants.PREF_PROVIDER_ID, ""); //$NON-NLS-1$
+        ILlmProvider preferredLegacy = legacyProviders.get(legacyPreferredId);
+        if (preferredLegacy != null && preferredLegacy.isConfigured()) {
+            return preferredLegacy.getId();
+        }
+
+        for (ILlmProvider provider : legacyProviders.values()) {
+            if (provider.isConfigured()) {
+                return provider.getId();
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -346,6 +440,15 @@ public final class LlmProviderRegistry {
             } catch (Exception e) {
                 // ignore
             }
+        }
+
+        if (backendProvider != null) {
+            try {
+                backendProvider.dispose();
+            } catch (Exception e) {
+                VibeCorePlugin.logWarn("Error disposing backend provider", e); //$NON-NLS-1$
+            }
+            backendProvider = null;
         }
         for (DynamicLlmProvider provider : dynamicProviders.values()) {
             try {

@@ -1,7 +1,7 @@
 package com.codepilot1c.core.tools;
 
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
@@ -13,6 +13,7 @@ import org.junit.Assume;
 import org.junit.Test;
 
 import com.codepilot1c.core.git.GitService;
+import com.codepilot1c.core.tools.git.GitInspectTool;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -80,6 +81,26 @@ public class GitInspectToolTest {
         JsonObject json = JsonParser.parseString(result.getContent()).getAsJsonObject();
         assertTrue(json.has("repo_path")); //$NON-NLS-1$
         assertEquals(repo.toRealPath().toString(), Path.of(json.get("repo_path").getAsString()).toRealPath().toString()); //$NON-NLS-1$
+    }
+
+    @Test
+    public void statusWithoutRepoPathUsesContextProjectAndReturnsProjectMetadata() throws Exception {
+        assumeGitAvailable();
+        Path repo = Files.createTempDirectory("git-inspect-context"); //$NON-NLS-1$
+        Path project = Files.createDirectories(repo.resolve("project")); //$NON-NLS-1$
+        run(repo, "git", "init"); //$NON-NLS-1$ //$NON-NLS-2$
+        Files.writeString(project.resolve(".project"), "<projectDescription/>"); //$NON-NLS-1$ //$NON-NLS-2$
+        GitInspectTool tool = new GitInspectTool(new GitService(() -> project));
+
+        ToolResult result = tool.execute(Map.of(
+                "operation", "status" //$NON-NLS-1$ //$NON-NLS-2$
+        )).join();
+
+        assertTrue(result.isSuccess());
+        JsonObject json = JsonParser.parseString(result.getContent()).getAsJsonObject();
+        assertEquals(repo.toRealPath().toString(), Path.of(json.get("repo_root").getAsString()).toRealPath().toString()); //$NON-NLS-1$
+        assertEquals(project.toRealPath().toString(), Path.of(json.get("project_path").getAsString()).toRealPath().toString()); //$NON-NLS-1$
+        assertEquals("context_project_path", json.get("resolution_source").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private static void assumeGitAvailable() throws Exception {

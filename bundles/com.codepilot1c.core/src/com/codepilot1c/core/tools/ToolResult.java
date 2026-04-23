@@ -7,8 +7,16 @@
  */
 package com.codepilot1c.core.tools;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+
 /**
  * Result of executing a tool.
+ *
+ * <p>Supports optional structured data alongside text content.
+ * The text content is always sent to the LLM; the structured data
+ * is available for programmatic access by composite tools, chained
+ * tool calls, and sub-agent orchestration without re-parsing text.</p>
  */
 public class ToolResult {
 
@@ -16,12 +24,15 @@ public class ToolResult {
     private final String content;
     private final String errorMessage;
     private final ToolResultType type;
+    private final JsonObject structuredData;
 
-    private ToolResult(boolean success, String content, String errorMessage, ToolResultType type) {
+    private ToolResult(boolean success, String content, String errorMessage,
+            ToolResultType type, JsonObject structuredData) {
         this.success = success;
         this.content = content;
         this.errorMessage = errorMessage;
         this.type = type;
+        this.structuredData = structuredData;
     }
 
     /**
@@ -31,7 +42,7 @@ public class ToolResult {
      * @return the tool result
      */
     public static ToolResult success(String content) {
-        return new ToolResult(true, content, null, ToolResultType.TEXT);
+        return new ToolResult(true, content, null, ToolResultType.TEXT, null);
     }
 
     /**
@@ -42,7 +53,34 @@ public class ToolResult {
      * @return the tool result
      */
     public static ToolResult success(String content, ToolResultType type) {
-        return new ToolResult(true, content, null, type);
+        return new ToolResult(true, content, null, type, null);
+    }
+
+    /**
+     * Creates a successful result with structured data.
+     *
+     * <p>The text content is sent to the LLM as usual. The structured
+     * data is available via {@link #getStructuredData()} for programmatic
+     * consumers (composite tools, delegation, chaining).</p>
+     *
+     * @param content the text content for the LLM
+     * @param structured machine-readable structured data
+     * @return the tool result
+     */
+    public static ToolResult success(String content, JsonObject structured) {
+        return new ToolResult(true, content, null, ToolResultType.TEXT, structured);
+    }
+
+    /**
+     * Creates a successful result with type and structured data.
+     *
+     * @param content the text content for the LLM
+     * @param type the result type
+     * @param structured machine-readable structured data
+     * @return the tool result
+     */
+    public static ToolResult success(String content, ToolResultType type, JsonObject structured) {
+        return new ToolResult(true, content, null, type, structured);
     }
 
     /**
@@ -52,7 +90,7 @@ public class ToolResult {
      * @return the tool result
      */
     public static ToolResult failure(String errorMessage) {
-        return new ToolResult(false, null, errorMessage, ToolResultType.ERROR);
+        return new ToolResult(false, null, errorMessage, ToolResultType.ERROR, null);
     }
 
     /**
@@ -89,6 +127,70 @@ public class ToolResult {
      */
     public ToolResultType getType() {
         return type;
+    }
+
+    /**
+     * Returns the structured data, or {@code null} if not provided.
+     *
+     * @return the structured data object, or null
+     */
+    public JsonObject getStructuredData() {
+        return structuredData;
+    }
+
+    /**
+     * Returns whether this result carries structured data.
+     *
+     * @return true if structured data is present
+     */
+    public boolean hasStructuredData() {
+        return structuredData != null && !structuredData.isEmpty();
+    }
+
+    /**
+     * Retrieves a typed value from the structured data.
+     *
+     * @param key the JSON key
+     * @return the value as a string, or {@code null} if absent or not structured
+     */
+    public String getStructuredString(String key) {
+        if (structuredData == null || !structuredData.has(key)) {
+            return null;
+        }
+        JsonElement element = structuredData.get(key);
+        return element.isJsonPrimitive() ? element.getAsString() : element.toString();
+    }
+
+    /**
+     * Retrieves an integer value from the structured data.
+     *
+     * @param key the JSON key
+     * @param defaultValue the default if absent
+     * @return the integer value, or defaultValue
+     */
+    public int getStructuredInt(String key, int defaultValue) {
+        if (structuredData == null || !structuredData.has(key)) {
+            return defaultValue;
+        }
+        try {
+            return structuredData.get(key).getAsInt();
+        } catch (RuntimeException e) {
+            return defaultValue;
+        }
+    }
+
+    /**
+     * Retrieves a nested JSON object from the structured data.
+     *
+     * @param key the JSON key
+     * @return the nested object, or {@code null}
+     */
+    public JsonObject getStructuredObject(String key) {
+        if (structuredData == null || !structuredData.has(key)) {
+            return null;
+        }
+        JsonElement element = structuredData.get(key);
+        return element.isJsonObject() ? element.getAsJsonObject() : null;
     }
 
     /**

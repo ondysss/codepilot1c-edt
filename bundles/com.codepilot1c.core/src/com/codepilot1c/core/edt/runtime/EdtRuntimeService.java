@@ -15,11 +15,18 @@ import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.impl.RuntimeEx
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.impl.RuntimeExecutionCommandBuilder.ThickClientMode;
 import com._1c.g5.v8.dt.platform.services.model.InfobaseAccess;
 import com._1c.g5.v8.dt.platform.services.model.InfobaseReference;
+import com.codepilot1c.core.logging.VibeLogger;
+import com.e1c.g5.v8.dt.platform.standaloneserver.wst.core.IStandaloneServerService;
+import com.e1c.g5.v8.dt.platform.standaloneserver.wst.core.StandaloneServerInfobase;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.NullProgressMonitor;
+import org.eclipse.wst.server.core.IModule;
+import org.eclipse.wst.server.core.IServer;
 
 public class EdtRuntimeService {
+
+    private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(EdtRuntimeService.class);
 
     private final EdtRuntimeGateway gateway;
 
@@ -91,18 +98,147 @@ public class EdtRuntimeService {
         if (project == null) {
             throw new IllegalStateException("EDT project not found: " + projectName); //$NON-NLS-1$
         }
-        IInfobaseAssociationManager manager = gateway.getInfobaseAssociationManager();
-        IInfobaseAssociation association = manager.getAssociation(project)
-                .orElseThrow(() -> new IllegalStateException("Infobase association not found for project: "
-                        + projectName)); //$NON-NLS-1$
-        InfobaseReference infobase = association.getDefaultInfobase();
-        if (infobase == null && !association.getInfobases().isEmpty()) {
-            infobase = association.getInfobases().iterator().next();
+
+        // Primary path: file-binding via IInfobaseAssociationManager.
+        boolean associationPresent = false;
+        InfobaseReference infobase = null;
+        Throwable primaryFailure = null;
+        try {
+            IInfobaseAssociationManager manager = gateway.getInfobaseAssociationManager();
+            java.util.Optional<IInfobaseAssociation> associationOpt = manager.getAssociation(project);
+            if (associationOpt.isPresent()) {
+                associationPresent = true;
+                IInfobaseAssociation association = associationOpt.get();
+                infobase = association.getDefaultInfobase();
+                if (infobase == null && !association.getInfobases().isEmpty()) {
+                    infobase = association.getInfobases().iterator().next();
+                }
+            }
+        } catch (IllegalStateException e) {
+            // IInfobaseAssociationManager service is unavailable; fall through to standalone path.
+            LOG.warn("IInfobaseAssociationManager unavailable; attempting standalone-server fallback: " //$NON-NLS-1$
+                    + e.getMessage(), e);
+            primaryFailure = e;
+        } catch (Exception e) {
+            // EDT may throw InfobaseAssociationException for malformed/missing bindings;
+            // treat as absent and fall back to the standalone path.
+            LOG.warn("Failed to query IInfobaseAssociationManager for project " + projectName //$NON-NLS-1$
+                    + "; attempting standalone-server fallback: " + e.getMessage(), e); //$NON-NLS-1$
+            primaryFailure = e;
         }
-        if (infobase == null) {
-            throw new IllegalStateException("Infobase reference not found for project: " + projectName); //$NON-NLS-1$
+
+        if (infobase != null) {
+            return infobase;
         }
-        return infobase;
+
+        // Fallback: standalone-server binding (com.e1c.g5.v8.dt.platform.standaloneserver.wst.core).
+        InfobaseReference standaloneInfobase = resolveStandaloneInfobase(project);
+        if (standaloneInfobase != null) {
+            return standaloneInfobase;
+        }
+
+        String message;
+        if (!associationPresent && primaryFailure == null) {
+            message = "Infobase association not found for project: " + projectName; //$NON-NLS-1$
+        } else {
+            message = "Infobase reference not found for project: " + projectName; //$NON-NLS-1$
+        }
+        IllegalStateException failure = new IllegalStateException(message);
+        if (primaryFailure != null) {
+            // Preserve the original primary-path exception so diagnostics can trace back to the
+            // underlying IInfobaseAssociationManager failure even when fallback also fails.
+            failure.addSuppressed(primaryFailure);
+        }
+        throw failure;
+    }
+
+    /**
+     * Attempts to resolve an {@link InfobaseReference} for a project bound through the standalone
+     * server plugin. Returns {@code null} if the standalone service is not registered, no server
+     * hosts an infobase module for this project, or the module cannot be adapted.
+     *
+     * <p>Uses the non-blocking {@code peekStandaloneServerService()} accessor so that a missing
+     * standalone-server service does not stall the agent tool dispatcher while a 30-second
+     * {@code ServiceTracker.waitForService} elapses.
+     */
+    private InfobaseReference resolveStandaloneInfobase(IProject project) {
+        IStandaloneServerService service = gateway.peekStandaloneServerService();
+        if (service == null) {
+            return null;
+        }
+        String projectName = project.getName();
+        java.util.List<IServer> servers;
+        try {
+            servers = service.getServers();
+        } catch (Exception | NoSuchMethodError e) {
+            // Standalone-server enumeration runs through EDT internal services that may invoke
+            // interruptible operations. Restore the interrupt flag if it was raised so that
+            // upstream cancellation propagates instead of being silently swallowed.
+            if (e instanceof InterruptedException || Thread.interrupted()) {
+                Thread.currentThread().interrupt();
+            }
+            LOG.warn("Standalone server enumeration failed: " + e.getMessage(), e); //$NON-NLS-1$
+            return null;
+        }
+        if (servers == null || servers.isEmpty()) {
+            return null;
+        }
+        for (IServer server : servers) {
+            if (server == null) {
+                continue;
+            }
+            IModule[] modules = server.getModules();
+            if (modules == null) {
+                continue;
+            }
+            for (IModule module : modules) {
+                if (!(module instanceof StandaloneServerInfobase standaloneInfobase)) {
+                    continue;
+                }
+                if (!matchesProject(standaloneInfobase, project, projectName)) {
+                    continue;
+                }
+                InfobaseReference adapted = adaptStandaloneInfobase(standaloneInfobase);
+                if (adapted != null) {
+                    return adapted;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean matchesProject(StandaloneServerInfobase infobase, IProject project, String projectName) {
+        IProject modProject = infobase.getProject();
+        if (modProject != null && modProject.equals(project)) {
+            return true;
+        }
+        String modProjectName = infobase.getProjectName();
+        return modProjectName != null && modProjectName.equals(projectName);
+    }
+
+    private static InfobaseReference adaptStandaloneInfobase(StandaloneServerInfobase infobase) {
+        try {
+            Object adapter = infobase.getAdapter(InfobaseReference.class);
+            if (adapter instanceof InfobaseReference ref) {
+                return ref;
+            }
+            // Fallback to loadAdapter if the adapter factory has not yet been registered.
+            Object loaded = infobase.loadAdapter(InfobaseReference.class, new NullProgressMonitor());
+            if (loaded instanceof InfobaseReference ref) {
+                return ref;
+            }
+        } catch (Exception | NoSuchMethodError e) {
+            // EDT adapter factories may run user/internal code that performs interruptible
+            // operations; if the worker thread was interrupted during the adapter resolution
+            // we must restore the interrupt flag so callers (and the agent dispatcher) can
+            // observe cancellation instead of treating the result as a benign null.
+            if (e instanceof InterruptedException || Thread.interrupted()) {
+                Thread.currentThread().interrupt();
+            }
+            LOG.warn("Failed to adapt standalone-server infobase to InfobaseReference: " //$NON-NLS-1$
+                    + e.getMessage(), e);
+        }
+        return null;
     }
 
     public AccessSettings resolveAccessSettings(String projectName) {
@@ -118,7 +254,7 @@ public class EdtRuntimeService {
         try {
             IInfobaseAccessManager accessManager = gateway.getInfobaseAccessManager();
             settings = accessManager.getSettings(infobase, InfobaseAccess.INFOBASE);
-        } catch (Exception e) {
+        } catch (Exception | NoSuchMethodError e) {
             return null;
         }
         if (settings == null || settings == IInfobaseAccessSettings.NOT_DEFINED) {
@@ -144,8 +280,9 @@ public class EdtRuntimeService {
             } else {
                 info = runtimeComponentManager.getThickClientInfo(infobase);
             }
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to resolve thick client: " + e.getMessage(), e); //$NON-NLS-1$
+        } catch (Exception | NoSuchMethodError e) {
+            LOG.warn("Failed to resolve thick client (possible EDT API incompatibility): " + e.getMessage(), e); //$NON-NLS-1$
+            return null;
         }
         if (info == null || info.component() == null || info.component().getFile() == null) {
             throw new IllegalStateException("Thick client runtime component not resolved for infobase"); //$NON-NLS-1$
@@ -431,7 +568,8 @@ public class EdtRuntimeService {
         try {
             IInfobaseAccessManager accessManager = gateway.getInfobaseAccessManager();
             settings = accessManager.getSettings(infobase, InfobaseAccess.INFOBASE);
-        } catch (Exception e) {
+        } catch (Exception | NoSuchMethodError e) {
+            LOG.warn("Failed to resolve access settings (possible EDT 2025.2 API change): " + e.getMessage(), e); //$NON-NLS-1$
             settings = null;
         }
 

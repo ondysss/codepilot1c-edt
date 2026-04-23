@@ -7,6 +7,10 @@
  */
 package com.codepilot1c.ui.views;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -19,8 +23,13 @@ import org.eclipse.core.runtime.preferences.InstanceScope;
 import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.ScrolledComposite;
+import org.eclipse.swt.dnd.Clipboard;
+import org.eclipse.swt.dnd.FileTransfer;
+import org.eclipse.swt.dnd.ImageTransfer;
 import org.eclipse.swt.events.KeyAdapter;
 import org.eclipse.swt.events.KeyEvent;
+import org.eclipse.swt.graphics.ImageData;
+import org.eclipse.swt.graphics.ImageLoader;
 import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.layout.GridLayout;
@@ -28,13 +37,23 @@ import org.eclipse.swt.widgets.Button;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.Display;
+import org.eclipse.swt.widgets.FileDialog;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.Text;
 import org.eclipse.ui.part.ViewPart;
 
 import com.codepilot1c.core.diff.CodeDiffUtils;
 import com.codepilot1c.core.logging.VibeLogger;
+import com.codepilot1c.core.agent.prompts.SystemPromptAssembler;
+import com.codepilot1c.core.skills.SkillMentionParser;
+import com.codepilot1c.core.model.LlmAttachment;
+import com.codepilot1c.core.memory.compaction.LlmCompactionService;
+import com.codepilot1c.core.session.Session;
+import com.codepilot1c.core.session.SessionManager;
+import com.codepilot1c.core.session.SessionMessage;
+import com.codepilot1c.core.model.LlmContentPart;
 import com.codepilot1c.core.model.LlmMessage;
+import com.codepilot1c.core.model.LlmConversationSanitizer;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
@@ -42,11 +61,17 @@ import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
-import com.codepilot1c.core.settings.PromptTemplateService;
+import com.codepilot1c.core.provider.ProviderCapabilities;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
+import com.codepilot1c.core.util.AttachmentTextExtractor;
+import com.codepilot1c.core.backend.BackendConfig;
+import com.codepilot1c.core.backend.BackendService;
+import com.codepilot1c.core.provider.config.ProviderType;
+import com.codepilot1c.core.provider.config.ModelFetchService;
+import com.codepilot1c.core.provider.config.ModelFetchService.ModelInfo;
 import com.codepilot1c.ui.dialogs.ToolConfirmationDialog;
 import com.codepilot1c.ui.diff.DiffReviewDialog;
 import com.codepilot1c.ui.diff.ProposedChange;
@@ -54,6 +79,8 @@ import com.codepilot1c.ui.diff.ProposedChangeSet;
 import com.codepilot1c.ui.editor.CodeApplicationService;
 import com.codepilot1c.ui.internal.Messages;
 import com.codepilot1c.ui.internal.ToolDisplayNames;
+import com.codepilot1c.ui.internal.VibeUiPlugin;
+import com.codepilot1c.ui.preferences.ModelSelectionDialog;
 import com.codepilot1c.ui.theme.ThemeManager;
 import com.codepilot1c.ui.theme.VibeTheme;
 
@@ -83,17 +110,25 @@ public class ChatView extends ViewPart {
     private BrowserChatPanel browserChatPanel;
     private Text inputField;
     private Button sendButton;
+    private Button attachButton;
     private Button clearButton;
+    private Button newChatButton;
     private Button stopButton;
     private Button applyCodeButton;
     private Button compactButton;
+    private Button modelButton;
+    private String overrideModelId;
     private TypingIndicatorWidget typingIndicator;
     private Label tokenUsageLabel;
+    private Composite attachmentPreviewArea;
 
     private final List<LlmMessage> conversationHistory = new ArrayList<>();
     private final List<ChatMessageComposite> messageWidgets = new ArrayList<>();
+    private final List<LlmAttachment> draftAttachments = new ArrayList<>();
     private CompletableFuture<?> currentRequest;
     private boolean isProcessing = false;
+    /** Skill names extracted from the latest user input via $mention syntax. */
+    private List<String> currentRequestedSkills = List.of();
     private String lastAssistantResponse;
 
     /** Accumulated content during streaming (thread-safe) */
@@ -123,6 +158,9 @@ public class ChatView extends ViewPart {
     private static final long AUTO_COMPACT_COOLDOWN_MS = 30_000L;
     private static final int COMPACT_TAIL_MESSAGES = 14;
     private static final String COMPACT_SUMMARY_MARKER = "[COMPACT_SUMMARY]"; //$NON-NLS-1$
+    private static final long DEFAULT_MAX_ATTACHMENT_BYTES = 10L * 1024L * 1024L;
+    private static final int DEFAULT_MAX_ATTACHMENTS = 5;
+    private static final int FILE_PREVIEW_CHAR_LIMIT = 4000;
 
     @Override
     public void createPartControl(Composite parent) {
@@ -239,6 +277,12 @@ public class ChatView extends ViewPart {
         inputField.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
+                if ((e.stateMask & SWT.MOD1) != 0 && (e.keyCode == 'v' || e.keyCode == 'V')) {
+                    if (handleClipboardPaste()) {
+                        e.doit = false;
+                        return;
+                    }
+                }
                 // Enter without modifiers or Ctrl+Enter - send message
                 // Shift+Enter - insert newline (default behavior)
                 if (e.keyCode == SWT.CR || e.keyCode == SWT.KEYPAD_CR) {
@@ -252,15 +296,36 @@ public class ChatView extends ViewPart {
             }
         });
 
+        attachmentPreviewArea = new Composite(inputArea, SWT.NONE);
+        attachmentPreviewArea.setBackground(inputArea.getBackground());
+        attachmentPreviewArea.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+        GridLayout attachmentLayout = new GridLayout(1, false);
+        attachmentLayout.marginWidth = 0;
+        attachmentLayout.marginHeight = 0;
+        attachmentLayout.verticalSpacing = 4;
+        attachmentPreviewArea.setLayout(attachmentLayout);
+        attachmentPreviewArea.setVisible(false);
+        ((GridData) attachmentPreviewArea.getLayoutData()).exclude = true;
+
         // Button bar - compact horizontal layout
         Composite buttonBar = new Composite(inputArea, SWT.NONE);
         buttonBar.setBackground(inputArea.getBackground());
         buttonBar.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
-        GridLayout buttonLayout = new GridLayout(7, false);
+        GridLayout buttonLayout = new GridLayout(8, false);
         buttonLayout.marginWidth = 0;
         buttonLayout.marginHeight = 0;
         buttonLayout.horizontalSpacing = 4; // Compact spacing
         buttonBar.setLayout(buttonLayout);
+
+        attachButton = new Button(buttonBar, SWT.PUSH);
+        attachButton.setText("+"); //$NON-NLS-1$
+        attachButton.setToolTipText(Messages.ChatView_AttachButton);
+        attachButton.setFont(theme.getFont());
+        GridData attachData = new GridData(SWT.LEFT, SWT.CENTER, false, false);
+        attachData.widthHint = 36;
+        attachData.heightHint = 28;
+        attachButton.setLayoutData(attachData);
+        attachButton.addListener(SWT.Selection, e -> openAttachmentDialog());
 
         // Send button with icon
         sendButton = new Button(buttonBar, SWT.PUSH);
@@ -297,14 +362,26 @@ public class ChatView extends ViewPart {
             }
         });
 
+        // Model selector button — only visible when CodePilot is active
+        modelButton = new Button(buttonBar, SWT.PUSH);
+        modelButton.setText(Messages.ChatView_ModelButton);
+        modelButton.setToolTipText(Messages.ChatView_ModelButtonTooltip);
+        modelButton.setFont(theme.getFont());
+        modelButton.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+        modelButton.addListener(SWT.Selection, e -> openModelSelectionDialog());
+        updateModelButtonVisibility();
+
+        // Token usage label — hidden by default (Phase 2: replaced by budget indicator)
         tokenUsageLabel = new Label(buttonBar, SWT.NONE);
         tokenUsageLabel.setBackground(buttonBar.getBackground());
         tokenUsageLabel.setForeground(theme.getTextMuted());
-        tokenUsageLabel.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false));
+        tokenUsageLabel.setVisible(false);
+        GridData tokenData = new GridData(SWT.FILL, SWT.CENTER, true, false);
+        tokenData.exclude = true;
+        tokenUsageLabel.setLayoutData(tokenData);
         tokenUsageLabel.setText(""); //$NON-NLS-1$
-        updateTokenUsageDisplay();
 
-        // Spacer to push stop and clear to the right
+        // Spacer to push stop/new-chat to the right (replaces token label space)
         Label spacer = new Label(buttonBar, SWT.NONE);
         spacer.setBackground(buttonBar.getBackground());
         spacer.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
@@ -321,16 +398,31 @@ public class ChatView extends ViewPart {
         stopButton.setLayoutData(stopData);
         stopButton.addListener(SWT.Selection, e -> stopGeneration());
 
-        // Clear button with icon
+        // New Chat button — prominent action to start fresh conversation
+        newChatButton = new Button(buttonBar, SWT.PUSH);
+        newChatButton.setText("\uD83D\uDCC4+"); // 📄+ new chat icon //$NON-NLS-1$
+        newChatButton.setToolTipText(Messages.ChatView_NewChatTooltip);
+        newChatButton.setFont(theme.getFont());
+        GridData newChatData = new GridData(SWT.RIGHT, SWT.CENTER, false, false);
+        newChatData.widthHint = 42;
+        newChatData.heightHint = 28;
+        newChatButton.setLayoutData(newChatData);
+        newChatButton.addListener(SWT.Selection, e -> confirmAndClearChat());
+
+        // Clear button with icon (legacy, kept for backward compat)
         clearButton = new Button(buttonBar, SWT.PUSH);
         clearButton.setText("\uD83D\uDDD1"); // 🗑 trash icon //$NON-NLS-1$
         clearButton.setToolTipText(Messages.ChatView_ClearButton);
         clearButton.setFont(theme.getFont());
+        clearButton.setVisible(false); // Hidden: replaced by newChatButton
         GridData clearData = new GridData(SWT.RIGHT, SWT.CENTER, false, false);
         clearData.widthHint = 36;
         clearData.heightHint = 28;
+        clearData.exclude = true;
         clearButton.setLayoutData(clearData);
         clearButton.addListener(SWT.Selection, e -> clearChat());
+
+        refreshAttachmentPreview();
     }
 
     private void updateScrollSize() {
@@ -349,6 +441,235 @@ public class ChatView extends ViewPart {
             messagesContainer.setSize(size);
             scrolledComposite.setMinSize(size);
         }
+    }
+
+    private void openAttachmentDialog() {
+        FileDialog dialog = new FileDialog(getSite().getShell(), SWT.OPEN | SWT.MULTI);
+        dialog.setText(Messages.ChatView_AttachDialogTitle);
+        dialog.open();
+        String[] fileNames = dialog.getFileNames();
+        if (fileNames == null || fileNames.length == 0) {
+            return;
+        }
+        Path filterPath = dialog.getFilterPath() != null && !dialog.getFilterPath().isBlank()
+                ? Path.of(dialog.getFilterPath())
+                : null;
+        List<LlmAttachment> attachments = new ArrayList<>();
+        for (String fileName : fileNames) {
+            Path path = filterPath != null ? filterPath.resolve(fileName) : Path.of(fileName);
+            LlmAttachment attachment = createAttachmentFromPath(path);
+            if (attachment != null) {
+                attachments.add(attachment);
+            }
+        }
+        addDraftAttachments(attachments);
+    }
+
+    private boolean handleClipboardPaste() {
+        Clipboard clipboard = new Clipboard(getDisplay());
+        try {
+            Object filePayload = clipboard.getContents(FileTransfer.getInstance());
+            if (filePayload instanceof String[] filePaths && filePaths.length > 0) {
+                List<LlmAttachment> attachments = new ArrayList<>();
+                for (String filePath : filePaths) {
+                    LlmAttachment attachment = createAttachmentFromPath(Path.of(filePath));
+                    if (attachment != null) {
+                        attachments.add(attachment);
+                    }
+                }
+                addDraftAttachments(attachments);
+                return !attachments.isEmpty();
+            }
+
+            Object imagePayload = clipboard.getContents(ImageTransfer.getInstance());
+            if (imagePayload instanceof ImageData imageData) {
+                LlmAttachment attachment = createAttachmentFromClipboard(imageData);
+                if (attachment != null) {
+                    addDraftAttachments(List.of(attachment));
+                    return true;
+                }
+            }
+            return false;
+        } finally {
+            clipboard.dispose();
+        }
+    }
+
+    private void addDraftAttachments(List<LlmAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return;
+        }
+        ProviderCapabilities caps = currentProviderCapabilities();
+        long maxBytes = caps.getMaxAttachmentBytes() > 0 ? caps.getMaxAttachmentBytes() : DEFAULT_MAX_ATTACHMENT_BYTES;
+        int maxAttachments = caps.getMaxAttachmentsPerMessage() > 0
+                ? caps.getMaxAttachmentsPerMessage()
+                : DEFAULT_MAX_ATTACHMENTS;
+        for (LlmAttachment attachment : attachments) {
+            if (draftAttachments.size() >= maxAttachments) {
+                appendSystemMessage(Messages.ChatView_AttachmentLimitExceeded);
+                break;
+            }
+            if (attachment.getSizeBytes() > maxBytes) {
+                appendSystemMessage(java.text.MessageFormat.format(
+                        Messages.ChatView_AttachmentTooLarge,
+                        attachment.getDisplayName()));
+                continue;
+            }
+            draftAttachments.add(attachment);
+        }
+        refreshAttachmentPreview();
+    }
+
+    private void refreshAttachmentPreview() {
+        if (attachmentPreviewArea == null || attachmentPreviewArea.isDisposed()) {
+            return;
+        }
+        for (Control child : attachmentPreviewArea.getChildren()) {
+            child.dispose();
+        }
+        boolean hasAttachments = !draftAttachments.isEmpty();
+        ((GridData) attachmentPreviewArea.getLayoutData()).exclude = !hasAttachments;
+        attachmentPreviewArea.setVisible(hasAttachments);
+        if (hasAttachments) {
+            for (int i = 0; i < draftAttachments.size(); i++) {
+                LlmAttachment attachment = draftAttachments.get(i);
+                Composite row = new Composite(attachmentPreviewArea, SWT.NONE);
+                row.setBackground(attachmentPreviewArea.getBackground());
+                row.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+                GridLayout rowLayout = new GridLayout(2, false);
+                rowLayout.marginWidth = 0;
+                rowLayout.marginHeight = 0;
+                rowLayout.horizontalSpacing = 8;
+                row.setLayout(rowLayout);
+
+                Label label = new Label(row, SWT.WRAP);
+                label.setBackground(row.getBackground());
+                label.setText(buildAttachmentLabel(attachment));
+                label.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
+
+                final int index = i;
+                Button removeButton = new Button(row, SWT.PUSH);
+                removeButton.setText("×"); //$NON-NLS-1$
+                removeButton.setEnabled(!isProcessing);
+                removeButton.addListener(SWT.Selection, e -> {
+                    draftAttachments.remove(index);
+                    refreshAttachmentPreview();
+                });
+            }
+        }
+        if (attachmentPreviewArea.getParent() != null && !attachmentPreviewArea.getParent().isDisposed()) {
+            attachmentPreviewArea.getParent().layout(true, true);
+        }
+    }
+
+    private String buildAttachmentLabel(LlmAttachment attachment) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(attachment.isImage() ? "🖼 " : "📎 "); //$NON-NLS-1$ //$NON-NLS-2$
+        sb.append(attachment.toDisplayLabel());
+        if (attachment.getSizeBytes() > 0) {
+            sb.append(" · ").append(formatAttachmentSize(attachment.getSizeBytes())); //$NON-NLS-1$
+        }
+        return sb.toString();
+    }
+
+    private String formatAttachmentSize(long sizeBytes) {
+        if (sizeBytes < 1024) {
+            return sizeBytes + " B"; //$NON-NLS-1$
+        }
+        double kb = sizeBytes / 1024.0d;
+        if (kb < 1024.0d) {
+            return String.format("%.1f KB", Double.valueOf(kb)); //$NON-NLS-1$
+        }
+        return String.format("%.1f MB", Double.valueOf(kb / 1024.0d)); //$NON-NLS-1$
+    }
+
+    private LlmAttachment createAttachmentFromPath(Path path) {
+        if (path == null || !Files.exists(path)) {
+            return null;
+        }
+        try {
+            String mimeType = Files.probeContentType(path);
+            if (mimeType == null || mimeType.isBlank()) {
+                mimeType = guessMimeType(path);
+            }
+            long size = Files.size(path);
+            LlmAttachment.Kind kind = mimeType.startsWith("image/") //$NON-NLS-1$
+                    ? LlmAttachment.Kind.IMAGE
+                    : LlmAttachment.Kind.FILE;
+            return LlmAttachment.builder()
+                    .kind(kind)
+                    .displayName(path.getFileName().toString())
+                    .mimeType(mimeType)
+                    .sizeBytes(size)
+                    .originalPath(path.toAbsolutePath().toString())
+                    .previewText(kind == LlmAttachment.Kind.FILE ? extractPreviewText(path, mimeType) : null)
+                    .build();
+        } catch (IOException e) {
+            LOG.warn("Failed to create attachment from path %s: %s", path, e.getMessage()); //$NON-NLS-1$
+            return null;
+        }
+    }
+
+    private LlmAttachment createAttachmentFromClipboard(ImageData imageData) {
+        Path cachePath = saveClipboardImage(imageData);
+        if (cachePath == null) {
+            return null;
+        }
+        try {
+            return LlmAttachment.builder()
+                    .kind(LlmAttachment.Kind.IMAGE)
+                    .displayName("clipboard-image.png") //$NON-NLS-1$
+                    .mimeType("image/png") //$NON-NLS-1$
+                    .sizeBytes(Files.size(cachePath))
+                    .cachePath(cachePath.toString())
+                    .build();
+        } catch (IOException e) {
+            LOG.warn("Failed to stat clipboard image %s: %s", cachePath, e.getMessage()); //$NON-NLS-1$
+            return null;
+        }
+    }
+
+    private Path saveClipboardImage(ImageData imageData) {
+        try {
+            Path cacheDir = getAttachmentCacheDir();
+            Files.createDirectories(cacheDir);
+            Path file = cacheDir.resolve("clipboard-" + System.currentTimeMillis() + ".png"); //$NON-NLS-1$ //$NON-NLS-2$
+            ImageLoader loader = new ImageLoader();
+            loader.data = new ImageData[] { imageData };
+            loader.save(file.toString(), SWT.IMAGE_PNG);
+            return file;
+        } catch (IOException | RuntimeException e) {
+            LOG.warn("Failed to save clipboard image: %s", e.getMessage()); //$NON-NLS-1$
+            return null;
+        }
+    }
+
+    private Path getAttachmentCacheDir() {
+        if (VibeUiPlugin.getDefault() != null) {
+            return Path.of(VibeUiPlugin.getDefault().getStateLocation().toOSString()).resolve("chat-attachments"); //$NON-NLS-1$
+        }
+        return Path.of(System.getProperty("java.io.tmpdir"), "codepilot1c-chat-attachments"); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private String extractPreviewText(Path path, String mimeType) {
+        return AttachmentTextExtractor.extractPreviewText(path, mimeType, FILE_PREVIEW_CHAR_LIMIT);
+    }
+
+    private String guessMimeType(Path path) {
+        String lower = path.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+        if (lower.endsWith(".png")) return "image/png"; //$NON-NLS-1$ //$NON-NLS-2$
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        if (lower.endsWith(".gif")) return "image/gif"; //$NON-NLS-1$ //$NON-NLS-2$
+        if (lower.endsWith(".webp")) return "image/webp"; //$NON-NLS-1$ //$NON-NLS-2$
+        if (lower.endsWith(".json")) return "application/json"; //$NON-NLS-1$ //$NON-NLS-2$
+        if (lower.endsWith(".xml")) return "application/xml"; //$NON-NLS-1$ //$NON-NLS-2$
+        if (lower.endsWith(".csv")) return "text/csv"; //$NON-NLS-1$ //$NON-NLS-2$
+        return "application/octet-stream"; //$NON-NLS-1$
+    }
+
+    private ProviderCapabilities currentProviderCapabilities() {
+        ILlmProvider provider = LlmProviderRegistry.getInstance().getActiveProvider();
+        return provider != null ? provider.getCapabilities() : ProviderCapabilities.none();
     }
 
     private void scrollToBottom() {
@@ -378,10 +699,12 @@ public class ChatView extends ViewPart {
 
     private void sendMessage() {
         String userInput = inputField.getText().trim();
-        LOG.debug("sendMessage called, isProcessing=%b, inputLength=%d", isProcessing, userInput.length()); //$NON-NLS-1$
+        LOG.debug("sendMessage called, isProcessing=%b, inputLength=%d, attachments=%d", //$NON-NLS-1$
+                isProcessing, userInput.length(), draftAttachments.size());
 
-        if (userInput.isEmpty() || isProcessing) {
-            LOG.debug("sendMessage blocked: isEmpty=%b, isProcessing=%b", userInput.isEmpty(), isProcessing); //$NON-NLS-1$
+        if ((userInput.isEmpty() && draftAttachments.isEmpty()) || isProcessing) {
+            LOG.debug("sendMessage blocked: isEmpty=%b, isProcessing=%b", //$NON-NLS-1$
+                    userInput.isEmpty() && draftAttachments.isEmpty(), isProcessing);
             return;
         }
 
@@ -392,15 +715,27 @@ public class ChatView extends ViewPart {
             return;
         }
 
+        ProviderCapabilities caps = provider.getCapabilities();
+        if (!caps.supportsImageInput() && draftAttachments.stream().anyMatch(LlmAttachment::isImage)) {
+            appendSystemMessage(Messages.ChatView_ImageAttachmentsUnsupported);
+            return;
+        }
+
         // Add user message to UI
-        appendUserMessage(userInput);
+        List<LlmAttachment> outgoingAttachments = new ArrayList<>(draftAttachments);
+        appendUserMessage(userInput, outgoingAttachments);
         inputField.setText(""); //$NON-NLS-1$
+        draftAttachments.clear();
+        refreshAttachmentPreview();
 
         maybeAutoCompactHistory();
 
+        // Extract $skill mentions from user input for system prompt assembly
+        currentRequestedSkills = SkillMentionParser.extractMentions(userInput);
+
         // No automatic context preparation: send the user message as-is.
         setProcessing(true, "Отправка запроса..."); //$NON-NLS-1$
-        conversationHistory.add(LlmMessage.user(userInput));
+        conversationHistory.add(buildUserMessage(userInput, outgoingAttachments));
         startConversationLoop(provider);
     }
 
@@ -697,6 +1032,11 @@ public class ChatView extends ViewPart {
             List<ToolDefinition> tools = ToolRegistry.getInstance().getToolDefinitions();
             requestBuilder.tools(tools);
             requestBuilder.toolChoice(LlmRequest.ToolChoice.AUTO);
+        }
+
+        // Set model override only for CodePilot backend; custom providers use their own configured model
+        if (currentProviderCapabilities().isCodePilotBackend()) {
+            requestBuilder.model(getEffectiveModelId());
         }
 
         return requestBuilder.build();
@@ -1411,7 +1751,7 @@ public class ChatView extends ViewPart {
             return browserChatPanel.getShell();
         }
         if (scrolledComposite != null && !scrolledComposite.isDisposed()) {
-            return getShell();
+            return scrolledComposite.getShell();
         }
         return Display.getDefault().getActiveShell();
     }
@@ -1489,7 +1829,11 @@ public class ChatView extends ViewPart {
             это контекст из активного редактора. Учитывайте его при ответе.
             """); //$NON-NLS-1$
 
-        return PromptTemplateService.getInstance().applySystemPrompt(prompt.toString());
+        return SystemPromptAssembler.getInstance().assemble(
+                prompt.toString(),
+                null,
+                "chat", //$NON-NLS-1$
+                currentRequestedSkills);
     }
 
     private void appendToolsSection(StringBuilder prompt) {
@@ -1526,10 +1870,62 @@ public class ChatView extends ViewPart {
         if (error.getCause() != null) {
             LOG.error("handleError cause: %s", error.getCause().getMessage()); //$NON-NLS-1$
         }
-        String message = error.getCause() != null ? error.getCause().getMessage() : error.getMessage();
-        appendSystemMessage(java.text.MessageFormat.format(Messages.ChatView_ErrorMessage, message));
+
+        // Extract the root cause (may be wrapped in CompletionException etc.)
+        Throwable root = error.getCause() != null ? error.getCause() : error;
+        String userMessage = formatUserFriendlyError(root);
+
+        appendSystemMessage(userMessage);
         LOG.debug("handleError: calling setProcessing(false)"); //$NON-NLS-1$
         setProcessing(false);
+    }
+
+    /**
+     * Formats a user-friendly error message, handling rate-limit and budget errors specially.
+     */
+    private String formatUserFriendlyError(Throwable error) {
+        if (error instanceof com.codepilot1c.core.provider.LlmProviderException providerEx) {
+
+            // Rate limit — spending window exceeded
+            if (providerEx.isSpendWindowError()) {
+                var details = providerEx.getRateLimitDetails();
+                if (details != null) {
+                    String window = "5h".equals(details.window()) ? "5 часов" : //$NON-NLS-1$ //$NON-NLS-2$
+                                    "7d".equals(details.window()) ? "7 дней" : details.window(); //$NON-NLS-1$ //$NON-NLS-2$
+                    String retryInfo;
+                    if (details.retryAtLocal() != null && !details.retryAtLocal().isEmpty()) {
+                        retryInfo = String.format("Попробуйте после %s", details.retryAtLocal()); //$NON-NLS-1$
+                    } else if (details.retryAfterSeconds() > 0) {
+                        retryInfo = String.format("Подождите %s", details.retryWaitFormatted()); //$NON-NLS-1$
+                    } else {
+                        retryInfo = "Подождите — лимит обновится автоматически"; //$NON-NLS-1$
+                    }
+                    return String.format(
+                            "\u26A0\uFE0F Превышен лимит за %s. %s.", //$NON-NLS-1$
+                            window,
+                            retryInfo);
+                }
+                return "\u26A0\uFE0F Превышен лимит расхода. Подождите — лимит обновится автоматически."; //$NON-NLS-1$
+            }
+
+            // Budget fully exhausted
+            if (providerEx.isBudgetExhausted()) {
+                return "\u26D4 Бюджет исчерпан. Пополните баланс или перейдите на другой тариф."; //$NON-NLS-1$
+            }
+
+            // Generic rate limit (429 without specific code)
+            if (providerEx.isRateLimitError()) {
+                return "\u23F3 Слишком много запросов. Подождите несколько секунд и попробуйте снова."; //$NON-NLS-1$
+            }
+
+            // Authentication error
+            if (providerEx.isAuthenticationError()) {
+                return "\u274C Ошибка авторизации. Проверьте настройки аккаунта CodePilot."; //$NON-NLS-1$
+            }
+        }
+
+        // Default: show raw message
+        return java.text.MessageFormat.format(Messages.ChatView_ErrorMessage, error.getMessage());
     }
 
     /**
@@ -1598,7 +1994,67 @@ public class ChatView extends ViewPart {
         setProcessing(false);
     }
 
+    /**
+     * Confirms with user before clearing chat when conversation is non-empty.
+     */
+    private void confirmAndClearChat() {
+        if (conversationHistory.isEmpty()) {
+            clearChat();
+            return;
+        }
+        boolean confirmed = MessageDialog.openConfirm(
+                getSite().getShell(),
+                Messages.ChatView_NewChatConfirmTitle,
+                Messages.ChatView_NewChatConfirmMessage);
+        if (confirmed) {
+            clearChat();
+        }
+    }
+
     private void clearChat() {
+        // Sync UI conversation history into SessionManager and complete session.
+        // This triggers memory extraction for facts like "Запомни что...".
+        try {
+            if (!conversationHistory.isEmpty()) {
+                SessionManager sm = SessionManager.getInstance();
+                Session session = sm.getCurrentSession();
+                if (session == null) {
+                    // Force-create a session if none exists
+                    session = sm.startNewSession();
+                }
+                // Populate the session with UI conversation messages
+                for (LlmMessage msg : conversationHistory) {
+                    LlmMessage.Role role = msg.getRole();
+                    if (role == LlmMessage.Role.USER || role == LlmMessage.Role.ASSISTANT) {
+                        String content = msg.getContent();
+                        if (content == null || content.isBlank()) {
+                            if (msg.getContentParts() != null) {
+                                StringBuilder sb = new StringBuilder();
+                                for (var part : msg.getContentParts()) {
+                                    if (part.getText() != null) {
+                                        sb.append(part.getText());
+                                    }
+                                }
+                                content = sb.toString();
+                            }
+                        }
+                        if (content != null && !content.isBlank()) {
+                            session.addMessage(role == LlmMessage.Role.USER
+                                    ? SessionMessage.user(content)
+                                    : SessionMessage.assistant(content));
+                        }
+                    }
+                }
+                LOG.debug("clearChat: synced " + conversationHistory.size() //$NON-NLS-1$
+                        + " UI messages to session " + session.getId() //$NON-NLS-1$
+                        + " (now has " + session.getMessages().size() + " messages)"); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            // Complete the current session (triggers memory extraction) and start fresh
+            SessionManager.getInstance().startNewSession();
+        } catch (Exception e) {
+            LOG.debug("clearChat: session management failed: " + e.getMessage()); //$NON-NLS-1$
+        }
+
         if (USE_BROWSER_RENDERING) {
             clearChatBrowser();
         } else {
@@ -1606,11 +2062,13 @@ public class ChatView extends ViewPart {
         }
 
         conversationHistory.clear();
+        draftAttachments.clear();
         lastAssistantResponse = null;
         resetTokenUsage();
         if (!isDisposed()) {
             applyCodeButton.setEnabled(false);
         }
+        refreshAttachmentPreview();
 
         appendSystemMessage(Messages.ChatView_WelcomeMessage);
     }
@@ -1657,11 +2115,18 @@ public class ChatView extends ViewPart {
         this.isProcessing = processing;
         if (!isDisposed()) {
             sendButton.setEnabled(!processing);
+            if (attachButton != null && !attachButton.isDisposed()) {
+                attachButton.setEnabled(!processing);
+            }
             stopButton.setEnabled(processing);
             inputField.setEnabled(!processing);
             if (compactButton != null && !compactButton.isDisposed()) {
                 compactButton.setEnabled(!processing);
             }
+            if (modelButton != null && !modelButton.isDisposed()) {
+                modelButton.setEnabled(!processing);
+            }
+            refreshAttachmentPreview();
 
             // Show/hide typing indicator
             if (USE_BROWSER_RENDERING) {
@@ -1699,15 +2164,26 @@ public class ChatView extends ViewPart {
     }
 
     private void appendUserMessage(String message) {
-        appendMessage("Вы", message, false); //$NON-NLS-1$
+        appendUserMessage(message, List.of());
+    }
+
+    private void appendUserMessage(String message, List<LlmAttachment> attachments) {
+        appendMessage("Вы", message, false, attachments); //$NON-NLS-1$
     }
 
     private void appendAssistantMessage(String message) {
-        appendMessage("AI", message, true); //$NON-NLS-1$
+        appendMessage("AI", message, true, List.of()); //$NON-NLS-1$
+    }
+
+    /**
+     * Returns the currently active model name for display in message badges.
+     */
+    private String getCurrentModelName() {
+        return getEffectiveModelId();
     }
 
     private void appendSystemMessage(String message) {
-        appendMessage("Система", message, false); //$NON-NLS-1$
+        appendMessage("Система", message, false, List.of()); //$NON-NLS-1$
     }
 
     /**
@@ -1718,17 +2194,21 @@ public class ChatView extends ViewPart {
      * @param isAssistant true if this is an AI assistant message
      */
     private void appendMessage(String sender, String message, boolean isAssistant) {
+        appendMessage(sender, message, isAssistant, List.of());
+    }
+
+    private void appendMessage(String sender, String message, boolean isAssistant, List<LlmAttachment> attachments) {
         if (USE_BROWSER_RENDERING) {
-            appendMessageBrowser(sender, message, isAssistant);
+            appendMessageBrowser(sender, message, isAssistant, attachments);
         } else {
-            appendMessageStyledText(sender, message, isAssistant);
+            appendMessageStyledText(sender, decorateMessageWithAttachments(message, attachments), isAssistant);
         }
     }
 
     /**
      * Appends a message using Browser-based rendering.
      */
-    private void appendMessageBrowser(String sender, String message, boolean isAssistant) {
+    private void appendMessageBrowser(String sender, String message, boolean isAssistant, List<LlmAttachment> attachments) {
         LOG.debug("appendMessageBrowser: sender=%s, isAssistant=%b, messageLength=%d", //$NON-NLS-1$
                 sender, isAssistant, message != null ? message.length() : 0);
         if (browserChatPanel == null || browserChatPanel.isDisposed()) {
@@ -1737,7 +2217,8 @@ public class ChatView extends ViewPart {
         }
 
         boolean isSystem = "Система".equals(sender) || "System".equals(sender); //$NON-NLS-1$ //$NON-NLS-2$
-        browserChatPanel.addMessage(sender, message, isAssistant, isSystem);
+        String modelName = isAssistant ? getCurrentModelName() : null;
+        browserChatPanel.addMessage(sender, message, isAssistant, isSystem, attachments, modelName);
         LOG.debug("appendMessageBrowser: message added to browserChatPanel"); //$NON-NLS-1$
     }
 
@@ -1764,6 +2245,38 @@ public class ChatView extends ViewPart {
         messagesContainer.layout(true, true);
         updateScrollSize();
         scrollToBottom();
+    }
+
+    private LlmMessage buildUserMessage(String text, List<LlmAttachment> attachments) {
+        List<LlmContentPart> parts = new ArrayList<>();
+        if (text != null && !text.isBlank()) {
+            parts.add(LlmContentPart.text(text));
+        }
+        if (attachments != null) {
+            for (LlmAttachment attachment : attachments) {
+                parts.add(attachment.isImage()
+                        ? LlmContentPart.image(attachment)
+                        : LlmContentPart.file(attachment));
+            }
+        }
+        return LlmMessage.user(parts);
+    }
+
+    private String decorateMessageWithAttachments(String message, List<LlmAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return message;
+        }
+        StringBuilder sb = new StringBuilder(message != null ? message : ""); //$NON-NLS-1$
+        for (LlmAttachment attachment : attachments) {
+            if (attachment == null || !attachment.isImage()) {
+                continue;
+            }
+            if (sb.length() > 0 && !sb.toString().endsWith("\n\n")) { //$NON-NLS-1$
+                sb.append("\n\n"); //$NON-NLS-1$
+            }
+            sb.append("- ").append(buildAttachmentLabel(attachment)).append('\n'); //$NON-NLS-1$
+        }
+        return sb.toString().trim();
     }
 
     /**
@@ -1840,9 +2353,21 @@ public class ChatView extends ViewPart {
         }
 
         int keepFrom = Math.max(0, conversationHistory.size() - tailMessages);
+        keepFrom = LlmConversationSanitizer.findSafeCompactionStart(conversationHistory, keepFrom);
         List<LlmMessage> head = new ArrayList<>(conversationHistory.subList(0, keepFrom));
         List<LlmMessage> tail = new ArrayList<>(conversationHistory.subList(keepFrom, conversationHistory.size()));
-        String summary = buildHistorySummary(head);
+
+        // Try LLM-based compaction first if feature flag is enabled
+        LlmCompactionService compactor = LlmCompactionService.getInstance();
+        String summary = null;
+        if (compactor.isEnabled()) {
+            int targetTokens = Math.max(200, estimateTokensForMessages(head) / 4);
+            summary = compactor.compact(head, targetTokens);
+        }
+        // Fall back to existing truncation-based summary
+        if (summary == null || summary.isBlank()) {
+            summary = buildHistorySummary(head);
+        }
         if (summary.isBlank()) {
             return false;
         }
@@ -1971,29 +2496,108 @@ public class ChatView extends ViewPart {
     }
 
     private void updateTokenUsageDisplay() {
+        // Token counter is hidden — will be replaced by budget indicator in Phase 2.
+        // Still accumulate values internally for backend usage tracking.
         if (tokenUsageLabel == null || tokenUsageLabel.isDisposed()) {
             return;
         }
-        boolean showUsage = isTokenUsageVisible();
-        tokenUsageLabel.setVisible(showUsage);
-        ((GridData) tokenUsageLabel.getLayoutData()).exclude = !showUsage;
-        if (!showUsage) {
-            tokenUsageLabel.setText(""); //$NON-NLS-1$
-            tokenUsageLabel.getParent().layout(true, true);
+        tokenUsageLabel.setVisible(false);
+        ((GridData) tokenUsageLabel.getLayoutData()).exclude = true;
+    }
+
+    private void updateModelButtonVisibility() {
+        if (modelButton == null || modelButton.isDisposed()) {
             return;
         }
+        boolean isCodePilot = currentProviderCapabilities().isCodePilotBackend();
+        modelButton.setVisible(isCodePilot);
+        ((GridData) modelButton.getLayoutData()).exclude = !isCodePilot;
+        modelButton.getParent().layout(true, true);
+    }
 
-        long nonCachedInput = Math.max(0, inputTokensTotal - cachedInputTokensTotal);
-        long cachePercent = inputTokensTotal > 0 ? (cachedInputTokensTotal * 100L / inputTokensTotal) : 0L;
-        String text = String.format(
-                "Вход: %,d | Кэш: %,d (%d%%) | Выход: %,d | Итого: %,d", //$NON-NLS-1$
-                nonCachedInput,
-                cachedInputTokensTotal,
-                cachePercent,
-                outputTokensTotal,
-                totalTokensTotal);
-        tokenUsageLabel.setText(text);
-        tokenUsageLabel.getParent().layout(true, true);
+    /** Default model when user has not explicitly selected one. */
+    private static final String DEFAULT_MODEL_ID = "kimi-k2.5"; //$NON-NLS-1$
+
+    private void updateModelButtonLabel() {
+        if (modelButton == null || modelButton.isDisposed()) {
+            return;
+        }
+        String displayId = getEffectiveModelId();
+        modelButton.setText(displayId);
+        modelButton.getParent().layout(true, true);
+    }
+
+    /**
+     * Returns the model ID to use for requests and display.
+     * Falls back to {@link #DEFAULT_MODEL_ID} when no explicit selection.
+     */
+    private String getEffectiveModelId() {
+        if (overrideModelId != null && !overrideModelId.isBlank()) {
+            return overrideModelId;
+        }
+        return DEFAULT_MODEL_ID;
+    }
+
+    private void openModelSelectionDialog() {
+        ILlmProvider provider = LlmProviderRegistry.getInstance().getActiveProvider();
+        if (provider == null || !provider.getCapabilities().isCodePilotBackend()) {
+            return;
+        }
+        modelButton.setEnabled(false);
+        modelButton.setText(Messages.ChatView_ModelFetching);
+        modelButton.getParent().layout(true, true);
+
+        String apiKey = BackendService.getInstance().getApiKey();
+        ModelFetchService.getInstance().fetchModels(
+                BackendConfig.LITELLM_BASE_URL, apiKey, ProviderType.CODEPILOT_BACKEND)
+                .thenAccept(result -> Display.getDefault().asyncExec(() -> {
+                    if (modelButton == null || modelButton.isDisposed()) {
+                        return;
+                    }
+                    modelButton.setEnabled(true);
+                    updateModelButtonLabel();
+                    if (!result.isSuccess()) {
+                        MessageDialog.openError(getSite().getShell(),
+                                Messages.ChatView_ModelButtonTooltip,
+                                MessageFormat.format(
+                                        Messages.ChatView_ModelFetchError, result.getError()));
+                        return;
+                    }
+                    List<ModelInfo> models = result.getModels();
+                    if (models.isEmpty()) {
+                        MessageDialog.openInformation(getSite().getShell(),
+                                Messages.ChatView_ModelButtonTooltip,
+                                Messages.ChatView_ModelNoModels);
+                        return;
+                    }
+                    ModelSelectionDialog dialog = new ModelSelectionDialog(getSite().getShell(), models);
+                    if (dialog.open() == org.eclipse.jface.dialogs.IDialogConstants.OK_ID) {
+                        ModelInfo selected = dialog.getSelectedModel();
+                        if (selected != null) {
+                            String previousModelId = overrideModelId;
+                            overrideModelId = selected.getId();
+                            updateModelButtonLabel();
+
+                            // Ask user whether to start a new chat when model changes mid-conversation
+                            if (previousModelId != null && !previousModelId.equals(overrideModelId)
+                                    && !conversationHistory.isEmpty()) {
+                                String msg = MessageFormat.format(
+                                        Messages.ChatView_ModelSwitchMessage, selected.getId());
+                                MessageDialog switchDialog = new MessageDialog(
+                                        getSite().getShell(),
+                                        Messages.ChatView_ModelSwitchTitle,
+                                        null, msg, MessageDialog.QUESTION,
+                                        new String[] {
+                                            Messages.ChatView_ModelSwitchNewChat,
+                                            Messages.ChatView_ModelSwitchContinue
+                                        }, 0);
+                                if (switchDialog.open() == 0) {
+                                    clearChat();
+                                }
+                            }
+                        }
+                    }
+                }));
     }
 
     private boolean isTokenUsageVisible() {

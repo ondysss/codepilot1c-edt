@@ -35,7 +35,7 @@ Runner:
 - запускает `qwen` в one-shot режиме с `stream-json` output;
 - использует chat recording и `session_id` для поиска Qwen chat log;
 - извлекает MCP tool calls и результаты;
-- валидирует tool path, mutation flow, `qa_status -> qa_run`, наличие QA артефактов;
+- валидирует tool path, mutation flow, `qa_inspect(command=status) -> qa_run`, наличие QA артефактов;
 - пишет отчёт в `.runs/qwen-suite/<run-id>/`.
 
 ## Локальный workflow: EDT MCP Host + Qwen из папки проекта
@@ -66,7 +66,7 @@ bash /Users/alexorlik/repo/codepilot1c-oss/tools/run-qwen-local-edt-suite.sh
    - финальный ответ;
    - последовательность вызовов инструментов;
    - наличие trace/QA артефактов;
-   - статус `qa_status`/`qa_run` или post-mutation diagnostics.
+   - статус `qa_inspect(command=status)`/`qa_run` или post-mutation diagnostics.
 
 ## Формат scenario-spec
 
@@ -88,7 +88,7 @@ bash /Users/alexorlik/repo/codepilot1c-oss/tools/run-qwen-local-edt-suite.sh
   - передачу `validation_token` без изменений;
   - post-check через `get_diagnostics`.
 - Read-only сценарии не должны использовать mutating tools.
-- QA-сценарии должны уважать порядок `qa_status -> qa_run`.
+- QA-сценарии должны уважать порядок `qa_inspect(command=status) -> qa_run`.
 - Успех сценария определяется не только текстом ответа, но и корректным процессом.
 
 ## Основные suites

@@ -17,7 +17,6 @@ public class MetadataProjectReadinessChecker {
 
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(MetadataProjectReadinessChecker.class);
     private static final long WAIT_TIMEOUT_MS = Long.getLong("codepilot1c.edt.readiness.wait.ms", 90_000L); //$NON-NLS-1$
-    private static final long WAIT_POLL_MS = Long.getLong("codepilot1c.edt.readiness.poll.ms", 500L); //$NON-NLS-1$
     private static final boolean REQUIRE_ALL_COMPUTED = Boolean
             .getBoolean("codepilot1c.edt.readiness.require_all_computed"); //$NON-NLS-1$
     private static final long PROGRESS_LOG_STEP_MS = 5_000L;
@@ -64,28 +63,32 @@ public class MetadataProjectReadinessChecker {
             return;
         }
 
-        LOG.info("[%s] Waiting for project readiness: project=%s timeout=%dms poll=%dms strict=%s", // $NON-NLS-1$
-                opId, project.getName(), WAIT_TIMEOUT_MS, WAIT_POLL_MS, REQUIRE_ALL_COMPUTED);
+        LOG.info("[%s] Waiting for project readiness: project=%s timeout=%dms mode=waitAllComputations strict=%s", // $NON-NLS-1$
+                opId, project.getName(), WAIT_TIMEOUT_MS, REQUIRE_ALL_COMPUTED);
         long deadline = startedAt + WAIT_TIMEOUT_MS;
-        long nextProgressLogAt = startedAt + PROGRESS_LOG_STEP_MS;
         while (System.currentTimeMillis() < deadline) {
             if (isReady(ddManager)) {
                 LOG.info("[%s] Project %s became ready in %s", opId, project.getName(), // $NON-NLS-1$
                         LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt));
                 return;
             }
-            if (System.currentTimeMillis() >= nextProgressLogAt) {
+            try {
+                long remainingMs = Math.max(1L, deadline - System.currentTimeMillis());
+                long waitSliceMs = Math.min(PROGRESS_LOG_STEP_MS, remainingMs);
+                boolean allComputationsFinished = ddManager.waitAllComputations(waitSliceMs);
+                if (isReady(ddManager)) {
+                    LOG.info("[%s] Project %s became ready in %s", opId, project.getName(), // $NON-NLS-1$
+                            LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt));
+                    return;
+                }
                 DerivedDataStatus progressStatus = ddManager.getDerivedDataStatus();
-                LOG.debug("[%s] Still waiting readiness: elapsed=%s idle=%s allComputed=%s status=%s", // $NON-NLS-1$
+                LOG.debug("[%s] Readiness wait slice finished: elapsed=%s allFinished=%s idle=%s allComputed=%s status=%s", // $NON-NLS-1$
                         opId,
                         LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),
+                        allComputationsFinished,
                         ddManager.isIdle(),
                         ddManager.isAllComputed(),
                         describeStatus(progressStatus));
-                nextProgressLogAt += PROGRESS_LOG_STEP_MS;
-            }
-            try {
-                Thread.sleep(WAIT_POLL_MS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new MetadataOperationException(

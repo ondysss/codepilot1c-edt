@@ -39,6 +39,24 @@ public class Messages extends NLS {
     public static String ChatView_ContextCompactedSkippedNotice;
     public static String ChatView_AutoCompactLabel;
     public static String ChatView_ManualCompactLabel;
+    public static String ChatView_AttachButton;
+    public static String ChatView_AttachDialogTitle;
+    public static String ChatView_AttachmentTooLarge;
+    public static String ChatView_AttachmentLimitExceeded;
+    public static String ChatView_ImageAttachmentsUnsupported;
+    public static String ChatView_ModelButton;
+    public static String ChatView_ModelButtonTooltip;
+    public static String ChatView_ModelFetching;
+    public static String ChatView_ModelFetchError;
+    public static String ChatView_ModelNoModels;
+    public static String ChatView_NewChatButton;
+    public static String ChatView_NewChatTooltip;
+    public static String ChatView_NewChatConfirmTitle;
+    public static String ChatView_NewChatConfirmMessage;
+    public static String ChatView_ModelSwitchTitle;
+    public static String ChatView_ModelSwitchMessage;
+    public static String ChatView_ModelSwitchNewChat;
+    public static String ChatView_ModelSwitchContinue;
 
     public static String PreferencePage_Description;
     public static String PreferencePage_ProviderLabel;
@@ -65,6 +83,36 @@ public class Messages extends NLS {
     public static String PreferencePage_TestConnectionButton;
     public static String PreferencePage_TestSuccess;
     public static String PreferencePage_TestFailed;
+    public static String QaProjectPropertyPage_NoProject;
+    public static String QaProjectPropertyPage_InfoGroup;
+    public static String QaProjectPropertyPage_ProjectLabel;
+    public static String QaProjectPropertyPage_ConfigPathLabel;
+    public static String QaProjectPropertyPage_RuntimeGroup;
+    public static String QaProjectPropertyPage_UseEdtRuntimeLabel;
+    public static String QaProjectPropertyPage_UseTestManagerLabel;
+    public static String QaProjectPropertyPage_ProjectNameLabel;
+    public static String QaProjectPropertyPage_TimeoutLabel;
+    public static String QaProjectPropertyPage_EpfPathLabel;
+    public static String QaProjectPropertyPage_EpfPathNote;
+    public static String QaProjectPropertyPage_ParamsTemplateLabel;
+    public static String QaProjectPropertyPage_ParamsTemplateNote;
+    public static String QaProjectPropertyPage_PathsGroup;
+    public static String QaProjectPropertyPage_FeaturesDirLabel;
+    public static String QaProjectPropertyPage_StepsDirLabel;
+    public static String QaProjectPropertyPage_StepsDirNote;
+    public static String QaProjectPropertyPage_StepsCatalogLabel;
+    public static String QaProjectPropertyPage_StepsCatalogNote;
+    public static String QaProjectPropertyPage_ResultsDirLabel;
+    public static String QaProjectPropertyPage_BehaviorGroup;
+    public static String QaProjectPropertyPage_UnknownStepsModeLabel;
+    public static String QaProjectPropertyPage_UnknownStepsModeNote;
+    public static String QaProjectPropertyPage_JunitReportLabel;
+    public static String QaProjectPropertyPage_ScreenshotsLabel;
+    public static String QaProjectPropertyPage_CloseClientLabel;
+    public static String QaProjectPropertyPage_QuietInstallLabel;
+    public static String QaProjectPropertyPage_ShowMainFormLabel;
+    public static String QaProjectPropertyPage_BrowseButton;
+    public static String QaProjectPropertyPage_SaveErrorTitle;
 
 
     // Model configuration editor
@@ -100,6 +148,18 @@ public class Messages extends NLS {
     public static String ProvidersPreferencePage_SetActive;
     public static String ProvidersPreferencePage_RemoveConfirmTitle;
     public static String ProvidersPreferencePage_RemoveConfirmMessage;
+    public static String ProvidersPreferencePage_AccountGroup;
+    public static String ProvidersPreferencePage_AccountStatus;
+    public static String ProvidersPreferencePage_AccountModel;
+    public static String ProvidersPreferencePage_AccountDetails;
+    public static String ProvidersPreferencePage_UseAccountProvider;
+    public static String ProvidersPreferencePage_AccountStatusConnected;
+    public static String ProvidersPreferencePage_AccountStatusConnectedActive;
+    public static String ProvidersPreferencePage_AccountStatusDisconnected;
+    public static String ProvidersPreferencePage_AccountDetailsConnected;
+    public static String ProvidersPreferencePage_AccountDetailsDisconnected;
+    public static String ProvidersPreferencePage_AccountNotAvailableTitle;
+    public static String ProvidersPreferencePage_AccountNotAvailableMessage;
 
     // Provider edit dialog
     public static String ProviderEditDialog_TitleAdd;
@@ -129,6 +189,76 @@ public class Messages extends NLS {
     public static String ModelSelectionDialog_FilterPlaceholder;
     public static String ModelSelectionDialog_ModelCount;
 
+
+    // Skills preference page
+    public static String SkillsPreferencePage_Description;
+    public static String SkillsPreferencePage_ColumnEnabled;
+    public static String SkillsPreferencePage_ColumnName;
+    public static String SkillsPreferencePage_ColumnSource;
+    public static String SkillsPreferencePage_ColumnTools;
+    public static String SkillsPreferencePage_Add;
+    public static String SkillsPreferencePage_Edit;
+    public static String SkillsPreferencePage_Remove;
+    public static String SkillsPreferencePage_Refresh;
+    public static String SkillsPreferencePage_OpenFile;
+    public static String SkillsPreferencePage_SourceBundled;
+    public static String SkillsPreferencePage_SourceUser;
+    public static String SkillsPreferencePage_SourceProject;
+    public static String SkillsPreferencePage_RemoveConfirmTitle;
+    public static String SkillsPreferencePage_RemoveConfirmMessage;
+
+    // Skill edit dialog
+    public static String SkillEditDialog_TitleAdd;
+    public static String SkillEditDialog_TitleEdit;
+    public static String SkillEditDialog_TitleView;
+    public static String SkillEditDialog_Name;
+    public static String SkillEditDialog_Description;
+    public static String SkillEditDialog_BackendOnly;
+    public static String SkillEditDialog_AllowedTools;
+    public static String SkillEditDialog_Body;
+    public static String SkillEditDialog_NameRequired;
+    public static String SkillEditDialog_NameInvalid;
+    public static String SkillEditDialog_NameDuplicate;
+    public static String SkillEditDialog_DescriptionTooLong;
+
+    // Profiles preference page
+    public static String ProfilesPreferencePage_Description;
+    public static String ProfilesPreferencePage_ColumnIcon;
+    public static String ProfilesPreferencePage_ColumnProfile;
+    public static String ProfilesPreferencePage_ColumnTools;
+    public static String ProfilesPreferencePage_ColumnMaxSteps;
+    public static String ProfilesPreferencePage_ColumnTimeout;
+    public static String ProfilesPreferencePage_Configure;
+    public static String ProfilesPreferencePage_Reset;
+    public static String ProfilesPreferencePage_ResetConfirmTitle;
+    public static String ProfilesPreferencePage_ResetConfirmMessage;
+    public static String ProfilesPreferencePage_Customized;
+
+    // Profile edit dialog
+    public static String ProfileEditDialog_Title;
+    public static String ProfileEditDialog_MaxSteps;
+    public static String ProfileEditDialog_Timeout;
+    public static String ProfileEditDialog_DisabledTools;
+    public static String ProfileEditDialog_AdditionalPrompt;
+    public static String ProfileEditDialog_ResetButton;
+
+    // Skill display info
+    public static String SkillDisplayInfo_SkillLabel_review;
+    public static String SkillDisplayInfo_SkillLabel_refactor;
+    public static String SkillDisplayInfo_SkillLabel_explain;
+    public static String SkillDisplayInfo_SkillLabel_architect;
+    public static String SkillDisplayInfo_SkillLabel_validator;
+    public static String SkillDisplayInfo_ProfileLabel_build;
+    public static String SkillDisplayInfo_ProfileLabel_code;
+    public static String SkillDisplayInfo_ProfileLabel_metadata;
+    public static String SkillDisplayInfo_ProfileLabel_qa;
+    public static String SkillDisplayInfo_ProfileLabel_dcs;
+    public static String SkillDisplayInfo_ProfileLabel_extension;
+    public static String SkillDisplayInfo_ProfileLabel_recovery;
+    public static String SkillDisplayInfo_ProfileLabel_plan;
+    public static String SkillDisplayInfo_ProfileLabel_explore;
+    public static String SkillDisplayInfo_ProfileLabel_orchestrator;
+    public static String SkillDisplayInfo_ProfileLabel_auto;
 
     // Code block widget
     public static String CodeBlockWidget_Copy;

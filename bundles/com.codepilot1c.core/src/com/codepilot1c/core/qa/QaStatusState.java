@@ -36,25 +36,25 @@ public final class QaStatusState {
     public static String validateRecentOk(File workspaceRoot, File configFile, Duration maxAge) {
         Snapshot snapshot = LAST.get();
         if (snapshot == null) {
-            return "qa_status is required before qa_run"; //$NON-NLS-1$
+            return "qa_inspect(command=status) is required before qa_run"; //$NON-NLS-1$
         }
         if (configFile == null || workspaceRoot == null) {
-            return "qa_status is required before qa_run (workspace/config unknown)"; //$NON-NLS-1$
+            return "qa_inspect(command=status) is required before qa_run (workspace/config unknown)"; //$NON-NLS-1$
         }
         String workspacePath = canonicalPath(workspaceRoot);
         String configPath = canonicalPath(configFile);
         if (workspacePath == null || configPath == null) {
-            return "qa_status is required before qa_run (workspace/config unknown)"; //$NON-NLS-1$
+            return "qa_inspect(command=status) is required before qa_run (workspace/config unknown)"; //$NON-NLS-1$
         }
         if (!Objects.equals(snapshot.workspaceRoot, workspacePath) || !Objects.equals(snapshot.configPath, configPath)) {
-            return "qa_status must be executed for the same workspace/config before qa_run"; //$NON-NLS-1$
+            return "qa_inspect(command=status) must be executed for the same workspace/config before qa_run"; //$NON-NLS-1$
         }
         if (!snapshot.isOk()) {
-            return "qa_status reported errors; fix configuration before qa_run"; //$NON-NLS-1$
+            return "qa_inspect(command=status) reported errors; fix configuration before qa_run"; //$NON-NLS-1$
         }
         Duration age = Duration.between(snapshot.timestamp, Instant.now());
         if (age.compareTo(maxAge) > 0) {
-            return "qa_status is stale; re-run qa_status before qa_run"; //$NON-NLS-1$
+            return "qa_inspect(command=status) is stale; re-run qa_inspect(command=status) before qa_run"; //$NON-NLS-1$
         }
         return null;
     }

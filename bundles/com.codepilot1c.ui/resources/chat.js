@@ -76,6 +76,58 @@ function toggleToolCall(header) {
 }
 
 /**
+ * Toggle tool call group expansion.
+ * @param {HTMLElement} header - The tool call group header element
+ */
+function toggleToolCallGroup(header) {
+    var group = header.closest('.tool-calls-group');
+    group.classList.toggle('expanded');
+}
+
+/**
+ * Copy entire AI response to clipboard.
+ * @param {HTMLElement} button - The copy response button element
+ */
+function copyResponse(button) {
+    var message = button.closest('.message');
+    if (!message) return;
+
+    var contentEl = message.querySelector('.message-content');
+    if (!contentEl) return;
+
+    // Get text content, skipping reasoning blocks
+    var text = '';
+    var children = contentEl.children;
+    for (var i = 0; i < children.length; i++) {
+        if (!children[i].classList.contains('reasoning-block')) {
+            text += children[i].textContent + '\n';
+        }
+    }
+    // Fallback: use full textContent if no child elements
+    if (!text.trim()) {
+        text = contentEl.textContent;
+    }
+
+    // Try using the Java callback first
+    if (typeof copyToClipboard === 'function') {
+        copyToClipboard(text.trim());
+        showCopied(button);
+        return;
+    }
+
+    // Fallback to Clipboard API
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text.trim()).then(function() {
+            showCopied(button);
+        }).catch(function(err) {
+            fallbackCopy(text.trim(), button);
+        });
+    } else {
+        fallbackCopy(text.trim(), button);
+    }
+}
+
+/**
  * Update tool call card with result.
  * Called from Java when tool execution completes.
  * @param {string} id - The tool call ID

@@ -273,7 +273,9 @@ public class Session {
         for (SessionMessage msg : messages) {
             switch (msg.getType()) {
                 case USER:
-                    result.add(LlmMessage.user(msg.getContent()));
+                    result.add(msg.hasContentParts()
+                            ? LlmMessage.user(msg.getContentParts())
+                            : LlmMessage.user(msg.getContent()));
                     break;
                 case ASSISTANT:
                     if (msg.hasToolCalls()) {

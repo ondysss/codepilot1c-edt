@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -18,7 +19,6 @@ import org.eclipse.core.resources.IProject;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.emf.common.util.URI;
 import org.eclipse.emf.ecore.EObject;
-import org.eclipse.emf.ecore.EStructuralFeature;
 import org.eclipse.emf.ecore.resource.Resource;
 import org.eclipse.emf.ecore.resource.ResourceSet;
 import org.eclipse.emf.ecore.resource.impl.ResourceSetImpl;
@@ -30,7 +30,21 @@ import org.eclipse.xtext.resource.IResourceServiceProvider;
 import org.eclipse.xtext.resource.XtextResource;
 import org.eclipse.xtext.resource.XtextResourceSet;
 
+import com._1c.g5.v8.dt.bsl.model.DynamicFeatureAccess;
+import com._1c.g5.v8.dt.bsl.model.FeatureAccess;
+import com._1c.g5.v8.dt.bsl.model.FeatureEntry;
+import com._1c.g5.v8.dt.bsl.model.FormalParam;
+import com._1c.g5.v8.dt.bsl.model.Invocation;
+import com._1c.g5.v8.dt.bsl.model.Method;
+import com._1c.g5.v8.dt.bsl.model.Module;
+import com._1c.g5.v8.dt.bsl.model.ModuleType;
+import com._1c.g5.v8.dt.bsl.model.Pragma;
+import com._1c.g5.v8.dt.bsl.model.Procedure;
+import com._1c.g5.v8.dt.bsl.model.StaticFeatureAccess;
+import com._1c.g5.v8.dt.bsl.model.Variable;
 import com._1c.g5.v8.dt.bsl.resource.TypesComputer;
+import com._1c.g5.v8.dt.mcore.Environmental;
+import com._1c.g5.v8.dt.mcore.NamedElement;
 import com._1c.g5.v8.dt.mcore.TypeItem;
 import com._1c.g5.v8.dt.mcore.util.Environments;
 import com.codepilot1c.core.edt.ast.ContentAssistRequest;
@@ -51,8 +65,9 @@ import com.codepilot1c.core.edt.platformdoc.PlatformMemberFilter;
  */
 public class BslSemanticService {
 
-    private static final int RESOURCE_SET_RETRY_ATTEMPTS = 10;
-    private static final long RESOURCE_SET_RETRY_DELAY_MS = 300L;
+    private static final int RESOURCE_SET_RETRY_ATTEMPTS = 3;
+    private static final long RESOURCE_SET_RETRY_BASE_DELAY_MS = 200L;
+    private static final double RESOURCE_SET_RETRY_MULTIPLIER = 3.0;
 
     private final EdtServiceGateway gateway;
     private final ProjectReadinessChecker readinessChecker;
@@ -72,11 +87,15 @@ public class BslSemanticService {
 
     public BslSymbolResult getSymbolAtPosition(BslPositionRequest request) {
         request.validate();
-        PositionContext context = resolveContext(request);
+        return executeRead(request.getProjectName(), () -> doGetSymbolAtPosition(request));
+    }
 
-        String symbolName = firstNonBlank(
-                getStringFeature(context.element(), "name"), //$NON-NLS-1$
-                getStringFeature(context.element(), "nameRu")); //$NON-NLS-1$
+    BslSymbolResult doGetSymbolAtPosition(BslPositionRequest request) {
+        PositionContext context = resolveContext(request);
+        EObject resolvedElement = resolveSemanticTarget(context.element(), resolveCurrentEnvironments(context.element()));
+        EObject symbolElement = resolvedElement != null ? resolvedElement : context.element();
+
+        String symbolName = extractName(symbolElement);
 
         INode node = NodeModelUtils.findActualNodeFor(context.element());
         String symbolText = node != null ? safeTrim(NodeModelUtils.getTokenText(node)) : null;
@@ -86,7 +105,7 @@ public class BslSemanticService {
 
         int[] start = lineColFromOffset(context.text(), node != null ? node.getOffset() : context.offset());
         int[] end = lineColFromOffset(context.text(), node != null ? node.getEndOffset() : context.offset());
-        EObject container = context.element().eContainer();
+        EObject container = symbolElement.eContainer();
 
         return new BslSymbolResult(
                 request.getProjectName(),
@@ -94,15 +113,13 @@ public class BslSemanticService {
                 request.getLine(),
                 request.getColumn(),
                 context.offset(),
-                symbolKind(context.element()),
+                symbolKind(symbolElement),
                 symbolName,
                 symbolText,
-                context.element().eClass().getName(),
-                EcoreUtil.getURI(context.element()).toString(),
+                symbolElement.eClass().getName(),
+                EcoreUtil.getURI(symbolElement).toString(),
                 container != null ? container.eClass().getName() : null,
-                container != null ? firstNonBlank(
-                        getStringFeature(container, "name"), //$NON-NLS-1$
-                        getStringFeature(container, "nameRu")) : null, //$NON-NLS-1$
+                container != null ? extractName(container) : null,
                 start[0],
                 start[1],
                 end[0],
@@ -111,6 +128,10 @@ public class BslSemanticService {
 
     public BslTypeResult getTypeAtPosition(BslPositionRequest request) {
         request.validate();
+        return executeRead(request.getProjectName(), () -> doGetTypeAtPosition(request));
+    }
+
+    BslTypeResult doGetTypeAtPosition(BslPositionRequest request) {
         try {
             PositionContext context = resolveContext(request);
             List<BslTypeResult.TypeInfo> types = computeTypes(context);
@@ -139,6 +160,10 @@ public class BslSemanticService {
 
     public BslScopeMembersResult getScopeMembers(BslScopeMembersRequest request) {
         request.validate();
+        return executeRead(request.getProjectName(), () -> doGetScopeMembers(request));
+    }
+
+    BslScopeMembersResult doGetScopeMembers(BslScopeMembersRequest request) {
         List<BslTypeResult.TypeInfo> types = List.of();
         try {
             PositionContext context = resolveContext(request.toPositionRequest());
@@ -181,6 +206,10 @@ public class BslSemanticService {
 
     public BslModuleMethodsResult listMethods(BslModuleMethodsRequest request) {
         request.validate();
+        return executeRead(request.getProjectName(), () -> doListMethods(request));
+    }
+
+    BslModuleMethodsResult doListMethods(BslModuleMethodsRequest request) {
         ModuleContext context = resolveModuleContext(request.getProjectName(), request.getFilePath());
         LineIndex lineIndex = new LineIndex(context.text());
         List<ResolvedMethod> methods = collectMethods(context.module(), context.text(), lineIndex);
@@ -219,61 +248,16 @@ public class BslSemanticService {
 
     public BslMethodBodyResult getMethodBody(BslMethodBodyRequest request) {
         request.validate();
+        return executeRead(request.getProjectName(), () -> doGetMethodBody(request));
+    }
+
+    BslMethodBodyResult doGetMethodBody(BslMethodBodyRequest request) {
         ModuleContext context = resolveModuleContext(request.getProjectName(), request.getFilePath());
         LineIndex lineIndex = new LineIndex(context.text());
         List<ResolvedMethod> methods = collectMethods(context.module(), context.text(), lineIndex);
-
-        String kindFilter = request.normalizedKind();
-        String nameFilter = request.normalizedName();
-        List<ResolvedMethod> matches = new ArrayList<>();
-        for (ResolvedMethod method : methods) {
-            if (!"any".equals(kindFilter) && !kindFilter.equals(method.kind())) { //$NON-NLS-1$
-                continue;
-            }
-            if (!normalize(method.name()).equals(nameFilter)) {
-                continue;
-            }
-            matches.add(method);
-        }
-
-        Integer startLineFilter = request.getStartLine();
-        if (startLineFilter != null) {
-            List<ResolvedMethod> filtered = new ArrayList<>();
-            for (ResolvedMethod method : matches) {
-                if (method.startLine() == startLineFilter.intValue()) {
-                    filtered.add(method);
-                }
-            }
-            matches = filtered;
-        }
-
-        if (matches.isEmpty()) {
-            throw new EdtAstException(EdtAstErrorCode.METHOD_NOT_FOUND,
-                    "Method not found: " + request.getName(), false); //$NON-NLS-1$
-        }
-
-        if (matches.size() > 1) {
-            ResolvedMethod preferred = selectPreferredMethod(matches);
-            if (preferred != null) {
-                matches = List.of(preferred);
-            } else {
-                List<BslMethodCandidate> candidates = new ArrayList<>();
-                for (ResolvedMethod method : matches) {
-                    candidates.add(new BslMethodCandidate(
-                            method.name(),
-                            method.kind(),
-                            method.startLine(),
-                            method.endLine()));
-                }
-                throw new BslMethodLookupException(
-                        EdtAstErrorCode.AMBIGUOUS_METHOD,
-                        "Ambiguous method name: " + request.getName(), //$NON-NLS-1$
-                        true,
-                        candidates);
-            }
-        }
-
-        ResolvedMethod method = matches.get(0);
+        ResolvedMethod method = resolveSingleMethod(
+                findMatchingMethods(methods, request.normalizedName(), request.normalizedKind(), request.getStartLine()),
+                request.getName());
         int startLine = method.startLine();
         int endLine = method.endLine();
         int startOffset = method.startOffset();
@@ -298,6 +282,130 @@ public class BslSemanticService {
                 startLine,
                 endLine,
                 text);
+    }
+
+    public BslMethodAnalysisResult analyzeMethod(BslMethodAnalysisRequest request) {
+        request.validate();
+        return executeRead(request.getProjectName(), () -> doAnalyzeMethod(request));
+    }
+
+    BslMethodAnalysisResult doAnalyzeMethod(BslMethodAnalysisRequest request) {
+        ModuleContext context = resolveModuleContext(request.getProjectName(), request.getFilePath());
+        LineIndex lineIndex = new LineIndex(context.text());
+        List<ResolvedMethod> methods = collectMethods(context.module(), context.text(), lineIndex);
+        ResolvedMethod method = resolveSingleMethod(
+                findMatchingMethods(methods, request.normalizedMethodName(), request.normalizedKind(), request.getStartLine()),
+                request.getMethodName());
+
+        BslMethodAnalyzer.AnalysisSnapshot analysis =
+                new BslMethodAnalyzer().analyze(method.model(), method.startLine(), method.endLine());
+        return new BslMethodAnalysisResult(
+                request.getProjectName(),
+                request.getFilePath(),
+                method.name(),
+                method.kind(),
+                method.startLine(),
+                method.endLine(),
+                analysis.loc(),
+                analysis.cyclomatic(),
+                analysis.branches(),
+                analysis.loops(),
+                analysis.tryExcepts(),
+                analysis.unusedParams(),
+                analysis.serverCallsInLoops(),
+                analysis.callees(),
+                analysis.callers(),
+                analysis.warnings());
+    }
+
+    public BslModuleContextResult getModuleContext(BslModuleRequest request) {
+        request.validate();
+        return executeRead(request.getProjectName(), () -> doGetModuleContext(request));
+    }
+
+    BslModuleContextResult doGetModuleContext(BslModuleRequest request) {
+        ModuleContext context = resolveModuleContext(request.getProjectName(), request.getFilePath());
+        List<ResolvedMethod> methods = collectMethods(context.module(), context.text(), new LineIndex(context.text()));
+
+        int exportedMethods = 0;
+        int asyncMethods = 0;
+        int eventMethods = 0;
+        for (ResolvedMethod method : methods) {
+            if (method.exportFlag()) {
+                exportedMethods++;
+            }
+            if (method.asyncFlag()) {
+                asyncMethods++;
+            }
+            if (method.eventFlag()) {
+                eventMethods++;
+            }
+        }
+
+        EObject owner = context.module().getOwner();
+        return new BslModuleContextResult(
+                request.getProjectName(),
+                request.getFilePath(),
+                normalizeModuleType(context.module().getModuleType()),
+                owner != null ? owner.eClass().getName() : null,
+                owner != null ? extractName(owner) : null,
+                owner != null ? EcoreUtil.getURI(owner).toString() : null,
+                collectPragmaTexts(context.module().getDefaultPragmas()),
+                methods.size(),
+                exportedMethods,
+                asyncMethods,
+                eventMethods);
+    }
+
+    public BslModuleExportsResult getModuleExports(BslModuleMethodsRequest request) {
+        request.validate();
+        return executeRead(request.getProjectName(), () -> doGetModuleExports(request));
+    }
+
+    BslModuleExportsResult doGetModuleExports(BslModuleMethodsRequest request) {
+        ModuleContext context = resolveModuleContext(request.getProjectName(), request.getFilePath());
+        List<ResolvedMethod> methods = collectMethods(context.module(), context.text(), new LineIndex(context.text()));
+
+        String nameFilter = request.normalizedNameContains();
+        List<BslMethodInfo> filtered = new ArrayList<>();
+        for (ResolvedMethod method : methods) {
+            if (!method.exportFlag()) {
+                continue;
+            }
+            if (!nameFilter.isEmpty() && !normalize(method.name()).contains(nameFilter)) {
+                continue;
+            }
+            filtered.add(method.toInfo());
+        }
+
+        int total = filtered.size();
+        int from = Math.min(request.getOffset(), total);
+        int to = Math.min(from + request.getLimit(), total);
+        return new BslModuleExportsResult(
+                request.getProjectName(),
+                request.getFilePath(),
+                total,
+                to < total,
+                filtered.subList(from, to));
+    }
+
+    private <T> T executeRead(String projectName, ReadOnlyTask<T> task) {
+        IProject project = gateway.resolveProject(projectName);
+        if (project == null) {
+            return task.execute();
+        }
+        try {
+            return gateway.getBmModelManager().executeReadOnlyTask(project, tx -> task.execute());
+        } catch (EdtAstException e) {
+            if (e.getCode() == EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE) {
+                return task.execute();
+            }
+            throw e;
+        } catch (RuntimeException e) {
+            throw new EdtAstException(
+                    EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE,
+                    "Failed to execute BSL read transaction: " + e.getMessage(), true, e); //$NON-NLS-1$
+        }
     }
 
     private PositionContext resolveContext(BslPositionRequest request) {
@@ -347,17 +455,12 @@ public class BslSemanticService {
         EObject root = resource.getParseResult() != null
                 ? resource.getParseResult().getRootASTElement()
                 : null;
-        if (root == null) {
+        if (!(root instanceof Module module)) {
             throw new EdtAstException(EdtAstErrorCode.MODULE_PARSE_ERROR,
-                    "Failed to parse BSL module: " + filePath, true); //$NON-NLS-1$
-        }
-        if (root.eClass().getEStructuralFeature("methods") == null //$NON-NLS-1$
-                && root.eClass().getEStructuralFeature("allMethods") == null) { //$NON-NLS-1$
-            throw new EdtAstException(EdtAstErrorCode.MODULE_PARSE_ERROR,
-                    "Root AST element is not a BSL module for: " + filePath, true); //$NON-NLS-1$
+                    "Root AST element is not a BSL Module for: " + filePath, true); //$NON-NLS-1$
         }
 
-        return new ModuleContext(project, file, resource, root, text);
+        return new ModuleContext(project, file, resource, module, text);
     }
 
     private XtextResource loadResource(IProject project, IFile file) {
@@ -390,7 +493,9 @@ public class BslSemanticService {
                     break;
                 }
                 try {
-                    Thread.sleep(RESOURCE_SET_RETRY_DELAY_MS);
+                    long delay = (long) (RESOURCE_SET_RETRY_BASE_DELAY_MS
+                            * Math.pow(RESOURCE_SET_RETRY_MULTIPLIER, attempt - 1));
+                    Thread.sleep(delay);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new EdtAstException(EdtAstErrorCode.EDT_SERVICE_UNAVAILABLE,
@@ -455,9 +560,19 @@ public class BslSemanticService {
                     "TypesComputer is unavailable for BSL resource", false); //$NON-NLS-1$
         }
 
+        Environments envs = Environments.ALL;
+        try {
+            Environmental environmental = findContainerOfType(context.element(), Environmental.class);
+            if (environmental != null) {
+                envs = environmental.environments();
+            }
+        } catch (RuntimeException ignored) {
+            // fallback to ALL
+        }
+
         List<TypeItem> typeItems;
         try {
-            typeItems = typesComputer.computeTypes(context.element(), Environments.ALL);
+            typeItems = typesComputer.computeTypes(context.element(), envs);
         } catch (Exception e) {
             throw new EdtAstException(EdtAstErrorCode.INTERNAL_ERROR,
                     "Failed to compute BSL types: " + e.getMessage(), true, e); //$NON-NLS-1$
@@ -647,25 +762,110 @@ public class BslSemanticService {
         return new int[] {line, bounded - lineStart + 1};
     }
 
+    private String extractName(EObject element) {
+        if (element instanceof Method m) {
+            return m.getName();
+        }
+        if (element instanceof Variable v) {
+            return v.getName();
+        }
+        if (element instanceof NamedElement named) {
+            return named.getName();
+        }
+        if (element instanceof FeatureAccess fa) {
+            return fa.getName();
+        }
+        if (element instanceof Module) {
+            return "Module"; //$NON-NLS-1$
+        }
+        // fallback for platform types that are not BSL model elements
+        INode node = NodeModelUtils.findActualNodeFor(element);
+        return node != null ? safeTrim(NodeModelUtils.getTokenText(node)) : null;
+    }
+
     private String symbolKind(EObject element) {
-        String className = element.eClass().getName();
-        String normalized = className.toLowerCase(Locale.ROOT);
-        if (normalized.contains("variable")) { //$NON-NLS-1$
+        if (element instanceof Variable) {
             return "variable"; //$NON-NLS-1$
         }
-        if (normalized.contains("invocation") || normalized.contains("call")) { //$NON-NLS-1$ //$NON-NLS-2$
+        if (element instanceof Invocation) {
             return "invocation"; //$NON-NLS-1$
         }
-        if (normalized.contains("method")) { //$NON-NLS-1$
+        if (element instanceof Method) {
             return "method"; //$NON-NLS-1$
         }
-        if (normalized.contains("property")) { //$NON-NLS-1$
-            return "property"; //$NON-NLS-1$
-        }
-        if (normalized.contains("module")) { //$NON-NLS-1$
+        if (element instanceof Module) {
             return "module"; //$NON-NLS-1$
         }
-        return normalized;
+        if (element instanceof DynamicFeatureAccess) {
+            return "property"; //$NON-NLS-1$
+        }
+        if (element instanceof StaticFeatureAccess) {
+            return "reference"; //$NON-NLS-1$
+        }
+        if (element instanceof FeatureAccess) {
+            return "reference"; //$NON-NLS-1$
+        }
+        return element.eClass().getName().toLowerCase(Locale.ROOT);
+    }
+
+    static EObject resolveSemanticTarget(EObject element, Environments currentEnvironments) {
+        if (element == null) {
+            return null;
+        }
+        if (element instanceof Invocation invocation) {
+            EObject resolved = resolveSemanticTarget(invocation.getMethodAccess(), currentEnvironments);
+            return resolved != null ? resolved : invocation;
+        }
+        if (element instanceof StaticFeatureAccess staticAccess) {
+            EObject resolved = resolveFeatureEntries(staticAccess.getFeatureEntries(), currentEnvironments);
+            return resolved != null ? resolveSemanticTarget(resolved, currentEnvironments) : staticAccess;
+        }
+        if (element instanceof DynamicFeatureAccess dynamicAccess) {
+            EObject resolved = resolveFeatureEntries(dynamicAccess.getFeatureEntries(), currentEnvironments);
+            return resolved != null ? resolveSemanticTarget(resolved, currentEnvironments) : dynamicAccess;
+        }
+        if (element instanceof FeatureEntry featureEntry) {
+            EObject resolved = featureEntry.getFeature();
+            return resolved != null ? resolveSemanticTarget(resolved, currentEnvironments) : featureEntry;
+        }
+        return element;
+    }
+
+    static EObject resolveFeatureEntries(List<FeatureEntry> entries, Environments currentEnvironments) {
+        if (entries == null || entries.isEmpty()) {
+            return null;
+        }
+
+        EObject fallback = null;
+        for (FeatureEntry entry : entries) {
+            if (entry == null || entry.getFeature() == null) {
+                continue;
+            }
+            if (fallback == null) {
+                fallback = entry.getFeature();
+            }
+            Environments entryEnvironments = entry.getEnvironments();
+            if (currentEnvironments == null || currentEnvironments.isEmpty()
+                    || entryEnvironments == null || entryEnvironments.isEmpty()
+                    || currentEnvironments.containsAny(entryEnvironments)
+                    || entryEnvironments.containsAny(currentEnvironments)) {
+                return entry.getFeature();
+            }
+        }
+        return fallback;
+    }
+
+    private Environments resolveCurrentEnvironments(EObject element) {
+        Environmental environmental = findContainerOfType(element, Environmental.class);
+        if (environmental == null) {
+            return Environments.ALL;
+        }
+        try {
+            Environments environments = environmental.environments();
+            return environments != null ? environments : Environments.ALL;
+        } catch (RuntimeException e) {
+            return Environments.ALL;
+        }
     }
 
     private String readResourceText(XtextResource resource, IFile file) {
@@ -692,21 +892,11 @@ public class BslSemanticService {
         }
     }
 
-    private List<ResolvedMethod> collectMethods(EObject module, String text, LineIndex lineIndex) {
-        List<EObject> methods = getEObjectList(module, "methods"); //$NON-NLS-1$
-        if (methods.isEmpty()) {
-            methods = getEObjectList(module, "allMethods"); //$NON-NLS-1$
-        }
-
+    private List<ResolvedMethod> collectMethods(Module module, String text, LineIndex lineIndex) {
         List<ResolvedMethod> result = new ArrayList<>();
-        for (EObject method : methods) {
-            if (method == null) {
-                continue;
-            }
-            String name = firstNonBlank(
-                    getStringFeature(method, "name"), //$NON-NLS-1$
-                    getStringFeature(method, "nameRu")); //$NON-NLS-1$
-            if (name == null) {
+        for (Method method : module.allMethods()) {
+            String name = method.getName();
+            if (name == null || name.isBlank()) {
                 continue;
             }
 
@@ -721,109 +911,134 @@ public class BslSemanticService {
             int startLine = lineIndex.lineOfOffset(startOffset);
             int endLine = lineIndex.lineOfOffset(endOffset);
 
-            String kind = methodKind(method);
-            boolean isExport = getBooleanFeature(method, "export"); //$NON-NLS-1$
-            boolean isAsync = getBooleanFeature(method, "async"); //$NON-NLS-1$
-            boolean isEvent = getBooleanFeature(method, "event"); //$NON-NLS-1$
+            String kind = method instanceof Procedure ? "procedure" : "function"; //$NON-NLS-1$ //$NON-NLS-2$
             List<BslMethodParamInfo> params = collectParams(method);
+            List<String> pragmas = collectPragmas(method);
+            String doc = extractDocumentation(text, startOffset);
 
             result.add(new ResolvedMethod(
+                    method,
                     name,
                     kind,
                     startLine,
                     endLine,
                     startOffset,
                     endOffset,
-                    isExport,
-                    isAsync,
-                    isEvent,
-                    params));
+                    method.isExport(),
+                    method.isAsync(),
+                    method.isEvent(),
+                    method.isUsed(),
+                    params,
+                    pragmas,
+                    doc));
         }
         return result;
     }
 
-    private List<BslMethodParamInfo> collectParams(EObject method) {
-        List<EObject> params = getEObjectList(method, "formalParams"); //$NON-NLS-1$
-        if (params.isEmpty()) {
+    private List<BslMethodParamInfo> collectParams(Method method) {
+        List<FormalParam> formalParams = method.getFormalParams();
+        if (formalParams.isEmpty()) {
             return List.of();
         }
         List<BslMethodParamInfo> result = new ArrayList<>();
-        for (EObject param : params) {
-            if (param == null) {
-                continue;
-            }
-            String name = firstNonBlank(
-                    getStringFeature(param, "name"), //$NON-NLS-1$
-                    getStringFeature(param, "nameRu")); //$NON-NLS-1$
-            boolean byValue = getBooleanFeature(param, "byValue"); //$NON-NLS-1$
-            EObject defaultValue = getEObjectFeature(param, "defaultValue"); //$NON-NLS-1$
-            String defaultText = defaultValue != null ? extractLiteralText(defaultValue) : null;
+        for (FormalParam param : formalParams) {
+            String name = param.getName();
+            boolean byValue = param.isByValue();
+            String defaultText = param.getDefaultValue() != null
+                    ? extractLiteralText(param.getDefaultValue()) : null;
             result.add(new BslMethodParamInfo(name, byValue, defaultText));
         }
         return result;
     }
 
-    private String methodKind(EObject method) {
-        if (method == null) {
-            return "method"; //$NON-NLS-1$
-        }
-        String className = method.eClass().getName();
-        if (className == null) {
-            return "method"; //$NON-NLS-1$
-        }
-        String normalized = className.toLowerCase(Locale.ROOT);
-        if (normalized.contains("procedure")) { //$NON-NLS-1$
-            return "procedure"; //$NON-NLS-1$
-        }
-        if (normalized.contains("function")) { //$NON-NLS-1$
-            return "function"; //$NON-NLS-1$
-        }
-        return "method"; //$NON-NLS-1$
+    private List<String> collectPragmas(Method method) {
+        return collectPragmaTexts(method.getPragmas());
     }
 
-    private List<EObject> getEObjectList(EObject object, String featureName) {
-        if (object == null || featureName == null) {
+    private List<String> collectPragmaTexts(List<Pragma> pragmaList) {
+        if (pragmaList == null || pragmaList.isEmpty()) {
             return List.of();
         }
-        EStructuralFeature feature = object.eClass().getEStructuralFeature(featureName);
-        if (feature == null) {
-            return List.of();
-        }
-        Object value = object.eGet(feature);
-        if (!(value instanceof List<?> list)) {
-            return List.of();
-        }
-        List<EObject> result = new ArrayList<>();
-        for (Object item : list) {
-            if (item instanceof EObject eObject) {
-                result.add(eObject);
+        List<String> result = new ArrayList<>();
+        for (Pragma pragma : pragmaList) {
+            String text = pragmaToText(pragma);
+            if (text != null) {
+                result.add(text);
             }
         }
         return result;
     }
 
-    private EObject getEObjectFeature(EObject object, String featureName) {
-        if (object == null || featureName == null) {
+    private String pragmaToText(Pragma pragma) {
+        if (pragma == null) {
             return null;
         }
-        EStructuralFeature feature = object.eClass().getEStructuralFeature(featureName);
-        if (feature == null) {
-            return null;
+        String symbol = safeTrim(pragma.getSymbol());
+        String value = safeTrim(pragma.getValue());
+        if (symbol == null) {
+            return value;
         }
-        Object value = object.eGet(feature);
-        return value instanceof EObject eObject ? eObject : null;
+        if (value == null) {
+            return symbol;
+        }
+        return symbol + "=" + value; //$NON-NLS-1$
     }
 
-    private boolean getBooleanFeature(EObject object, String featureName) {
-        if (object == null || featureName == null) {
-            return false;
+    private String normalizeModuleType(ModuleType moduleType) {
+        if (moduleType == null) {
+            return null;
         }
-        EStructuralFeature feature = object.eClass().getEStructuralFeature(featureName);
-        if (feature == null) {
-            return false;
+        String literal = safeTrim(moduleType.getLiteral());
+        if (literal != null) {
+            return literal;
         }
-        Object value = object.eGet(feature);
-        return value instanceof Boolean bool ? bool : false;
+        return safeTrim(moduleType.getName());
+    }
+
+
+    private String extractDocumentation(String text, int methodStartOffset) {
+        if (text == null || methodStartOffset <= 0) {
+            return null;
+        }
+        // Walk backwards from method start to find contiguous // comment block
+        int pos = methodStartOffset - 1;
+        // Skip whitespace/newlines before method keyword
+        while (pos >= 0 && (text.charAt(pos) == ' ' || text.charAt(pos) == '\t'
+                || text.charAt(pos) == '\r' || text.charAt(pos) == '\n')) {
+            pos--;
+        }
+        if (pos < 1) {
+            return null;
+        }
+        // Now pos points to last non-whitespace char before method. Collect comment lines upward.
+        List<String> lines = new ArrayList<>();
+        while (pos >= 0) {
+            // Find the start of the current line
+            int lineEnd = pos;
+            int lineStart = pos;
+            while (lineStart > 0 && text.charAt(lineStart - 1) != '\n') {
+                lineStart--;
+            }
+            String line = text.substring(lineStart, lineEnd + 1).trim();
+            if (line.startsWith("//")) { //$NON-NLS-1$
+                lines.add(line.substring(2).trim());
+                // Move to previous line
+                pos = lineStart - 1;
+                // Skip newline chars
+                while (pos >= 0 && (text.charAt(pos) == '\r' || text.charAt(pos) == '\n')) {
+                    pos--;
+                }
+            } else {
+                break;
+            }
+        }
+        if (lines.isEmpty()) {
+            return null;
+        }
+        // Reverse since we collected bottom-up
+        Collections.reverse(lines);
+        String doc = String.join("\n", lines); //$NON-NLS-1$
+        return doc.isBlank() ? null : doc;
     }
 
     private String extractLiteralText(EObject literal) {
@@ -844,20 +1059,16 @@ public class BslSemanticService {
         return text.substring(safeStart, safeEnd);
     }
 
-    private String getStringFeature(EObject object, String featureName) {
-        if (object == null || featureName == null) {
-            return null;
+
+    private <T> T findContainerOfType(EObject element, Class<T> type) {
+        EObject current = element;
+        while (current != null) {
+            if (type.isInstance(current)) {
+                return type.cast(current);
+            }
+            current = current.eContainer();
         }
-        EStructuralFeature feature = object.eClass().getEStructuralFeature(featureName);
-        if (feature == null) {
-            return null;
-        }
-        Object value = object.eGet(feature);
-        if (!(value instanceof String text)) {
-            return null;
-        }
-        String trimmed = text.trim();
-        return trimmed.isEmpty() ? null : trimmed;
+        return null;
     }
 
     private String normalize(String text) {
@@ -906,7 +1117,56 @@ public class BslSemanticService {
         return candidate;
     }
 
+    private List<ResolvedMethod> findMatchingMethods(
+            List<ResolvedMethod> methods,
+            String normalizedName,
+            String normalizedKind,
+            Integer startLine) {
+        List<ResolvedMethod> matches = new ArrayList<>();
+        for (ResolvedMethod method : methods) {
+            if (!"any".equals(normalizedKind) && !normalizedKind.equals(method.kind())) { //$NON-NLS-1$
+                continue;
+            }
+            if (!normalize(method.name()).equals(normalizedName)) {
+                continue;
+            }
+            if (startLine != null && method.startLine() != startLine.intValue()) {
+                continue;
+            }
+            matches.add(method);
+        }
+        return matches;
+    }
+
+    private ResolvedMethod resolveSingleMethod(List<ResolvedMethod> matches, String requestedName) {
+        if (matches.isEmpty()) {
+            throw new EdtAstException(EdtAstErrorCode.METHOD_NOT_FOUND,
+                    "Method not found: " + requestedName, false); //$NON-NLS-1$
+        }
+        if (matches.size() == 1) {
+            return matches.get(0);
+        }
+        ResolvedMethod preferred = selectPreferredMethod(matches);
+        if (preferred != null) {
+            return preferred;
+        }
+        List<BslMethodCandidate> candidates = new ArrayList<>();
+        for (ResolvedMethod method : matches) {
+            candidates.add(new BslMethodCandidate(
+                    method.name(),
+                    method.kind(),
+                    method.startLine(),
+                    method.endLine()));
+        }
+        throw new BslMethodLookupException(
+                EdtAstErrorCode.AMBIGUOUS_METHOD,
+                "Ambiguous method name: " + requestedName, //$NON-NLS-1$
+                true,
+                candidates);
+    }
+
     private record ResolvedMethod(
+            Method model,
             String name,
             String kind,
             int startLine,
@@ -916,7 +1176,10 @@ public class BslSemanticService {
             boolean exportFlag,
             boolean asyncFlag,
             boolean eventFlag,
-            List<BslMethodParamInfo> params) {
+            boolean usedFlag,
+            List<BslMethodParamInfo> params,
+            List<String> pragmas,
+            String documentation) {
         BslMethodInfo toInfo() {
             return new BslMethodInfo(
                     name,
@@ -926,7 +1189,10 @@ public class BslSemanticService {
                     exportFlag,
                     asyncFlag,
                     eventFlag,
-                    params);
+                    usedFlag,
+                    params,
+                    pragmas,
+                    documentation);
         }
     }
 
@@ -994,11 +1260,16 @@ public class BslSemanticService {
         }
     }
 
+    @FunctionalInterface
+    private interface ReadOnlyTask<T> {
+        T execute();
+    }
+
     private record ModuleContext(
             IProject project,
             IFile file,
             XtextResource resource,
-            EObject module,
+            Module module,
             String text) {
         ModuleContext {
             Objects.requireNonNull(project);

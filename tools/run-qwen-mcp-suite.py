@@ -64,6 +64,14 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def parse_json_or_text(raw: bytes) -> Any:
+    text = raw.decode("utf-8", "replace")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"raw_text": text}
+
+
 def run_subprocess(
     cmd: list[str],
     cwd: Path,
@@ -134,11 +142,11 @@ def preflight_mcp(config: QwenMcpConfig, output_path: Path) -> None:
         with urllib.request.urlopen(request, timeout=30) as response:
             wrapper["http_status"] = response.getcode()
             wrapper["response_headers"] = dict(response.headers.items())
-            wrapper["body"] = json.loads(response.read().decode("utf-8", "replace"))
+            wrapper["body"] = parse_json_or_text(response.read())
     except urllib.error.HTTPError as exc:
         wrapper["http_status"] = exc.code
         wrapper["response_headers"] = dict(exc.headers.items()) if exc.headers else {}
-        wrapper["body"] = json.loads(exc.read().decode("utf-8", "replace"))
+        wrapper["body"] = parse_json_or_text(exc.read())
         write_json(output_path, wrapper)
         raise RuntimeError(f"MCP initialize returned HTTP {exc.code}") from exc
     except Exception as exc:  # noqa: BLE001
@@ -163,14 +171,14 @@ def compose_prompt(scenario: dict[str, Any], server_name: str) -> str:
         2. pass validation_token unchanged to each mutation tool,
         3. call get_diagnostics after mutations.
         If you perform QA:
-        1. call qa_status before qa_run,
+        1. call qa_inspect with command=status before qa_run,
         2. if the scenario depends on an object or list form, call qa_prepare_form_context before planning so the form is inspected and, if missing, created automatically,
-        3. after that, use the structured QA path: qa_plan_scenario -> qa_compile_feature -> qa_validate_feature -> qa_run,
-        4. use qa_steps_search only as a fallback if qa_compile_feature or qa_validate_feature reports unresolved issues,
-        5. do not run qa_run if qa_status returns status=error.
+        3. after that, use the structured QA path: qa_plan_scenario -> qa_generate with command=compile_feature -> qa_validate_feature -> qa_run,
+        4. use qa_inspect with command=steps_search only as a fallback if qa_generate(command=compile_feature) or qa_validate_feature reports unresolved issues,
+        5. do not run qa_run if qa_inspect(command=status) returns status=error.
         For EDT and QA operations, use the exact MCP tool names exposed by the server.
-        Do not call bare local aliases such as scan_metadata_index, get_diagnostics, qa_status, qa_plan_scenario,
-        qa_prepare_form_context, qa_compile_feature, qa_validate_feature, qa_run, or qa_steps_search when the MCP server tool is available.
+        Do not call bare local aliases such as scan_metadata_index, get_diagnostics, qa_inspect, qa_plan_scenario,
+        qa_prepare_form_context, qa_generate, qa_validate_feature, or qa_run when the MCP server tool is available.
         For local filesystem exploration, use list_directory, read_file, glob, or grep_search.
         Do not call bare list_files.
         For local file edits, use edit or write_file with the exact registered tool names.
@@ -184,7 +192,7 @@ def compose_prompt(scenario: dict[str, Any], server_name: str) -> str:
           "target_objects": ["..."],
           "changed_objects": ["..."],
           "diagnostics_status": "...",
-          "qa_status": "...",
+          "qa_inspect_status": "...",
           "junit_path": "...",
           "notes": ["..."]
         }}
@@ -358,6 +366,28 @@ def find_last_result(calls: list[dict[str, Any]], tool_name: str) -> dict[str, A
     return None
 
 
+def find_call_index(calls: list[dict[str, Any]], tool_name: str, command: str | None = None) -> int:
+    for index, call in enumerate(calls):
+        if call.get("tool_name") != tool_name:
+            continue
+        if command is None:
+            return index
+        args = call.get("args") or {}
+        if args.get("command") == command:
+            return index
+    return -1
+
+
+def find_last_result_for_command(calls: list[dict[str, Any]], tool_name: str, command: str) -> dict[str, Any] | None:
+    for call in reversed(calls):
+        if call.get("tool_name") != tool_name:
+            continue
+        args = call.get("args") or {}
+        if args.get("command") == command and call.get("result"):
+            return call["result"]
+    return None
+
+
 def has_later_call(calls: list[dict[str, Any]], after_index: int, tool_name: str) -> bool:
     for index in range(after_index + 1, len(calls)):
         if calls[index].get("tool_name") == tool_name:
@@ -460,15 +490,15 @@ def evaluate_assertions(scenario: dict[str, Any], parsed: dict[str, Any]) -> dic
             }
         )
 
-    if tool_behavior.get("must_call_qa_status_first"):
-        qa_status_index = tool_names.index("qa_status") if "qa_status" in tool_names else -1
+    if tool_behavior.get("must_call_qa_inspect_status_first"):
+        qa_inspect_status_index = find_call_index(mcp_calls, "qa_inspect", "status")
         qa_run_index = tool_names.index("qa_run") if "qa_run" in tool_names else -1
-        passed = qa_status_index != -1 and qa_run_index != -1 and qa_status_index < qa_run_index
+        passed = qa_inspect_status_index != -1 and qa_run_index != -1 and qa_inspect_status_index < qa_run_index
         checks.append(
             {
-                "name": "qa_status_before_qa_run",
+                "name": "qa_inspect_status_before_qa_run",
                 "passed": passed,
-                "details": "qa_status must be called before qa_run",
+                "details": "qa_inspect(command=status) must be called before qa_run",
             }
         )
 
@@ -484,14 +514,14 @@ def evaluate_assertions(scenario: dict[str, Any], parsed: dict[str, Any]) -> dic
             }
         )
 
-    qa_status_result = find_last_result(mcp_calls, "qa_status")
-    if qa_status_result and isinstance(qa_status_result.get("output"), dict):
-        qa_status_value = qa_status_result["output"].get("status")
+    qa_inspect_status_result = find_last_result_for_command(mcp_calls, "qa_inspect", "status")
+    if qa_inspect_status_result and isinstance(qa_inspect_status_result.get("output"), dict):
+        qa_inspect_status_value = qa_inspect_status_result["output"].get("status")
         checks.append(
             {
-                "name": "qa_run_after_error_status",
-                "passed": not (qa_status_value == "error" and "qa_run" in tool_names),
-                "details": "qa_run must not execute after qa_status=status=error",
+                "name": "qa_run_after_error_qa_inspect_status",
+                "passed": not (qa_inspect_status_value == "error" and "qa_run" in tool_names),
+                "details": "qa_run must not execute after qa_inspect(command=status)=error",
             }
         )
 
@@ -606,7 +636,7 @@ def evaluate_assertions(scenario: dict[str, Any], parsed: dict[str, Any]) -> dic
         elif expected_value is True:
             field_map = {
                 "must_report_diagnostics_status": "diagnostics_status",
-                "must_report_qa_status": "qa_status",
+                "must_report_qa_inspect_status": "qa_inspect_status",
                 "must_report_junit_path": "junit_path",
                 "must_list_created_objects": "changed_objects",
                 "must_report_created_catalogs": "changed_objects",
@@ -655,6 +685,109 @@ def evaluate_assertions(scenario: dict[str, Any], parsed: dict[str, Any]) -> dic
         "final_json": final_json,
         "final_text": final_text,
     }
+
+
+def extract_failure_metrics(parsed: dict[str, Any], evaluation: dict[str, Any]) -> dict[str, Any]:
+    metrics = {
+        "wrong_tool": 0,
+        "invalid_args": 0,
+        "missed_validation_token": 0,
+        "missed_diagnostics": 0,
+        "qa_gate": 0,
+        "other": 0,
+        "details": [],
+    }
+
+    for check in evaluation.get("checks") or []:
+        if check.get("passed"):
+            continue
+        name = str(check.get("name") or "")
+        details = str(check.get("details") or "")
+        if name.startswith("required_tool:") or name.startswith("forbidden_tool:") or name == "allowed_tool_set" or name == "ordered_subsequence":
+            metrics["wrong_tool"] += 1
+            metrics["details"].append({"category": "wrong_tool", "name": name, "details": details})
+        elif name == "validation_flow":
+            observed = check.get("observed") or []
+            count = len(observed) if isinstance(observed, list) and observed else 1
+            metrics["missed_validation_token"] += count
+            metrics["details"].append(
+                {"category": "missed_validation_token", "name": name, "details": details, "observed": observed}
+            )
+        elif name in {"post_mutation_diagnostics", "diagnostics_error_count_must_decrease"}:
+            metrics["missed_diagnostics"] += 1
+            metrics["details"].append({"category": "missed_diagnostics", "name": name, "details": details})
+        elif name in {"qa_inspect_status_before_qa_run", "qa_run_after_error_qa_inspect_status"}:
+            metrics["qa_gate"] += 1
+            metrics["details"].append({"category": "qa_gate", "name": name, "details": details})
+        else:
+            metrics["other"] += 1
+            metrics["details"].append({"category": "other", "name": name, "details": details})
+
+    for result in (parsed.get("results") or {}).values():
+        error_blob = deep_text(result.get("error")).lower()
+        output = result.get("output")
+        output_error_blob = ""
+        if isinstance(output, dict):
+            output_error_blob = " ".join(
+                deep_text(output.get(key)).lower()
+                for key in ["error", "error_message", "message", "details"]
+                if output.get(key)
+            )
+        combined = f"{error_blob} {output_error_blob}".strip()
+        if not combined:
+            continue
+        if any(token in combined for token in [
+            "invalid arguments",
+            "invalid argument",
+            "validation error",
+            "schema",
+            "required property",
+            "unexpected property",
+            "json schema",
+        ]):
+            metrics["invalid_args"] += 1
+            metrics["details"].append(
+                {
+                    "category": "invalid_args",
+                    "name": result.get("tool_name") or "tool_result",
+                    "details": (result.get("error") or result.get("output") or "")[:500],
+                }
+            )
+
+    return metrics
+
+
+def aggregate_metrics(scenario_results: list[dict[str, Any]]) -> dict[str, Any]:
+    aggregate = {
+        "scenarios_total": len(scenario_results),
+        "scenarios_passed": 0,
+        "scenarios_failed": 0,
+        "wrong_tool": 0,
+        "invalid_args": 0,
+        "missed_validation_token": 0,
+        "missed_diagnostics": 0,
+        "qa_gate": 0,
+        "other": 0,
+        "scenario_breakdown": [],
+    }
+
+    for result in scenario_results:
+        if result.get("passed"):
+            aggregate["scenarios_passed"] += 1
+        else:
+            aggregate["scenarios_failed"] += 1
+        scenario_metrics = result.get("failure_metrics") or {}
+        breakdown = {"scenario_id": result.get("scenario_id"), "passed": bool(result.get("passed"))}
+        for key in ["wrong_tool", "invalid_args", "missed_validation_token", "missed_diagnostics", "qa_gate", "other"]:
+            value = int(scenario_metrics.get(key) or 0)
+            aggregate[key] += value
+            breakdown[key] = value
+        breakdown["details"] = scenario_metrics.get("details") or []
+        aggregate["scenario_breakdown"].append(breakdown)
+
+    total = aggregate["scenarios_total"] or 1
+    aggregate["pass_rate"] = round(aggregate["scenarios_passed"] / total, 4)
+    return aggregate
 
 
 def build_qwen_command(
@@ -731,6 +864,47 @@ def write_markdown_summary(path: Path, suite: dict[str, Any], scenario_results: 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def write_metrics_report(path: Path, suite: dict[str, Any], metrics: dict[str, Any]) -> None:
+    lines = [
+        f"# {suite.get('title', suite.get('suite_id', 'Qwen Suite'))} Metrics",
+        "",
+        f"- suite_id: `{suite.get('suite_id', '')}`",
+        f"- generated_at: `{utc_now()}`",
+        f"- scenarios_total: `{metrics.get('scenarios_total', 0)}`",
+        f"- scenarios_passed: `{metrics.get('scenarios_passed', 0)}`",
+        f"- scenarios_failed: `{metrics.get('scenarios_failed', 0)}`",
+        f"- pass_rate: `{metrics.get('pass_rate', 0)}`",
+        "",
+        "## Failure Metrics",
+        "",
+        f"- wrong_tool: `{metrics.get('wrong_tool', 0)}`",
+        f"- invalid_args: `{metrics.get('invalid_args', 0)}`",
+        f"- missed_validation_token: `{metrics.get('missed_validation_token', 0)}`",
+        f"- missed_diagnostics: `{metrics.get('missed_diagnostics', 0)}`",
+        f"- qa_gate: `{metrics.get('qa_gate', 0)}`",
+        f"- other: `{metrics.get('other', 0)}`",
+        "",
+        "## Scenario Breakdown",
+        "",
+        "| Scenario | Pass | wrong_tool | invalid_args | missed_validation_token | missed_diagnostics | qa_gate | other |",
+        "|---|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for breakdown in metrics.get("scenario_breakdown", []):
+        lines.append(
+            "| `{scenario_id}` | {passed} | {wrong_tool} | {invalid_args} | {missed_validation_token} | {missed_diagnostics} | {qa_gate} | {other} |".format(
+                scenario_id=breakdown.get("scenario_id", ""),
+                passed="PASS" if breakdown.get("passed") else "FAIL",
+                wrong_tool=breakdown.get("wrong_tool", 0),
+                invalid_args=breakdown.get("invalid_args", 0),
+                missed_validation_token=breakdown.get("missed_validation_token", 0),
+                missed_diagnostics=breakdown.get("missed_diagnostics", 0),
+                qa_gate=breakdown.get("qa_gate", 0),
+                other=breakdown.get("other", 0),
+            )
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Qwen MCP evaluation suite")
     parser.add_argument("--suite", default=str(DEFAULT_SUITE), help="Path to suite JSON")
@@ -760,6 +934,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-seconds", type=int,
                         default=int(os.environ.get("QWEN_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS))),
                         help="Per-scenario qwen process timeout")
+    parser.add_argument("--skip-preflight", action="store_true",
+                        help="Skip manual MCP initialize probe and let qwen validate connectivity")
     parser.add_argument("--keep-going", action="store_true", help="Continue after scenario failure")
     parser.add_argument("--dry-run", action="store_true", help="Do not execute qwen, only materialize commands")
     parser.add_argument("--debug", action="store_true", help="Enable qwen --debug")
@@ -793,7 +969,7 @@ def main() -> int:
     suite, scenarios = load_suite(suite_path, selected_ids if selected_ids else None)
     write_json(run_dir / "suite.json", suite)
 
-    if not args.dry_run:
+    if not args.dry_run and not args.skip_preflight:
         preflight_mcp(mcp_config, run_dir / "mcp-preflight.json")
 
     scenario_results: list[dict[str, Any]] = []
@@ -838,6 +1014,7 @@ def main() -> int:
         if args.dry_run:
             scenario_result["passed"] = True
             scenario_result["evaluation"] = {"passed": True, "checks": [], "tool_names": []}
+            scenario_result["failure_metrics"] = extract_failure_metrics({}, scenario_result["evaluation"])
             scenario_result["dry_run"] = True
             write_json(scenario_dir / "result.json", scenario_result)
             scenario_results.append(scenario_result)
@@ -871,8 +1048,10 @@ def main() -> int:
         write_json(scenario_dir / "parsed-chat.json", parsed)
 
         evaluation = evaluate_assertions(scenario, parsed)
+        failure_metrics = extract_failure_metrics(parsed, evaluation)
         passed = exit_code == 0 and evaluation["passed"]
         scenario_result["evaluation"] = evaluation
+        scenario_result["failure_metrics"] = failure_metrics
         scenario_result["passed"] = passed
         if parsed.get("final_json") is not None:
             scenario_result["model_final_json"] = parsed["final_json"]
@@ -886,6 +1065,7 @@ def main() -> int:
             if not args.keep_going:
                 break
 
+    metrics = aggregate_metrics(scenario_results)
     summary_payload = {
         "suite_id": suite.get("suite_id"),
         "title": suite.get("title"),
@@ -893,10 +1073,13 @@ def main() -> int:
         "started_at": utc_now(),
         "workdir": str(workdir),
         "results": scenario_results,
+        "metrics": metrics,
         "passed": overall_passed,
     }
     write_json(run_dir / "summary.json", summary_payload)
+    write_json(run_dir / "metrics.json", metrics)
     write_markdown_summary(run_dir / "summary.md", suite, scenario_results)
+    write_metrics_report(run_dir / "metrics.md", suite, metrics)
 
     print(f"Run directory: {run_dir}")
     print(f"Overall result: {'PASS' if overall_passed else 'FAIL'}")

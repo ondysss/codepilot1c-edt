@@ -15,10 +15,13 @@ import org.eclipse.ui.IWorkbench;
 import org.eclipse.ui.PlatformUI;
 import org.eclipse.ui.plugin.AbstractUIPlugin;
 import org.osgi.framework.BundleContext;
+import org.osgi.framework.ServiceRegistration;
 
 import com.codepilot1c.core.tools.ToolRegistry;
+import com.codepilot1c.core.remote.IRemoteWorkbenchBridge;
 import com.codepilot1c.ui.theme.ThemeManager;
 import com.codepilot1c.ui.tools.GetDiagnosticsTool;
+import com.codepilot1c.ui.remote.RemoteWorkbenchBridge;
 
 /**
  * The activator class controls the plug-in life cycle.
@@ -29,6 +32,7 @@ public class VibeUiPlugin extends AbstractUIPlugin {
 
 
     private static VibeUiPlugin plugin;
+    private ServiceRegistration<IRemoteWorkbenchBridge> remoteWorkbenchBridgeRegistration;
 
     @Override
     public void start(BundleContext context) throws Exception {
@@ -73,6 +77,8 @@ public class VibeUiPlugin extends AbstractUIPlugin {
                         // Register UI tools
                         registerUiTools();
                         log("UI tools registered"); //$NON-NLS-1$
+
+                        registerRemoteWorkbenchBridge();
                     }
                 } catch (Exception e) {
                     log(e);
@@ -91,6 +97,14 @@ public class VibeUiPlugin extends AbstractUIPlugin {
         } catch (Exception e) {
             log(e);
         }
+        if (remoteWorkbenchBridgeRegistration != null) {
+            try {
+                remoteWorkbenchBridgeRegistration.unregister();
+            } catch (Exception e) {
+                log(e);
+            }
+            remoteWorkbenchBridgeRegistration = null;
+        }
 
         plugin = null;
         super.stop(context);
@@ -104,6 +118,21 @@ public class VibeUiPlugin extends AbstractUIPlugin {
 
         // Register get_diagnostics tool for auto-fix workflow
         registry.registerDynamicTool(new GetDiagnosticsTool());
+    }
+
+    private void registerRemoteWorkbenchBridge() {
+        if (remoteWorkbenchBridgeRegistration != null) {
+            return;
+        }
+        BundleContext context = getBundle() != null ? getBundle().getBundleContext() : null;
+        if (context == null) {
+            return;
+        }
+        remoteWorkbenchBridgeRegistration = context.registerService(
+                IRemoteWorkbenchBridge.class,
+                new RemoteWorkbenchBridge(),
+                null);
+        log("Remote workbench bridge registered"); //$NON-NLS-1$
     }
 
     /**
