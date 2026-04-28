@@ -138,25 +138,15 @@ public class GitMutateTool extends AbstractTool {
      * rejected by the Anthropic Claude input_schema validator (see GitHub issue #31).
      */
     static void validateArguments(GitOperation operation, Path repoPath, Map<String, Object> parameters) {
-        String projectName = asString(parameters.get("project_name")); //$NON-NLS-1$
-
         // init/clone need an explicit repo_path (no project-context fallback).
         if ((operation == GitOperation.INIT || operation == GitOperation.CLONE) && repoPath == null) {
             throw new GitToolException(GitErrorCode.INVALID_ARGUMENT,
                     "repo_path is required for operation=" + operation.name().toLowerCase()); //$NON-NLS-1$
         }
 
-        // Operations against an existing repo accept either project_name or repo_path.
-        switch (operation) {
-            case REMOTE_ADD, REMOTE_SET_URL, FETCH, PULL, PUSH, CHECKOUT, CREATE_BRANCH, ADD, COMMIT -> {
-                if (repoPath == null && (projectName == null || projectName.isBlank())) {
-                    throw new GitToolException(GitErrorCode.INVALID_ARGUMENT,
-                            "project_name or repo_path is required for operation=" //$NON-NLS-1$
-                                    + operation.name().toLowerCase());
-                }
-            }
-            default -> { /* no repo-context requirement */ }
-        }
+        // Operations against an existing repo accept project_name, repo_path, or the current
+        // GitService context project. Let GitService resolve/fail that context so injected
+        // context resolvers and default workspace/session context both follow the same path.
 
         // remote_url is required for clone/remote_add/remote_set_url.
         if (operation == GitOperation.CLONE

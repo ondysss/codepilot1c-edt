@@ -126,12 +126,14 @@ final class OpenAiModelCompatibilityPolicy {
                         "MiniMax M2 tool calls are more stable in non-stream mode"); //$NON-NLS-1$
             }
             if (model.contains("kimi-k2.5") || model.contains("kimi-k2")) { //$NON-NLS-1$ //$NON-NLS-2$
-                // Moonshot API uses {"thinking":{"type":"disabled"}} — NOT enable_thinking (DashScope/Qwen format).
+                // Moonshot API uses {"thinking":{"type":"disabled"}}. Keep the legacy
+                // enable_thinking=false hint for OpenAI-compatible gateways that honor it.
                 // Without this, thinking stays enabled by default and the model produces reasoning-only
                 // responses (contentChunks=0) after tool calls, consuming the entire token budget on reasoning.
                 JsonObject thinking = new JsonObject();
                 thinking.addProperty("type", "disabled"); //$NON-NLS-1$ //$NON-NLS-2$
                 overrides.add("thinking", thinking); //$NON-NLS-1$
+                overrides.addProperty("enable_thinking", false); //$NON-NLS-1$
                 overrides.addProperty("temperature", 0.6); //$NON-NLS-1$
                 if (hasLargeToolResult(request) || estimateRequestChars(request) > LARGE_REQUEST_ESTIMATE_CHARS) {
                     return ProviderExecutionPlan.of(false, overrides,

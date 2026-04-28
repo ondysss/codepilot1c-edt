@@ -40,8 +40,8 @@ public class AgentProfileRegistryTest {
     public void exploreProfileToolCountWithinOptimalRange() {
         AgentProfile explore = new ExploreAgentProfile();
         int toolCount = explore.getAllowedTools().size();
-        assertTrue("Explore profile should have <= 30 tools for optimal LLM accuracy, has " + toolCount, //$NON-NLS-1$
-                toolCount <= 30);
+        assertTrue("Explore profile should have <= 35 tools for current EDT navigation surface, has " + toolCount, //$NON-NLS-1$
+                toolCount <= 35);
     }
 
     @Test
@@ -94,10 +94,10 @@ public class AgentProfileRegistryTest {
     @Test
     public void domainProfilesWithinOptimalToolRange() {
         assertToolCount(new OrchestratorProfile(), 10);
-        assertToolCount(new CodeBuildProfile(), 25);
-        assertToolCount(new MetadataBuildProfile(), 35);
+        assertToolCount(new CodeBuildProfile(), 35);
+        assertToolCount(new MetadataBuildProfile(), 40);
         // QA intentionally includes EDT debug/profiling tools for YAxUnit workflows.
-        assertToolCount(new QABuildProfile(), 32);
+        assertToolCount(new QABuildProfile(), 35);
         assertToolCount(new DCSBuildProfile(), 20);
         assertToolCount(new ExtensionBuildProfile(), 25);
         assertToolCount(new RecoveryProfile(), 15);

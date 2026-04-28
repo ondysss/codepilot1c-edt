@@ -8,8 +8,10 @@
 package com.codepilot1c.core.session;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IWorkspace;
@@ -38,7 +40,6 @@ import com.codepilot1c.core.session.ISessionStore.SessionSummary;
 public class SessionManager {
 
     private static final String PLUGIN_ID = "com.codepilot1c.core";
-    private static final ILog LOG = Platform.getLog(SessionManager.class);
 
     private static SessionManager instance;
 
@@ -51,9 +52,16 @@ public class SessionManager {
      */
     public static synchronized SessionManager getInstance() {
         if (instance == null) {
-            instance = new SessionManager(new FileSessionStore());
+            instance = new SessionManager(createDefaultSessionStore());
         }
         return instance;
+    }
+
+    private static ISessionStore createDefaultSessionStore() {
+        if (Platform.isRunning()) {
+            return new FileSessionStore();
+        }
+        return new InMemorySessionStore();
     }
 
     /**
@@ -267,7 +275,7 @@ public class SessionManager {
      * Очищает текущую сессию и создает новую.
      */
     public Session startNewSession() {
-        LOG.info("startNewSession: currentSession=" //$NON-NLS-1$
+        logInfo("startNewSession: currentSession=" //$NON-NLS-1$
                 + (currentSession != null ? currentSession.getId() : "null") //$NON-NLS-1$
                 + ", isEmpty=" + (currentSession != null ? currentSession.isEmpty() : "N/A") //$NON-NLS-1$ //$NON-NLS-2$
                 + ", messageCount=" + (currentSession != null ? currentSession.getMessages().size() : 0) //$NON-NLS-1$
@@ -278,14 +286,14 @@ public class SessionManager {
             currentSession.setStatus(Session.SessionStatus.COMPLETED);
             // IMPORTANT #9 fix: only notify completed if save succeeds
             boolean saved = saveSession(currentSession);
-            LOG.info("startNewSession: session saved=" + saved); //$NON-NLS-1$
+            logInfo("startNewSession: session saved=" + saved); //$NON-NLS-1$
             if (saved) {
                 notifySessionCompleted(currentSession);
             }
         }
 
         currentSession = createSessionForCurrentProject();
-        LOG.info("startNewSession: new session created, id=" + currentSession.getId() //$NON-NLS-1$
+        logInfo("startNewSession: new session created, id=" + currentSession.getId() //$NON-NLS-1$
                 + ", projectPath=" + currentSession.getProjectPath()); //$NON-NLS-1$
         return currentSession;
     }
@@ -463,13 +471,13 @@ public class SessionManager {
     }
 
     private void notifySessionCompleted(Session session) {
-        LOG.info("notifySessionCompleted: session=" + session.getId() //$NON-NLS-1$
+        logInfo("notifySessionCompleted: session=" + session.getId() //$NON-NLS-1$
                 + ", listeners=" + listeners.size() //$NON-NLS-1$
                 + ", messages=" + session.getMessages().size() //$NON-NLS-1$
                 + ", projectPath=" + session.getProjectPath()); //$NON-NLS-1$
         for (ISessionChangeListener listener : listeners) {
             try {
-                LOG.info("notifySessionCompleted: calling " + listener.getClass().getSimpleName()); //$NON-NLS-1$
+                logInfo("notifySessionCompleted: calling " + listener.getClass().getSimpleName()); //$NON-NLS-1$
                 listener.onSessionCompleted(session);
             } catch (Exception e) {
                 logWarning("Ошибка в слушателе событий сессий (completed)", e);
@@ -489,12 +497,83 @@ public class SessionManager {
 
     // --- Logging ---
 
+    private static void logInfo(String message) {
+        log(new Status(IStatus.INFO, PLUGIN_ID, message));
+    }
+
     private void logError(String message, Throwable error) {
-        LOG.log(new Status(IStatus.ERROR, PLUGIN_ID, message, error));
+        log(new Status(IStatus.ERROR, PLUGIN_ID, message, error));
     }
 
     private void logWarning(String message, Throwable error) {
-        LOG.log(new Status(IStatus.WARNING, PLUGIN_ID, message, error));
+        log(new Status(IStatus.WARNING, PLUGIN_ID, message, error));
+    }
+
+    private static void log(IStatus status) {
+        try {
+            ILog log = Platform.getLog(SessionManager.class);
+            log.log(status);
+        } catch (RuntimeException | LinkageError e) {
+            if (status.getSeverity() >= IStatus.ERROR) {
+                System.err.println(status.getMessage());
+                if (status.getException() != null) {
+                    status.getException().printStackTrace(System.err);
+                }
+            }
+        }
+    }
+
+    private static final class InMemorySessionStore implements ISessionStore {
+        private final Map<String, Session> sessions = new ConcurrentHashMap<>();
+
+        @Override
+        public void save(Session session) {
+            sessions.put(session.getId(), session);
+        }
+
+        @Override
+        public Optional<Session> load(String sessionId) {
+            return Optional.ofNullable(sessions.get(sessionId));
+        }
+
+        @Override
+        public boolean delete(String sessionId) {
+            return sessions.remove(sessionId) != null;
+        }
+
+        @Override
+        public boolean exists(String sessionId) {
+            return sessions.containsKey(sessionId);
+        }
+
+        @Override
+        public List<SessionSummary> listAll() {
+            return sessions.values().stream()
+                    .map(SessionSummary::from)
+                    .toList();
+        }
+
+        @Override
+        public List<SessionSummary> listByProject(String projectPath) {
+            return sessions.values().stream()
+                    .filter(session -> projectPath.equals(session.getProjectPath()))
+                    .map(SessionSummary::from)
+                    .toList();
+        }
+
+        @Override
+        public List<SessionSummary> listRecent(int limit) {
+            return sessions.values().stream()
+                    .sorted((left, right) -> right.getUpdatedAt().compareTo(left.getUpdatedAt()))
+                    .limit(limit)
+                    .map(SessionSummary::from)
+                    .toList();
+        }
+
+        @Override
+        public int purgeOldSessions(int maxAgeDays) {
+            return 0;
+        }
     }
 
     /**

@@ -12,7 +12,9 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.eclipse.core.runtime.ILog;
+import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Platform;
+import org.eclipse.core.runtime.Status;
 
 /**
  * Registry of {@link IPromptContextContributor} instances.
@@ -26,7 +28,7 @@ import org.eclipse.core.runtime.Platform;
  */
 public final class PromptContextContributorRegistry {
 
-    private static final ILog LOG = Platform.getLog(PromptContextContributorRegistry.class);
+    private static final String PLUGIN_ID = "com.codepilot1c.core"; //$NON-NLS-1$
 
     private static final PromptContextContributorRegistry INSTANCE = new PromptContextContributorRegistry();
 
@@ -95,11 +97,20 @@ public final class PromptContextContributorRegistry {
                     current = current.consumeTokens(section.estimatedTokens());
                 }
             } catch (Exception e) {
-                LOG.warn("Contributor failed: " + contributor.getSectionId(), e); //$NON-NLS-1$
+                logWarning("Contributor failed: " + contributor.getSectionId(), e); //$NON-NLS-1$
             }
         }
 
         return result.toString();
+    }
+
+    private static void logWarning(String message, Throwable error) {
+        try {
+            ILog log = Platform.getLog(PromptContextContributorRegistry.class);
+            log.log(new Status(IStatus.WARNING, PLUGIN_ID, message, error));
+        } catch (RuntimeException | LinkageError e) {
+            // Prompt assembly must still work in plain JVM tests where Eclipse logging is unavailable.
+        }
     }
 
     /**
