@@ -23,6 +23,8 @@ import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
 import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -228,7 +230,7 @@ public class DynamicLlmProviderStreamingTest {
     }
 
     @Test
-    public void kimiToolRequestsSetEnableThinkingFalse() throws Exception {
+    public void kimiToolRequestsDisableThinkingWithMoonshotShape() throws Exception {
         RecordingDualModeHandler handler = new RecordingDualModeHandler("data: [DONE]\n", nonStreamingTextResponse("ok")); //$NON-NLS-1$ //$NON-NLS-2$
         HttpServer server = startServer(handler);
         try {
@@ -238,7 +240,7 @@ public class DynamicLlmProviderStreamingTest {
 
             assertEquals(1, handler.getRequestBodies().size());
             String requestBody = handler.getRequestBodies().get(0);
-            assertTrue(requestBody.contains("\"enable_thinking\":false")); //$NON-NLS-1$
+            assertKimiThinkingDisabled(requestBody);
         } finally {
             server.stop(0);
         }
@@ -377,8 +379,9 @@ public class DynamicLlmProviderStreamingTest {
 
             assertEquals(1, handler.getRequestBodies().size());
             String requestBody = handler.getRequestBodies().get(0);
-            assertTrue(requestBody.contains("\"stream\":false")); //$NON-NLS-1$
-            assertTrue(requestBody.contains("\"enable_thinking\":false")); //$NON-NLS-1$
+            JsonObject body = JsonParser.parseString(requestBody).getAsJsonObject();
+            assertFalse(body.get("stream").getAsBoolean()); //$NON-NLS-1$
+            assertKimiThinkingDisabled(body);
         } finally {
             server.stop(0);
         }
@@ -463,6 +466,17 @@ public class DynamicLlmProviderStreamingTest {
 
     private static String nonStreamingTextResponse(String content) {
         return "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"" + content + "\"},\"finish_reason\":\"stop\"}]}"; //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static void assertKimiThinkingDisabled(String requestBody) {
+        assertKimiThinkingDisabled(JsonParser.parseString(requestBody).getAsJsonObject());
+    }
+
+    private static void assertKimiThinkingDisabled(JsonObject body) {
+        assertFalse(body.has("enable_thinking")); //$NON-NLS-1$
+        assertTrue(body.has("thinking")); //$NON-NLS-1$
+        JsonObject thinking = body.getAsJsonObject("thinking"); //$NON-NLS-1$
+        assertEquals("disabled", thinking.get("type").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private static final class DualModeHandler implements HttpHandler {
