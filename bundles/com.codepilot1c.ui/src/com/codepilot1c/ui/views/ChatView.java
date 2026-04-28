@@ -877,7 +877,7 @@ public class ChatView extends ViewPart {
         }
 
         // Handle tool calls if present
-        if (chunk.hasToolCalls() || chunk.isToolUse()) {
+        if (chunk.hasToolCalls()) {
             LOG.debug("Stream received tool calls"); //$NON-NLS-1$
             streamingHandledToolCalls = true; // Mark that tool calls were handled
             final List<ToolCall> toolCalls = chunk.getToolCalls();
