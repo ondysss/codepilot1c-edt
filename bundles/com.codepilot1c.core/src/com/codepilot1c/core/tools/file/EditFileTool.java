@@ -33,6 +33,7 @@ import com.codepilot1c.core.edit.EditBlock;
 import com.codepilot1c.core.edit.FileEditApplier;
 import com.codepilot1c.core.edit.FuzzyMatcher;
 import com.codepilot1c.core.edit.MatchResult;
+import com.codepilot1c.core.edit.MatchStrategy;
 import com.codepilot1c.core.edit.SearchReplaceFormat;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
@@ -375,6 +376,15 @@ public class EditFileTool extends AbstractTool {
         // Get the match location
         var location = matchResult.getLocation().orElseThrow();
 
+        String matchedSlice = currentContent.substring(location.getStartOffset(), location.getEndOffset());
+        if (matchResult.getStrategy() != MatchStrategy.EXACT) {
+            ReplacementShapeSafety.SafetyResult safety = ReplacementShapeSafety.evaluate(matchedSlice, newText);
+            if (!safety.isSafe()) {
+                LOG.warn("edit_file: unsafe fuzzy replacement blocked: %s", safety.reason()); //$NON-NLS-1$
+                return ToolResult.failure(safety.reason());
+            }
+        }
+
         // Apply the replacement
         String before = currentContent.substring(0, location.getStartOffset());
         String after = currentContent.substring(location.getEndOffset());
@@ -395,6 +405,10 @@ public class EditFileTool extends AbstractTool {
                 "Заменено в строках " + location.getStartLine() + "-" + location.getEndLine() + //$NON-NLS-1$ //$NON-NLS-2$
                         strategyInfo + " в: " + file.getFullPath().toString(), //$NON-NLS-1$
                 ToolResult.ToolResultType.CONFIRMATION);
+    }
+
+    static boolean isReplacementShapeSafeForTest(String oldSlice, String newText) {
+        return ReplacementShapeSafety.evaluate(oldSlice, newText).isSafe();
     }
 
     /**
