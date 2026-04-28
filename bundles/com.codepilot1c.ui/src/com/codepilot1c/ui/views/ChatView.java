@@ -141,6 +141,8 @@ public class ChatView extends ViewPart {
     private volatile boolean streamingHandledToolCalls = false;
     /** Prevents double-counting usage for one direct streaming round trip. */
     private volatile boolean usageRegisteredForThisRoundTrip = false;
+    /** Latest provider-reported usage chunk for the active direct streaming round trip. */
+    private volatile LlmResponse.Usage latestStreamUsage;
 
     /** Whether to show diff preview before applying file changes */
     private boolean previewModeEnabled = false;
@@ -786,6 +788,7 @@ public class ChatView extends ViewPart {
         isStreaming = true;
         streamingHandledToolCalls = false; // Reset for new streaming session
         usageRegisteredForThisRoundTrip = false;
+        latestStreamUsage = null;
 
         // Add empty AI message that will be updated with streaming content
         if (!display.isDisposed()) {
@@ -832,10 +835,7 @@ public class ChatView extends ViewPart {
         }
 
         if (chunk.hasUsage()) {
-            if (!usageRegisteredForThisRoundTrip) {
-                registerUsage(LlmResponse.builder().usage(chunk.getUsage()).build());
-                usageRegisteredForThisRoundTrip = true;
-            }
+            latestStreamUsage = chunk.getUsage();
             return;
         }
 
@@ -946,17 +946,12 @@ public class ChatView extends ViewPart {
                         isStreaming = false;
 
                         // Add to conversation history
+                        if (latestStreamUsage != null || !finalContent.isEmpty()) {
+                            registerDirectStreamUsageOnce(finalContent,
+                                    streamingReasoning != null ? streamingReasoning.toString() : null,
+                                    LlmResponse.FINISH_REASON_STOP);
+                        }
                         if (!finalContent.isEmpty()) {
-                            if (!usageRegisteredForThisRoundTrip) {
-                                LlmResponse usageResponse = LlmResponse.builder()
-                                        .content(finalContent)
-                                        .usage(estimateUsageForResponse(currentStreamingRequest, finalContent,
-                                                streamingReasoning != null ? streamingReasoning.toString() : null))
-                                        .finishReason(LlmResponse.FINISH_REASON_STOP)
-                                        .build();
-                                registerUsage(usageResponse);
-                                usageRegisteredForThisRoundTrip = true;
-                            }
                             conversationHistory.add(LlmMessage.assistant(finalContent));
                             lastAssistantResponse = finalContent;
 
@@ -970,19 +965,27 @@ public class ChatView extends ViewPart {
                 });
             }
         } else if (chunk.isComplete() && streamingHandledToolCalls) {
-            if (!usageRegisteredForThisRoundTrip) {
-                String finalContent = streamingContent != null ? streamingContent.toString() : ""; //$NON-NLS-1$
-                String finalReasoning = streamingReasoning != null ? streamingReasoning.toString() : null;
-                LlmResponse usageResponse = LlmResponse.builder()
-                        .content(finalContent)
-                        .usage(estimateUsageForResponse(currentStreamingRequest, finalContent, finalReasoning))
-                        .finishReason(LlmResponse.FINISH_REASON_TOOL_USE)
-                        .build();
-                registerUsage(usageResponse);
-                usageRegisteredForThisRoundTrip = true;
-            }
+            String finalContent = streamingContent != null ? streamingContent.toString() : ""; //$NON-NLS-1$
+            String finalReasoning = streamingReasoning != null ? streamingReasoning.toString() : null;
+            registerDirectStreamUsageOnce(finalContent, finalReasoning, LlmResponse.FINISH_REASON_TOOL_USE);
             LOG.debug("Stream complete ignored - tool calls are being processed"); //$NON-NLS-1$
         }
+    }
+
+    private void registerDirectStreamUsageOnce(String content, String reasoning, String finishReason) {
+        if (usageRegisteredForThisRoundTrip) {
+            return;
+        }
+        LlmResponse.Usage usage = latestStreamUsage != null
+                ? latestStreamUsage
+                : estimateUsageForResponse(currentStreamingRequest, content, reasoning);
+        LlmResponse usageResponse = LlmResponse.builder()
+                .content(content)
+                .usage(usage)
+                .finishReason(finishReason)
+                .build();
+        registerUsage(usageResponse);
+        usageRegisteredForThisRoundTrip = true;
     }
 
     /**
