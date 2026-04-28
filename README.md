@@ -4,7 +4,7 @@
 
 ## Актуальные артефакты
 
-- Последний релиз: `v0.1.7.20260329-0855` — <https://github.com/ondysss/codepilot1c-edt/releases/tag/v0.1.7.20260329-0855>
+- Последний релиз: `v0.1.7.20260428-0657` — <https://github.com/ondysss/codepilot1c-edt/releases/tag/v0.1.7.20260428-0657>
 - Update site (GitHub Pages): <https://ondysss.github.io/codepilot1c-edt/>
 - GitHub Packages (Maven, ZIP): <https://github.com/ondysss/codepilot1c-edt/packages/2846572>
 - Telegram-канал: <https://t.me/codepilot1c>
