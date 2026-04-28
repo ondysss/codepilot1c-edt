@@ -23,6 +23,7 @@ import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
 import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
@@ -380,7 +381,7 @@ public class DynamicLlmProviderStreamingTest {
             assertEquals(1, handler.getRequestBodies().size());
             String requestBody = handler.getRequestBodies().get(0);
             JsonObject body = JsonParser.parseString(requestBody).getAsJsonObject();
-            assertFalse(body.get("stream").getAsBoolean()); //$NON-NLS-1$
+            assertBooleanProperty(body, "stream", false); //$NON-NLS-1$
             assertKimiThinkingDisabled(body);
         } finally {
             server.stop(0);
@@ -477,6 +478,14 @@ public class DynamicLlmProviderStreamingTest {
         assertTrue(body.has("thinking")); //$NON-NLS-1$
         JsonObject thinking = body.getAsJsonObject("thinking"); //$NON-NLS-1$
         assertEquals("disabled", thinking.get("type").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static void assertBooleanProperty(JsonObject body, String name, boolean expected) {
+        JsonElement value = body.get(name);
+        assertNotNull(value);
+        assertTrue(value.isJsonPrimitive());
+        assertTrue(value.getAsJsonPrimitive().isBoolean());
+        assertEquals(expected, value.getAsBoolean());
     }
 
     private static final class DualModeHandler implements HttpHandler {
