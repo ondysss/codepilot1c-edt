@@ -56,6 +56,17 @@ public class AgentProfileRegistryTest {
         assertTrue("Build must include write_file", tools.contains("write_file")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("Build must include create_metadata", tools.contains("create_metadata")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("Build must include git_mutate", tools.contains("git_mutate")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue("Build must include start_profiling", tools.contains("start_profiling")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue("Build must include get_profiling_results", tools.contains("get_profiling_results")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void qaProfileCanInspectProfilingResults() {
+        AgentProfile qa = new QABuildProfile();
+        Set<String> tools = qa.getAllowedTools();
+
+        assertTrue("QA must include start_profiling", tools.contains("start_profiling")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue("QA must include get_profiling_results", tools.contains("get_profiling_results")); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     @Test
@@ -85,7 +96,8 @@ public class AgentProfileRegistryTest {
         assertToolCount(new OrchestratorProfile(), 10);
         assertToolCount(new CodeBuildProfile(), 25);
         assertToolCount(new MetadataBuildProfile(), 35);
-        assertToolCount(new QABuildProfile(), 25);
+        // QA intentionally includes EDT debug/profiling tools for YAxUnit workflows.
+        assertToolCount(new QABuildProfile(), 32);
         assertToolCount(new DCSBuildProfile(), 20);
         assertToolCount(new ExtensionBuildProfile(), 25);
         assertToolCount(new RecoveryProfile(), 15);

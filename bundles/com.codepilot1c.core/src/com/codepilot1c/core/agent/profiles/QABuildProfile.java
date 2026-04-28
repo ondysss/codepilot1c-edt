@@ -45,6 +45,8 @@ public class QABuildProfile implements AgentProfile {
             "author_yaxunit_tests",
             "run_yaxunit_tests",
             "debug_yaxunit_tests",
+            "start_profiling",
+            "get_profiling_results",
             "set_breakpoint",
             "remove_breakpoint",
             "list_breakpoints",
@@ -98,6 +100,7 @@ public class QABuildProfile implements AgentProfile {
                 PermissionRule.allow("get_diagnostics").forAllResources(),
                 PermissionRule.allow("get_bookmarks").forAllResources(),
                 PermissionRule.allow("get_tasks").forAllResources(),
+                PermissionRule.allow("get_profiling_results").forAllResources(),
                 PermissionRule.allow("skill").forAllResources(),
                 PermissionRule.allow("task").forAllResources(),
                 // Write tools - ask
@@ -127,6 +130,9 @@ public class QABuildProfile implements AgentProfile {
                         .forAllResources(),
                 PermissionRule.ask("debug_yaxunit_tests")
                         .withDescription("Запуск автотестов YAxUnit в режиме отладки")
+                        .forAllResources(),
+                PermissionRule.ask("start_profiling")
+                        .withDescription("Запуск/остановка EDT profiling")
                         .forAllResources(),
                 PermissionRule.ask("set_breakpoint")
                         .withDescription("Установка точки останова EDT")
