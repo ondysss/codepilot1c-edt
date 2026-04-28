@@ -179,6 +179,60 @@ public class DynamicLlmProviderStreamingTest {
     }
 
     @Test
+    public void nonStreamingReplayEmitsUsageBeforeCompletion() throws Exception {
+        String nonStreamBody = "{"
+                + "\"usage\":{"
+                + "\"prompt_tokens\":12,"
+                + "\"completion_tokens\":5,"
+                + "\"total_tokens\":17"
+                + "},"
+                + "\"choices\":[{"
+                + "\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},"
+                + "\"finish_reason\":\"stop\""
+                + "}]"
+                + "}";
+
+        RecordingDualModeHandler handler = new RecordingDualModeHandler("data: [DONE]\n", nonStreamBody); //$NON-NLS-1$
+        HttpServer server = startServer(handler);
+        try {
+            DynamicLlmProvider provider = createProvider(server, "glm-5"); //$NON-NLS-1$
+            List<LlmStreamChunk> chunks = new ArrayList<>();
+
+            provider.streamComplete(createToolRequest(), chunks::add);
+
+            assertEquals(1, handler.getRequestBodies().size());
+            assertTrue(handler.getRequestBodies().get(0).contains("\"stream\":false")); //$NON-NLS-1$
+
+            int usageIndex = -1;
+            int completeIndex = -1;
+            for (int i = 0; i < chunks.size(); i++) {
+                LlmStreamChunk chunk = chunks.get(i);
+                if (chunk.hasUsage()) {
+                    usageIndex = i;
+                }
+                if (chunk.isComplete()) {
+                    completeIndex = i;
+                }
+            }
+
+            assertTrue("Expected usage chunk", usageIndex >= 0); //$NON-NLS-1$
+            assertTrue("Expected completion chunk", completeIndex >= 0); //$NON-NLS-1$
+            assertTrue("Usage chunk should be emitted before completion", usageIndex < completeIndex); //$NON-NLS-1$
+
+            LlmResponse.Usage usage = chunks.get(usageIndex).getUsage();
+            assertEquals(12, usage.getPromptTokens());
+            assertEquals(5, usage.getCompletionTokens());
+            assertEquals(17, usage.getTotalTokens());
+
+            LlmStreamChunk completeChunk = chunks.get(completeIndex);
+            assertTrue(completeChunk.isComplete());
+            assertEquals(LlmResponse.FINISH_REASON_STOP, completeChunk.getFinishReason());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     public void kimiToolRequestsSetEnableThinkingFalse() throws Exception {
         RecordingDualModeHandler handler = new RecordingDualModeHandler("data: [DONE]\n", nonStreamingTextResponse("ok")); //$NON-NLS-1$ //$NON-NLS-2$
         HttpServer server = startServer(handler);

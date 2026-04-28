@@ -21,6 +21,7 @@ public class LlmStreamChunk {
     private final String errorMessage;
     private final List<ToolCall> toolCalls;
     private final String reasoningContent;
+    private final LlmResponse.Usage usage;
 
     /**
      * Creates a new stream chunk.
@@ -48,12 +49,30 @@ public class LlmStreamChunk {
      */
     public LlmStreamChunk(String content, boolean isComplete, String finishReason,
                           String errorMessage, List<ToolCall> toolCalls, String reasoningContent) {
+        this(content, isComplete, finishReason, errorMessage, toolCalls, reasoningContent, null);
+    }
+
+    /**
+     * Creates a new stream chunk with reasoning content and usage.
+     *
+     * @param content          the content delta
+     * @param isComplete       true if this is the final chunk
+     * @param finishReason     the reason for completion (if complete)
+     * @param errorMessage     the error message (if error)
+     * @param toolCalls        the tool calls (if any)
+     * @param reasoningContent the reasoning/thinking content delta
+     * @param usage            token usage information
+     */
+    public LlmStreamChunk(String content, boolean isComplete, String finishReason,
+                          String errorMessage, List<ToolCall> toolCalls, String reasoningContent,
+                          LlmResponse.Usage usage) {
         this.content = content;
         this.isComplete = isComplete;
         this.finishReason = finishReason;
         this.errorMessage = errorMessage;
         this.toolCalls = toolCalls != null ? Collections.unmodifiableList(toolCalls) : Collections.emptyList();
         this.reasoningContent = reasoningContent;
+        this.usage = usage;
     }
 
     /**
@@ -129,6 +148,19 @@ public class LlmStreamChunk {
         return new LlmStreamChunk("", false, null, null, null, reasoning); //$NON-NLS-1$
     }
 
+    /**
+     * Creates a usage chunk.
+     *
+     * @param usage token usage information
+     * @return a new chunk with usage, or null if usage is null
+     */
+    public static LlmStreamChunk usage(LlmResponse.Usage usage) {
+        if (usage == null) {
+            return null;
+        }
+        return new LlmStreamChunk("", false, null, null, null, null, usage); //$NON-NLS-1$
+    }
+
     public String getContent() {
         return content;
     }
@@ -202,5 +234,23 @@ public class LlmStreamChunk {
      */
     public boolean hasReasoning() {
         return reasoningContent != null && !reasoningContent.isEmpty();
+    }
+
+    /**
+     * Returns the token usage information.
+     *
+     * @return the usage information or null
+     */
+    public LlmResponse.Usage getUsage() {
+        return usage;
+    }
+
+    /**
+     * Returns whether this chunk contains token usage information.
+     *
+     * @return true if usage is present
+     */
+    public boolean hasUsage() {
+        return usage != null;
     }
 }

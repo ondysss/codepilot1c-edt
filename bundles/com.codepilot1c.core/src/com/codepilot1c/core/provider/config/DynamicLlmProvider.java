@@ -581,6 +581,9 @@ public class DynamicLlmProvider implements ILlmProvider {
         if (response.hasToolCalls() && !cancelled.get()) {
             consumer.accept(LlmStreamChunk.toolCalls(response.getToolCalls()));
         }
+        if (response.getUsage() != null && !cancelled.get()) {
+            consumer.accept(LlmStreamChunk.usage(response.getUsage()));
+        }
         if (!cancelled.get()) {
             consumer.accept(LlmStreamChunk.complete(normalizeFinishReason(response.getFinishReason())));
         }
