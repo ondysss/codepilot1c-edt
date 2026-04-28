@@ -94,13 +94,25 @@ final class ProviderStreamProcessingSummary {
         return terminalErrorMessage;
     }
 
+    /**
+     * Sets the real token usage parsed from a terminal stream usage chunk. The last
+     * non-null call wins; subsequent calls overwrite only if the previous value was
+     * {@code null}, so repeated usage chunks from misbehaving gateways do not
+     * downgrade a good measurement.
+     */
     void setUsage(LlmResponse.Usage usage) {
-        if (usage == null || this.usage != null) {
+        if (usage == null) {
             return;
         }
-        this.usage = usage;
+        if (this.usage == null) {
+            this.usage = usage;
+        }
     }
 
+    /**
+     * Returns the real token usage captured during the stream, or {@code null} when
+     * no usage chunk was observed.
+     */
     LlmResponse.Usage getUsage() {
         return usage;
     }

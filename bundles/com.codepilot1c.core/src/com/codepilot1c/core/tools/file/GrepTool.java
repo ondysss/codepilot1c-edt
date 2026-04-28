@@ -10,6 +10,7 @@ import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.tools.ToolParameters;
 import com.codepilot1c.core.tools.ToolMeta;
 import com.codepilot1c.core.tools.AbstractTool;
+import com.codepilot1c.core.tools.util.ToolResultTruncator;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -75,6 +76,9 @@ public class GrepTool extends AbstractTool {
             """; //$NON-NLS-1$
 
     private static final int MAX_RESULTS = 50;
+
+    /** Upper bound in characters for the rendered tool output (token-budget cap). */
+    private static final int MAX_OUTPUT_CHARS = 40000;
 
     @Override
     public String getDescription() {
@@ -284,24 +288,46 @@ public class GrepTool extends AbstractTool {
         return StandardCharsets.UTF_8;
     }
 
-    private ToolResult formatResults(String pattern, List<SearchMatch> matches) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("**Search results for:** `").append(pattern).append("`\n"); //$NON-NLS-1$ //$NON-NLS-2$
-        sb.append("**Found:** ").append(matches.size()); //$NON-NLS-1$
+    ToolResult formatResults(String pattern, List<SearchMatch> matches) {
+        StringBuilder header = new StringBuilder();
+        header.append("**Search results for:** `").append(pattern).append("`\n"); //$NON-NLS-1$ //$NON-NLS-2$
+        header.append("**Found:** ").append(matches.size()); //$NON-NLS-1$
         if (matches.size() == MAX_RESULTS) {
-            sb.append("+ (limited)"); //$NON-NLS-1$
+            header.append("+ (limited)"); //$NON-NLS-1$
         }
-        sb.append(" matches\n\n"); //$NON-NLS-1$
+        header.append(" matches\n\n"); //$NON-NLS-1$
 
+        // Render matches progressively, dropping overflow once the text cap is hit.
+        StringBuilder body = new StringBuilder();
+        int rendered = 0;
+        int droppedMatches = 0;
+        int headerLen = header.length();
         for (SearchMatch match : matches) {
-            sb.append("**").append(match.filePath).append(":").append(match.lineNumber).append("**\n"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            sb.append("```\n").append(match.context).append("\n```\n\n"); //$NON-NLS-1$ //$NON-NLS-2$
+            StringBuilder chunk = new StringBuilder();
+            chunk.append("**").append(match.filePath).append(":").append(match.lineNumber).append("**\n"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            chunk.append("```\n").append(match.context).append("\n```\n\n"); //$NON-NLS-1$ //$NON-NLS-2$
+            // Reserve a small budget for the trailing truncated_matches marker.
+            if (headerLen + body.length() + chunk.length() > MAX_OUTPUT_CHARS - 64) {
+                droppedMatches = matches.size() - rendered;
+                break;
+            }
+            body.append(chunk);
+            rendered++;
         }
 
-        return ToolResult.success(sb.toString(), ToolResult.ToolResultType.SEARCH_RESULTS);
+        StringBuilder sb = new StringBuilder(headerLen + body.length() + 64);
+        sb.append(header);
+        sb.append(body);
+        if (droppedMatches > 0) {
+            sb.append("truncated_matches: ").append(droppedMatches).append('\n'); //$NON-NLS-1$
+        }
+
+        // Defensive final cap in case a single match already blows the budget.
+        String capped = ToolResultTruncator.truncateText(sb.toString(), MAX_OUTPUT_CHARS);
+        return ToolResult.success(capped, ToolResult.ToolResultType.SEARCH_RESULTS);
     }
 
-    private static class SearchMatch {
+    static class SearchMatch {
         final String filePath;
         final int lineNumber;
         final String matchLine;

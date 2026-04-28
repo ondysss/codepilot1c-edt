@@ -440,15 +440,8 @@ public class ClaudeProvider extends AbstractLlmProvider {
             }
 
             LlmResponse.Usage usage = null;
-            if (json.has("usage")) { //$NON-NLS-1$
-                JsonObject usageJson = json.getAsJsonObject("usage"); //$NON-NLS-1$
-                int inputTokens = usageJson.get("input_tokens").getAsInt(); //$NON-NLS-1$
-                int outputTokens = usageJson.get("output_tokens").getAsInt(); //$NON-NLS-1$
-                int cachedInputTokens = 0;
-                if (usageJson.has("cache_read_input_tokens") && !usageJson.get("cache_read_input_tokens").isJsonNull()) { //$NON-NLS-1$ //$NON-NLS-2$
-                    cachedInputTokens = usageJson.get("cache_read_input_tokens").getAsInt(); //$NON-NLS-1$
-                }
-                usage = new LlmResponse.Usage(inputTokens, cachedInputTokens, outputTokens, inputTokens + outputTokens);
+            if (json.has("usage") && json.get("usage").isJsonObject()) { //$NON-NLS-1$ //$NON-NLS-2$
+                usage = parseClaudeUsage(json.getAsJsonObject("usage")); //$NON-NLS-1$
             }
 
             return new LlmResponse(content.toString(), model, usage, stopReason,
@@ -456,6 +449,49 @@ public class ClaudeProvider extends AbstractLlmProvider {
         } catch (Exception e) {
             LOG.error("Failed to parse Claude response", e); //$NON-NLS-1$
             throw new LlmProviderException("Failed to parse Claude response", e); //$NON-NLS-1$
+        }
+    }
+
+    /**
+     * Parses Claude's {@code usage} JSON object. Reads {@code input_tokens},
+     * {@code output_tokens}, {@code cache_read_input_tokens} and
+     * {@code cache_creation_input_tokens} and maps them onto
+     * {@link LlmResponse.Usage}. Package-visible for testing.
+     *
+     * <p>Missing fields default to {@code 0}. The cached-prompt-tokens alias
+     * is populated from {@code cache_read_input_tokens} so legacy readers
+     * ({@code Usage.getCachedPromptTokens()}) see the same value.</p>
+     *
+     * @param usageJson the Claude usage object; must not be {@code null}
+     * @return a populated {@link LlmResponse.Usage}
+     */
+    static LlmResponse.Usage parseClaudeUsage(JsonObject usageJson) {
+        int inputTokens = readInt(usageJson, "input_tokens"); //$NON-NLS-1$
+        int outputTokens = readInt(usageJson, "output_tokens"); //$NON-NLS-1$
+        int cacheReadInputTokens = readInt(usageJson, "cache_read_input_tokens"); //$NON-NLS-1$
+        int cacheCreationInputTokens = readInt(usageJson, "cache_creation_input_tokens"); //$NON-NLS-1$
+        int totalTokens = inputTokens + outputTokens;
+        return new LlmResponse.Usage(
+                inputTokens,
+                cacheReadInputTokens,
+                outputTokens,
+                totalTokens,
+                cacheReadInputTokens,
+                cacheCreationInputTokens);
+    }
+
+    private static int readInt(JsonObject object, String key) {
+        if (object == null || !object.has(key)) {
+            return 0;
+        }
+        JsonElement element = object.get(key);
+        if (element == null || element.isJsonNull() || !element.isJsonPrimitive()) {
+            return 0;
+        }
+        try {
+            return element.getAsInt();
+        } catch (NumberFormatException | UnsupportedOperationException e) {
+            return 0;
         }
     }
 

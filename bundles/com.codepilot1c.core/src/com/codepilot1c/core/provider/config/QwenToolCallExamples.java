@@ -260,6 +260,39 @@ final class QwenToolCallExamples {
                     new String[]{"projectName", "filePath"}, //$NON-NLS-1$ //$NON-NLS-2$
                     new String[]{"DemoConfiguration", "CommonModules/Orders/Module.bsl"}); //$NON-NLS-1$ //$NON-NLS-2$
         }
+        if ("edt_get_configuration_properties".equals(name) //$NON-NLS-1$
+                || "edt_get_problem_summary".equals(name) //$NON-NLS-1$
+                || "edt_get_tags".equals(name) //$NON-NLS-1$
+                || "edt_list_modules".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"projectName"}, //$NON-NLS-1$
+                    new String[]{"DemoConfiguration"}); //$NON-NLS-1$
+        }
+        if ("edt_get_objects_by_tags".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"projectName", "tags"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"DemoConfiguration", "sales"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if ("edt_get_module_structure".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"projectName", "moduleFqn", "full"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    new String[]{"DemoConfiguration", "CommonModule.Orders.Module", "true"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        }
+        if ("edt_search_in_code".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"projectName", "query", "searchType", "scope"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                    new String[]{"DemoConfiguration", "ПровестиЗаказ", "text", "modules"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        }
+        if ("edt_get_method_call_hierarchy".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"projectName", "methodFqn", "direction", "depth"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                    new String[]{"DemoConfiguration", "CommonModule.Orders.Module.ПровестиЗаказ", "both", "1"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        }
+        if ("edt_go_to_definition".equals(name) || "edt_get_symbol_info".equals(name)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return new ExampleParams(
+                    new String[]{"projectName", "symbolFqn"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"DemoConfiguration", "CommonModule.Orders.Module.ПровестиЗаказ"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
         if ("skill".equals(name)) { //$NON-NLS-1$
             return new ExampleParams(
                     new String[]{"name"}, //$NON-NLS-1$
@@ -283,8 +316,17 @@ final class QwenToolCallExamples {
         }
         if ("extension_manage".equals(name)) { //$NON-NLS-1$
             return new ExampleParams(
-                    new String[]{"command", "project"}, //$NON-NLS-1$ //$NON-NLS-2$
-                    new String[]{"list_objects", "ExtensionDemo"}); //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"command", "project", "base_project", "extension_project", "source_object_fqn", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+                            "validation_token"}, //$NON-NLS-1$
+                    new String[]{"adopt", "DemoConfiguration", "DemoConfiguration", "ExtensionDemo", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                            "Catalog.Items", "validation-token-123"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if ("extension_adopt_object".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"project", "base_project", "extension_project", "source_object_fqn", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                            "validation_token"}, //$NON-NLS-1$
+                    new String[]{"DemoConfiguration", "DemoConfiguration", "ExtensionDemo", "Catalog.Items", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                            "validation-token-123"}); //$NON-NLS-1$
         }
         if ("external_manage".equals(name)) { //$NON-NLS-1$
             return new ExampleParams(
@@ -296,6 +338,16 @@ final class QwenToolCallExamples {
                     new String[]{"command"}, //$NON-NLS-1$
                     new String[]{"metadata_smoke"}); //$NON-NLS-1$
         }
+        if ("get_diagnostics".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"scope", "path"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"file", "/DemoConfiguration/src/CommonModules/Orders/Module.bsl"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if ("get_bookmarks".equals(name) || "get_tasks".equals(name)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return new ExampleParams(
+                    new String[]{"projectName", "limit"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"DemoConfiguration", "100"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
         if ("qa_inspect".equals(name)) { //$NON-NLS-1$
             return new ExampleParams(
                     new String[]{"command"}, //$NON-NLS-1$
@@ -305,6 +357,56 @@ final class QwenToolCallExamples {
             return new ExampleParams(
                     new String[]{"command"}, //$NON-NLS-1$
                     new String[]{"init_config"}); //$NON-NLS-1$
+        }
+        if ("run_yaxunit_tests".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"project_name", "filters", "timeout_s"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    new String[]{"DemoConfiguration", "CatalogItems", "300"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        }
+        if ("debug_yaxunit_tests".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"project_name", "filters", "wait_for_debugger"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    new String[]{"DemoConfiguration", "CatalogItems", "true"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        }
+        if ("set_breakpoint".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"projectName", "filePath", "line"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    new String[]{"DemoConfiguration", "CommonModules/Orders/Module.bsl", "12"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        }
+        if ("remove_breakpoint".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"projectName", "breakpointId"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"DemoConfiguration", "12345"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if ("list_breakpoints".equals(name) || "debug_status".equals(name)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return new ExampleParams(
+                    new String[]{"projectName"}, //$NON-NLS-1$
+                    new String[]{"DemoConfiguration"}); //$NON-NLS-1$
+        }
+        if ("wait_for_break".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"projectName", "timeoutMs"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"DemoConfiguration", "30000"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if ("get_variables".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"projectName", "threadId"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"DemoConfiguration", "Thread@1a2b3c"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if ("step".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"projectName", "kind"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"DemoConfiguration", "over"}); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if ("resume".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"projectName"}, //$NON-NLS-1$
+                    new String[]{"DemoConfiguration"}); //$NON-NLS-1$
+        }
+        if ("evaluate_expression".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"projectName", "expression"}, //$NON-NLS-1$ //$NON-NLS-2$
+                    new String[]{"DemoConfiguration", "ТекущийОбъект"}); //$NON-NLS-1$ //$NON-NLS-2$
         }
         if ("render_template".equals(name)) { //$NON-NLS-1$
             // Use only flat params for XML fallback safety — sections is complex so use minimal keys
@@ -326,6 +428,17 @@ final class QwenToolCallExamples {
             return new ExampleParams(
                     new String[]{"content", "category", "domain"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                     new String[]{"Регистр ОстаткиТоваров используется для учёта складских остатков", "FACT", "accumulation-registers"}); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        }
+        // Form model mutation — set_item с типом поля (ManagedFormFieldType литерал).
+        // Пример специально показывает смену виджета существующего поля, потому что это часто
+        // ошибочно интерпретируется как неподдерживаемое действие (набор операций в operations
+        // не документирует payload-ключи в JSON schema — агент может решить, что type недоступен).
+        if ("mutate_form_model".equals(name)) { //$NON-NLS-1$
+            return new ExampleParams(
+                    new String[]{"project", "form_fqn", "operations", "validation_token"}, //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                    new String[]{"DemoConfiguration", "Catalog.Items.Form.ListForm", //$NON-NLS-1$ //$NON-NLS-2$
+                            "[{\"op\":\"set_item\",\"id\":\"MyField\",\"set\":{\"type\":\"LABEL_FIELD\"}}]", //$NON-NLS-1$
+                            "validation-token-123"}); //$NON-NLS-1$
         }
         return null;
     }

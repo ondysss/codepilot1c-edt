@@ -39,6 +39,7 @@ public final class ProviderCapabilities {
     private final boolean attachmentMetadata;
     private final long maxAttachmentBytes;
     private final int maxAttachmentsPerMessage;
+    private final boolean streamUsage;
 
     private ProviderCapabilities(Builder builder) {
         this.codePilotBackend = builder.codePilotBackend;
@@ -53,6 +54,7 @@ public final class ProviderCapabilities {
         this.attachmentMetadata = builder.attachmentMetadata;
         this.maxAttachmentBytes = builder.maxAttachmentBytes;
         this.maxAttachmentsPerMessage = builder.maxAttachmentsPerMessage;
+        this.streamUsage = builder.streamUsage;
     }
 
     public static ProviderCapabilities none() {
@@ -173,6 +175,25 @@ public final class ProviderCapabilities {
     }
 
     /**
+     * Returns {@code true} when the provider supports the OpenAI-compatible
+     * {@code stream_options: {include_usage: true}} request field and emits
+     * a terminal {@code usage} JSON object on streamed responses.
+     *
+     * <p>Gates real token-usage reporting for the streaming path. When
+     * {@code false}, callers fall back to local estimation.</p>
+     *
+     * <p>Defaults:</p>
+     * <ul>
+     *   <li>{@code true} for CodePilot backend (confirmed spec)</li>
+     *   <li>{@code false} for all other providers (generic OpenAI-compatible
+     *       gateways may silently ignore the field and never emit usage)</li>
+     * </ul>
+     */
+    public boolean supportsStreamUsage() {
+        return streamUsage;
+    }
+
+    /**
      * Resolves the model family from a model name string.
      *
      * @param model the model name (e.g. "qwen3-coder", "qwen2.5-vl")
@@ -250,6 +271,7 @@ public final class ProviderCapabilities {
         private boolean attachmentMetadata;
         private long maxAttachmentBytes = 10L * 1024L * 1024L;
         private int maxAttachmentsPerMessage = 5;
+        private boolean streamUsage;
 
         public Builder codePilotBackend(boolean codePilotBackend) {
             this.codePilotBackend = codePilotBackend;
@@ -308,6 +330,11 @@ public final class ProviderCapabilities {
 
         public Builder maxAttachmentsPerMessage(int maxAttachmentsPerMessage) {
             this.maxAttachmentsPerMessage = maxAttachmentsPerMessage;
+            return this;
+        }
+
+        public Builder streamUsage(boolean streamUsage) {
+            this.streamUsage = streamUsage;
             return this;
         }
 

@@ -171,6 +171,14 @@ public class LlmResponse {
     }
 
     /**
+     * Returns whether the provider supplied a reasoning content field.
+     * Some thinking-mode providers require replaying the field even when it is empty.
+     */
+    public boolean hasReasoningField() {
+        return reasoningContent != null;
+    }
+
+    /**
      * Creates a new builder.
      *
      * @return a new builder instance
@@ -233,28 +241,67 @@ public class LlmResponse {
 
     /**
      * Token usage information.
+     *
+     * <p>Backward compatibility notes:</p>
+     * <ul>
+     *   <li>{@link #getPromptTokens()} is the total number of input tokens
+     *       processed by the model, regardless of whether they were cached.</li>
+     *   <li>{@link #getCachedPromptTokens()} is a legacy alias that returns
+     *       {@link #getCacheReadInputTokens()} when it is populated. New code
+     *       should prefer {@link #getCacheReadInputTokens()} and
+     *       {@link #getCacheCreationInputTokens()} because they match the
+     *       backend's expanded schema. Both accessors return the same value
+     *       whenever only one cache dimension is known.</li>
+     * </ul>
      */
     public static class Usage {
         private final int promptTokens;
         private final int cachedPromptTokens;
         private final int completionTokens;
         private final int totalTokens;
+        private final int cacheReadInputTokens;
+        private final int cacheCreationInputTokens;
 
         public Usage(int promptTokens, int completionTokens, int totalTokens) {
-            this(promptTokens, 0, completionTokens, totalTokens);
+            this(promptTokens, 0, completionTokens, totalTokens, 0, 0);
         }
 
         public Usage(int promptTokens, int cachedPromptTokens, int completionTokens, int totalTokens) {
+            this(promptTokens, cachedPromptTokens, completionTokens, totalTokens, cachedPromptTokens, 0);
+        }
+
+        /**
+         * Creates a usage record with explicit cache read/creation token counts.
+         *
+         * @param promptTokens              total input tokens
+         * @param cachedPromptTokens        cached portion of input tokens (legacy alias)
+         * @param completionTokens          output tokens
+         * @param totalTokens               total tokens (input+output)
+         * @param cacheReadInputTokens      tokens read from provider-side prompt cache
+         * @param cacheCreationInputTokens  tokens written to provider-side prompt cache
+         */
+        public Usage(int promptTokens, int cachedPromptTokens, int completionTokens, int totalTokens,
+                int cacheReadInputTokens, int cacheCreationInputTokens) {
             this.promptTokens = promptTokens;
             this.cachedPromptTokens = cachedPromptTokens;
             this.completionTokens = completionTokens;
             this.totalTokens = totalTokens;
+            this.cacheReadInputTokens = cacheReadInputTokens;
+            this.cacheCreationInputTokens = cacheCreationInputTokens;
         }
 
         public int getPromptTokens() {
             return promptTokens;
         }
 
+        /**
+         * Returns the cached portion of the input tokens.
+         *
+         * <p>Kept for backward compatibility; new code should prefer
+         * {@link #getCacheReadInputTokens()}. When both are known they carry the
+         * same value; when only one is provided by the upstream payload this
+         * method returns whichever is populated.</p>
+         */
         public int getCachedPromptTokens() {
             return cachedPromptTokens;
         }
@@ -265,6 +312,25 @@ public class LlmResponse {
 
         public int getTotalTokens() {
             return totalTokens;
+        }
+
+        /**
+         * Returns input tokens that were served from the provider-side prompt
+         * cache. Matches Claude's {@code cache_read_input_tokens} and the
+         * backend's {@code cache_read_input_tokens} field.
+         */
+        public int getCacheReadInputTokens() {
+            return cacheReadInputTokens;
+        }
+
+        /**
+         * Returns input tokens that the provider wrote to the prompt cache.
+         * Matches Claude's {@code cache_creation_input_tokens} and the
+         * backend's {@code cache_creation_input_tokens} field. Zero when the
+         * provider does not report cache-creation separately.
+         */
+        public int getCacheCreationInputTokens() {
+            return cacheCreationInputTokens;
         }
     }
 }

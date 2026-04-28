@@ -142,6 +142,19 @@ public class LlmMessage {
     }
 
     /**
+     * Creates an assistant message with reasoning content.
+     * Some OpenAI-compatible thinking models require {@code reasoning_content}
+     * from previous assistant turns to be sent back on follow-up requests.
+     *
+     * @param content          the visible assistant content
+     * @param reasoningContent the model's reasoning/thinking content
+     * @return a new assistant message
+     */
+    public static LlmMessage assistant(String content, String reasoningContent) {
+        return new LlmMessage(Role.ASSISTANT, content, reasoningContent, null, null, null);
+    }
+
+    /**
      * Creates an assistant message with tool calls.
      *
      * @param content   the message content (may be null)
@@ -202,6 +215,14 @@ public class LlmMessage {
      */
     public boolean hasReasoningContent() {
         return reasoningContent != null && !reasoningContent.isEmpty();
+    }
+
+    /**
+     * Returns whether the provider supplied a reasoning content field.
+     * Some thinking-mode providers require replaying the field even when it is empty.
+     */
+    public boolean hasReasoningContentField() {
+        return reasoningContent != null;
     }
 
     public List<LlmContentPart> getContentParts() {

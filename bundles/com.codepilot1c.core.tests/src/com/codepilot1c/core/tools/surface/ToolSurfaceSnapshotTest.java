@@ -37,9 +37,11 @@ public class ToolSurfaceSnapshotTest {
     public void effectiveToolSurfaceSnapshotsStayStableAcrossProviderSelections() throws Exception {
         ToolRegistry registry = createIsolatedRegistry();
         registerSnapshotTools(registry);
-        String nonBackend = snapshotFor(registry, "openai-local", ProviderType.OPENAI_COMPATIBLE, "build"); //$NON-NLS-1$ //$NON-NLS-2$
-        String backend = snapshotFor(registry, "backend", ProviderType.CODEPILOT_BACKEND, "build"); //$NON-NLS-1$ //$NON-NLS-2$
+        String nonBackend = snapshotFor(registry, "openai-local", ProviderType.OPENAI_COMPATIBLE, "model", "build"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        String nonQwenBackend = snapshotFor(registry, "backend", ProviderType.CODEPILOT_BACKEND, "minimax-m2", "build"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        String qwenBackend = snapshotFor(registry, "backend", ProviderType.CODEPILOT_BACKEND, "qwen3-coder", "build"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 
+        // Non-backend provider: no Qwen contributions. Tool descriptions come straight from the tool.
         assertEquals("""
                 provider=openai-local
                 profile=build
@@ -50,20 +52,34 @@ public class ToolSurfaceSnapshotTest {
                 skill=Показывает доступные skills и загружает инструкцию выбранного skill по имени. Используй для подключения специализированного workflow.
                 """, nonBackend);
 
+        // Non-Qwen CodePilot backend (MiniMax / Kimi / Moonshot): backend description rewrite still
+        // runs, but Qwen routing hints / XML priming MUST NOT be contributed — they waste tokens on
+        // models that do not emit Qwen XML tool calls.
+        assertEquals("""
+                provider=backend
+                profile=build
+                read_file=Read an existing workspace file or a 1-based line range. Use it for exact source inspection after discovery and keep paths workspace-relative.
+                edit_file=Edit an existing workspace file in place via full replace, targeted search/replace, or SEARCH/REPLACE blocks. Do not use it to create files or mutate EDT metadata descriptors unless an explicit emergency override is intended.
+                create_metadata=Создаёт метаданный объект через BM API. Свойства: COMMON_MODULE — clientManagedApplication/server/global. DOCUMENT — useStandardCommands. CATALOG — hierarchical+hierarchyType. После создания запусти диагностику.
+                qa_inspect=Читает состояние QA без изменений файлов: объясняет qa-config, проверяет окружение и ищет доступные шаги Vanessa Automation.
+                skill=Показывает доступные skills и загружает инструкцию выбранного skill по имени. Используй для подключения специализированного workflow.
+                """, nonQwenBackend);
+
+        // Qwen-native CodePilot backend: rewrite + Qwen routing hints appended per category.
         assertEquals("""
                 provider=backend
                 profile=build
                 read_file=Read an existing workspace file or a 1-based line range. Use it for exact source inspection after discovery and keep paths workspace-relative. Qwen routing: prefer read/search before mutation, keep paths workspace-relative, and switch to EDT semantic tools for platform/model questions.
                 edit_file=Edit an existing workspace file in place via full replace, targeted search/replace, or SEARCH/REPLACE blocks. Do not use it to create files or mutate EDT metadata descriptors unless an explicit emergency override is intended. Qwen routing: read before edit, patch the smallest necessary region, and do not mutate EDT metadata files directly when a semantic tool exists.
-                create_metadata=Создает новый объект метаданных 1С через EDT BM model и forceExport. Qwen routing: enforce edt_validate_request -> validation_token -> mutation -> diagnostics. Do not skip validation or diagnose success without re-running diagnostics.
+                create_metadata=Создаёт метаданный объект через BM API. Свойства: COMMON_MODULE — clientManagedApplication/server/global. DOCUMENT — useStandardCommands. CATALOG — hierarchical+hierarchyType. После создания запусти диагностику. Qwen routing: enforce edt_validate_request -> validation_token -> mutation -> diagnostics. Do not skip validation or diagnose success without re-running diagnostics.
                 qa_inspect=Читает состояние QA без изменений файлов: объясняет qa-config, проверяет окружение и ищет доступные шаги Vanessa Automation. Qwen routing: follow the QA pipeline in order, treat generated context as ephemeral, and use steps search only as fallback support for scenario authoring.
                 skill=Показывает доступные skills и загружает инструкцию выбранного skill по имени. Используй для подключения специализированного workflow.
-                """, backend);
+                """, qwenBackend);
     }
 
-    private String snapshotFor(ToolRegistry registry, String activeProviderId, ProviderType type, String profileId)
-            throws Exception {
-        setStoreState(List.of(configured(activeProviderId, type)), activeProviderId);
+    private String snapshotFor(ToolRegistry registry, String activeProviderId, ProviderType type, String model,
+            String profileId) throws Exception {
+        setStoreState(List.of(configured(activeProviderId, type, model)), activeProviderId);
         List<ToolDefinition> definitions = registry.getToolDefinitions(
                 registry.createRuntimeSurfaceContext(new BuildAgentProfile()));
         return normalize("""
@@ -120,14 +136,14 @@ public class ToolSurfaceSnapshotTest {
         activeField.set(store, activeProviderId);
     }
 
-    private static LlmProviderConfig configured(String id, ProviderType type) {
+    private static LlmProviderConfig configured(String id, ProviderType type, String model) {
         LlmProviderConfig config = new LlmProviderConfig();
         config.setId(id);
         config.setName(id);
         config.setType(type);
         config.setBaseUrl("https://example.com/v1"); //$NON-NLS-1$
         config.setApiKey("key"); //$NON-NLS-1$
-        config.setModel("model"); //$NON-NLS-1$
+        config.setModel(model);
         return config;
     }
 

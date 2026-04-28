@@ -103,4 +103,47 @@ public class MarkdownRenderer {
         }
         return summary.toString();
     }
+
+    public String renderBookmarks(GetBookmarksResult result) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# Bookmarks: ").append(result.getProjectName()).append("\n\n"); //$NON-NLS-1$ //$NON-NLS-2$
+        sb.append("**Total:** ").append(result.getTotal()).append("\n\n"); //$NON-NLS-1$ //$NON-NLS-2$
+
+        if (result.getBookmarks().isEmpty()) {
+            sb.append("No bookmarks found.\n"); //$NON-NLS-1$
+            return sb.toString();
+        }
+
+        sb.append("| Resource | Line | Message | Priority |\n"); //$NON-NLS-1$
+        sb.append("|---|---:|---|---|\n"); //$NON-NLS-1$
+        for (MarkerData bookmark : result.getBookmarks()) {
+            sb.append("| `").append(escape(bookmark.getResource())).append("` | ") //$NON-NLS-1$ //$NON-NLS-2$
+                    .append(bookmark.getLine()).append(" | ") //$NON-NLS-1$
+                    .append(escape(bookmark.getMessage())).append(" | ") //$NON-NLS-1$
+                    .append(bookmark.getPriority()).append(" |\n"); //$NON-NLS-1$
+        }
+        return sb.toString();
+    }
+
+    public String renderTasks(GetTasksResult result) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# Task Markers: ").append(result.getProjectName()).append("\n\n"); //$NON-NLS-1$ //$NON-NLS-2$
+        sb.append("**Total:** ").append(result.getTotal()).append("\n\n"); //$NON-NLS-1$ //$NON-NLS-2$
+
+        if (result.getTasks().isEmpty()) {
+            sb.append("No task markers found (TODO, FIXME, etc.).\n"); //$NON-NLS-1$
+            return sb.toString();
+        }
+
+        sb.append("| Resource | Line | Type | Priority | Message |\n"); //$NON-NLS-1$
+        sb.append("|---|---:|---|---|---|\n"); //$NON-NLS-1$
+        for (MarkerData task : result.getTasks()) {
+            sb.append("| `").append(escape(task.getResource())).append("` | ") //$NON-NLS-1$ //$NON-NLS-2$
+                    .append(task.getLine()).append(" | ") //$NON-NLS-1$
+                    .append(task.getMarkerType()).append(" | ") //$NON-NLS-1$
+                    .append(task.getPriority()).append(" | ") //$NON-NLS-1$
+                    .append(escape(task.getMessage())).append(" |\n"); //$NON-NLS-1$
+        }
+        return sb.toString();
+    }
 }

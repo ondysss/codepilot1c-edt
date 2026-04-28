@@ -44,20 +44,20 @@ public class ExtensionManageTool extends AbstractTool {
               "properties": {
                 "command": {
                   "type": "string",
-                  "description": "Command for extension workflows: list_projects, list_objects, create, adopt, or set_state",
+                  "description": "Command: list_projects, list_objects, create, adopt, or set_state",
                   "enum": ["list_projects", "list_objects", "create", "adopt", "set_state"]
                 },
                 "project": {
                   "type": "string",
-                  "description": "Base EDT project name"
+                  "description": "Base configuration EDT project. For mutating commands this is the validation scope and must match base_project when both are set."
                 },
                 "base_project": {
                   "type": "string",
-                  "description": "Base configuration project name"
+                  "description": "Base configuration EDT project that owns source_object_fqn. For create/adopt/set_state it must match project."
                 },
                 "extension_project": {
                   "type": "string",
-                  "description": "Extension project name"
+                  "description": "EDT extension project, distinct from the base configuration project. Required for list_objects, create, adopt, and set_state."
                 },
                 "type_filter": {
                   "type": "string",
@@ -97,11 +97,11 @@ public class ExtensionManageTool extends AbstractTool {
                 },
                 "source_object_fqn": {
                   "type": "string",
-                  "description": "(adopt/set_state) FQN of base configuration object"
+                  "description": "(adopt/set_state) FQN of the existing object in the base configuration, for example Catalog.Items."
                 },
                 "update_if_exists": {
                   "type": "boolean",
-                  "description": "(adopt) Update if already adopted"
+                  "description": "(adopt) If the object is already adopted, update the adopted object instead of failing."
                 },
                 "property_name": {
                   "type": "string",
@@ -113,7 +113,7 @@ public class ExtensionManageTool extends AbstractTool {
                 },
                 "validation_token": {
                   "type": "string",
-                  "description": "(mutating commands) One-time token from edt_validate_request; required for create, adopt, and set_state"
+                  "description": "(create/adopt/set_state) One-time token from edt_validate_request for the same project and payload.command."
                 }
               },
               "required": ["command"]
@@ -134,7 +134,7 @@ public class ExtensionManageTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Управляет расширениями EDT: показывает проекты и объекты, создаёт расширение, заимствует объект из базы и меняет состояние свойства."; //$NON-NLS-1$
+        return "Управляет расширениями EDT. project/base_project — базовая конфигурация; extension_project — проект расширения. Мутации требуют edt_validate_request."; //$NON-NLS-1$
     }
 
     @Override

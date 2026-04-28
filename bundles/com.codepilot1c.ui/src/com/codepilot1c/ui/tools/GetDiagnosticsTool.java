@@ -41,12 +41,16 @@ public class GetDiagnosticsTool implements ITool {
                 "properties": {
                     "scope": {
                         "type": "string",
-                        "enum": ["project", "file", "active_editor"],
-                        "description": "Область live UI diagnostics: project, file, or active_editor. Use edt_diagnostics:metadata_smoke when UI is unavailable."
+                        "enum": ["project", "file", "module", "active_editor", "all"],
+                        "description": "Область live UI diagnostics: project/all, file/module, or active_editor."
                     },
                     "path": {
                         "type": "string",
                         "description": "Workspace-relative file path for scope=file."
+                    },
+                    "file": {
+                        "type": "string",
+                        "description": "Alias for path. Workspace-relative file path for scope=file/module."
                     },
                     "project_name": {
                         "type": "string",
@@ -93,7 +97,7 @@ public class GetDiagnosticsTool implements ITool {
     public CompletableFuture<ToolResult> execute(Map<String, Object> parameters) {
         // Parse parameters
         String scope = (String) parameters.getOrDefault("scope", ""); //$NON-NLS-1$ //$NON-NLS-2$
-        String path = (String) parameters.get("path"); //$NON-NLS-1$
+        String path = firstString(parameters.get("path"), parameters.get("file")); //$NON-NLS-1$ //$NON-NLS-2$
         String projectName = (String) parameters.get("project_name"); //$NON-NLS-1$
         String severityStr = (String) parameters.getOrDefault("severity", "info"); //$NON-NLS-1$ //$NON-NLS-2$
         int maxItems = getIntParam(parameters, "max_items", 0); //$NON-NLS-1$
@@ -129,6 +133,7 @@ public class GetDiagnosticsTool implements ITool {
                     ? collector.collectFromWorkspace(query)
                     : collector.collectFromProject(projectName, query); //$NON-NLS-1$
             case "file" -> collector.collectFromFile(path, query); //$NON-NLS-1$
+            case "active_editor", "active_file" -> collector.collectFromActiveEditor(query); //$NON-NLS-1$ //$NON-NLS-2$
             default -> collector.collectFromActiveEditor(query);
         };
 
@@ -180,13 +185,32 @@ public class GetDiagnosticsTool implements ITool {
         return Boolean.parseBoolean(str);
     }
 
+    private String firstString(Object primary, Object fallback) {
+        String value = asNonBlankString(primary);
+        return value != null ? value : asNonBlankString(fallback);
+    }
+
+    private String asNonBlankString(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String str = String.valueOf(value).trim();
+        return str.isEmpty() ? null : str;
+    }
+
     private String normalizeScope(String scope, String path, String projectName) {
         if (scope != null && !scope.isBlank()) {
             String normalized = scope.trim().toLowerCase();
-            if ("project".equals(normalized) || "file".equals(normalized) || "active_editor".equals(normalized)) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                if ("file".equals(normalized) && (path == null || path.isBlank())) { //$NON-NLS-1$
-                    return "project"; //$NON-NLS-1$
-                }
+            if ("all".equals(normalized) || "workspace".equals(normalized)) { //$NON-NLS-1$ //$NON-NLS-2$
+                return "project"; //$NON-NLS-1$
+            }
+            if ("module".equals(normalized)) { //$NON-NLS-1$
+                return path == null || path.isBlank() ? "active_file" : "file"; //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            if ("file".equals(normalized)) { //$NON-NLS-1$
+                return path == null || path.isBlank() ? "active_file" : "file"; //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            if ("project".equals(normalized) || "active_editor".equals(normalized)) { //$NON-NLS-1$ //$NON-NLS-2$
                 return normalized;
             }
         }

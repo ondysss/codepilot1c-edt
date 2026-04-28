@@ -119,7 +119,29 @@ public final class VibePreferenceConstants {
     /** Feature flag: enable LLM-based history compaction instead of lossy truncation. */
     public static final String PREF_ENABLE_LLM_COMPACTION = "codepilot.feature.llm_compaction"; //$NON-NLS-1$
 
+    /**
+     * Number of tail messages to retain verbatim during automatic LLM-based history
+     * compaction (Plan 1.3 tuning knob). Higher values keep more recent context but
+     * leave less budget for the compacted summary.
+     */
+    public static final String LLM_COMPACTION_TAIL_MESSAGES = "llm.compaction.tail.messages"; //$NON-NLS-1$
+
+    /** Default value for {@link #LLM_COMPACTION_TAIL_MESSAGES}. Mirrors ChatView#COMPACT_TAIL_MESSAGES. */
+    public static final int LLM_COMPACTION_TAIL_MESSAGES_DEFAULT = 14;
+
     /** Model ID used for background memory extraction (Channel A). Default: kimi-k2.5. */
     public static final String PREF_MEMORY_EXTRACTION_MODEL = "codepilot.memory.extraction_model"; //$NON-NLS-1$
     public static final String PREF_MEMORY_EXTRACTION_MODEL_DEFAULT = "kimi-k2.5"; //$NON-NLS-1$
+
+    /**
+     * Rolling window size (number of most-recent tool calls) inspected by the
+     * tool-repetition detector (Plan 1.2).
+     */
+    public static final String TOOL_REPETITION_WINDOW_SIZE = "tool.repetition.window"; //$NON-NLS-1$
+
+    /**
+     * Identical-call threshold inside the rolling window that trips the
+     * tool-repetition detector (Plan 1.2).
+     */
+    public static final String TOOL_REPETITION_THRESHOLD = "tool.repetition.threshold"; //$NON-NLS-1$
 }

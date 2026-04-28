@@ -41,4 +41,16 @@ public class SessionMultimodalMessageTest {
         assertTrue(restored.getTextualContentFallback().contains("# Requirements")); //$NON-NLS-1$
         assertEquals("requirements.md", restored.getAttachments().get(0).getDisplayName()); //$NON-NLS-1$
     }
+
+    @Test
+    public void toLlmMessagesPreservesAssistantReasoningContent() {
+        Session session = new Session("reasoning-session"); //$NON-NLS-1$
+        session.addMessage(SessionMessage.assistant("visible answer", "private reasoning")); //$NON-NLS-1$ //$NON-NLS-2$
+
+        List<LlmMessage> llmMessages = session.toLlmMessages();
+
+        assertEquals(1, llmMessages.size());
+        assertEquals("visible answer", llmMessages.get(0).getContent()); //$NON-NLS-1$
+        assertEquals("private reasoning", llmMessages.get(0).getReasoningContent()); //$NON-NLS-1$
+    }
 }

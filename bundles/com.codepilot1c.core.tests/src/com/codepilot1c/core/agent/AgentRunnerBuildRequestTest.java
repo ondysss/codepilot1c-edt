@@ -64,6 +64,30 @@ public class AgentRunnerBuildRequestTest {
     }
 
     @Test
+    public void extensionProfileKeepsBootstrapExtensionToolVisible() throws Exception {
+        ToolRegistry registry = isolatedRegistry(Map.of(
+                "read_file", tool("read_file"),
+                "list_files", tool("list_files"),
+                "extension_manage", tool("extension_manage")));
+
+        AgentRunner runner = new AgentRunner(new NoopProvider(), registry, "system"); //$NON-NLS-1$
+        primeHistory(runner);
+        primeContextGate(runner, Set.of());
+
+        AgentConfig config = AgentConfig.builder()
+                .profileName("extension") //$NON-NLS-1$
+                .build();
+
+        LlmRequest request = invokeBuildRequest(runner, config);
+        List<String> toolNames = request.getTools().stream()
+                .map(def -> def.getName())
+                .collect(Collectors.toList());
+
+        assertTrue("extension_manage must remain visible for extension bootstrap flows", //$NON-NLS-1$
+                toolNames.contains("extension_manage")); //$NON-NLS-1$
+    }
+
+    @Test
     public void executeStreamingPropagatesLatestUsageChunk() throws Exception {
         ToolRegistry registry = isolatedRegistry(Map.of());
         AgentRunner runner = new AgentRunner(new StreamingUsageProvider(), registry, "system"); //$NON-NLS-1$

@@ -45,7 +45,8 @@ public class ToolContextGate {
     private static final Set<String> QA_TOOLS_EXCLUDING_INIT = Set.of(
             "qa_inspect", "qa_run", //$NON-NLS-1$ //$NON-NLS-2$
             "qa_prepare_form_context", "qa_plan_scenario", //$NON-NLS-1$ //$NON-NLS-2$
-            "qa_validate_feature", "author_yaxunit_tests"); //$NON-NLS-1$ //$NON-NLS-2$
+            "qa_validate_feature", "author_yaxunit_tests", //$NON-NLS-1$ //$NON-NLS-2$
+            "run_yaxunit_tests", "debug_yaxunit_tests"); //$NON-NLS-1$ //$NON-NLS-2$
 
     private static final Set<String> EDT_PROJECT_TOOLS = Set.of(
             "edt_content_assist", "edt_find_references", "edt_metadata_details", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -118,8 +119,6 @@ public class ToolContextGate {
         }
 
         boolean hasDcs = false;
-        boolean hasExtension = false;
-        boolean hasExternal = false;
         boolean hasQaConfig = false;
 
         for (IProject project : projects) {
@@ -130,20 +129,12 @@ public class ToolContextGate {
             if (!hasDcs) {
                 hasDcs = hasDcsSchema(project);
             }
-            // Extension detection: check project nature or naming convention
-            if (!hasExtension) {
-                hasExtension = isExtensionProject(project);
-            }
-            // External reports/processing detection
-            if (!hasExternal) {
-                hasExternal = isExternalProject(project);
-            }
             // QA config detection
             if (!hasQaConfig) {
                 hasQaConfig = hasQaConfiguration(project);
             }
             // Early exit if all found
-            if (hasDcs && hasExtension && hasExternal && hasQaConfig) {
+            if (hasDcs && hasQaConfig) {
                 break;
             }
         }
@@ -151,12 +142,10 @@ public class ToolContextGate {
         if (!hasDcs) {
             excluded.addAll(DCS_TOOLS);
         }
-        if (!hasExtension) {
-            excluded.addAll(EXTENSION_TOOLS);
-        }
-        if (!hasExternal) {
-            excluded.addAll(EXTERNAL_TOOLS);
-        }
+        // extension_manage and external_manage are bootstrap composite tools:
+        // list/create commands must stay visible when only a base EDT project exists.
+        // Command-specific validation inside the tools reports missing extension/external
+        // context for operations that actually require it.
         if (!hasQaConfig) {
             excluded.addAll(QA_TOOLS_EXCLUDING_INIT);
         }
@@ -193,20 +182,6 @@ public class ToolContextGate {
             }
         }
         return false;
-    }
-
-    private boolean isExtensionProject(IProject project) {
-        // Extension projects typically have a specific nature or contain
-        // Configuration.Extension.xml or similar markers
-        IFile extensionMarker = project.getFile("src/Configuration/Configuration.Extension.mdo"); //$NON-NLS-1$
-        return extensionMarker.exists();
-    }
-
-    private boolean isExternalProject(IProject project) {
-        // External report/processing projects have ExternalReport.mdo or ExternalDataProcessor.mdo
-        IFile reportMarker = project.getFile("src/ExternalReports/ExternalReport.mdo"); //$NON-NLS-1$
-        IFile procMarker = project.getFile("src/ExternalDataProcessors/ExternalDataProcessor.mdo"); //$NON-NLS-1$
-        return reportMarker.exists() || procMarker.exists();
     }
 
     private boolean hasQaConfiguration(IProject project) {

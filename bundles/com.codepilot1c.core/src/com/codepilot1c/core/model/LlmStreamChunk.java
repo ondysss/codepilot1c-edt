@@ -34,7 +34,7 @@ public class LlmStreamChunk {
      */
     public LlmStreamChunk(String content, boolean isComplete, String finishReason,
                           String errorMessage, List<ToolCall> toolCalls) {
-        this(content, isComplete, finishReason, errorMessage, toolCalls, null);
+        this(content, isComplete, finishReason, errorMessage, toolCalls, null, null);
     }
 
     /**
@@ -61,7 +61,7 @@ public class LlmStreamChunk {
      * @param errorMessage     the error message (if error)
      * @param toolCalls        the tool calls (if any)
      * @param reasoningContent the reasoning/thinking content delta
-     * @param usage            token usage information
+     * @param usage            the token usage (only set on the terminal usage chunk)
      */
     public LlmStreamChunk(String content, boolean isComplete, String finishReason,
                           String errorMessage, List<ToolCall> toolCalls, String reasoningContent,
@@ -149,10 +149,17 @@ public class LlmStreamChunk {
     }
 
     /**
-     * Creates a usage chunk.
+     * Creates a terminal usage chunk carrying real token counts from the
+     * provider. Emitted once per stream when the provider supports
+     * {@code stream_options: {include_usage: true}}.
      *
-     * @param usage token usage information
-     * @return a new chunk with usage, or null if usage is null
+     * <p>The chunk is intentionally non-complete so it does not trigger the
+     * stream-termination path in downstream consumers; the normal completion
+     * chunk still follows (or precedes) it.</p>
+     *
+     * @param usage the parsed usage; {@code null} yields {@code null}
+     * @return a new chunk carrying the usage, or {@code null} when usage is
+     *         {@code null}
      */
     public static LlmStreamChunk usage(LlmResponse.Usage usage) {
         if (usage == null) {
@@ -237,18 +244,26 @@ public class LlmStreamChunk {
     }
 
     /**
-     * Returns the token usage information.
+     * Returns whether this chunk carries a reasoning content field.
+     * Empty reasoning chunks are meaningful for providers that require exact replay.
+     */
+    public boolean hasReasoningField() {
+        return reasoningContent != null;
+    }
+
+    /**
+     * Returns the real token usage carried by this chunk, if any.
      *
-     * @return the usage information or null
+     * @return the usage, or {@code null} when this chunk is not a usage chunk
      */
     public LlmResponse.Usage getUsage() {
         return usage;
     }
 
     /**
-     * Returns whether this chunk contains token usage information.
+     * Returns whether this chunk carries real token usage data.
      *
-     * @return true if usage is present
+     * @return {@code true} if a non-null usage is attached
      */
     public boolean hasUsage() {
         return usage != null;

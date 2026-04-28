@@ -30,6 +30,7 @@ import org.eclipse.core.runtime.IPath;
 
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
+import com.codepilot1c.core.tools.util.ToolResultTruncator;
 
 /**
  * Tool for reading file contents.
@@ -66,6 +67,25 @@ public class ReadFileTool extends AbstractTool {
 
     private static final int MAX_LINES = 500;
 
+    /** Upper bound in characters for the rendered tool output (token-budget cap). */
+    private static final int MAX_OUTPUT_CHARS = 40000;
+
+    /**
+     * Package-private accessor so regression tests can validate the cap without
+     * hard-coding the constant in test code.
+     */
+    static int maxOutputChars() {
+        return MAX_OUTPUT_CHARS;
+    }
+
+    /**
+     * Package-private helper that applies the same truncation rule the tool uses.
+     * Exposed so regression tests can exercise it without a live workspace.
+     */
+    static String capForOutput(String content) {
+        return ToolResultTruncator.truncateText(content, MAX_OUTPUT_CHARS);
+    }
+
     @Override
     public String getDescription() {
         return "Читает текст существующего файла workspace, при необходимости по диапазону строк."; //$NON-NLS-1$
@@ -91,10 +111,11 @@ public class ReadFileTool extends AbstractTool {
 
             try {
                 String content = readFile(pathStr, startLine, endLine);
+                String capped = ToolResultTruncator.truncateText(content, MAX_OUTPUT_CHARS);
                 long duration = System.currentTimeMillis() - startTime;
                 LOG.debug("read_file: успешно прочитан %s за %s (%d символов)", //$NON-NLS-1$
-                        LogSanitizer.truncatePath(pathStr), LogSanitizer.formatDuration(duration), content.length());
-                return ToolResult.success(content, ToolResult.ToolResultType.CODE);
+                        LogSanitizer.truncatePath(pathStr), LogSanitizer.formatDuration(duration), capped.length());
+                return ToolResult.success(capped, ToolResult.ToolResultType.CODE);
             } catch (IOException e) {
                 LOG.error("read_file: ошибка чтения %s: %s", pathStr, e.getMessage()); //$NON-NLS-1$
                 return ToolResult.failure("Error reading file: " + e.getMessage()); //$NON-NLS-1$

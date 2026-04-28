@@ -57,6 +57,7 @@ public final class ProviderUtils {
                     .resolvedModel(true)
                     .resolvedModelFamily(modelFamily)
                     .defaultTemperature(defaultTemp)
+                    .streamUsage(true)
                     .build();
         }
         if (config.getType() == ProviderType.OLLAMA) {

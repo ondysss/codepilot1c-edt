@@ -22,6 +22,7 @@ public final class QwenToolSurfaceContributor implements ToolSurfaceContributor 
         return context != null
                 && context.isBuiltIn()
                 && context.isBackendSelectedInUi()
+                && context.isQwenNative()
                 && context.getCategory() != ToolCategory.DYNAMIC;
     }
 

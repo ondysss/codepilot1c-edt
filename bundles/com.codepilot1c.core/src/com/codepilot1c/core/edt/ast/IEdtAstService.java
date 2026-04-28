@@ -12,4 +12,18 @@ public interface IEdtAstService {
     MetadataDetailsResult getMetadataDetails(MetadataDetailsRequest req);
 
     MetadataIndexResult scanMetadataIndex(MetadataIndexRequest req);
+
+    GetBookmarksResult getBookmarks(GetBookmarksRequest req);
+
+    GetTasksResult getTasks(GetTasksRequest req);
+
+    /**
+     * Start or stop profiling on the active debug target.
+     */
+    StartProfilingResult startProfiling(StartProfilingRequest req);
+
+    /**
+     * Retrieve profiling results for a project.
+     */
+    GetProfilingResultsResult getProfilingResults(GetProfilingResultsRequest req);
 }

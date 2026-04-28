@@ -77,16 +77,16 @@ public final class AgentPromptTemplates {
         sb.append("## Доступные инструменты\n"); //$NON-NLS-1$
         sb.append("- Файлы и workspace: read_file, edit_file, write_file, glob, grep, workspace_import_project, import_project_from_infobase\n"); //$NON-NLS-1$
         sb.append("- Git: git_inspect (status/log/branches/remotes/diff), git_mutate (create_repo/init/clone/remote/fetch/pull/push/branch/add/commit), git_clone_and_import_project (clone + workspace import)\n"); //$NON-NLS-1$
-        sb.append("- EDT AST API: edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, get_diagnostics\n"); //$NON-NLS-1$
+        sb.append("- EDT AST/API: edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, edt_get_configuration_properties, edt_get_problem_summary, edt_get_tags, edt_get_objects_by_tags, edt_list_modules, edt_get_module_structure, edt_search_in_code, edt_get_method_call_hierarchy, edt_go_to_definition, edt_get_symbol_info, get_diagnostics\n"); //$NON-NLS-1$
         sb.append("- EDT СКД: dcs_manage(command=get_summary|list_nodes|create_schema|upsert_dataset|upsert_param|upsert_field)\n"); //$NON-NLS-1$
-        sb.append("- EDT расширения: extension_manage(command=list_projects|list_objects|create|adopt|set_state), edt_extension_smoke\n"); //$NON-NLS-1$
+        sb.append("- EDT расширения: extension_manage(command=list_projects|list_objects|create|adopt|set_state; project/base_project=база, extension_project=расширение), edt_extension_smoke\n"); //$NON-NLS-1$
         sb.append("- EDT внешние объекты: external_manage(command=list_projects|list_objects|details|create_report|create_processing), edt_external_smoke\n"); //$NON-NLS-1$
         sb.append("- EDT type provider: edt_field_type_candidates (допустимые типы для поля метаданных)\n"); //$NON-NLS-1$
         sb.append("- EDT-метаданные и формы: inspect_platform_reference, edt_validate_request, create_metadata, create_form, apply_form_recipe, inspect_form_layout, add_metadata_child, ensure_module_artifact, update_metadata, mutate_form_model, delete_metadata, author_yaxunit_tests\n"); //$NON-NLS-1$
         sb.append("- EDT BSL-модель: bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, bsl_analyze_method, bsl_module_context, bsl_module_exports\n"); //$NON-NLS-1$
         sb.append("- EDT диагностика и runtime: edt_diagnostics(command=metadata_smoke|trace_export|analyze_error|update_infobase|launch_app), import_project_from_infobase\n"); //$NON-NLS-1$
         sb.append("- Подагенты: task (делегирование в auto/explore/plan/code/metadata/qa/dcs/extension/recovery/orchestrator; доступно только с CodePilot backend)\n"); //$NON-NLS-1$
-        sb.append("- QA: qa_inspect(command=explain_config|status|steps_search), qa_generate(command=init_config|migrate_config|compile_feature), qa_prepare_form_context, qa_plan_scenario, qa_validate_feature, qa_run\n"); //$NON-NLS-1$
+        sb.append("- QA: qa_inspect(command=explain_config|status|steps_search), qa_generate(command=init_config|migrate_config|compile_feature), qa_prepare_form_context, qa_plan_scenario, qa_validate_feature, qa_run, run_yaxunit_tests, debug_yaxunit_tests\n"); //$NON-NLS-1$
         sb.append("- Скиллы: skill(name=review|refactor|explain|architect|validator)\n\n"); //$NON-NLS-1$
 
         sb.append("## QA workflow\n"); //$NON-NLS-1$
@@ -118,7 +118,7 @@ public final class AgentPromptTemplates {
             sb.append("## Политика изменения метаданных (обязательно)\n"); //$NON-NLS-1$
             sb.append("1. Перед create_metadata, create_form, apply_form_recipe, external_manage(command=create_report|create_processing), extension_manage(command=create|adopt|set_state), dcs_manage(command=create_schema|upsert_dataset|upsert_param|upsert_field), add_metadata_child, update_metadata, mutate_form_model и delete_metadata\n"); //$NON-NLS-1$
             sb.append("   сначала вызывай edt_validate_request.\n"); //$NON-NLS-1$
-            sb.append("2. Бери validation_token из ответа edt_validate_request и передавай в мутационный инструмент без изменения payload.\n"); //$NON-NLS-1$
+            sb.append("2. Бери validation_token из ответа edt_validate_request и передавай в мутационный инструмент без изменения payload. Для composite tools command находится внутри payload, не на верхнем уровне edt_validate_request.\n"); //$NON-NLS-1$
             sb.append("3. Не создавай реквизиты с зарезервированными именами стандартных реквизитов.\n"); //$NON-NLS-1$
             sb.append("4. Для update_metadata используй changes.children_ops для изменения существующих реквизитов.\n"); //$NON-NLS-1$
             sb.append("5. Для примитивных типов (String/Number/Date/Boolean) сначала вызывай edt_field_type_candidates.\n"); //$NON-NLS-1$
@@ -140,6 +140,12 @@ public final class AgentPromptTemplates {
         sb.append("4. Для параметров/вычисляемых полей: edt_validate_request -> dcs_manage(command=upsert_param|upsert_field).\n"); //$NON-NLS-1$
         sb.append("5. После изменений СКД обязательно get_diagnostics(scope=project, project_name=<project>).\n\n"); //$NON-NLS-1$
 
+        sb.append("## Workflow расширений EDT\n"); //$NON-NLS-1$
+        sb.append("1. project и base_project всегда обозначают проект основной конфигурации; extension_project — отдельный проект расширения.\n"); //$NON-NLS-1$
+        sb.append("2. Перед заимствованием найди объект в базе, затем вызывай edt_validate_request(operation=extension_manage, payload.command=adopt, payload.project=<base>, payload.base_project=<base>, payload.extension_project=<extension>, payload.source_object_fqn=<FQN>).\n"); //$NON-NLS-1$
+        sb.append("3. Затем вызывай extension_manage(command=adopt) с теми же project/base_project/extension_project/source_object_fqn и validation_token.\n"); //$NON-NLS-1$
+        sb.append("4. После create/adopt/set_state обязательно get_diagnostics(scope=project, project_name=<extension_project>).\n\n"); //$NON-NLS-1$
+
         if (formsRulesEnabled) {
             sb.append("## Политика работы с управляемыми формами 1С (обязательно)\n"); //$NON-NLS-1$
             sb.append("1. Рассматривай форму как модель: реквизиты + элементы + команды + параметры + командный интерфейс.\n"); //$NON-NLS-1$
@@ -160,7 +166,8 @@ public final class AgentPromptTemplates {
         sb.append("## Workflow YAxUnit (автотесты)\n"); //$NON-NLS-1$
         sb.append("1. Для создания/обновления автотестов используй author_yaxunit_tests.\n"); //$NON-NLS-1$
         sb.append("2. Обязательно указывай data_setup с использованием ЮТДанные.* (без самописных загрузчиков).\n"); //$NON-NLS-1$
-        sb.append("3. После выполнения всегда проверяй diagnostics (get_diagnostics).\n\n"); //$NON-NLS-1$
+        sb.append("3. Для запуска используй run_yaxunit_tests; для интерактивного разбора с брейкпоинтами используй debug_yaxunit_tests.\n"); //$NON-NLS-1$
+        sb.append("4. После выполнения всегда проверяй diagnostics (get_diagnostics).\n\n"); //$NON-NLS-1$
 
         sb.append("## Human-in-the-loop: неоднозначные методы BSL\n"); //$NON-NLS-1$
         sb.append("1. Когда нужен общий контекст модуля, сначала вызови bsl_module_context; когда нужны только export-методы, предпочитай bsl_module_exports.\n"); //$NON-NLS-1$
@@ -224,7 +231,7 @@ public final class AgentPromptTemplates {
         sb.append("## Риски\n[Основные риски и как их снизить]\n\n"); //$NON-NLS-1$
         sb.append("## Инструменты\n"); //$NON-NLS-1$
         sb.append("read_file, glob, grep, list_files,\n"); //$NON-NLS-1$
-        sb.append("get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index,\n"); //$NON-NLS-1$
+        sb.append("get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, edt_get_configuration_properties, edt_get_problem_summary, edt_get_tags, edt_get_objects_by_tags, edt_list_modules, edt_get_module_structure, edt_search_in_code, edt_get_method_call_hierarchy, edt_go_to_definition, edt_get_symbol_info,\n"); //$NON-NLS-1$
         sb.append("inspect_form_layout, bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, bsl_analyze_method, bsl_module_context, bsl_module_exports, inspect_platform_reference, skill, task.\n"); //$NON-NLS-1$
 
         return PromptQualityAssurance.verify(
@@ -264,7 +271,7 @@ public final class AgentPromptTemplates {
 
         sb.append("## Инструменты\n"); //$NON-NLS-1$
         sb.append("read_file, glob, grep, list_files,\n"); //$NON-NLS-1$
-        sb.append("get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index,\n"); //$NON-NLS-1$
+        sb.append("get_diagnostics, edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, edt_get_configuration_properties, edt_get_problem_summary, edt_get_tags, edt_get_objects_by_tags, edt_list_modules, edt_get_module_structure, edt_search_in_code, edt_get_method_call_hierarchy, edt_go_to_definition, edt_get_symbol_info,\n"); //$NON-NLS-1$
         sb.append("inspect_form_layout, bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, bsl_get_method_body, bsl_analyze_method, bsl_module_context, bsl_module_exports, inspect_platform_reference, skill, task.\n"); //$NON-NLS-1$
 
         return PromptQualityAssurance.verify(

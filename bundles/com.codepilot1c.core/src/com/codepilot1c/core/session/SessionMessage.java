@@ -49,6 +49,7 @@ public class SessionMessage {
     private final String id;
     private final MessageType type;
     private final String content;
+    private final String reasoningContent;
     private final List<LlmContentPart> contentParts;
     private final Instant timestamp;
     private final List<ToolCall> toolCalls;
@@ -60,6 +61,7 @@ public class SessionMessage {
         this.id = builder.id != null ? builder.id : UUID.randomUUID().toString();
         this.type = Objects.requireNonNull(builder.type, "type");
         this.content = builder.content;
+        this.reasoningContent = builder.reasoningContent;
         this.contentParts = builder.contentParts != null
                 ? Collections.unmodifiableList(builder.contentParts)
                 : Collections.emptyList();
@@ -91,6 +93,14 @@ public class SessionMessage {
      */
     public String getContent() {
         return content;
+    }
+
+    public String getReasoningContent() {
+        return reasoningContent;
+    }
+
+    public boolean hasReasoningContent() {
+        return reasoningContent != null && !reasoningContent.isEmpty();
     }
 
     public List<LlmContentPart> getContentParts() {
@@ -173,6 +183,14 @@ public class SessionMessage {
                 .build();
     }
 
+    public static SessionMessage assistant(String content, String reasoningContent) {
+        return builder()
+                .type(MessageType.ASSISTANT)
+                .content(content)
+                .reasoningContent(reasoningContent)
+                .build();
+    }
+
     /**
      * Создает ответ ассистента с вызовами инструментов.
      */
@@ -180,6 +198,16 @@ public class SessionMessage {
         return builder()
                 .type(MessageType.ASSISTANT)
                 .content(content)
+                .toolCalls(toolCalls)
+                .build();
+    }
+
+    public static SessionMessage assistantWithToolCalls(String content, String reasoningContent,
+            List<ToolCall> toolCalls) {
+        return builder()
+                .type(MessageType.ASSISTANT)
+                .content(content)
+                .reasoningContent(reasoningContent)
                 .toolCalls(toolCalls)
                 .build();
     }
@@ -243,6 +271,7 @@ public class SessionMessage {
         private String id;
         private MessageType type;
         private String content;
+        private String reasoningContent;
         private List<LlmContentPart> contentParts;
         private Instant timestamp;
         private List<ToolCall> toolCalls;
@@ -262,6 +291,11 @@ public class SessionMessage {
 
         public Builder content(String content) {
             this.content = content;
+            return this;
+        }
+
+        public Builder reasoningContent(String reasoningContent) {
+            this.reasoningContent = reasoningContent;
             return this;
         }
 

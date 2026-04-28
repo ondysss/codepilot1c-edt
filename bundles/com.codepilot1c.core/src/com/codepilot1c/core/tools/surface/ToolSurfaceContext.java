@@ -41,6 +41,7 @@ public final class ToolSurfaceContext {
     private final ToolCategory category;
     private final boolean builtIn;
     private final boolean backendSelectedInUi;
+    private final boolean qwenNative;
 
     private ToolSurfaceContext(Builder builder) {
         this.providerSnapshot = (builder.providerConfig != null ? builder.providerConfig : new LlmProviderConfig()).copy();
@@ -49,6 +50,7 @@ public final class ToolSurfaceContext {
         this.category = builder.category != null ? builder.category : ToolCategory.DYNAMIC;
         this.builtIn = builder.builtIn;
         this.backendSelectedInUi = builder.backendSelectedInUi;
+        this.qwenNative = builder.qwenNative;
     }
 
     public static ToolSurfaceContext passthrough() {
@@ -74,7 +76,8 @@ public final class ToolSurfaceContext {
                 .profile(profile)
                 .category(category)
                 .builtIn(builtIn)
-                .backendSelectedInUi(backendSelectedInUi);
+                .backendSelectedInUi(backendSelectedInUi)
+                .qwenNative(qwenNative);
     }
 
     public LlmProviderConfig getProviderConfig() {
@@ -101,6 +104,18 @@ public final class ToolSurfaceContext {
         return backendSelectedInUi;
     }
 
+    /**
+     * Returns {@code true} when the active provider is the CodePilot backend routing
+     * to a Qwen-family model (e.g. qwen3-coder, qwen2.5-vl).
+     *
+     * <p>MiniMax, Kimi/Moonshot, and any other non-Qwen CodePilot backend models
+     * return {@code false}. Gates Qwen-specific tool surface contributions
+     * (routing hints / XML priming) so they do not waste tokens on unrelated models.</p>
+     */
+    public boolean isQwenNative() {
+        return qwenNative;
+    }
+
     public static final class Builder {
         private LlmProviderConfig providerConfig;
         private String activeProviderId;
@@ -108,6 +123,7 @@ public final class ToolSurfaceContext {
         private ToolCategory category;
         private boolean builtIn;
         private boolean backendSelectedInUi;
+        private boolean qwenNative;
 
         public Builder providerConfig(LlmProviderConfig providerConfig) {
             this.providerConfig = providerConfig;
@@ -136,6 +152,11 @@ public final class ToolSurfaceContext {
 
         public Builder backendSelectedInUi(boolean backendSelectedInUi) {
             this.backendSelectedInUi = backendSelectedInUi;
+            return this;
+        }
+
+        public Builder qwenNative(boolean qwenNative) {
+            this.qwenNative = qwenNative;
             return this;
         }
 

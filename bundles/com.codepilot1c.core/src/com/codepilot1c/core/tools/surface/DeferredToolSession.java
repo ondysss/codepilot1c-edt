@@ -94,6 +94,9 @@ public final class DeferredToolSession {
      * <ul>
      *   <li>Deferred loading is not active, OR</li>
      *   <li>The tool is a core tool, OR</li>
+     *   <li>The tool's category is {@link ToolCategory#DYNAMIC} (MCP/UI
+     *       contributions are part of the deferred base set so agent
+     *       capability discovery is not hidden), OR</li>
      *   <li>The tool's category has been discovered</li>
      * </ul>
      *
@@ -106,6 +109,9 @@ public final class DeferredToolSession {
             return true;
         }
         if (DeferredToolSet.isCoreToolByName(toolName, category)) {
+            return true;
+        }
+        if (category == ToolCategory.DYNAMIC) {
             return true;
         }
         return discoveredCategories.contains(category);

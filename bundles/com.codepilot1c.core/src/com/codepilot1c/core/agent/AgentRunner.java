@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -121,6 +122,12 @@ public class AgentRunner implements IAgentRunner {
     private final ToolContextGate contextGate = new ToolContextGate();
     private volatile ILlmProvider executionProvider;
     private final DeferredToolSession deferredToolSession = new DeferredToolSession();
+    /**
+     * Plan 1.2: detects tool-call repetition loops (e.g., grep x 42 with the
+     * same args) and injects a synthetic USER nudge to force the model to
+     * summarise and change strategy. Reset per {@link #run(String, List, AgentConfig)}.
+     */
+    private final ToolRepetitionDetector toolRepetitionDetector = new ToolRepetitionDetector();
     private volatile AgentTraceSession traceSession;
     private volatile String agentStartedTraceEventId;
     private final Map<Integer, String> stepTraceEventIds = new ConcurrentHashMap<>();
@@ -254,6 +261,7 @@ public class AgentRunner implements IAgentRunner {
         agentStartedTraceEventId = null;
         stepTraceEventIds.clear();
         toolTraceEventIds.clear();
+        toolRepetitionDetector.resetForNewTurn();
         initializeDeferredToolSession();
     }
 
@@ -351,6 +359,7 @@ public class AgentRunner implements IAgentRunner {
 
         StringBuilder contentBuilder = new StringBuilder();
         StringBuilder reasoningBuilder = new StringBuilder();
+        boolean[] reasoningFieldSeen = new boolean[] { false };
         List<ToolCall> toolCalls = new ArrayList<>();
         final LlmResponse.Usage[] latestUsage = { null };
 
@@ -372,7 +381,8 @@ public class AgentRunner implements IAgentRunner {
                 toolCalls.addAll(chunk.getToolCalls());
             }
 
-            if (chunk.hasReasoning()) {
+            if (chunk.hasReasoningField()) {
+                reasoningFieldSeen[0] = true;
                 reasoningBuilder.append(chunk.getReasoningContent());
             }
 
@@ -387,7 +397,7 @@ public class AgentRunner implements IAgentRunner {
                         .content(contentBuilder.toString())
                         .toolCalls(toolCalls)
                         .finishReason(chunk.getFinishReason())
-                        .reasoningContent(reasoningBuilder.length() > 0 ? reasoningBuilder.toString() : null)
+                        .reasoningContent(reasoningFieldSeen[0] ? reasoningBuilder.toString() : null)
                         .usage(latestUsage[0])
                         .build();
                 future.complete(response);
@@ -422,7 +432,7 @@ public class AgentRunner implements IAgentRunner {
                 conversationHistory.add(LlmMessage.assistantWithToolCalls(
                         response.getContent(), response.getReasoningContent(), response.getToolCalls()));
             } else {
-                conversationHistory.add(LlmMessage.assistant(response.getContent()));
+                conversationHistory.add(LlmMessage.assistant(response.getContent(), response.getReasoningContent()));
             }
         }
 
@@ -464,6 +474,13 @@ public class AgentRunner implements IAgentRunner {
         return chain.thenCompose(v -> {
             if (cancelRequested.get()) {
                 return completeCancelled();
+            }
+            // Plan 1.2: append any repetition nudge only after all tool-result
+            // messages for the assistant tool_calls batch have been appended.
+            // A USER message between assistant tool_calls and tool results breaks
+            // the OpenAI-compatible message protocol.
+            for (ToolCall call : toolCalls) {
+                observeAndInjectRepetitionNudge(call);
             }
             // Continue the loop
             return executeLoop(config);
@@ -620,6 +637,8 @@ public class AgentRunner implements IAgentRunner {
         Set<String> contextExcluded = contextGate.computeExcludedTools();
         int totalCount = 0;
         int deferredCount = 0;
+        int baseBuiltinCount = 0;
+        int baseDynamicCount = 0;
 
         for (ITool tool : toolRegistry.getAllTools()) {
             totalCount++;
@@ -647,6 +666,11 @@ public class AgentRunner implements IAgentRunner {
                     deferredCount++;
                     continue;
                 }
+                if (category == ToolCategory.DYNAMIC) {
+                    baseDynamicCount++;
+                } else {
+                    baseBuiltinCount++;
+                }
             }
             tools.add(toolRegistry.getToolDefinition(tool, surfaceContext));
         }
@@ -657,6 +681,19 @@ public class AgentRunner implements IAgentRunner {
                     : String.format("Tool surface: %d total -> %d after filtering (profile=%s)", //$NON-NLS-1$
                             totalCount, tools.size(), profile.getId());
             log(new Status(IStatus.INFO, PLUGIN_ID, msg));
+        }
+        if (deferredToolSession.isDeferredLoadingActive()) {
+            String path = provider != null && provider.getId() != null
+                    ? provider.getId()
+                    : "AgentRunner"; //$NON-NLS-1$
+            String surfaceMsg = String.format(
+                    "[tool-surface] deferred=%d/%d builtin=%d dynamic=%d path=%s", //$NON-NLS-1$
+                    Integer.valueOf(tools.size()),
+                    Integer.valueOf(totalCount),
+                    Integer.valueOf(baseBuiltinCount),
+                    Integer.valueOf(baseDynamicCount),
+                    path);
+            log(new Status(IStatus.INFO, PLUGIN_ID, surfaceMsg));
         }
 
         List<LlmMessage> messagesCopy;
@@ -694,6 +731,50 @@ public class AgentRunner implements IAgentRunner {
                 config.getSystemPromptAddition(),
                 config.getProfileName(),
                 config.getRequestedSkills());
+    }
+
+    /**
+     * Plan 1.2: runs the tool call through {@link #toolRepetitionDetector}
+     * and, on trip, appends a synthetic user message to the conversation
+     * history so the next LLM turn sees the nudge. The tool call itself is
+     * still dispatched — this is a soft correction, not a block.
+     */
+    private void observeAndInjectRepetitionNudge(ToolCall call) {
+        try {
+            String canonical = canonicalizeCallArguments(call.getArguments());
+            Optional<ToolRepetitionDetector.Trip> maybeTrip =
+                    toolRepetitionDetector.observe(call.getName(), canonical);
+            if (maybeTrip.isEmpty()) {
+                return;
+            }
+            ToolRepetitionDetector.Trip trip = maybeTrip.get();
+            LlmMessage nudge = LlmMessage.user(trip.localizedMessage());
+            synchronized (historyLock) {
+                conversationHistory.add(nudge);
+            }
+            log(new Status(IStatus.INFO, PLUGIN_ID,
+                    String.format("Tool repetition detected: %s x%d — nudge injected", //$NON-NLS-1$
+                            trip.toolName, Integer.valueOf(trip.identicalCount))));
+        } catch (RuntimeException e) {
+            logWarning("Tool repetition detector failed", e); //$NON-NLS-1$
+        }
+    }
+
+    private static String canonicalizeCallArguments(String rawArgs) {
+        if (rawArgs == null || rawArgs.isEmpty() || "{}".equals(rawArgs)) { //$NON-NLS-1$
+            return ToolRepetitionDetector.canonicalizeArgs(new com.google.gson.JsonObject());
+        }
+        try {
+            com.google.gson.JsonElement parsed = com.google.gson.JsonParser.parseString(rawArgs);
+            if (parsed != null && parsed.isJsonObject()) {
+                return ToolRepetitionDetector.canonicalizeArgs(parsed.getAsJsonObject());
+            }
+            // Non-object payloads (rare): fall back to the raw text — identical
+            // strings still hash identically.
+            return rawArgs;
+        } catch (RuntimeException e) {
+            return rawArgs;
+        }
     }
 
     /**

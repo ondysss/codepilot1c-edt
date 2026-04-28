@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2024 Example
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, version 3.
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
 package com.codepilot1c.core.provider.config;
 
 import static org.junit.Assert.assertEquals;
@@ -12,20 +19,30 @@ import org.junit.Test;
 import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
 
+/**
+ * Verifies that a terminal OpenAI-compatible usage chunk populates
+ * {@link OpenAiStreamingSession#getLastUsage()} and is emitted downstream
+ * exactly once via {@link LlmStreamChunk#usage(LlmResponse.Usage)}.
+ */
 public class OpenAiStreamingSessionUsageTest {
 
     @Test
-    public void terminalUsageOnlyChunkEmitsUsageChunk() {
+    public void terminalUsageChunkPopulatesSessionUsageAndEmitsSingleUsageChunk() {
         OpenAiStreamingSession session = new OpenAiStreamingSession(
                 "fixture-usage", false, new OpenAiStreamingToolCallParser()); //$NON-NLS-1$
         List<LlmStreamChunk> chunks = new ArrayList<>();
 
+        // Content delta chunk.
         session.processLine(
                 "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}", //$NON-NLS-1$
                 chunks::add);
+
+        // Finish-reason chunk (still OpenAI-shape).
         session.processLine(
                 "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}", //$NON-NLS-1$
                 chunks::add);
+
+        // Terminal usage-only chunk as emitted by OpenAI when stream_options.include_usage is on.
         session.processLine(
                 "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":30," //$NON-NLS-1$
                         + "\"total_tokens\":150,\"prompt_tokens_details\":{\"cached_tokens\":60}}}", //$NON-NLS-1$
@@ -38,16 +55,37 @@ public class OpenAiStreamingSessionUsageTest {
         assertEquals(30, sessionUsage.getCompletionTokens());
         assertEquals(150, sessionUsage.getTotalTokens());
 
+        // Summary exposes the same usage.
         assertNotNull(session.getSummary().getUsage());
         assertEquals(150, session.getSummary().getUsage().getTotalTokens());
-        assertEquals(1L, chunks.stream().filter(LlmStreamChunk::hasUsage).count());
 
+        // Exactly one usage chunk emitted downstream.
+        long usageChunkCount = chunks.stream().filter(LlmStreamChunk::hasUsage).count();
+        assertEquals(1L, usageChunkCount);
         LlmStreamChunk usageChunk = chunks.stream()
                 .filter(LlmStreamChunk::hasUsage)
                 .findFirst()
                 .orElseThrow();
         assertEquals(120, usageChunk.getUsage().getPromptTokens());
         assertEquals(30, usageChunk.getUsage().getCompletionTokens());
+    }
+
+    @Test
+    public void streamWithoutUsageChunkLeavesSessionUsageNull() {
+        OpenAiStreamingSession session = new OpenAiStreamingSession(
+                "fixture-no-usage", false, new OpenAiStreamingToolCallParser()); //$NON-NLS-1$
+        List<LlmStreamChunk> chunks = new ArrayList<>();
+
+        session.processLine(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"},\"finish_reason\":null}]}", //$NON-NLS-1$
+                chunks::add);
+        session.processLine(
+                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}", //$NON-NLS-1$
+                chunks::add);
+
+        assertNull(session.getLastUsage());
+        assertNull(session.getSummary().getUsage());
+        assertEquals(0L, chunks.stream().filter(LlmStreamChunk::hasUsage).count());
     }
 
     @Test
@@ -67,25 +105,7 @@ public class OpenAiStreamingSessionUsageTest {
     }
 
     @Test
-    public void streamWithoutUsageChunkLeavesUsageNull() {
-        OpenAiStreamingSession session = new OpenAiStreamingSession(
-                "fixture-no-usage", false, new OpenAiStreamingToolCallParser()); //$NON-NLS-1$
-        List<LlmStreamChunk> chunks = new ArrayList<>();
-
-        session.processLine(
-                "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"},\"finish_reason\":null}]}", //$NON-NLS-1$
-                chunks::add);
-        session.processLine(
-                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}", //$NON-NLS-1$
-                chunks::add);
-
-        assertNull(session.getLastUsage());
-        assertNull(session.getSummary().getUsage());
-        assertEquals(0L, chunks.stream().filter(LlmStreamChunk::hasUsage).count());
-    }
-
-    @Test
-    public void repeatedUsageChunksEmitOnlyOnceAndKeepLatestSessionUsage() {
+    public void repeatedUsageChunksAreEmittedOnlyOnce() {
         OpenAiStreamingSession session = new OpenAiStreamingSession(
                 "fixture-usage-repeat", false, new OpenAiStreamingToolCallParser()); //$NON-NLS-1$
         List<LlmStreamChunk> chunks = new ArrayList<>();
@@ -98,6 +118,7 @@ public class OpenAiStreamingSessionUsageTest {
                 chunks::add);
 
         assertEquals(1L, chunks.stream().filter(LlmStreamChunk::hasUsage).count());
+        // First usage emitted; session usage field keeps the latest observation.
         LlmStreamChunk emitted = chunks.stream()
                 .filter(LlmStreamChunk::hasUsage)
                 .findFirst()

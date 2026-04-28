@@ -842,3 +842,37 @@ body.dark .model-badge {
         break-inside: avoid;
     }
 }
+
+/* Token Usage Footer (Plan 2.4) */
+.token-footer {
+    flex: 0 0 auto;
+    display: block;
+    padding: 6px 12px;
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+    letter-spacing: 0.1px;
+}
+
+.token-footer .tf-label {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.token-footer .tf-in,
+.token-footer .tf-out,
+.token-footer .tf-cache,
+.token-footer .tf-reqs {
+    color: var(--text-muted);
+}
+
+body.dark .token-footer {
+    background: rgba(255, 255, 255, 0.03);
+    border-top-color: rgba(255, 255, 255, 0.08);
+}

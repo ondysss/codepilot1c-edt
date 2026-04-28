@@ -2,6 +2,7 @@ package com.codepilot1c.core.mcp.host;
 
 import java.security.SecureRandom;
 import java.util.Locale;
+import java.util.Random;
 
 /**
  * MCP host configuration.
@@ -57,12 +58,56 @@ public class McpHostConfig {
         cfg.enabled = true;
         cfg.httpEnabled = true;
         cfg.bindAddress = "127.0.0.1"; //$NON-NLS-1$
-        cfg.port = 8765;
+        cfg.port = findAvailablePort();
         cfg.bearerToken = generateToken();
         cfg.authMode = AuthMode.OAUTH_OR_BEARER;
         cfg.mutationPolicy = MutationPolicy.ALLOW;
         cfg.exposedToolsFilter = "*"; //$NON-NLS-1$
         return cfg;
+    }
+
+    /**
+     * Finds an available port in the default range 8765-8799.
+     * Tries the default port 8765 first, then random ports if it's busy.
+     */
+    private static int findAvailablePort() {
+        int defaultPort = 8765;
+        if (isPortAvailable(defaultPort)) {
+            return defaultPort;
+        }
+        Random random = new SecureRandom();
+        for (int i = 0; i < 35; i++) {
+            int port = 8765 + random.nextInt(35); // 8765-8799 range
+            if (isPortAvailable(port)) {
+                return port;
+            }
+        }
+        // Fallback to any available port
+        return findAnyAvailablePort();
+    }
+
+    /**
+     * Checks if a specific port is available for binding.
+     */
+    private static boolean isPortAvailable(int port) {
+        try (java.net.ServerSocket socket = new java.net.ServerSocket(port)) {
+            socket.setReuseAddress(true);
+            return true;
+        } catch (java.io.IOException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Finds any available port from the dynamic port range.
+     */
+    private static int findAnyAvailablePort() {
+        try (java.net.ServerSocket socket = new java.net.ServerSocket(0)) {
+            socket.setReuseAddress(true);
+            return socket.getLocalPort();
+        } catch (java.io.IOException e) {
+            return 8765; // Fallback to default if everything fails
+        }
     }
 
     public static String generateToken() {

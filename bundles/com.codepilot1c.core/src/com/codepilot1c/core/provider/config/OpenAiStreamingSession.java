@@ -20,6 +20,12 @@ final class OpenAiStreamingSession {
     private final boolean qwenContentFallbackEnabled;
     private final boolean delayContentStreaming;
     private final StringBuilder bufferedContent = new StringBuilder();
+    /**
+     * Real usage captured from the terminal usage chunk emitted by providers that
+     * honour {@code stream_options: {include_usage: true}}. Emitted downstream
+     * exactly once as {@link LlmStreamChunk#usage(LlmResponse.Usage)}; subsequent
+     * usage objects in the same stream are ignored to prevent double-emission.
+     */
     private volatile LlmResponse.Usage lastUsage;
     private boolean usageChunkEmitted;
 
@@ -42,6 +48,11 @@ final class OpenAiStreamingSession {
         return summary;
     }
 
+    /**
+     * Returns the real token usage captured from the terminal stream usage chunk,
+     * or {@code null} when the provider did not emit one (capability off or stream
+     * ended without a usage payload).
+     */
     LlmResponse.Usage getLastUsage() {
         return lastUsage;
     }

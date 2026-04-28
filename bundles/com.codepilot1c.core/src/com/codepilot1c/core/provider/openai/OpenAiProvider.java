@@ -26,6 +26,7 @@ import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.AbstractLlmProvider;
 import com.codepilot1c.core.provider.LlmProviderException;
 import com.codepilot1c.core.provider.ProviderCapabilities;
+import com.codepilot1c.core.provider.config.OpenAiUsageParser;
 import com.codepilot1c.core.provider.config.ProviderMessageContentSerializer;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.google.gson.JsonArray;
@@ -365,6 +366,9 @@ public class OpenAiProvider extends AbstractLlmProvider {
             } else {
                 msgObj.add("content", null); //$NON-NLS-1$
             }
+            if (msg.hasReasoningContentField()) {
+                msgObj.addProperty("reasoning_content", msg.getReasoningContent()); //$NON-NLS-1$
+            }
 
             JsonArray toolCalls = new JsonArray();
             for (ToolCall call : msg.getToolCalls()) {
@@ -382,6 +386,9 @@ public class OpenAiProvider extends AbstractLlmProvider {
             msgObj.add("tool_calls", toolCalls); //$NON-NLS-1$
         } else {
             msgObj.add("content", ProviderMessageContentSerializer.toOpenAiContent(msg, caps)); //$NON-NLS-1$
+            if (msg.getRole() == LlmMessage.Role.ASSISTANT && msg.hasReasoningContentField()) {
+                msgObj.addProperty("reasoning_content", msg.getReasoningContent()); //$NON-NLS-1$
+            }
         }
 
         return msgObj;
@@ -460,27 +467,21 @@ public class OpenAiProvider extends AbstractLlmProvider {
             if (message.has("content") && !message.get("content").isJsonNull()) { //$NON-NLS-1$ //$NON-NLS-2$
                 content = message.get("content").getAsString(); //$NON-NLS-1$
             }
+            String reasoningContent = null;
+            if (message.has("reasoning_content") && !message.get("reasoning_content").isJsonNull()) { //$NON-NLS-1$ //$NON-NLS-2$
+                reasoningContent = message.get("reasoning_content").getAsString(); //$NON-NLS-1$
+            }
 
             String finishReason = choice.has("finish_reason") //$NON-NLS-1$
                     ? choice.get("finish_reason").getAsString() : null; //$NON-NLS-1$
 
             String model = json.has("model") ? json.get("model").getAsString() : null; //$NON-NLS-1$ //$NON-NLS-2$
 
-            // Parse usage
+            // Parse usage — route through OpenAiUsageParser so cache-read / cache-creation
+            // normalization stays consistent with the streaming path and the backend contract.
             LlmResponse.Usage usage = null;
-            if (json.has("usage")) { //$NON-NLS-1$
-                JsonObject usageJson = json.getAsJsonObject("usage"); //$NON-NLS-1$
-                int promptTokens = usageJson.get("prompt_tokens").getAsInt(); //$NON-NLS-1$
-                int completionTokens = usageJson.get("completion_tokens").getAsInt(); //$NON-NLS-1$
-                int totalTokens = usageJson.get("total_tokens").getAsInt(); //$NON-NLS-1$
-                int cachedPromptTokens = 0;
-                if (usageJson.has("prompt_tokens_details") && usageJson.get("prompt_tokens_details").isJsonObject()) { //$NON-NLS-1$ //$NON-NLS-2$
-                    JsonObject details = usageJson.getAsJsonObject("prompt_tokens_details"); //$NON-NLS-1$
-                    if (details.has("cached_tokens") && !details.get("cached_tokens").isJsonNull()) { //$NON-NLS-1$ //$NON-NLS-2$
-                        cachedPromptTokens = details.get("cached_tokens").getAsInt(); //$NON-NLS-1$
-                    }
-                }
-                usage = new LlmResponse.Usage(promptTokens, cachedPromptTokens, completionTokens, totalTokens);
+            if (json.has("usage") && json.get("usage").isJsonObject()) { //$NON-NLS-1$ //$NON-NLS-2$
+                usage = OpenAiUsageParser.parse(json.getAsJsonObject("usage")); //$NON-NLS-1$
             }
 
             // Parse tool calls if present
@@ -503,13 +504,9 @@ public class OpenAiProvider extends AbstractLlmProvider {
                 // visible answer into a non-standard "reasoning_content" field.
                 // Use it as a fallback only for the final answer (no tool calls).
                 if ((content == null || content.isEmpty())
-                        && message.has("reasoning_content") //$NON-NLS-1$
-                        && !message.get("reasoning_content").isJsonNull()) { //$NON-NLS-1$
-                    String rc = message.get("reasoning_content").getAsString(); //$NON-NLS-1$
-                    if (rc != null && !rc.isEmpty()) {
-                        LOG.debug("Using reasoning_content as content fallback (provider returned empty content)"); //$NON-NLS-1$
-                        content = rc;
-                    }
+                        && reasoningContent != null && !reasoningContent.isEmpty()) {
+                    LOG.debug("Using reasoning_content as content fallback (provider returned empty content)"); //$NON-NLS-1$
+                    content = reasoningContent;
                 }
             }
 
@@ -517,7 +514,7 @@ public class OpenAiProvider extends AbstractLlmProvider {
                     finishReason, content != null && !content.isEmpty(),
                     toolCalls != null ? toolCalls.size() : 0);
 
-            return new LlmResponse(content, model, usage, finishReason, toolCalls);
+            return new LlmResponse(content, model, usage, finishReason, toolCalls, reasoningContent);
         } catch (LlmProviderException e) {
             throw e;
         } catch (Exception e) {

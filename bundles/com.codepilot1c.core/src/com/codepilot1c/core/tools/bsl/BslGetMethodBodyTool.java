@@ -12,7 +12,9 @@ import com.codepilot1c.core.edt.lang.BslMethodBodyRequest;
 import com.codepilot1c.core.edt.lang.BslMethodBodyResult;
 import com.codepilot1c.core.edt.lang.BslMethodLookupException;
 import com.codepilot1c.core.edt.lang.BslSemanticService;
+import com.codepilot1c.core.tools.util.ToolResultTruncator;
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 /**
@@ -22,6 +24,18 @@ import com.google.gson.JsonObject;
 public class BslGetMethodBodyTool extends AbstractTool {
 
     private static final Gson GSON = new Gson();
+
+    /**
+     * Upper bound in characters for the serialized method body text (token-budget cap).
+     * Oversized bodies are excerpted head+tail with sibling meta fields describing the drop.
+     */
+    private static final int MAX_BODY_CHARS = 40000;
+
+    /**
+     * Name of the JSON field holding the method body text (matches {@link BslMethodBodyResult#getText()}).
+     * Kept as a constant so the truncation target stays in sync with the serialization shape.
+     */
+    private static final String BODY_FIELD = "text"; //$NON-NLS-1$
 
     private static final String SCHEMA = """
             {
@@ -65,7 +79,11 @@ public class BslGetMethodBodyTool extends AbstractTool {
             try {
                 BslMethodBodyRequest request = BslMethodBodyRequest.fromParameters(parameters);
                 BslMethodBodyResult result = service.getMethodBody(request);
-                return ToolResult.success(GSON.toJson(result), ToolResult.ToolResultType.CODE);
+                JsonElement tree = GSON.toJsonTree(result);
+                if (tree.isJsonObject()) {
+                    ToolResultTruncator.truncateJsonField(tree.getAsJsonObject(), BODY_FIELD, MAX_BODY_CHARS);
+                }
+                return ToolResult.success(GSON.toJson(tree), ToolResult.ToolResultType.CODE);
             } catch (EdtAstException e) {
                 return ToolResult.failure(toErrorJson(e));
             } catch (Exception e) {

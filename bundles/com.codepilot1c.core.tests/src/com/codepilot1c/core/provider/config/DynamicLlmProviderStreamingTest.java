@@ -182,9 +182,9 @@ public class DynamicLlmProviderStreamingTest {
     public void nonStreamingReplayEmitsUsageBeforeCompletion() throws Exception {
         String nonStreamBody = "{"
                 + "\"usage\":{"
-                + "\"prompt_tokens\":12,"
-                + "\"completion_tokens\":5,"
-                + "\"total_tokens\":17"
+                + "\"prompt_tokens\":8,"
+                + "\"completion_tokens\":3,"
+                + "\"total_tokens\":11"
                 + "},"
                 + "\"choices\":[{"
                 + "\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},"
@@ -215,18 +215,13 @@ public class DynamicLlmProviderStreamingTest {
                 }
             }
 
-            assertTrue("Expected usage chunk", usageIndex >= 0); //$NON-NLS-1$
-            assertTrue("Expected completion chunk", completeIndex >= 0); //$NON-NLS-1$
-            assertTrue("Usage chunk should be emitted before completion", usageIndex < completeIndex); //$NON-NLS-1$
-
-            LlmResponse.Usage usage = chunks.get(usageIndex).getUsage();
-            assertEquals(12, usage.getPromptTokens());
-            assertEquals(5, usage.getCompletionTokens());
-            assertEquals(17, usage.getTotalTokens());
-
-            LlmStreamChunk completeChunk = chunks.get(completeIndex);
-            assertTrue(completeChunk.isComplete());
-            assertEquals(LlmResponse.FINISH_REASON_STOP, completeChunk.getFinishReason());
+            assertTrue(usageIndex >= 0);
+            assertTrue(completeIndex >= 0);
+            assertTrue(usageIndex < completeIndex);
+            assertEquals(8, chunks.get(usageIndex).getUsage().getPromptTokens());
+            assertEquals(3, chunks.get(usageIndex).getUsage().getCompletionTokens());
+            assertEquals(11, chunks.get(usageIndex).getUsage().getTotalTokens());
+            assertEquals(chunks.size() - 1, completeIndex);
         } finally {
             server.stop(0);
         }

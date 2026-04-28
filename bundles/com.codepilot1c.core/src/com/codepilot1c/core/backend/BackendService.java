@@ -336,14 +336,7 @@ public class BackendService {
         }
         try {
             JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
-            UsageInfo usage = new UsageInfo();
-            usage.setSpend(getJsonDouble(json, "spend")); //$NON-NLS-1$
-            usage.setMaxBudget(getJsonDouble(json, "max_budget")); //$NON-NLS-1$
-            usage.setTotalTokens(getJsonLong(json, "total_tokens")); //$NON-NLS-1$
-            usage.setPromptTokens(getJsonLong(json, "prompt_tokens")); //$NON-NLS-1$
-            usage.setCompletionTokens(getJsonLong(json, "completion_tokens")); //$NON-NLS-1$
-            usage.setBudgetDuration(getJsonString(json, "budget_duration")); //$NON-NLS-1$
-            usage.setResetDate(getJsonString(json, "budget_reset_at")); //$NON-NLS-1$
+            UsageInfo usage = parseUsageInfo(json);
             cachedUsage = usage;
             lastUsageFetch = System.currentTimeMillis();
             notifyUsageListeners(usage);
@@ -352,6 +345,51 @@ public class BackendService {
             LOG.error("Failed to parse usage response", e); //$NON-NLS-1$
             return cachedUsage;
         }
+    }
+
+    /**
+     * Parses a usage JSON payload into a {@link UsageInfo}. Package-visible for
+     * testing. Handles both the legacy schema
+     * ({@code prompt_tokens}/{@code completion_tokens}) and the expanded schema
+     * with explicit cache breakdown; whichever fields are present win with
+     * deterministic fallbacks documented in the release notes.
+     */
+    static UsageInfo parseUsageInfo(JsonObject json) {
+        UsageInfo usage = new UsageInfo();
+        usage.setSpend(getJsonDouble(json, "spend")); //$NON-NLS-1$
+        usage.setMaxBudget(getJsonDouble(json, "max_budget")); //$NON-NLS-1$
+        usage.setTotalTokens(getJsonLong(json, "total_tokens")); //$NON-NLS-1$
+        usage.setBudgetDuration(getJsonString(json, "budget_duration")); //$NON-NLS-1$
+        usage.setResetDate(getJsonString(json, "budget_reset_at")); //$NON-NLS-1$
+
+        long legacyPromptTokens = getJsonLong(json, "prompt_tokens"); //$NON-NLS-1$
+        long legacyCompletionTokens = getJsonLong(json, "completion_tokens"); //$NON-NLS-1$
+
+        long inputTokensTotalRaw = getJsonLong(json, "input_tokens_total"); //$NON-NLS-1$
+        long inputTokensUncachedRaw = getJsonLong(json, "input_tokens_uncached"); //$NON-NLS-1$
+        long inputTokensCachedRaw = getJsonLong(json, "input_tokens_cached"); //$NON-NLS-1$
+        long outputTokensRaw = getJsonLong(json, "output_tokens"); //$NON-NLS-1$
+        long cacheReadRaw = getJsonLong(json, "cache_read_input_tokens"); //$NON-NLS-1$
+        long cacheCreationRaw = getJsonLong(json, "cache_creation_input_tokens"); //$NON-NLS-1$
+
+        long inputTokensTotal = inputTokensTotalRaw > 0 ? inputTokensTotalRaw : legacyPromptTokens;
+        long inputTokensUncached = inputTokensUncachedRaw > 0 ? inputTokensUncachedRaw : inputTokensTotal;
+        long inputTokensCached = inputTokensCachedRaw; // 0 is a valid value; don't overwrite
+        long outputTokens = outputTokensRaw > 0 ? outputTokensRaw : legacyCompletionTokens;
+        long cacheReadInputTokens = cacheReadRaw > 0 ? cacheReadRaw : inputTokensCached;
+        long cacheCreationInputTokens = cacheCreationRaw;
+
+        usage.setInputTokensTotal(inputTokensTotal);
+        usage.setInputTokensUncached(inputTokensUncached);
+        usage.setInputTokensCached(inputTokensCached);
+        usage.setOutputTokens(outputTokens);
+        usage.setCacheReadInputTokens(cacheReadInputTokens);
+        usage.setCacheCreationInputTokens(cacheCreationInputTokens);
+
+        // Keep legacy fields populated so pre-expansion UI code keeps working.
+        usage.setPromptTokens(inputTokensTotal > 0 ? inputTokensTotal : legacyPromptTokens);
+        usage.setCompletionTokens(outputTokens > 0 ? outputTokens : legacyCompletionTokens);
+        return usage;
     }
 
     private RegistrationResult handleRotateKeyResponse(HttpResponse<String> response) {
