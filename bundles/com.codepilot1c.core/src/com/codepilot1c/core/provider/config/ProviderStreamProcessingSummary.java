@@ -2,6 +2,8 @@ package com.codepilot1c.core.provider.config;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.codepilot1c.core.model.LlmResponse;
+
 /**
  * Aggregated stream processing counters used for diagnostics and fallback decisions.
  */
@@ -24,6 +26,7 @@ final class ProviderStreamProcessingSummary {
     private final AtomicInteger truncatedToolCalls = new AtomicInteger();
     private final AtomicInteger errorChunks = new AtomicInteger();
     private volatile String terminalErrorMessage;
+    private volatile LlmResponse.Usage usage;
 
     ProviderStreamProcessingSummary(String correlationId, boolean requestHasTools) {
         this.correlationId = correlationId;
@@ -89,6 +92,33 @@ final class ProviderStreamProcessingSummary {
 
     String getTerminalErrorMessage() {
         return terminalErrorMessage;
+    }
+
+    /**
+     * Sets the real token usage parsed from a terminal stream usage chunk. The last
+     * non-null call wins; subsequent calls overwrite only if the previous value was
+     * {@code null}, so repeated usage chunks from misbehaving gateways do not
+     * downgrade a good measurement.
+     */
+    void setUsage(LlmResponse.Usage usage) {
+        if (usage == null) {
+            return;
+        }
+        if (this.usage == null) {
+            this.usage = usage;
+        }
+    }
+
+    /**
+     * Returns the real token usage captured during the stream, or {@code null} when
+     * no usage chunk was observed.
+     */
+    LlmResponse.Usage getUsage() {
+        return usage;
+    }
+
+    boolean hasUsage() {
+        return usage != null;
     }
 
     boolean hasMeaningfulOutput() {

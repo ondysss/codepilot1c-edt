@@ -47,13 +47,14 @@ public class MutateFormModelTool extends AbstractTool {
                     "properties": {
                       "op": {
                         "type": "string",
-                        "description": "Тип операции: set_form_props/add_group/add_field/add_command/add_button/set_item/remove_item/move_item"
+                        "enum": ["set_form_props", "add_group", "add_field", "add_command", "add_button", "set_item", "remove_item", "move_item"],
+                        "description": "Операция. set_form_props=свойства формы; add_group/add_field/add_command/add_button=добавить элемент; set_item=изменить любые свойства существующего элемента (включая смену типа виджета); remove_item=удалить; move_item=переместить."
                       }
                     },
                     "required": ["op"],
                     "additionalProperties": true
                   },
-                  "description": "Список операций: set_form_props/add_group/add_field/add_command/add_button/set_item/remove_item/move_item. add_command: name+action (handler). add_button: name+command_name+parent_item_id."
+                  "description": "Список операций над моделью формы. Форматы: set_form_props{set:{...}}; add_group{parent_item_id,name,type:USUAL_GROUP|PAGES|PAGE|COLUMN_GROUP|BUTTON_GROUP|COMMAND_BAR|POPUP}; add_field{parent_item_id,name,data_path,type:INPUT_FIELD|LABEL_FIELD|CHECK_BOX_FIELD|RADIO_BUTTON_FIELD|PICTURE_FIELD|CALENDAR_FIELD|PERIOD_FIELD|PROGRESS_BAR_FIELD|TRACK_BAR_FIELD|SPREADSHEET_DOCUMENT_FIELD|TEXT_DOCUMENT_FIELD|HTML_DOCUMENT_FIELD|FORMATTED_DOCUMENT_FIELD|PDF_DOCUMENT_FIELD|CHART_FIELD|GANTT_CHART_FIELD|DENDROGRAM_FIELD|GEOGRAPHICAL_SCHEMA_FIELD|GRAPHICAL_SCHEMA_FIELD|PLANNER_FIELD}; add_command{name,action(имя процедуры-обработчика)}; add_button{name,command_name,parent_item_id}; set_item{id,set:{...}} — set принимает EMF feature имена case-insensitive: type (меняет виджет существующего FormField/FormGroup на другой литерал ManagedFormFieldType/ManagedFormGroupType), title, visible, enabled, readOnly, dataPath, userVisible, valueType (для FormAttribute через set_form_props.attributes); remove_item{id}; move_item{id,parent_item_id,index}. Примеры смены типа: {op:set_item,id:MyField,set:{type:LABEL_FIELD}}; {op:set_item,id:MyGroup,set:{type:PAGES}}."
                 },
                 "validation_token": {
                   "type": "string",
@@ -78,7 +79,7 @@ public class MutateFormModelTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Вносит точечные изменения в модель уже существующей управляемой формы через EDT BM API."; //$NON-NLS-1$
+        return "Точечные изменения модели существующей управляемой формы через EDT BM API: свойства формы, группы/страницы, поля, команды, кнопки. set_item меняет тип виджета поля и группы."; //$NON-NLS-1$
     }
 
     @Override

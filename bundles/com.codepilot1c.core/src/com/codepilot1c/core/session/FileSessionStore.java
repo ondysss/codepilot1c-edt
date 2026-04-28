@@ -401,6 +401,7 @@ public class FileSessionStore implements ISessionStore {
         String id;
         String type;
         String content;
+        String reasoningContent;
         Instant timestamp;
         List<LlmContentPart> contentParts;
         String toolCallId;
@@ -413,6 +414,7 @@ public class FileSessionStore implements ISessionStore {
             data.id = msg.getId();
             data.type = msg.getType().name();
             data.content = msg.getContent();
+            data.reasoningContent = msg.getReasoningContent();
             data.timestamp = msg.getTimestamp();
             data.contentParts = msg.getContentParts();
             data.toolCallId = msg.getToolCallId();
@@ -426,6 +428,7 @@ public class FileSessionStore implements ISessionStore {
                     .id(id)
                     .type(SessionMessage.MessageType.valueOf(type))
                     .content(content)
+                    .reasoningContent(reasoningContent)
                     .contentParts(contentParts)
                     .timestamp(timestamp)
                     .toolCallId(toolCallId)

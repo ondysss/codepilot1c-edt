@@ -30,16 +30,16 @@ public class EdtValidateRequestTool extends AbstractTool {
               "properties": {
                 "project": {
                   "type": "string",
-                  "description": "Имя EDT проекта, в котором будет выполнена следующая mutating-операция"
+                  "description": "Имя EDT проекта, в котором будет выполнена следующая mutating-операция. Для extension adopt/create/set_state это базовый проект."
                 },
                 "operation": {
                   "type": "string",
                   "enum": ["create_metadata", "create_form", "apply_form_recipe", "external_manage", "external_create_report", "external_create_processing", "extension_manage", "extension_create_project", "extension_adopt_object", "extension_set_property_state", "dcs_manage", "dcs_create_main_schema", "dcs_upsert_query_dataset", "dcs_upsert_parameter", "dcs_upsert_calculated_field", "add_metadata_child", "ensure_module_artifact", "update_metadata", "delete_metadata", "mutate_form_model"],
-                  "description": "Имя mutating tool; для composite tools external_manage, extension_manage и dcs_manage передай точный payload.command"
+                  "description": "Имя mutating tool. Для composite tools external_manage, extension_manage и dcs_manage command указывай только внутри payload.command."
                 },
                 "payload": {
                   "type": "object",
-                  "description": "Те же аргументы, которые потом будут переданы в мутационный tool без validation_token; для composite tools должен включать command"
+                  "description": "Те же аргументы, которые потом будут переданы в mutating tool без validation_token. Top-level keys: project, operation, payload; command допустим только здесь у composite tools."
                 }
               },
               "required": ["project", "operation", "payload"],

@@ -280,9 +280,9 @@ public class Session {
                 case ASSISTANT:
                     if (msg.hasToolCalls()) {
                         result.add(LlmMessage.assistantWithToolCalls(
-                                msg.getContent(), msg.getToolCalls()));
+                                msg.getContent(), msg.getReasoningContent(), msg.getToolCalls()));
                     } else {
-                        result.add(LlmMessage.assistant(msg.getContent()));
+                        result.add(LlmMessage.assistant(msg.getContent(), msg.getReasoningContent()));
                     }
                     break;
                 case SYSTEM:

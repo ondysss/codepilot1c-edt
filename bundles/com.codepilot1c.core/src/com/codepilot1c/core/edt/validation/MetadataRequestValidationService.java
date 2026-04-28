@@ -43,6 +43,9 @@ import com.codepilot1c.core.logging.VibeLogger;
 public class MetadataRequestValidationService {
 
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(MetadataRequestValidationService.class);
+    private static final String EXTENSION_BASE_PROJECT_MISMATCH =
+            "For extension mutations, project is the base EDT project and must equal base_project; " //$NON-NLS-1$
+                    + "extension_project is the extension project."; //$NON-NLS-1$
     private static final Set<String> FORBIDDEN_FORM_ATTRIBUTE_TYPE_PREFIXES = Set.of(
             "array", "map", "массив", "соответствие"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
     private static final Set<String> TYPE_KEY_CANDIDATES = Set.of(
@@ -242,7 +245,7 @@ public class MetadataRequestValidationService {
         if (!projectName.equals(effectiveBaseProject)) {
             throw new MetadataOperationException(
                     MetadataOperationCode.KNOWLEDGE_REQUIRED,
-                    "payload.base_project must match project", false); //$NON-NLS-1$
+                    EXTENSION_BASE_PROJECT_MISMATCH, false);
         }
 
         com.codepilot1c.core.edt.extension.ExtensionCreateProjectRequest request =
@@ -368,7 +371,7 @@ public class MetadataRequestValidationService {
         if (!projectName.equals(effectiveBaseProject)) {
             throw new MetadataOperationException(
                     MetadataOperationCode.KNOWLEDGE_REQUIRED,
-                    "payload.base_project must match project", false); //$NON-NLS-1$
+                    EXTENSION_BASE_PROJECT_MISMATCH, false);
         }
         com.codepilot1c.core.edt.extension.ExtensionAdoptObjectRequest request =
                 new com.codepilot1c.core.edt.extension.ExtensionAdoptObjectRequest(
@@ -404,7 +407,7 @@ public class MetadataRequestValidationService {
         if (!projectName.equals(effectiveBaseProject)) {
             throw new MetadataOperationException(
                     MetadataOperationCode.KNOWLEDGE_REQUIRED,
-                    "payload.base_project must match project", false); //$NON-NLS-1$
+                    EXTENSION_BASE_PROJECT_MISMATCH, false);
         }
 
         com.codepilot1c.core.edt.extension.ExtensionSetPropertyStateRequest request =

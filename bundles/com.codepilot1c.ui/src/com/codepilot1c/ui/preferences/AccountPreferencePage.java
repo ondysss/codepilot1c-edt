@@ -38,6 +38,7 @@ import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
 import com.codepilot1c.ui.dialogs.LoginDialog;
 import com.codepilot1c.ui.dialogs.RegistrationDialog;
+import com.codepilot1c.ui.internal.Messages;
 
 /**
  * Preference page for CodePilot account registration and usage information.
@@ -69,7 +70,7 @@ public class AccountPreferencePage extends PreferencePage implements IWorkbenchP
 
     public AccountPreferencePage() {
         super();
-        setDescription("Управление аккаунтом CodePilot"); //$NON-NLS-1$
+        setDescription(Messages.AccountPreferencePage_Description);
         noDefaultAndApplyButton();
     }
 
@@ -109,19 +110,19 @@ public class AccountPreferencePage extends PreferencePage implements IWorkbenchP
 
     private void createConnectionGroup(Composite parent) {
         Group group = new Group(parent, SWT.NONE);
-        group.setText("Подключение"); //$NON-NLS-1$
+        group.setText(Messages.AccountPreferencePage_ConnectionGroup);
         group.setLayout(new GridLayout(2, false));
         group.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false));
 
-        createLabel(group, "Статус:"); //$NON-NLS-1$
+        createLabel(group, Messages.AccountPreferencePage_StatusLabel);
         statusLabel = new Label(group, SWT.NONE);
         statusLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
 
-        createLabel(group, "Сервер:"); //$NON-NLS-1$
+        createLabel(group, Messages.AccountPreferencePage_ServerLabel);
         serverLabel = new Label(group, SWT.NONE);
         serverLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
 
-        createLabel(group, "Пользователь:"); //$NON-NLS-1$
+        createLabel(group, Messages.AccountPreferencePage_UserLabel);
         userEmailLabel = new Label(group, SWT.NONE);
         userEmailLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
 
@@ -130,7 +131,7 @@ public class AccountPreferencePage extends PreferencePage implements IWorkbenchP
         buttonRow.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false, 2, 1));
 
         Button rotateKeyButton = new Button(buttonRow, SWT.PUSH);
-        rotateKeyButton.setText("Обновить ключ"); //$NON-NLS-1$
+        rotateKeyButton.setText(Messages.AccountPreferencePage_RotateKeyButton);
         rotateKeyButton.addSelectionListener(new SelectionAdapter() {
             @Override
             public void widgetSelected(SelectionEvent e) {
@@ -139,7 +140,7 @@ public class AccountPreferencePage extends PreferencePage implements IWorkbenchP
         });
 
         Button logoutButton = new Button(buttonRow, SWT.PUSH);
-        logoutButton.setText("Выйти"); //$NON-NLS-1$
+        logoutButton.setText(Messages.AccountPreferencePage_LogoutButton);
         logoutButton.addSelectionListener(new SelectionAdapter() {
             @Override
             public void widgetSelected(SelectionEvent e) {
@@ -152,21 +153,21 @@ public class AccountPreferencePage extends PreferencePage implements IWorkbenchP
 
     private void createUsageGroup(Composite parent) {
         Group group = new Group(parent, SWT.NONE);
-        group.setText("Использование"); //$NON-NLS-1$
+        group.setText(Messages.AccountPreferencePage_UsageGroup);
         group.setLayout(new GridLayout(2, false));
         group.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false));
 
-        createLabel(group, "Бюджет:"); //$NON-NLS-1$
+        createLabel(group, Messages.AccountPreferencePage_BudgetLabel);
         budgetLabel = new Label(group, SWT.NONE);
         budgetLabel.setText("..."); //$NON-NLS-1$
         budgetLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
 
-        createLabel(group, "Потрачено:"); //$NON-NLS-1$
+        createLabel(group, Messages.AccountPreferencePage_SpentLabel);
         spentLabel = new Label(group, SWT.NONE);
         spentLabel.setText("..."); //$NON-NLS-1$
         spentLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
 
-        createLabel(group, "Остаток:"); //$NON-NLS-1$
+        createLabel(group, Messages.AccountPreferencePage_RemainingLabel);
         remainingLabel = new Label(group, SWT.NONE);
         remainingLabel.setText("..."); //$NON-NLS-1$
         remainingLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
@@ -178,28 +179,28 @@ public class AccountPreferencePage extends PreferencePage implements IWorkbenchP
         progressData.heightHint = 16;
         usageProgressBar.setLayoutData(progressData);
 
-        createLabel(group, "Входных токенов:"); //$NON-NLS-1$
+        createLabel(group, Messages.AccountPreferencePage_PromptTokensLabel);
         promptTokensLabel = new Label(group, SWT.NONE);
         promptTokensLabel.setText("..."); //$NON-NLS-1$
         promptTokensLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
 
-        createLabel(group, "Выходных токенов:"); //$NON-NLS-1$
+        createLabel(group, Messages.AccountPreferencePage_CompletionTokensLabel);
         completionTokensLabel = new Label(group, SWT.NONE);
         completionTokensLabel.setText("..."); //$NON-NLS-1$
         completionTokensLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
 
-        createLabel(group, "Всего токенов:"); //$NON-NLS-1$
+        createLabel(group, Messages.AccountPreferencePage_TotalTokensLabel);
         totalTokensLabel = new Label(group, SWT.NONE);
         totalTokensLabel.setText("..."); //$NON-NLS-1$
         totalTokensLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
 
-        createLabel(group, "Сброс бюджета:"); //$NON-NLS-1$
+        createLabel(group, Messages.AccountPreferencePage_ResetDateLabel);
         resetDateLabel = new Label(group, SWT.NONE);
         resetDateLabel.setText("..."); //$NON-NLS-1$
         resetDateLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
 
         Button refreshButton = new Button(group, SWT.PUSH);
-        refreshButton.setText("Обновить"); //$NON-NLS-1$
+        refreshButton.setText(Messages.AccountPreferencePage_RefreshButton);
         refreshButton.setLayoutData(new GridData(SWT.LEFT, SWT.CENTER, false, false, 2, 1));
         refreshButton.addSelectionListener(new SelectionAdapter() {
             @Override
@@ -215,13 +216,13 @@ public class AccountPreferencePage extends PreferencePage implements IWorkbenchP
         notConfiguredComposite.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
 
         Label notConfiguredLabel = new Label(notConfiguredComposite, SWT.WRAP);
-        notConfiguredLabel.setText("Аккаунт не настроен. Войдите или зарегистрируйтесь для доступа к CodePilot API."); //$NON-NLS-1$
+        notConfiguredLabel.setText(Messages.AccountPreferencePage_NotConfiguredMessage);
         GridData labelData = new GridData(SWT.FILL, SWT.CENTER, true, false);
         labelData.widthHint = 400;
         notConfiguredLabel.setLayoutData(labelData);
 
         Button registerButton = new Button(notConfiguredComposite, SWT.PUSH);
-        registerButton.setText("Зарегистрироваться"); //$NON-NLS-1$
+        registerButton.setText(Messages.AccountPreferencePage_RegisterButton);
         registerButton.addSelectionListener(new SelectionAdapter() {
             @Override
             public void widgetSelected(SelectionEvent e) {
@@ -230,7 +231,7 @@ public class AccountPreferencePage extends PreferencePage implements IWorkbenchP
         });
 
         Button loginButton = new Button(notConfiguredComposite, SWT.PUSH);
-        loginButton.setText("Войти"); //$NON-NLS-1$
+        loginButton.setText(Messages.AccountPreferencePage_LoginButton);
         loginButton.addSelectionListener(new SelectionAdapter() {
             @Override
             public void widgetSelected(SelectionEvent e) {
@@ -277,7 +278,7 @@ public class AccountPreferencePage extends PreferencePage implements IWorkbenchP
 
     private void onRotateKey(Button button) {
         button.setEnabled(false);
-        button.setText("Обновление..."); //$NON-NLS-1$
+        button.setText(Messages.AccountPreferencePage_RotatingKeyButton);
 
         BackendService.getInstance().rotateKey()
                 .thenAccept(result -> {
@@ -288,16 +289,19 @@ public class AccountPreferencePage extends PreferencePage implements IWorkbenchP
                                 return;
                             }
                             button.setEnabled(true);
-                            button.setText("Обновить ключ"); //$NON-NLS-1$
+                            button.setText(Messages.AccountPreferencePage_RotateKeyButton);
 
                             if (result != null && result.isSuccess()) {
                                 VibeCorePlugin.initializeLlmProvider(result.getApiKey(), true);
-                                MessageDialog.openInformation(getShell(), "Успех", "Ключ успешно обновлён"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                                MessageDialog.openInformation(getShell(),
+                                        Messages.AccountPreferencePage_SuccessTitle,
+                                        Messages.AccountPreferencePage_RotateKeySuccess);
                             } else {
-                                String error = result != null ? result.getError() : "Неизвестная ошибка"; //$NON-NLS-1$
+                                String error = result != null ? result.getError()
+                                        : Messages.AccountPreferencePage_UnknownError;
                                 MessageDialog.openError(getShell(),
-                                        "Ошибка", //$NON-NLS-1$
-                                        "Не удалось обновить ключ: " + error); //$NON-NLS-1$
+                                        Messages.AccountPreferencePage_ErrorTitle,
+                                        Messages.AccountPreferencePage_RotateKeyFailedPrefix + " " + error); //$NON-NLS-1$
                             }
                         });
                     }
@@ -306,8 +310,8 @@ public class AccountPreferencePage extends PreferencePage implements IWorkbenchP
 
     private void onLogout() {
         boolean confirm = MessageDialog.openConfirm(getShell(),
-                "Выход из аккаунта", //$NON-NLS-1$
-                "Вы уверены, что хотите выйти? Для продолжения работы потребуется повторный вход."); //$NON-NLS-1$
+                Messages.AccountPreferencePage_LogoutConfirmTitle,
+                Messages.AccountPreferencePage_LogoutConfirmMessage);
 
         if (confirm) {
             BackendService.getInstance().clearCredentials();
@@ -324,10 +328,10 @@ public class AccountPreferencePage extends PreferencePage implements IWorkbenchP
         BackendService service = BackendService.getInstance();
         if (statusLabel != null && !statusLabel.isDisposed()) {
             if (service.isConfigured()) {
-                statusLabel.setText("\u25CF Подключён"); //$NON-NLS-1$
+                statusLabel.setText("\u25CF " + Messages.AccountPreferencePage_StatusConnected); //$NON-NLS-1$
                 statusLabel.setForeground(statusLabel.getDisplay().getSystemColor(SWT.COLOR_DARK_GREEN));
             } else {
-                statusLabel.setText("\u25CF Не подключён"); //$NON-NLS-1$
+                statusLabel.setText("\u25CF " + Messages.AccountPreferencePage_StatusDisconnected); //$NON-NLS-1$
                 statusLabel.setForeground(statusLabel.getDisplay().getSystemColor(SWT.COLOR_RED));
             }
         }
@@ -361,7 +365,9 @@ public class AccountPreferencePage extends PreferencePage implements IWorkbenchP
         double percent = usage.getUsagePercent();
 
         if (budgetLabel != null && !budgetLabel.isDisposed()) {
-            String duration = usage.getBudgetDuration() != null ? usage.getBudgetDuration() : "месяц"; //$NON-NLS-1$
+            String duration = usage.getBudgetDuration() != null
+                    ? usage.getBudgetDuration()
+                    : Messages.AccountPreferencePage_DefaultBudgetDuration;
             budgetLabel.setText(String.format("%s / %s", formatCurrency(usage.getMaxBudget()), duration)); //$NON-NLS-1$
         }
         if (spentLabel != null && !spentLabel.isDisposed()) {

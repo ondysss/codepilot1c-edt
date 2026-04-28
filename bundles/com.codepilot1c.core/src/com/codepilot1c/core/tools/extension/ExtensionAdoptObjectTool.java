@@ -29,27 +29,27 @@ public class ExtensionAdoptObjectTool extends AbstractTool {
               "properties": {
                 "project": {
                   "type": "string",
-                  "description": "Имя базового EDT проекта (должно совпадать с base_project)"
+                  "description": "Имя EDT проекта основной конфигурации. Это validation scope; должно совпадать с base_project."
                 },
                 "base_project": {
                   "type": "string",
-                  "description": "Имя проекта основной конфигурации"
+                  "description": "Имя EDT проекта основной конфигурации, где находится source_object_fqn."
                 },
                 "extension_project": {
                   "type": "string",
-                  "description": "Имя проекта расширения"
+                  "description": "Имя EDT проекта расширения, куда заимствуется объект. Не равно project/base_project."
                 },
                 "source_object_fqn": {
                   "type": "string",
-                  "description": "FQN объекта основной конфигурации для добавления в расширение"
+                  "description": "FQN существующего объекта основной конфигурации, например Catalog.Items."
                 },
                 "update_if_exists": {
                   "type": "boolean",
-                  "description": "Если true и объект уже добавлен, выполнить updateAdopted вместо ошибки"
+                  "description": "Если true и объект уже заимствован, обновить adopted object вместо ошибки."
                 },
                 "validation_token": {
                   "type": "string",
-                  "description": "Одноразовый токен из edt_validate_request"
+                  "description": "Одноразовый токен из edt_validate_request для operation=extension_adopt_object и того же payload."
                 }
               },
               "required": ["project", "base_project", "extension_project", "source_object_fqn", "validation_token"]
@@ -70,7 +70,7 @@ public class ExtensionAdoptObjectTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Добавляет объект основной конфигурации в проект расширения EDT (adoptAndAttach)."; //$NON-NLS-1$
+        return "Заимствует существующий объект базовой конфигурации в EDT-проект расширения. Не создаёт новый объект и требует validation_token."; //$NON-NLS-1$
     }
 
     @Override

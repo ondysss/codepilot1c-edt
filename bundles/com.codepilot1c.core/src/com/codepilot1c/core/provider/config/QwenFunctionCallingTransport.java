@@ -81,6 +81,14 @@ final class QwenFunctionCallingTransport {
         // Streaming
         body.addProperty("stream", executionPlan.isStreaming()); //$NON-NLS-1$
 
+        // Request real token usage on the streaming path (Plan 2.3) — CodePilot
+        // backend always supports `stream_options.include_usage`.
+        if (executionPlan.isStreaming() && caps.supportsStreamUsage()) {
+            JsonObject streamOptions = new JsonObject();
+            streamOptions.addProperty("include_usage", true); //$NON-NLS-1$
+            body.add("stream_options", streamOptions); //$NON-NLS-1$
+        }
+
         // Messages with XML tool call priming in system message
         JsonArray messages = buildMessagesWithToolCallPriming(request, caps);
         body.add("messages", messages); //$NON-NLS-1$
@@ -182,7 +190,7 @@ final class QwenFunctionCallingTransport {
 
             // Preserve reasoning_content in assistant messages with tool calls.
             // Required by Moonshot/Kimi API and beneficial for Qwen models.
-            if (msg.hasReasoningContent()) {
+            if (msg.hasReasoningContentField()) {
                 msgObj.addProperty("reasoning_content", msg.getReasoningContent()); //$NON-NLS-1$
             }
 
@@ -202,6 +210,9 @@ final class QwenFunctionCallingTransport {
             msgObj.add("tool_calls", toolCalls); //$NON-NLS-1$
         } else {
             msgObj.add("content", ProviderMessageContentSerializer.toOpenAiContent(msg, caps)); //$NON-NLS-1$
+            if (msg.getRole() == LlmMessage.Role.ASSISTANT && msg.hasReasoningContentField()) {
+                msgObj.addProperty("reasoning_content", msg.getReasoningContent()); //$NON-NLS-1$
+            }
         }
 
         return msgObj;

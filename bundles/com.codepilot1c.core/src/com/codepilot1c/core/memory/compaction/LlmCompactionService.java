@@ -51,17 +51,23 @@ public final class LlmCompactionService {
         return INSTANCE;
     }
 
+    /** Default value for LLM compaction enablement (Plan 1.3: default-on). */
+    private static final boolean DEFAULT_LLM_COMPACTION_ENABLED = true;
+
     /**
      * Returns {@code true} if LLM compaction feature is enabled.
+     *
+     * <p>As of Plan 1.3, the feature is enabled by default; users may opt out via
+     * the {@code codepilot.feature.llm_compaction} preference.</p>
      */
     public boolean isEnabled() {
         try {
             return Platform.getPreferencesService()
                     .getBoolean("com.codepilot1c.core", //$NON-NLS-1$
                             VibePreferenceConstants.PREF_ENABLE_LLM_COMPACTION,
-                            false, null);
+                            DEFAULT_LLM_COMPACTION_ENABLED, null);
         } catch (Exception e) {
-            return false;
+            return DEFAULT_LLM_COMPACTION_ENABLED;
         }
     }
 

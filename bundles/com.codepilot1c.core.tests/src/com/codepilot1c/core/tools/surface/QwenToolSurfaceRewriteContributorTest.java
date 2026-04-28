@@ -21,6 +21,7 @@ public class QwenToolSurfaceRewriteContributorTest {
                 ToolSurfaceContext.builder()
                         .builtIn(true)
                         .backendSelectedInUi(true)
+                        .qwenNative(true)
                         .category(ToolCategory.METADATA_MUTATION)
                         .profile(ToolSurfaceContext.defaultProfile())
                         .build());

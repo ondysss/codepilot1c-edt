@@ -572,7 +572,7 @@ public class DynamicLlmProvider implements ILlmProvider {
                 response.getToolCalls().size(),
                 response.getFinishReason());
 
-        if (response.hasReasoning() && !cancelled.get()) {
+        if (response.hasReasoningField() && !cancelled.get()) {
             consumer.accept(LlmStreamChunk.reasoning(response.getReasoningContent()));
         }
         if (response.getContent() != null && !response.getContent().isEmpty() && !cancelled.get()) {
@@ -618,6 +618,15 @@ public class DynamicLlmProvider implements ILlmProvider {
         body.addProperty("max_tokens", request.getMaxTokens() > 0 ? request.getMaxTokens() : config.getMaxTokens()); //$NON-NLS-1$
         body.addProperty("stream", executionPlan.isStreaming()); //$NON-NLS-1$
         ProviderCapabilities caps = getCapabilities();
+
+        // Request real token usage from streaming providers that support it
+        // (Plan 2.3). Only emit when both streaming AND capability are on —
+        // generic OpenAI gateways may reject unknown fields.
+        if (executionPlan.isStreaming() && caps.supportsStreamUsage()) {
+            JsonObject streamOptions = new JsonObject();
+            streamOptions.addProperty("include_usage", true); //$NON-NLS-1$
+            body.add("stream_options", streamOptions); //$NON-NLS-1$
+        }
 
         JsonArray messages = new JsonArray();
 
@@ -674,7 +683,7 @@ public class DynamicLlmProvider implements ILlmProvider {
             // Moonshot/Kimi API requires reasoning_content to be preserved in assistant messages
             // with tool calls. Without it, follow-up responses degrade to reasoning-only (contentChunks=0).
             // See: https://github.com/BerriAI/litellm/issues/21672
-            if (msg.hasReasoningContent()) {
+            if (msg.hasReasoningContentField()) {
                 msgObj.addProperty("reasoning_content", msg.getReasoningContent()); //$NON-NLS-1$
             }
 
@@ -695,6 +704,9 @@ public class DynamicLlmProvider implements ILlmProvider {
         } else {
             JsonElement content = ProviderMessageContentSerializer.toOpenAiContent(msg, caps);
             msgObj.add("content", content); //$NON-NLS-1$
+            if (msg.getRole() == LlmMessage.Role.ASSISTANT && msg.hasReasoningContentField()) {
+                msgObj.addProperty("reasoning_content", msg.getReasoningContent()); //$NON-NLS-1$
+            }
         }
 
         return msgObj;
@@ -1038,12 +1050,9 @@ public class DynamicLlmProvider implements ILlmProvider {
         if (usageJson == null) {
             return null;
         }
-        int promptTokens = getInt(usageJson, "prompt_tokens", 0); //$NON-NLS-1$
-        int completionTokens = getInt(usageJson, "completion_tokens", 0); //$NON-NLS-1$
-        int totalTokens = getInt(usageJson, "total_tokens", 0); //$NON-NLS-1$
-        JsonObject promptDetails = getObject(usageJson, "prompt_tokens_details"); //$NON-NLS-1$
-        int cachedPromptTokens = promptDetails != null ? getInt(promptDetails, "cached_tokens", 0) : 0; //$NON-NLS-1$
-        return new LlmResponse.Usage(promptTokens, cachedPromptTokens, completionTokens, totalTokens);
+        // Delegate to the shared parser so cache_read_input_tokens / cache_creation_input_tokens
+        // normalization is identical across the streaming and non-streaming paths.
+        return OpenAiUsageParser.parse(usageJson);
     }
 
     /**

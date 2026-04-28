@@ -3,6 +3,7 @@ package com.codepilot1c.core.provider.config;
 import java.util.function.Consumer;
 
 import com.codepilot1c.core.logging.VibeLogger;
+import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -19,6 +20,14 @@ final class OpenAiStreamingSession {
     private final boolean qwenContentFallbackEnabled;
     private final boolean delayContentStreaming;
     private final StringBuilder bufferedContent = new StringBuilder();
+    /**
+     * Real usage captured from the terminal usage chunk emitted by providers that
+     * honour {@code stream_options: {include_usage: true}}. Emitted downstream
+     * exactly once as {@link LlmStreamChunk#usage(LlmResponse.Usage)}; subsequent
+     * usage objects in the same stream are ignored to prevent double-emission.
+     */
+    private volatile LlmResponse.Usage lastUsage;
+    private boolean usageChunkEmitted;
 
     OpenAiStreamingSession(String correlationId, boolean requestHasTools,
             OpenAiStreamingToolCallParser toolCallParser) {
@@ -37,6 +46,15 @@ final class OpenAiStreamingSession {
 
     ProviderStreamProcessingSummary getSummary() {
         return summary;
+    }
+
+    /**
+     * Returns the real token usage captured from the terminal stream usage chunk,
+     * or {@code null} when the provider did not emit one (capability off or stream
+     * ended without a usage payload).
+     */
+    LlmResponse.Usage getLastUsage() {
+        return lastUsage;
     }
 
     String processLine(String line, Consumer<LlmStreamChunk> consumer) {
@@ -102,6 +120,18 @@ final class OpenAiStreamingSession {
                 summary.getMetadataChunks().incrementAndGet();
             } else if (chunkData.isOpaque()) {
                 summary.getOpaqueChunks().incrementAndGet();
+            }
+
+            if (chunkData.hasUsage()) {
+                lastUsage = chunkData.getUsage();
+                summary.setUsage(chunkData.getUsage());
+                if (!usageChunkEmitted) {
+                    LlmStreamChunk usageChunk = LlmStreamChunk.usage(chunkData.getUsage());
+                    if (usageChunk != null) {
+                        consumer.accept(usageChunk);
+                        usageChunkEmitted = true;
+                    }
+                }
             }
 
             return chunkData.getFinishReason();

@@ -22,6 +22,7 @@ import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
 import com.codepilot1c.core.model.LlmMessage;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.ToolDefinition;
+import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.provider.ProviderCapabilities;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.google.gson.Gson;
@@ -86,6 +87,41 @@ public class QwenToolingCompatibilityTest {
                 .getAsJsonObject("function").get("name").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
         assertFalse(body.get("enable_thinking").getAsBoolean()); //$NON-NLS-1$
         assertFalse(body.get("parallel_tool_calls").getAsBoolean()); //$NON-NLS-1$
+    }
+
+    @Test
+    public void transportPreservesEmptyReasoningContentForToolCallReplay() {
+        LlmRequest request = LlmRequest.builder()
+                .messages(List.of(
+                        LlmMessage.user("continue"), //$NON-NLS-1$
+                        LlmMessage.assistantWithToolCalls(null, "", List.of( //$NON-NLS-1$
+                                new ToolCall("call-1", "read_file", "{\"path\":\"README.md\"}"))), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                        LlmMessage.toolResult("call-1", "file content"))) //$NON-NLS-1$ //$NON-NLS-2$
+                .build();
+
+        LlmProviderConfig config = new LlmProviderConfig();
+        config.setType(ProviderType.CODEPILOT_BACKEND);
+        config.setModel("qwen3-coder-plus"); //$NON-NLS-1$
+
+        ProviderCapabilities caps = ProviderCapabilities.builder()
+                .codePilotBackend(true)
+                .backendOptimizations(true)
+                .resolvedModel(true)
+                .resolvedModelFamily(ProviderCapabilities.FAMILY_QWEN_CODER)
+                .defaultTemperature(ProviderCapabilities.QWEN_DEFAULT_TEMPERATURE)
+                .build();
+
+        String json = new QwenFunctionCallingTransport(new Gson()).buildRequestBody(
+                request,
+                ProviderExecutionPlan.streaming(false),
+                config,
+                caps);
+
+        JsonObject body = JsonParser.parseString(json).getAsJsonObject();
+        JsonObject assistant = body.getAsJsonArray("messages").get(1).getAsJsonObject(); //$NON-NLS-1$
+
+        assertTrue(assistant.has("reasoning_content")); //$NON-NLS-1$
+        assertEquals("", assistant.get("reasoning_content").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     @Test
@@ -219,6 +255,45 @@ public class QwenToolingCompatibilityTest {
         }
 
         assertTrue("Qwen example/schema mismatches:\n" + String.join("\n", failures), failures.isEmpty()); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void extensionManageQwenExampleShowsBaseAndExtensionProjectContract() {
+        ToolDefinition definition = ToolDefinition.builder()
+                .name("extension_manage") //$NON-NLS-1$
+                .description("Управляет расширениями EDT.") //$NON-NLS-1$
+                .parametersSchema("""
+                        {
+                          "type": "object",
+                          "properties": {
+                            "command": {"type": "string"},
+                            "project": {"type": "string"},
+                            "base_project": {"type": "string"},
+                            "extension_project": {"type": "string"},
+                            "source_object_fqn": {"type": "string"},
+                            "validation_token": {"type": "string"}
+                          },
+                          "required": ["command"]
+                        }
+                        """)
+                .build();
+        ProviderCapabilities caps = ProviderCapabilities.builder()
+                .codePilotBackend(true)
+                .backendOptimizations(true)
+                .resolvedModel(true)
+                .resolvedModelFamily(ProviderCapabilities.FAMILY_QWEN_CODER)
+                .defaultTemperature(ProviderCapabilities.QWEN_DEFAULT_TEMPERATURE)
+                .build();
+
+        String examples = QwenToolCallExamples.getExamples(caps, List.of(definition));
+
+        assertTrue(examples.contains("<function=extension_manage>")); //$NON-NLS-1$
+        assertTrue(examples.contains("<parameter=command>adopt</parameter>")); //$NON-NLS-1$
+        assertTrue(examples.contains("<parameter=project>DemoConfiguration</parameter>")); //$NON-NLS-1$
+        assertTrue(examples.contains("<parameter=base_project>DemoConfiguration</parameter>")); //$NON-NLS-1$
+        assertTrue(examples.contains("<parameter=extension_project>ExtensionDemo</parameter>")); //$NON-NLS-1$
+        assertTrue(examples.contains("<parameter=source_object_fqn>Catalog.Items</parameter>")); //$NON-NLS-1$
+        assertTrue(examples.contains("<parameter=validation_token>validation-token-123</parameter>")); //$NON-NLS-1$
     }
 
     private Set<String> extractExampleParams(String examples) {

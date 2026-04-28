@@ -40,6 +40,29 @@ public class EdtValidateRequestToolTest {
         assertEquals("token-1", json.get("validationToken").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
+    @Test
+    public void acceptsExtensionManageAdoptPayloadAndKeepsCompositeOperationName() {
+        StubValidationService validationService = new StubValidationService();
+        EdtValidateRequestTool tool = new EdtValidateRequestTool(validationService);
+
+        ToolResult result = tool.execute(Map.of(
+                "project", "DemoConfiguration", //$NON-NLS-1$ //$NON-NLS-2$
+                "operation", "extension_manage", //$NON-NLS-1$ //$NON-NLS-2$
+                "payload", Map.of(
+                        "command", "adopt", //$NON-NLS-1$ //$NON-NLS-2$
+                        "project", "DemoConfiguration", //$NON-NLS-1$ //$NON-NLS-2$
+                        "base_project", "DemoConfiguration", //$NON-NLS-1$ //$NON-NLS-2$
+                        "extension_project", "ExtensionDemo", //$NON-NLS-1$ //$NON-NLS-2$
+                        "source_object_fqn", "Catalog.Items" //$NON-NLS-1$ //$NON-NLS-2$
+                ))).join();
+
+        assertTrue(result.isSuccess());
+        assertEquals(ValidationOperation.EXTENSION_ADOPT_OBJECT, validationService.lastRequest.operation());
+        JsonObject json = JsonParser.parseString(result.getContent()).getAsJsonObject();
+        assertEquals("extension_manage", json.get("operation").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals("token-1", json.get("validationToken").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
     private static final class StubValidationService extends MetadataRequestValidationService {
         private ValidationRequest lastRequest;
 

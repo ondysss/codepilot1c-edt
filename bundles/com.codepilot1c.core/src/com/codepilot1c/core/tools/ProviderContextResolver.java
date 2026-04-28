@@ -9,6 +9,7 @@ package com.codepilot1c.core.tools;
 
 import com.codepilot1c.core.provider.LlmProviderRegistry;
 import com.codepilot1c.core.provider.ProviderSelectionGate;
+import com.codepilot1c.core.provider.ProviderUtils;
 import com.codepilot1c.core.provider.config.DynamicLlmProvider;
 import com.codepilot1c.core.provider.config.LlmProviderConfig;
 import com.codepilot1c.core.provider.config.LlmProviderConfigStore;
@@ -37,6 +38,7 @@ public class ProviderContextResolver {
         LlmProviderConfig providerConfig = resolveActiveProviderConfig();
         if (providerConfig != null) {
             builder.providerConfig(providerConfig);
+            builder.qwenNative(ProviderUtils.capabilitiesFor(providerConfig).isQwenNative());
         }
         return builder.build();
     }

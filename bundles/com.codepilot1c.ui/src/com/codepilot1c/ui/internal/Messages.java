@@ -39,6 +39,9 @@ public class Messages extends NLS {
     public static String ChatView_ContextCompactedSkippedNotice;
     public static String ChatView_AutoCompactLabel;
     public static String ChatView_ManualCompactLabel;
+    public static String ChatView_TokenFooter_Session;
+    public static String ChatView_TokenFooter_Requests;
+    public static String ChatView_TokenFooter_Cache;
     public static String ChatView_AttachButton;
     public static String ChatView_AttachDialogTitle;
     public static String ChatView_AttachmentTooLarge;
@@ -83,6 +86,38 @@ public class Messages extends NLS {
     public static String PreferencePage_TestConnectionButton;
     public static String PreferencePage_TestSuccess;
     public static String PreferencePage_TestFailed;
+
+    public static String AccountPreferencePage_Description;
+    public static String AccountPreferencePage_ConnectionGroup;
+    public static String AccountPreferencePage_StatusLabel;
+    public static String AccountPreferencePage_ServerLabel;
+    public static String AccountPreferencePage_UserLabel;
+    public static String AccountPreferencePage_RotateKeyButton;
+    public static String AccountPreferencePage_LogoutButton;
+    public static String AccountPreferencePage_UsageGroup;
+    public static String AccountPreferencePage_BudgetLabel;
+    public static String AccountPreferencePage_SpentLabel;
+    public static String AccountPreferencePage_RemainingLabel;
+    public static String AccountPreferencePage_PromptTokensLabel;
+    public static String AccountPreferencePage_CompletionTokensLabel;
+    public static String AccountPreferencePage_TotalTokensLabel;
+    public static String AccountPreferencePage_ResetDateLabel;
+    public static String AccountPreferencePage_RefreshButton;
+    public static String AccountPreferencePage_NotConfiguredMessage;
+    public static String AccountPreferencePage_RegisterButton;
+    public static String AccountPreferencePage_LoginButton;
+    public static String AccountPreferencePage_RotatingKeyButton;
+    public static String AccountPreferencePage_SuccessTitle;
+    public static String AccountPreferencePage_RotateKeySuccess;
+    public static String AccountPreferencePage_UnknownError;
+    public static String AccountPreferencePage_ErrorTitle;
+    public static String AccountPreferencePage_RotateKeyFailedPrefix;
+    public static String AccountPreferencePage_LogoutConfirmTitle;
+    public static String AccountPreferencePage_LogoutConfirmMessage;
+    public static String AccountPreferencePage_StatusConnected;
+    public static String AccountPreferencePage_StatusDisconnected;
+    public static String AccountPreferencePage_DefaultBudgetDuration;
+
     public static String QaProjectPropertyPage_NoProject;
     public static String QaProjectPropertyPage_InfoGroup;
     public static String QaProjectPropertyPage_ProjectLabel;

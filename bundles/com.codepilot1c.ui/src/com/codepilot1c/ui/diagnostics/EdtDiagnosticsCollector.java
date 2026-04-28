@@ -266,9 +266,10 @@ public class EdtDiagnosticsCollector {
                 if (context.file() != null && context.file().exists()) {
                     collectFromMarkers(context.file(), resultPath, query, diagnostics, seen);
                 }
-                if (query.includeRuntimeMarkers() && context.project() != null) {
-                    collectRuntimeFileMarkers(context, query, diagnostics, seen);
-                }
+                // Runtime markers excluded from file-scope to prevent false matches across modules.
+                // Runtime markers are project-level and require fuzzy matching that cannot reliably
+                // filter to a single file without including diagnostics from other modules.
+                // Use scope=project or scope=active_editor to include runtime markers.
 
                 // Sort and limit (ensure maxItems is positive)
                 diagnostics.sort(Comparator

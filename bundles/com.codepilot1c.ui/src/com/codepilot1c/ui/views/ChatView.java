@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import org.eclipse.core.runtime.preferences.IEclipsePreferences;
@@ -66,6 +67,7 @@ import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
+import com.codepilot1c.core.ui.ChatSystemPromptToolsSection;
 import com.codepilot1c.core.util.AttachmentTextExtractor;
 import com.codepilot1c.core.backend.BackendConfig;
 import com.codepilot1c.core.backend.BackendService;
@@ -125,6 +127,14 @@ public class ChatView extends ViewPart {
     private final List<LlmMessage> conversationHistory = new ArrayList<>();
     private final List<ChatMessageComposite> messageWidgets = new ArrayList<>();
     private final List<LlmAttachment> draftAttachments = new ArrayList<>();
+    /**
+     * Plan 1.2: detects tool-call repetition loops (e.g., grep x 42 with the
+     * same args). Reset at clear-chat and at each new user-message turn. On
+     * trip, a synthetic USER message is appended to {@link #conversationHistory}
+     * before dispatching the current tool call.
+     */
+    private final com.codepilot1c.core.agent.ToolRepetitionDetector toolRepetitionDetector =
+            new com.codepilot1c.core.agent.ToolRepetitionDetector();
     private CompletableFuture<?> currentRequest;
     private boolean isProcessing = false;
     /** Skill names extracted from the latest user input via $mention syntax. */
@@ -137,8 +147,40 @@ public class ChatView extends ViewPart {
     private StringBuffer streamingReasoning;
     /** Whether streaming is in progress */
     private volatile boolean isStreaming = false;
-    /** Whether tool calls were handled during current streaming session */
-    private volatile boolean streamingHandledToolCalls = false;
+    /**
+     * Single-flight guard: set exactly once per streaming round-trip when the first
+     * tool-calls chunk is observed. Any duplicate tool-calls chunk from the same
+     * stream is dropped, preventing parallel handleResponseWithTools recursion.
+     * Reset in startStreamingRequest before every new request.
+     */
+    private final AtomicBoolean streamingHandledToolCalls = new AtomicBoolean(false);
+
+    /**
+     * Turn-level single-flight guard (Plan 1.1). Set on entry of
+     * {@link #startStreamingRequest} and {@link #startNonStreamingRequest}, cleared
+     * at every outer termination point (thenAccept/exceptionally of the top-level
+     * CompletableFuture chain, stream-error handler, and {@link #stopGeneration}
+     * for user-cancel). NOT cleared inside {@link #handleResponseWithTools},
+     * {@link #processToolCalls}, or {@link #continueAfterToolCalls}, because those
+     * are part of the same logical turn and re-enter the top-level chain.
+     */
+    private final AtomicBoolean inflight = new AtomicBoolean(false);
+
+    /** Monotonic round-trip id used in single-flight WARN logs and tracing. */
+    private final java.util.concurrent.atomic.AtomicLong roundTripSeq = new java.util.concurrent.atomic.AtomicLong(0);
+    /** Current round-trip id assigned at request entry; used for diagnostic logging. */
+    private volatile long currentRoundTripId = 0;
+
+    /**
+     * Double-count guard for Plan 2.3 (real stream usage). Reset at round-trip
+     * start (same place as {@link #inflight} CAS); set by the first path that
+     * registers usage — either the terminal {@code stream_options.include_usage}
+     * chunk or the {@link #streamToResponse} / fallback estimator path. The
+     * {@link #registerUsage(LlmResponse)} call-sites that pass an estimated
+     * usage are gated on this flag so a single round-trip contributes real
+     * usage only once.
+     */
+    private volatile boolean usageRegisteredForThisRoundTrip = false;
 
     /** Whether to show diff preview before applying file changes */
     private boolean previewModeEnabled = false;
@@ -149,6 +191,15 @@ public class ChatView extends ViewPart {
     private long cachedInputTokensTotal = 0;
     private long outputTokensTotal = 0;
     private long totalTokensTotal = 0;
+    /**
+     * Count of accepted top-level round-trips in the current chat session
+     * (Plan 2.4). Incremented exactly once per round-trip at the point where
+     * the {@link #inflight} CAS succeeds in the streaming or non-streaming
+     * request entry, and reset to 0 by {@link #resetTokenUsage()} on new chat.
+     * Rendered in the compact footer via
+     * {@code com.codepilot1c.core.ui.TokenFooterRenderer}.
+     */
+    private int requestCount = 0;
     private long lastAutoCompactAtMs = 0;
     private LlmRequest currentStreamingRequest;
 
@@ -736,6 +787,9 @@ public class ChatView extends ViewPart {
         // No automatic context preparation: send the user message as-is.
         setProcessing(true, "Отправка запроса..."); //$NON-NLS-1$
         conversationHistory.add(buildUserMessage(userInput, outgoingAttachments));
+        // Plan 1.2: a new user turn is a natural reset point for the repetition
+        // detector — whatever the user asks next is a fresh intent.
+        toolRepetitionDetector.resetForNewTurn();
         startConversationLoop(provider);
     }
 
@@ -778,11 +832,22 @@ public class ChatView extends ViewPart {
     private void startStreamingRequest(ILlmProvider provider, LlmRequest request, Display display) {
         LOG.debug("startStreamingRequest: using streaming mode"); //$NON-NLS-1$
 
+        long rt = roundTripSeq.incrementAndGet();
+        if (!inflight.compareAndSet(false, true)) {
+            LOG.warn("[single-flight] dropped duplicate request rt=%d (streaming entry)", rt); //$NON-NLS-1$
+            return;
+        }
+        currentRoundTripId = rt;
+        usageRegisteredForThisRoundTrip = false;
+        // Plan 2.4: count accepted round-trips for the session footer.
+        // Increment only after the CAS wins so duplicates don't inflate the count.
+        requestCount++;
+
         currentStreamingRequest = request;
         streamingContent = new StringBuffer();
         streamingReasoning = new StringBuffer();
         isStreaming = true;
-        streamingHandledToolCalls = false; // Reset for new streaming session
+        streamingHandledToolCalls.set(false); // Reset for new streaming session
 
         // Add empty AI message that will be updated with streaming content
         if (!display.isDisposed()) {
@@ -800,6 +865,7 @@ public class ChatView extends ViewPart {
                 provider.streamComplete(request, chunk -> handleStreamChunk(chunk, display));
             } catch (Exception e) {
                 LOG.error("Streaming error: %s", e.getMessage()); //$NON-NLS-1$
+                inflight.set(false);
                 if (!display.isDisposed()) {
                     display.asyncExec(() -> {
                         if (!isDisposed()) {
@@ -817,6 +883,7 @@ public class ChatView extends ViewPart {
     private void handleStreamChunk(LlmStreamChunk chunk, Display display) {
         if (chunk.isError()) {
             LOG.error("Stream error: %s", chunk.getErrorMessage()); //$NON-NLS-1$
+            inflight.set(false);
             if (!display.isDisposed()) {
                 display.asyncExec(() -> {
                     if (!isDisposed()) {
@@ -824,6 +891,16 @@ public class ChatView extends ViewPart {
                         handleError(new RuntimeException(chunk.getErrorMessage()));
                     }
                 });
+            }
+            return;
+        }
+
+        // Plan 2.3: real provider-reported usage wins over local estimation.
+        // Register it once per round-trip and gate the estimator paths below.
+        if (chunk.hasUsage()) {
+            if (!usageRegisteredForThisRoundTrip) {
+                registerUsage(LlmResponse.builder().usage(chunk.getUsage()).build());
+                usageRegisteredForThisRoundTrip = true;
             }
             return;
         }
@@ -867,8 +944,11 @@ public class ChatView extends ViewPart {
 
         // Handle tool calls if present
         if (chunk.hasToolCalls() || chunk.isToolUse()) {
+            if (!streamingHandledToolCalls.compareAndSet(false, true)) {
+                LOG.warn("[single-flight] dropped duplicate tool-calls chunk; first dispatch already in flight"); //$NON-NLS-1$
+                return;
+            }
             LOG.debug("Stream received tool calls"); //$NON-NLS-1$
-            streamingHandledToolCalls = true; // Mark that tool calls were handled
             final List<ToolCall> toolCalls = chunk.getToolCalls();
             final String accumulatedContent = streamingContent.toString();
             final String accumulatedReasoning = streamingReasoning.toString();
@@ -879,14 +959,23 @@ public class ChatView extends ViewPart {
                         isStreaming = false;
                         setProcessingStage("Обработка инструментов..."); //$NON-NLS-1$
 
-                        // Create response object for tool handling
-                        LlmResponse toolResponse = LlmResponse.builder()
+                        // Create response object for tool handling. Only attach the
+                        // estimator when no real stream usage has been registered yet
+                        // — otherwise we'd double-count against the single-flight turn.
+                        LlmResponse.Builder toolBuilder = LlmResponse.builder()
                                 .content(accumulatedContent)
-                                .usage(estimateUsageForResponse(currentStreamingRequest, accumulatedContent, accumulatedReasoning))
+                                .reasoningContent(accumulatedReasoning)
                                 .toolCalls(toolCalls)
-                                .finishReason(LlmResponse.FINISH_REASON_TOOL_USE)
-                                .build();
-                        registerUsage(toolResponse);
+                                .finishReason(LlmResponse.FINISH_REASON_TOOL_USE);
+                        if (!usageRegisteredForThisRoundTrip) {
+                            toolBuilder.usage(estimateUsageForResponse(currentStreamingRequest, accumulatedContent,
+                                    accumulatedReasoning));
+                        }
+                        LlmResponse toolResponse = toolBuilder.build();
+                        if (!usageRegisteredForThisRoundTrip) {
+                            registerUsage(toolResponse);
+                            usageRegisteredForThisRoundTrip = true;
+                        }
 
                         // Update the displayed message with current content and reasoning
                         if (USE_BROWSER_RENDERING && browserChatPanel != null) {
@@ -900,6 +989,7 @@ public class ChatView extends ViewPart {
                         if (provider != null) {
                             handleResponseWithTools(toolResponse, provider, 0)
                                     .thenAccept(finalContent -> {
+                                        inflight.set(false);
                                         if (!display.isDisposed()) {
                                             display.asyncExec(() -> {
                                                 if (!isDisposed()) {
@@ -909,6 +999,7 @@ public class ChatView extends ViewPart {
                                         }
                                     })
                                     .exceptionally(error -> {
+                                        inflight.set(false);
                                         if (!display.isDisposed()) {
                                             display.asyncExec(() -> {
                                                 if (!isDisposed()) {
@@ -918,6 +1009,8 @@ public class ChatView extends ViewPart {
                                         }
                                         return null;
                                     });
+                        } else {
+                            inflight.set(false);
                         }
                     }
                 });
@@ -927,10 +1020,11 @@ public class ChatView extends ViewPart {
 
         // Handle completion (without tool calls)
         // Skip if tool calls were already handled - they will manage completion themselves
-        if (chunk.isComplete() && !streamingHandledToolCalls) {
+        if (chunk.isComplete() && !streamingHandledToolCalls.get()) {
             final String finalContent = streamingContent.toString();
             LOG.debug("Stream complete, content length: %d", finalContent.length()); //$NON-NLS-1$
 
+            inflight.set(false);
             if (!display.isDisposed()) {
                 display.asyncExec(() -> {
                     if (!isDisposed()) {
@@ -938,14 +1032,20 @@ public class ChatView extends ViewPart {
 
                         // Add to conversation history
                         if (!finalContent.isEmpty()) {
-                            LlmResponse usageResponse = LlmResponse.builder()
-                                    .content(finalContent)
-                                    .usage(estimateUsageForResponse(currentStreamingRequest, finalContent,
-                                            streamingReasoning != null ? streamingReasoning.toString() : null))
-                                    .finishReason(LlmResponse.FINISH_REASON_STOP)
-                                    .build();
-                            registerUsage(usageResponse);
-                            conversationHistory.add(LlmMessage.assistant(finalContent));
+                            // Plan 2.3: only estimate when the real stream-usage path
+                            // did not already register usage for this round-trip.
+                            if (!usageRegisteredForThisRoundTrip) {
+                                LlmResponse usageResponse = LlmResponse.builder()
+                                        .content(finalContent)
+                                        .usage(estimateUsageForResponse(currentStreamingRequest, finalContent,
+                                                streamingReasoning != null ? streamingReasoning.toString() : null))
+                                        .finishReason(LlmResponse.FINISH_REASON_STOP)
+                                        .build();
+                                registerUsage(usageResponse);
+                                usageRegisteredForThisRoundTrip = true;
+                            }
+                            conversationHistory.add(LlmMessage.assistant(finalContent,
+                                    streamingReasoning != null ? streamingReasoning.toString() : null));
                             lastAssistantResponse = finalContent;
 
                             // Check for code blocks
@@ -957,7 +1057,7 @@ public class ChatView extends ViewPart {
                     }
                 });
             }
-        } else if (chunk.isComplete() && streamingHandledToolCalls) {
+        } else if (chunk.isComplete() && streamingHandledToolCalls.get()) {
             LOG.debug("Stream complete ignored - tool calls are being processed"); //$NON-NLS-1$
         }
     }
@@ -967,6 +1067,17 @@ public class ChatView extends ViewPart {
      */
     private void startNonStreamingRequest(ILlmProvider provider, LlmRequest request, Display display) {
         LOG.debug("startNonStreamingRequest: using non-streaming mode"); //$NON-NLS-1$
+
+        long rt = roundTripSeq.incrementAndGet();
+        if (!inflight.compareAndSet(false, true)) {
+            LOG.warn("[single-flight] dropped duplicate request rt=%d (non-streaming entry)", rt); //$NON-NLS-1$
+            return;
+        }
+        currentRoundTripId = rt;
+        usageRegisteredForThisRoundTrip = false;
+        // Plan 2.4: count accepted round-trips for the session footer.
+        // Increment only after the CAS wins so duplicates don't inflate the count.
+        requestCount++;
 
         // Send request
         currentRequest = provider.complete(request)
@@ -989,6 +1100,7 @@ public class ChatView extends ViewPart {
                 })
                 .thenAccept(finalContent -> {
                     LOG.debug("startConversationLoop: chain completed successfully"); //$NON-NLS-1$
+                    inflight.set(false);
                     if (!display.isDisposed()) {
                         display.asyncExec(() -> {
                             if (!isDisposed()) {
@@ -1001,6 +1113,7 @@ public class ChatView extends ViewPart {
                 })
                 .exceptionally(error -> {
                     LOG.error("startConversationLoop: error in chain: %s", error.getMessage()); //$NON-NLS-1$
+                    inflight.set(false);
                     if (!display.isDisposed()) {
                         display.asyncExec(() -> {
                             if (!isDisposed()) {
@@ -1092,7 +1205,7 @@ public class ChatView extends ViewPart {
                     if (content != null && !content.isEmpty()) {
                         LOG.debug("handleResponseWithTools: appending assistant message, length=%d", content.length()); //$NON-NLS-1$
                         appendAssistantMessage(content);
-                        conversationHistory.add(LlmMessage.assistant(content));
+                        conversationHistory.add(LlmMessage.assistant(content, response.getReasoningContent()));
 
                         // Store response and check for code blocks
                         lastAssistantResponse = content;
@@ -1120,7 +1233,8 @@ public class ChatView extends ViewPart {
         String assistantContent = response.getContent();
 
         // Add assistant message with tool calls to history
-        conversationHistory.add(LlmMessage.assistantWithToolCalls(assistantContent, toolCalls));
+        conversationHistory.add(LlmMessage.assistantWithToolCalls(
+                assistantContent, response.getReasoningContent(), toolCalls));
 
         // Separate edit_file calls for preview from other tool calls
         List<ToolCall> editCalls = new ArrayList<>();
@@ -1340,6 +1454,46 @@ public class ChatView extends ViewPart {
         return prefs.getBoolean(VibePreferenceConstants.PREF_AGENT_SKIP_TOOL_CONFIRMATIONS, false);
     }
 
+    /**
+     * Plan 1.2: feeds one tool call through {@link #toolRepetitionDetector} and
+     * injects a synthetic USER nudge into the conversation history if the
+     * repetition threshold is tripped. Safe to call for every tool call — the
+     * detector is responsible for rate-limiting nudges.
+     */
+    private void observeAndInjectRepetitionNudge(ToolCall call) {
+        try {
+            String canonical = canonicalizeCallArgumentsForDetector(call.getArguments());
+            java.util.Optional<com.codepilot1c.core.agent.ToolRepetitionDetector.Trip> maybeTrip =
+                    toolRepetitionDetector.observe(call.getName(), canonical);
+            if (maybeTrip.isEmpty()) {
+                return;
+            }
+            com.codepilot1c.core.agent.ToolRepetitionDetector.Trip trip = maybeTrip.get();
+            conversationHistory.add(LlmMessage.user(trip.localizedMessage()));
+            LOG.debug("tool-repetition trip: %s x%d — nudge injected", //$NON-NLS-1$
+                    trip.toolName, trip.identicalCount);
+        } catch (RuntimeException e) {
+            LOG.debug("tool-repetition detector failed: %s", e.getMessage()); //$NON-NLS-1$
+        }
+    }
+
+    private static String canonicalizeCallArgumentsForDetector(String rawArgs) {
+        if (rawArgs == null || rawArgs.isEmpty() || "{}".equals(rawArgs)) { //$NON-NLS-1$
+            return com.codepilot1c.core.agent.ToolRepetitionDetector.canonicalizeArgs(
+                    new com.google.gson.JsonObject());
+        }
+        try {
+            com.google.gson.JsonElement parsed = com.google.gson.JsonParser.parseString(rawArgs);
+            if (parsed != null && parsed.isJsonObject()) {
+                return com.codepilot1c.core.agent.ToolRepetitionDetector.canonicalizeArgs(
+                        parsed.getAsJsonObject());
+            }
+            return rawArgs;
+        } catch (RuntimeException e) {
+            return rawArgs;
+        }
+    }
+
     private int getMaxToolIterations() {
         IEclipsePreferences prefs = InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID);
         return prefs.getInt(
@@ -1370,6 +1524,14 @@ public class ChatView extends ViewPart {
                     ? result.getContent()
                     : "Error: " + result.getErrorMessage(); //$NON-NLS-1$
             conversationHistory.add(LlmMessage.toolResult(call.getId(), resultContent));
+        }
+
+        // Plan 1.2: detect repetition loops only after all tool-result messages
+        // for the assistant tool_calls batch were appended. Inserting a USER nudge
+        // between assistant tool_calls and their tool results violates the OpenAI
+        // message protocol and causes follow-up requests to fail.
+        for (ToolCall call : toolCalls) {
+            observeAndInjectRepetitionNudge(call);
         }
 
         // Update tool call cards with results
@@ -1434,6 +1596,10 @@ public class ChatView extends ViewPart {
             StringBuilder reasoning = new StringBuilder();
             List<ToolCall> toolCalls = new java.util.ArrayList<>();
             final String[] finishReason = { LlmResponse.FINISH_REASON_STOP };
+            // Plan 2.3: capture real usage from the stream terminal usage chunk so
+            // it survives the stream→response conversion and is accumulated by the
+            // caller's registerUsage(nextResponse).
+            final LlmResponse.Usage[] streamUsage = { null };
 
             try {
                 provider.streamComplete(request, chunk -> {
@@ -1443,6 +1609,11 @@ public class ChatView extends ViewPart {
 
                     if (chunk.isError()) {
                         out.completeExceptionally(new RuntimeException(chunk.getErrorMessage()));
+                        return;
+                    }
+
+                    if (chunk.hasUsage() && streamUsage[0] == null) {
+                        streamUsage[0] = chunk.getUsage();
                         return;
                     }
 
@@ -1471,12 +1642,14 @@ public class ChatView extends ViewPart {
                                     .reasoningContent(reasoning.toString())
                                     .toolCalls(toolCalls)
                                     .finishReason(LlmResponse.FINISH_REASON_TOOL_USE)
+                                    .usage(streamUsage[0])
                                     .build());
                         } else {
                             out.complete(LlmResponse.builder()
                                     .content(content.toString())
                                     .reasoningContent(reasoning.toString())
                                     .finishReason(finishReason[0])
+                                    .usage(streamUsage[0])
                                     .build());
                         }
                     }
@@ -1490,12 +1663,14 @@ public class ChatView extends ViewPart {
                                 .reasoningContent(reasoning.toString())
                                 .toolCalls(toolCalls)
                                 .finishReason(LlmResponse.FINISH_REASON_TOOL_USE)
+                                .usage(streamUsage[0])
                                 .build());
                     } else {
                         out.complete(LlmResponse.builder()
                                 .content(content.toString())
                                 .reasoningContent(reasoning.toString())
                                 .finishReason(finishReason[0])
+                                .usage(streamUsage[0])
                                 .build());
                     }
                 }
@@ -1817,8 +1992,13 @@ public class ChatView extends ViewPart {
             """); //$NON-NLS-1$
 
         // === TOOLS SECTION ===
+        // NB: we intentionally do NOT enumerate tools here. The full manifest is
+        // delivered via the structured `tools` parameter on the LLM request; mirroring
+        // it in the system prompt burned ~1200 tokens of redundant input per request
+        // (codex review of Phase 3 flagged this as the primary duplicated overhead).
         if (toolsEnabled) {
-            appendToolsSection(prompt);
+            boolean hasTools = !ToolRegistry.getInstance().getToolDefinitions().isEmpty();
+            ChatSystemPromptToolsSection.append(prompt, hasTools);
         }
 
         // === FINAL INSTRUCTIONS ===
@@ -1834,35 +2014,6 @@ public class ChatView extends ViewPart {
                 null,
                 "chat", //$NON-NLS-1$
                 currentRequestedSkills);
-    }
-
-    private void appendToolsSection(StringBuilder prompt) {
-        List<ToolDefinition> tools = ToolRegistry.getInstance().getToolDefinitions();
-        if (tools.isEmpty()) {
-            prompt.append("""
-            # Инструменты
-
-            Инструменты недоступны в текущей конфигурации.
-
-            """); //$NON-NLS-1$
-            return;
-        }
-
-        prompt.append("""
-        # Инструменты
-
-        Используйте инструменты при работе с кодом, файлами и проектом.
-        Если нужна информация из проекта, сначала вызывайте подходящий инструмент.
-
-        Доступные инструменты:
-        """); //$NON-NLS-1$
-
-        for (ToolDefinition tool : tools) {
-            prompt.append("- ").append(tool.getName()).append(": ") //$NON-NLS-1$ //$NON-NLS-2$
-                    .append(tool.getDescription()).append("\n"); //$NON-NLS-1$
-        }
-
-        prompt.append("\n"); //$NON-NLS-1$
     }
 
     private void handleError(Throwable error) {
@@ -1991,6 +2142,7 @@ public class ChatView extends ViewPart {
                 provider.cancel();
             }
         }
+        inflight.set(false);
         setProcessing(false);
     }
 
@@ -2041,7 +2193,7 @@ public class ChatView extends ViewPart {
                         if (content != null && !content.isBlank()) {
                             session.addMessage(role == LlmMessage.Role.USER
                                     ? SessionMessage.user(content)
-                                    : SessionMessage.assistant(content));
+                                    : SessionMessage.assistant(content, msg.getReasoningContent()));
                         }
                     }
                 }
@@ -2062,6 +2214,9 @@ public class ChatView extends ViewPart {
         }
 
         conversationHistory.clear();
+        // Plan 1.2: full clear is also a turn boundary — drop any pending
+        // repetition window so a fresh conversation starts clean.
+        toolRepetitionDetector.resetForNewTurn();
         draftAttachments.clear();
         lastAssistantResponse = null;
         resetTokenUsage();
@@ -2346,8 +2501,9 @@ public class ChatView extends ViewPart {
         if (conversationHistory.size() < 2) {
             return false;
         }
-        int tailMessages = automatic ? COMPACT_TAIL_MESSAGES
-                : Math.min(COMPACT_TAIL_MESSAGES, Math.max(4, conversationHistory.size() / 2));
+        int tailBudget = getCompactionTailMessages();
+        int tailMessages = automatic ? tailBudget
+                : Math.min(tailBudget, Math.max(4, conversationHistory.size() / 2));
         if (conversationHistory.size() <= tailMessages + 1) {
             return false;
         }
@@ -2473,6 +2629,8 @@ public class ChatView extends ViewPart {
         cachedInputTokensTotal = 0;
         outputTokensTotal = 0;
         totalTokensTotal = 0;
+        // Plan 2.4: new chat resets the request counter too.
+        requestCount = 0;
         scheduleTokenUsageDisplayUpdate();
     }
 
@@ -2498,11 +2656,21 @@ public class ChatView extends ViewPart {
     private void updateTokenUsageDisplay() {
         // Token counter is hidden — will be replaced by budget indicator in Phase 2.
         // Still accumulate values internally for backend usage tracking.
-        if (tokenUsageLabel == null || tokenUsageLabel.isDisposed()) {
-            return;
+        if (tokenUsageLabel != null && !tokenUsageLabel.isDisposed()) {
+            tokenUsageLabel.setVisible(false);
+            ((GridData) tokenUsageLabel.getLayoutData()).exclude = true;
         }
-        tokenUsageLabel.setVisible(false);
-        ((GridData) tokenUsageLabel.getLayoutData()).exclude = true;
+        // Plan 2.4: push the compact footer into the browser panel.
+        // Safe to call before the panel is ready — updateTokenFooter is a no-op
+        // until the browser finishes bootstrapping.
+        if (browserChatPanel != null && !browserChatPanel.isDisposed()) {
+            browserChatPanel.updateTokenFooter(
+                    inputTokensTotal,
+                    cachedInputTokensTotal,
+                    outputTokensTotal,
+                    totalTokensTotal,
+                    requestCount);
+        }
     }
 
     private void updateModelButtonVisibility() {
@@ -2618,6 +2786,30 @@ public class ChatView extends ViewPart {
         }
         if (value > 95) {
             return 95;
+        }
+        return value;
+    }
+
+    /**
+     * Returns the number of tail messages to preserve verbatim during history
+     * compaction. Reads {@link VibePreferenceConstants#LLM_COMPACTION_TAIL_MESSAGES}
+     * with a fallback to {@link #COMPACT_TAIL_MESSAGES} (14). Values are clamped to
+     * a sensible range [4, 64] to avoid degenerate compactions (Plan 1.3).
+     */
+    private int getCompactionTailMessages() {
+        int fallback = COMPACT_TAIL_MESSAGES;
+        int value;
+        try {
+            IEclipsePreferences prefs = InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID);
+            value = prefs.getInt(VibePreferenceConstants.LLM_COMPACTION_TAIL_MESSAGES, fallback);
+        } catch (Exception e) {
+            value = fallback;
+        }
+        if (value < 4) {
+            return 4;
+        }
+        if (value > 64) {
+            return 64;
         }
         return value;
     }

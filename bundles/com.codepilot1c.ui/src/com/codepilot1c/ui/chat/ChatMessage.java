@@ -39,6 +39,7 @@ public class ChatMessage {
     private final Instant timestamp;
     private MessageStatus status;
     private String rawContent;
+    private String reasoningContent;
     private final List<LlmContentPart> contentParts;
     private final List<MessagePart> parts;
     private String errorMessage;
@@ -111,6 +112,19 @@ public class ChatMessage {
     }
 
     /**
+     * Creates an assistant message with provider reasoning content.
+     *
+     * @param content the message content
+     * @param reasoningContent the reasoning content to replay to thinking APIs
+     * @return a new assistant message
+     */
+    public static ChatMessage assistant(String content, String reasoningContent) {
+        ChatMessage message = assistant(content);
+        message.reasoningContent = reasoningContent;
+        return message;
+    }
+
+    /**
      * Creates a pending assistant message (for streaming).
      *
      * @return a new pending assistant message
@@ -144,6 +158,19 @@ public class ChatMessage {
     public static ChatMessage toolCall(List<ToolCall> toolCalls) {
         ChatMessage message = new ChatMessage(MessageKind.TOOL_CALL, null);
         message.toolCalls.addAll(toolCalls);
+        return message;
+    }
+
+    /**
+     * Creates a tool call message with provider reasoning content.
+     *
+     * @param toolCalls the tool calls
+     * @param reasoningContent the reasoning content to replay to thinking APIs
+     * @return a new tool call message
+     */
+    public static ChatMessage toolCall(List<ToolCall> toolCalls, String reasoningContent) {
+        ChatMessage message = toolCall(toolCalls);
+        message.reasoningContent = reasoningContent;
         return message;
     }
 
@@ -183,6 +210,7 @@ public class ChatMessage {
         };
 
         ChatMessage message = new ChatMessage(kind, llmMessage.getContent());
+        message.reasoningContent = llmMessage.getReasoningContent();
         if (llmMessage.hasContentParts()) {
             message.contentParts.addAll(llmMessage.getContentParts());
         }
@@ -214,6 +242,10 @@ public class ChatMessage {
 
     public String getRawContent() {
         return rawContent;
+    }
+
+    public String getReasoningContent() {
+        return reasoningContent;
     }
 
     public List<MessagePart> getParts() {
@@ -287,6 +319,15 @@ public class ChatMessage {
         return !toolCalls.isEmpty();
     }
 
+    /**
+     * Checks if this message contains provider reasoning content.
+     *
+     * @return true if reasoning content is present
+     */
+    public boolean hasReasoningContent() {
+        return reasoningContent != null && !reasoningContent.isEmpty();
+    }
+
     // === Modification Methods ===
 
     /**
@@ -307,6 +348,15 @@ public class ChatMessage {
         if (chunk != null && !chunk.isEmpty()) {
             this.rawContent = this.rawContent + chunk;
         }
+    }
+
+    /**
+     * Sets provider reasoning content for replay to thinking APIs.
+     *
+     * @param reasoningContent the reasoning content
+     */
+    public void setReasoningContent(String reasoningContent) {
+        this.reasoningContent = reasoningContent;
     }
 
     /**
@@ -378,10 +428,10 @@ public class ChatMessage {
         return switch (kind) {
             case USER -> !contentParts.isEmpty() ? LlmMessage.user(contentParts) : LlmMessage.user(rawContent);
             case ASSISTANT -> hasToolCalls()
-                    ? LlmMessage.assistantWithToolCalls(rawContent, toolCalls)
-                    : LlmMessage.assistant(rawContent);
+                    ? LlmMessage.assistantWithToolCalls(rawContent, reasoningContent, toolCalls)
+                    : LlmMessage.assistant(rawContent, reasoningContent);
             case SYSTEM -> LlmMessage.system(rawContent);
-            case TOOL_CALL -> LlmMessage.assistantWithToolCalls(rawContent, toolCalls);
+            case TOOL_CALL -> LlmMessage.assistantWithToolCalls(rawContent, reasoningContent, toolCalls);
             case TOOL_RESULT -> {
                 // Find the tool call ID from parts
                 String toolCallId = parts.stream()

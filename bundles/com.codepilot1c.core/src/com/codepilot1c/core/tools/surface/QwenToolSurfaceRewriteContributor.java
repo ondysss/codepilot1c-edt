@@ -89,6 +89,8 @@ public final class QwenToolSurfaceRewriteContributor implements ToolSurfaceContr
             case "qa_validate_feature" -> "Validate generated QA feature assets and surface actionable defects before execution."; //$NON-NLS-1$
             case "qa_run" -> "Run the prepared QA scenario and return machine-readable execution results. Use it only after config, context, and feature validation are complete."; //$NON-NLS-1$
             case "author_yaxunit_tests" -> "Generate or update YAxUnit tests for a metadata object or module in a validated QA-oriented authoring flow."; //$NON-NLS-1$
+            case "run_yaxunit_tests" -> "Run YAXUnit tests for an EDT project, parse JUnit XML, and return a Markdown summary."; //$NON-NLS-1$
+            case "debug_yaxunit_tests" -> "Start YAXUnit tests in debug mode and return process details for breakpoint-based debugging."; //$NON-NLS-1$
             // Smoke tools (still registered individually, gated by ToolContextGate)
             case "edt_extension_smoke" -> "Run smoke verification focused on EDT extension workflows and report the exact failing stage."; //$NON-NLS-1$
             case "edt_external_smoke" -> "Run smoke verification focused on EDT external-object workflows and report the exact failing stage."; //$NON-NLS-1$

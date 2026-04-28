@@ -41,6 +41,7 @@ import org.eclipse.swt.widgets.Display;
 
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.model.LlmAttachment;
+import com.codepilot1c.core.ui.TokenFooterRenderer;
 import com.codepilot1c.ui.internal.ToolDisplayNames;
 import com.codepilot1c.ui.internal.VibeUiPlugin;
 import com.codepilot1c.ui.markdown.FlexmarkParser;
@@ -532,6 +533,70 @@ public class BrowserChatPanel extends Composite {
     }
 
     /**
+     * Обновляет компактный футер расхода токенов сессии (Plan 2.4).
+     *
+     * <p>Реализует render-only требование: принимает уже агрегированные в
+     * {@code ChatView} значения и перерисовывает единственный узел
+     * {@code #token-footer}. Вызывается после каждого {@code registerUsage}
+     * и при сбросе сессии.</p>
+     *
+     * <p>Безопасно вызывать до того, как браузер завершил bootstrap —
+     * метод является no-op, пока {@code browserReady == false}. При
+     * последующем bootstrap значения будут установлены первым
+     * {@code updateTokenUsageDisplay}, который вызывается из
+     * {@link #registerUsage}/{@link #resetTokenUsage} в {@code ChatView}.</p>
+     *
+     * @param inputTotal  накопленный ввод (prompt tokens)
+     * @param cachedTotal накопленные cached prompt tokens
+     * @param outputTotal накопленный выход (completion tokens)
+     * @param totalAll    накопленная общая сумма, сообщённая провайдером
+     * @param requestCount количество принятых top-level round-trip запросов
+     */
+    public void updateTokenFooter(long inputTotal,
+                                  long cachedTotal,
+                                  long outputTotal,
+                                  long totalAll,
+                                  int requestCount) {
+        if (browser == null || browser.isDisposed()) {
+            return;
+        }
+        if (!browserReady) {
+            // The bootstrap HTML places an empty footer div; a subsequent
+            // registerUsage/reset from ChatView will call this again once
+            // browserReady flips true.
+            return;
+        }
+
+        String html = TokenFooterRenderer.renderFooterHtml(
+                inputTotal, cachedTotal, outputTotal, totalAll, requestCount);
+        String escaped = escapeForJs(html);
+
+        // Replace in place via outerHTML so repeated updates keep a single node
+        // with the stable id "token-footer" at the bottom of .chat-root.
+        String script =
+                "(function() {" //$NON-NLS-1$
+              + "  var el = document.getElementById('token-footer');" //$NON-NLS-1$
+              + "  if (!el) {" //$NON-NLS-1$
+              + "    var root = document.querySelector('.chat-root');" //$NON-NLS-1$
+              + "    if (!root) return;" //$NON-NLS-1$
+              + "    var wrapper = document.createElement('div');" //$NON-NLS-1$
+              + "    wrapper.innerHTML = '" + escaped + "';" //$NON-NLS-1$ //$NON-NLS-2$
+              + "    var node = wrapper.firstChild;" //$NON-NLS-1$
+              + "    if (node) root.appendChild(node);" //$NON-NLS-1$
+              + "  } else {" //$NON-NLS-1$
+              + "    el.outerHTML = '" + escaped + "';" //$NON-NLS-1$ //$NON-NLS-2$
+              + "  }" //$NON-NLS-1$
+              + "  var updated = document.getElementById('token-footer');" //$NON-NLS-1$
+              + "  if (updated) { updated.style.display = 'block'; }" //$NON-NLS-1$
+              + "})();"; //$NON-NLS-1$
+
+        boolean ok = browser.execute(script);
+        if (!ok) {
+            LOG.warn("updateTokenFooter: browser.execute returned false"); //$NON-NLS-1$
+        }
+    }
+
+    /**
      * Очищает чат.
      */
     public void clearChat() {
@@ -863,6 +928,9 @@ public class BrowserChatPanel extends Composite {
                "                <span class=\"typing-dot\"></span>\n" + //$NON-NLS-1$
                "            </div>\n" + //$NON-NLS-1$
                "        </div>\n" + //$NON-NLS-1$
+               // Plan 2.4: persistent token-usage footer. Initially hidden; the
+               // Java side injects content on first registerUsage()/reset call.
+               "        <div id=\"token-footer\" class=\"token-footer\" style=\"display:none;\"></div>\n" + //$NON-NLS-1$
                "    </div>\n" + //$NON-NLS-1$
                "    <script>\n" + js + "\n    </script>\n" + //$NON-NLS-1$ //$NON-NLS-2$
                "</body>\n" + //$NON-NLS-1$

@@ -10,6 +10,7 @@ import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.tools.ToolParameters;
 import com.codepilot1c.core.tools.ToolMeta;
 import com.codepilot1c.core.tools.AbstractTool;
+import com.codepilot1c.core.tools.util.ToolResultTruncator;
 
 import java.io.File;
 import java.io.IOException;
@@ -77,6 +78,9 @@ public class GlobTool extends AbstractTool {
 
     private static final int DEFAULT_MAX_RESULTS = 100;
     private static final int MAX_RESULTS_LIMIT = 500;
+
+    /** Upper bound in characters for the rendered tool output (token-budget cap). */
+    private static final int MAX_OUTPUT_CHARS = 40000;
 
     @Override
     public String getDescription() {
@@ -277,7 +281,7 @@ public class GlobTool extends AbstractTool {
     /**
      * Форматирует результат поиска.
      */
-    private ToolResult formatResult(List<Path> matches, String pattern,
+    ToolResult formatResult(List<Path> matches, String pattern,
                                     Path baseDir, int maxResults) {
         StringBuilder sb = new StringBuilder();
         sb.append("**Паттерн:** `").append(pattern).append("`\n");
@@ -289,18 +293,33 @@ public class GlobTool extends AbstractTool {
         }
         sb.append("\n\n");
 
+        int droppedEntries = 0;
         if (matches.isEmpty()) {
             sb.append("*Файлы не найдены*");
         } else {
             sb.append("```\n");
+            int rendered = 0;
             for (Path match : matches) {
                 // Show relative path
                 Path relativePath = baseDir.relativize(match);
-                sb.append(relativePath.toString().replace('\\', '/')).append("\n");
+                String line = relativePath.toString().replace('\\', '/');
+                int projected = sb.length() + line.length() + 1 + 4; // +4 for trailing fence
+                // Reserve a small budget for the closing fence and the truncated_entries marker.
+                if (projected > MAX_OUTPUT_CHARS - 96) {
+                    droppedEntries = matches.size() - rendered;
+                    break;
+                }
+                sb.append(line).append("\n");
+                rendered++;
             }
             sb.append("```");
         }
 
-        return ToolResult.success(sb.toString(), ToolResult.ToolResultType.TEXT);
+        if (droppedEntries > 0) {
+            sb.append("\ntruncated_entries: ").append(droppedEntries).append('\n'); //$NON-NLS-1$
+        }
+
+        String capped = ToolResultTruncator.truncateText(sb.toString(), MAX_OUTPUT_CHARS);
+        return ToolResult.success(capped, ToolResult.ToolResultType.TEXT);
     }
 }

@@ -53,10 +53,22 @@ public class BuildAgentProfile implements AgentProfile {
             "git_clone_and_import_project",
             "import_project_from_infobase",
             "get_diagnostics",
+            "get_bookmarks",
+            "get_tasks",
             "edt_content_assist",
             "edt_find_references",
             "edt_metadata_details",
             "scan_metadata_index",
+            "edt_get_configuration_properties",
+            "edt_get_problem_summary",
+            "edt_get_tags",
+            "edt_get_objects_by_tags",
+            "edt_list_modules",
+            "edt_get_module_structure",
+            "edt_search_in_code",
+            "edt_get_method_call_hierarchy",
+            "edt_go_to_definition",
+            "edt_get_symbol_info",
             "dcs_manage",
             "extension_manage",
             "external_manage",
@@ -85,6 +97,17 @@ public class BuildAgentProfile implements AgentProfile {
             "render_template",
             "inspect_template",
             "author_yaxunit_tests",
+            "run_yaxunit_tests",
+            "debug_yaxunit_tests",
+            "set_breakpoint",
+            "remove_breakpoint",
+            "list_breakpoints",
+            "wait_for_break",
+            "get_variables",
+            "step",
+            "resume",
+            "evaluate_expression",
+            "debug_status",
             "edt_diagnostics",
             "qa_inspect",
             "qa_generate",
@@ -127,10 +150,22 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("list_files").forAllResources(),
                 PermissionRule.allow("git_inspect").forAllResources(),
                 PermissionRule.allow("get_diagnostics").forAllResources(),
+                PermissionRule.allow("get_bookmarks").forAllResources(),
+                PermissionRule.allow("get_tasks").forAllResources(),
                 PermissionRule.allow("edt_content_assist").forAllResources(),
                 PermissionRule.allow("edt_find_references").forAllResources(),
                 PermissionRule.allow("edt_metadata_details").forAllResources(),
                 PermissionRule.allow("scan_metadata_index").forAllResources(),
+                PermissionRule.allow("edt_get_configuration_properties").forAllResources(),
+                PermissionRule.allow("edt_get_problem_summary").forAllResources(),
+                PermissionRule.allow("edt_get_tags").forAllResources(),
+                PermissionRule.allow("edt_get_objects_by_tags").forAllResources(),
+                PermissionRule.allow("edt_list_modules").forAllResources(),
+                PermissionRule.allow("edt_get_module_structure").forAllResources(),
+                PermissionRule.allow("edt_search_in_code").forAllResources(),
+                PermissionRule.allow("edt_get_method_call_hierarchy").forAllResources(),
+                PermissionRule.allow("edt_go_to_definition").forAllResources(),
+                PermissionRule.allow("edt_get_symbol_info").forAllResources(),
                 PermissionRule.allow("edt_extension_smoke").forAllResources(),
                 PermissionRule.allow("edt_external_smoke").forAllResources(),
                 PermissionRule.allow("edt_field_type_candidates").forAllResources(),
@@ -214,6 +249,31 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.ask("author_yaxunit_tests")
                         .withDescription("Генерация/обновление автотестов YAxUnit")
                         .forAllResources(),
+                PermissionRule.ask("run_yaxunit_tests")
+                        .withDescription("Запуск автотестов YAxUnit")
+                        .forAllResources(),
+                PermissionRule.ask("debug_yaxunit_tests")
+                        .withDescription("Запуск автотестов YAxUnit в режиме отладки")
+                        .forAllResources(),
+                PermissionRule.ask("set_breakpoint")
+                        .withDescription("Установка точки останова EDT")
+                        .forAllResources(),
+                PermissionRule.ask("remove_breakpoint")
+                        .withDescription("Удаление точки останова EDT")
+                        .forAllResources(),
+                PermissionRule.allow("list_breakpoints").forAllResources(),
+                PermissionRule.allow("wait_for_break").forAllResources(),
+                PermissionRule.allow("get_variables").forAllResources(),
+                PermissionRule.ask("step")
+                        .withDescription("Шаг отладчика EDT")
+                        .forAllResources(),
+                PermissionRule.ask("resume")
+                        .withDescription("Продолжение выполнения debug target EDT")
+                        .forAllResources(),
+                PermissionRule.ask("evaluate_expression")
+                        .withDescription("Вычисление выражения в debug frame EDT")
+                        .forAllResources(),
+                PermissionRule.allow("debug_status").forAllResources(),
                 PermissionRule.ask("qa_prepare_form_context")
                         .withDescription("Подготовка QA контекста формы с автосозданием default формы при отсутствии")
                         .forAllResources(),

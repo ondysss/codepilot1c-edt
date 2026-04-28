@@ -21,14 +21,18 @@ final class OpenAiChunkAdapter {
 
     OpenAiStreamChunkData adapt(JsonObject json) {
         String errorMessage = extractErrorMessage(json);
+        LlmResponse.Usage usage = extractUsage(json);
         JsonArray choices = getArray(json, "choices"); //$NON-NLS-1$
         if (choices == null || choices.size() == 0) {
-            return OpenAiStreamChunkData.of(null, null, null, errorMessage, 0, 0, 0, List.of(), true, false);
+            // Terminal usage chunks carry empty/absent choices + a top-level usage object.
+            // Keep them as metadata chunks so downstream counters aren't inflated, but
+            // propagate the usage so the session can emit an LlmStreamChunk.usage(...).
+            return OpenAiStreamChunkData.of(null, null, null, errorMessage, 0, 0, 0, List.of(), true, false, usage);
         }
 
         JsonObject choice = getObject(choices.get(0));
         if (choice == null) {
-            return OpenAiStreamChunkData.of(null, null, null, errorMessage, 0, 0, 0, List.of(), true, false);
+            return OpenAiStreamChunkData.of(null, null, null, errorMessage, 0, 0, 0, List.of(), true, false, usage);
         }
 
         JsonObject delta = getObject(choice, "delta"); //$NON-NLS-1$
@@ -77,7 +81,21 @@ final class OpenAiChunkAdapter {
                 && source == null;
 
         return OpenAiStreamChunkData.of(content, reasoning, finishReason, errorMessage, toolCallFragments,
-                repairedToolCalls, truncatedToolCalls, completedToolCalls, metadataOnly, opaque);
+                repairedToolCalls, truncatedToolCalls, completedToolCalls, metadataOnly, opaque, usage);
+    }
+
+    /**
+     * Extracts a top-level {@code usage} object when present. OpenAI emits this as
+     * the terminal chunk before {@code [DONE]} when {@code stream_options.include_usage}
+     * is on; some gateways attach it to the same choices chunk that carries the
+     * {@code finish_reason}, so it is extracted unconditionally.
+     */
+    private LlmResponse.Usage extractUsage(JsonObject json) {
+        JsonObject usageObject = getObject(json, "usage"); //$NON-NLS-1$
+        if (usageObject == null) {
+            return null;
+        }
+        return OpenAiUsageParser.parse(usageObject);
     }
 
     private boolean isMetadataOnly(JsonObject choice, String content, String reasoning,
