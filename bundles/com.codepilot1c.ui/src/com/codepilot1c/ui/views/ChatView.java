@@ -836,7 +836,9 @@ public class ChatView extends ViewPart {
 
         if (chunk.hasUsage()) {
             latestStreamUsage = chunk.getUsage();
-            return;
+            if (isUsageOnlyChunk(chunk)) {
+                return;
+            }
         }
 
         // Handle reasoning content delta (thinking mode)
@@ -946,11 +948,9 @@ public class ChatView extends ViewPart {
                         isStreaming = false;
 
                         // Add to conversation history
-                        if (latestStreamUsage != null || !finalContent.isEmpty()) {
-                            registerDirectStreamUsageOnce(finalContent,
-                                    streamingReasoning != null ? streamingReasoning.toString() : null,
-                                    LlmResponse.FINISH_REASON_STOP);
-                        }
+                        registerDirectStreamUsageOnce(finalContent,
+                                streamingReasoning != null ? streamingReasoning.toString() : null,
+                                LlmResponse.FINISH_REASON_STOP);
                         if (!finalContent.isEmpty()) {
                             conversationHistory.add(LlmMessage.assistant(finalContent));
                             lastAssistantResponse = finalContent;
@@ -986,6 +986,15 @@ public class ChatView extends ViewPart {
                 .build();
         registerUsage(usageResponse);
         usageRegisteredForThisRoundTrip = true;
+    }
+
+    private boolean isUsageOnlyChunk(LlmStreamChunk chunk) {
+        String content = chunk.getContent();
+        return !chunk.isError()
+                && !chunk.hasReasoning()
+                && (content == null || content.isEmpty())
+                && !chunk.hasToolCalls()
+                && !chunk.isComplete();
     }
 
     /**
@@ -1475,7 +1484,9 @@ public class ChatView extends ViewPart {
 
                     if (chunk.hasUsage()) {
                         streamUsage[0] = chunk.getUsage();
-                        return;
+                        if (isUsageOnlyChunk(chunk)) {
+                            return;
+                        }
                     }
 
                     if (chunk.hasReasoning()) {
