@@ -224,7 +224,7 @@ public class EditFileTool extends AbstractTool {
     /**
      * Finds a file in the workspace by path.
      */
-    private IFile findWorkspaceFile(String path) {
+    protected IFile findWorkspaceFile(String path) {
         IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
         LOG.debug("findWorkspaceFile: ищем файл по пути '%s'", path); //$NON-NLS-1$
         LOG.debug("findWorkspaceFile: workspace root = %s", root.getLocation()); //$NON-NLS-1$
@@ -406,10 +406,6 @@ public class EditFileTool extends AbstractTool {
                 "Заменено в строках " + location.getStartLine() + "-" + location.getEndLine() + //$NON-NLS-1$ //$NON-NLS-2$
                         strategyInfo + " в: " + file.getFullPath().toString(), //$NON-NLS-1$
                 ToolResult.ToolResultType.CONFIRMATION);
-    }
-
-    static boolean isReplacementShapeSafeForTest(String oldSlice, String newText) {
-        return ReplacementShapeSafety.evaluate(oldSlice, newText).isSafe();
     }
 
     /**
