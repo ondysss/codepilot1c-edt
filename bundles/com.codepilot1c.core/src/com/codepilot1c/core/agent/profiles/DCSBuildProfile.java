@@ -44,6 +44,7 @@ public class DCSBuildProfile implements AgentProfile {
             "get_tasks",
             // Meta
             "edt_diagnostics",
+            "update_infobase_status",
             "skill",
             "task"
     ));
@@ -84,6 +85,7 @@ public class DCSBuildProfile implements AgentProfile {
                 PermissionRule.allow("get_bookmarks").forAllResources(),
                 PermissionRule.allow("get_tasks").forAllResources(),
                 PermissionRule.allow("edt_diagnostics").forAllResources(),
+                PermissionRule.allow("update_infobase_status").forAllResources(),
                 PermissionRule.allow("skill").forAllResources(),
                 PermissionRule.allow("task").forAllResources(),
                 // Write tools - ask

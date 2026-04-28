@@ -2,6 +2,7 @@ package com.codepilot1c.core.provider.config;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Field;
@@ -24,6 +25,7 @@ import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.provider.ProviderCapabilities;
+import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -258,6 +260,26 @@ public class QwenToolingCompatibilityTest {
     }
 
     @Test
+    public void infobaseRuntimeToolsHaveRequiredQwenXmlParameters() {
+        ToolDefinition diagnostics = registeredDefinition("edt_diagnostics"); //$NON-NLS-1$
+        ToolDefinition status = registeredDefinition("update_infobase_status"); //$NON-NLS-1$
+        ProviderCapabilities caps = ProviderCapabilities.builder()
+                .codePilotBackend(true)
+                .backendOptimizations(true)
+                .resolvedModel(true)
+                .resolvedModelFamily(ProviderCapabilities.FAMILY_QWEN_CODER)
+                .defaultTemperature(ProviderCapabilities.QWEN_DEFAULT_TEMPERATURE)
+                .build();
+
+        String examples = QwenToolCallExamples.getExamples(caps, List.of(diagnostics, status));
+
+        assertTrue(examples.contains("<function=edt_diagnostics>")); //$NON-NLS-1$
+        assertTrue(examples.contains("<parameter=command>metadata_smoke</parameter>")); //$NON-NLS-1$
+        assertTrue(examples.contains("<function=update_infobase_status>")); //$NON-NLS-1$
+        assertTrue(examples.contains("<parameter=job_id>")); //$NON-NLS-1$
+    }
+
+    @Test
     public void extensionManageQwenExampleShowsBaseAndExtensionProjectContract() {
         ToolDefinition definition = ToolDefinition.builder()
                 .name("extension_manage") //$NON-NLS-1$
@@ -294,6 +316,13 @@ public class QwenToolingCompatibilityTest {
         assertTrue(examples.contains("<parameter=extension_project>ExtensionDemo</parameter>")); //$NON-NLS-1$
         assertTrue(examples.contains("<parameter=source_object_fqn>Catalog.Items</parameter>")); //$NON-NLS-1$
         assertTrue(examples.contains("<parameter=validation_token>validation-token-123</parameter>")); //$NON-NLS-1$
+    }
+
+    private ToolDefinition registeredDefinition(String name) {
+        ToolRegistry registry = ToolRegistry.getInstance();
+        ITool tool = registry.getTool(name);
+        assertNotNull(name + " must be registered", tool); //$NON-NLS-1$
+        return registry.getToolDefinition(tool, registry.createRuntimeSurfaceContext(null));
     }
 
     private Set<String> extractExampleParams(String examples) {

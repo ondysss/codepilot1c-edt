@@ -181,6 +181,8 @@ public class ChatView extends ViewPart {
      * usage only once.
      */
     private volatile boolean usageRegisteredForThisRoundTrip = false;
+    /** Latest provider-reported usage chunk for the active direct streaming round trip. */
+    private volatile LlmResponse.Usage latestStreamUsage;
 
     /** Whether to show diff preview before applying file changes */
     private boolean previewModeEnabled = false;
@@ -839,6 +841,7 @@ public class ChatView extends ViewPart {
         }
         currentRoundTripId = rt;
         usageRegisteredForThisRoundTrip = false;
+        latestStreamUsage = null;
         // Plan 2.4: count accepted round-trips for the session footer.
         // Increment only after the CAS wins so duplicates don't inflate the count.
         requestCount++;
@@ -895,14 +898,11 @@ public class ChatView extends ViewPart {
             return;
         }
 
-        // Plan 2.3: real provider-reported usage wins over local estimation.
-        // Register it once per round-trip and gate the estimator paths below.
         if (chunk.hasUsage()) {
-            if (!usageRegisteredForThisRoundTrip) {
-                registerUsage(LlmResponse.builder().usage(chunk.getUsage()).build());
-                usageRegisteredForThisRoundTrip = true;
+            latestStreamUsage = chunk.getUsage();
+            if (isUsageOnlyChunk(chunk)) {
+                return;
             }
-            return;
         }
 
         // Handle reasoning content delta (thinking mode)
@@ -943,7 +943,7 @@ public class ChatView extends ViewPart {
         }
 
         // Handle tool calls if present
-        if (chunk.hasToolCalls() || chunk.isToolUse()) {
+        if (chunk.hasToolCalls()) {
             if (!streamingHandledToolCalls.compareAndSet(false, true)) {
                 LOG.warn("[single-flight] dropped duplicate tool-calls chunk; first dispatch already in flight"); //$NON-NLS-1$
                 return;
@@ -959,23 +959,15 @@ public class ChatView extends ViewPart {
                         isStreaming = false;
                         setProcessingStage("Обработка инструментов..."); //$NON-NLS-1$
 
-                        // Create response object for tool handling. Only attach the
-                        // estimator when no real stream usage has been registered yet
-                        // — otherwise we'd double-count against the single-flight turn.
                         LlmResponse.Builder toolBuilder = LlmResponse.builder()
                                 .content(accumulatedContent)
                                 .reasoningContent(accumulatedReasoning)
                                 .toolCalls(toolCalls)
                                 .finishReason(LlmResponse.FINISH_REASON_TOOL_USE);
-                        if (!usageRegisteredForThisRoundTrip) {
-                            toolBuilder.usage(estimateUsageForResponse(currentStreamingRequest, accumulatedContent,
-                                    accumulatedReasoning));
+                        if (latestStreamUsage != null) {
+                            toolBuilder.usage(latestStreamUsage);
                         }
                         LlmResponse toolResponse = toolBuilder.build();
-                        if (!usageRegisteredForThisRoundTrip) {
-                            registerUsage(toolResponse);
-                            usageRegisteredForThisRoundTrip = true;
-                        }
 
                         // Update the displayed message with current content and reasoning
                         if (USE_BROWSER_RENDERING && browserChatPanel != null) {
@@ -1015,6 +1007,10 @@ public class ChatView extends ViewPart {
                     }
                 });
             }
+            if (chunk.isComplete()) {
+                registerDirectStreamUsageOnce(accumulatedContent, accumulatedReasoning,
+                        LlmResponse.FINISH_REASON_TOOL_USE);
+            }
             return;
         }
 
@@ -1030,20 +1026,12 @@ public class ChatView extends ViewPart {
                     if (!isDisposed()) {
                         isStreaming = false;
 
+                        registerDirectStreamUsageOnce(finalContent,
+                                streamingReasoning != null ? streamingReasoning.toString() : null,
+                                LlmResponse.FINISH_REASON_STOP);
+
                         // Add to conversation history
                         if (!finalContent.isEmpty()) {
-                            // Plan 2.3: only estimate when the real stream-usage path
-                            // did not already register usage for this round-trip.
-                            if (!usageRegisteredForThisRoundTrip) {
-                                LlmResponse usageResponse = LlmResponse.builder()
-                                        .content(finalContent)
-                                        .usage(estimateUsageForResponse(currentStreamingRequest, finalContent,
-                                                streamingReasoning != null ? streamingReasoning.toString() : null))
-                                        .finishReason(LlmResponse.FINISH_REASON_STOP)
-                                        .build();
-                                registerUsage(usageResponse);
-                                usageRegisteredForThisRoundTrip = true;
-                            }
                             conversationHistory.add(LlmMessage.assistant(finalContent,
                                     streamingReasoning != null ? streamingReasoning.toString() : null));
                             lastAssistantResponse = finalContent;
@@ -1058,8 +1046,36 @@ public class ChatView extends ViewPart {
                 });
             }
         } else if (chunk.isComplete() && streamingHandledToolCalls.get()) {
+            String finalContent = streamingContent != null ? streamingContent.toString() : ""; //$NON-NLS-1$
+            String finalReasoning = streamingReasoning != null ? streamingReasoning.toString() : null;
+            registerDirectStreamUsageOnce(finalContent, finalReasoning, LlmResponse.FINISH_REASON_TOOL_USE);
             LOG.debug("Stream complete ignored - tool calls are being processed"); //$NON-NLS-1$
         }
+    }
+
+    private void registerDirectStreamUsageOnce(String content, String reasoning, String finishReason) {
+        if (usageRegisteredForThisRoundTrip) {
+            return;
+        }
+        LlmResponse.Usage usage = latestStreamUsage != null
+                ? latestStreamUsage
+                : estimateUsageForResponse(currentStreamingRequest, content, reasoning);
+        LlmResponse usageResponse = LlmResponse.builder()
+                .content(content)
+                .usage(usage)
+                .finishReason(finishReason)
+                .build();
+        registerUsage(usageResponse);
+        usageRegisteredForThisRoundTrip = true;
+    }
+
+    private boolean isUsageOnlyChunk(LlmStreamChunk chunk) {
+        String content = chunk.getContent();
+        return !chunk.isError()
+                && !chunk.hasReasoning()
+                && (content == null || content.isEmpty())
+                && !chunk.hasToolCalls()
+                && !chunk.isComplete();
     }
 
     /**
@@ -1612,9 +1628,11 @@ public class ChatView extends ViewPart {
                         return;
                     }
 
-                    if (chunk.hasUsage() && streamUsage[0] == null) {
+                    if (chunk.hasUsage()) {
                         streamUsage[0] = chunk.getUsage();
-                        return;
+                        if (isUsageOnlyChunk(chunk)) {
+                            return;
+                        }
                     }
 
                     if (chunk.hasReasoning()) {

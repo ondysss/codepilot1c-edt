@@ -4,11 +4,13 @@ import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.Optional;
 
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessManager;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessSettings;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociation;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationManager;
+import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseManager;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IRuntimeComponentManager;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IRuntimeComponentManager.ThickClientInfo;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.impl.RuntimeExecutionCommandBuilder;
@@ -94,6 +96,10 @@ public class EdtRuntimeService {
     }
 
     public InfobaseReference resolveDefaultInfobase(String projectName) {
+        return resolveDefaultInfobaseBinding(projectName).infobase;
+    }
+
+    InfobaseBinding resolveDefaultInfobaseBinding(String projectName) {
         IProject project = gateway.resolveProject(projectName);
         if (project == null) {
             throw new IllegalStateException("EDT project not found: " + projectName); //$NON-NLS-1$
@@ -128,13 +134,13 @@ public class EdtRuntimeService {
         }
 
         if (infobase != null) {
-            return infobase;
+            return new InfobaseBinding(project, infobase, InfobaseBindingSource.ASSOCIATION, null, null);
         }
 
         // Fallback: standalone-server binding (com.e1c.g5.v8.dt.platform.standaloneserver.wst.core).
-        InfobaseReference standaloneInfobase = resolveStandaloneInfobase(project);
-        if (standaloneInfobase != null) {
-            return standaloneInfobase;
+        InfobaseBinding standaloneBinding = resolveStandaloneInfobase(project);
+        if (standaloneBinding != null) {
+            return standaloneBinding;
         }
 
         String message;
@@ -152,6 +158,42 @@ public class EdtRuntimeService {
         throw failure;
     }
 
+    enum InfobaseBindingSource {
+        ASSOCIATION("association"), //$NON-NLS-1$
+        STANDALONE_SERVER("standalone_server"); //$NON-NLS-1$
+
+        private final String detailValue;
+
+        InfobaseBindingSource(String detailValue) {
+            this.detailValue = detailValue;
+        }
+
+        String detailValue() {
+            return detailValue;
+        }
+    }
+
+    static final class InfobaseBinding {
+        private final IProject project;
+        private final InfobaseReference infobase;
+        private final InfobaseBindingSource source;
+        private final StandaloneServerInfobase standaloneInfobase;
+        private final IServer standaloneServer;
+
+        InfobaseBinding(IProject project, InfobaseReference infobase, InfobaseBindingSource source,
+                StandaloneServerInfobase standaloneInfobase, IServer standaloneServer) {
+            this.project = project;
+            this.infobase = infobase;
+            this.source = source;
+            this.standaloneInfobase = standaloneInfobase;
+            this.standaloneServer = standaloneServer;
+        }
+
+        String bindingSourceDetail() {
+            return source == null ? "" : source.detailValue(); //$NON-NLS-1$
+        }
+    }
+
     /**
      * Attempts to resolve an {@link InfobaseReference} for a project bound through the standalone
      * server plugin. Returns {@code null} if the standalone service is not registered, no server
@@ -161,7 +203,7 @@ public class EdtRuntimeService {
      * standalone-server service does not stall the agent tool dispatcher while a 30-second
      * {@code ServiceTracker.waitForService} elapses.
      */
-    private InfobaseReference resolveStandaloneInfobase(IProject project) {
+    private InfobaseBinding resolveStandaloneInfobase(IProject project) {
         IStandaloneServerService service = gateway.peekStandaloneServerService();
         if (service == null) {
             return null;
@@ -198,11 +240,46 @@ public class EdtRuntimeService {
                 if (!matchesProject(standaloneInfobase, project, projectName)) {
                     continue;
                 }
-                InfobaseReference adapted = adaptStandaloneInfobase(standaloneInfobase);
-                if (adapted != null) {
-                    return adapted;
+                InfobaseReference canonical = resolveStandaloneCanonicalReference(standaloneInfobase);
+                if (canonical == null) {
+                    canonical = adaptStandaloneInfobase(standaloneInfobase);
+                }
+                if (canonical != null) {
+                    return new InfobaseBinding(project, canonical, InfobaseBindingSource.STANDALONE_SERVER,
+                            standaloneInfobase, server);
                 }
             }
+        }
+        return null;
+    }
+
+    private InfobaseReference resolveStandaloneCanonicalReference(StandaloneServerInfobase standaloneInfobase) {
+        if (standaloneInfobase == null) {
+            return null;
+        }
+        try {
+            IInfobaseManager manager = gateway.getInfobaseManager();
+            if (standaloneInfobase.getInfobaseId() != null) {
+                Optional<InfobaseReference> byUuid = manager.findInfobaseByUuid(standaloneInfobase.getInfobaseId());
+                if (byUuid.isPresent()) {
+                    return byUuid.get();
+                }
+                LOG.warn("Canonical standalone-server infobase reference not found by UUID; " //$NON-NLS-1$
+                        + "using adapter fallback"); //$NON-NLS-1$
+                return null;
+            }
+            if (standaloneInfobase.getName() != null) {
+                Optional<InfobaseReference> byName = manager.findInfobaseByName(standaloneInfobase.getName());
+                if (byName.isPresent()) {
+                    return byName.get();
+                }
+            }
+            LOG.warn("Canonical standalone-server infobase reference not found; using adapter fallback"); //$NON-NLS-1$
+        } catch (RuntimeException | NoSuchMethodError e) {
+            String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                    ? e.getMessage() : e.getClass().getSimpleName();
+            LOG.warn("Failed to resolve canonical standalone-server infobase reference; " //$NON-NLS-1$
+                    + "using adapter fallback: " + detail, e); //$NON-NLS-1$
         }
         return null;
     }
@@ -448,27 +525,93 @@ public class EdtRuntimeService {
 
     public boolean updateInfobase(String projectName, boolean keepConnected, IProgressMonitor monitor)
             throws Exception {
-        IProject project = gateway.resolveProject(projectName);
-        if (project == null) {
-            throw new IllegalStateException("EDT project not found: " + projectName); //$NON-NLS-1$
-        }
-        InfobaseReference infobase = resolveDefaultInfobase(projectName);
-        Object manager = gateway.getInfobaseSynchronizationManager();
-        IProgressMonitor usedMonitor = monitor != null ? monitor : new NullProgressMonitor();
-        Object callback = createAutoUpdateCallback(manager.getClass().getClassLoader());
-        Method updateMethod = findUpdateMethod(manager.getClass());
-        if (updateMethod == null) {
-            throw new IllegalStateException("EDT updateInfobase method not found"); //$NON-NLS-1$
-        }
+        InfobaseBinding binding = resolveDefaultInfobaseBinding(projectName);
+        IProject project = binding.project;
+        InfobaseReference infobase = binding.infobase;
         try {
+            Object manager = gateway.getInfobaseSynchronizationManager();
+            IProgressMonitor usedMonitor = monitor != null ? monitor : new NullProgressMonitor();
+            Object callback = createAutoUpdateCallback(manager.getClass().getClassLoader());
+            Method updateMethod = findUpdateMethod(manager.getClass());
+            if (updateMethod == null) {
+                throw new IllegalStateException("EDT updateInfobase method not found"); //$NON-NLS-1$
+            }
+            logUpdateInvocation(projectName, binding, manager, updateMethod, keepConnected);
             Object result = updateMethod.invoke(manager, project, infobase, callback, Boolean.valueOf(keepConnected),
                     usedMonitor);
             return result instanceof Boolean ? ((Boolean) result).booleanValue() : false;
         } catch (InvocationTargetException e) {
-            if (e.getCause() instanceof Exception cause) {
-                throw cause;
+            Throwable cause = e.getCause() == null ? e : e.getCause();
+            EdtInfobaseUpdateException classified = classifyUpdateFailure(binding, cause);
+            if (classified != null) {
+                throw classified;
+            }
+            if (cause instanceof Exception exception) {
+                throw exception;
             }
             throw new IllegalStateException("EDT updateInfobase failed: " + e.getMessage(), e); //$NON-NLS-1$
+        } catch (Exception e) {
+            EdtInfobaseUpdateException classified = classifyUpdateFailure(binding, e);
+            if (classified != null) {
+                throw classified;
+            }
+            throw e;
+        }
+    }
+
+    private void logUpdateInvocation(String projectName, InfobaseBinding binding, Object manager, Method updateMethod,
+            boolean keepConnected) {
+        LOG.info("edt_update_infobase invoking sync manager project=%s binding_source=%s " //$NON-NLS-1$
+                + "infobase_class=%s standalone_server=%s sync_manager_class=%s method_signature=%s "
+                + "keep_connected=%s", //$NON-NLS-1$
+                projectName,
+                binding.bindingSourceDetail(),
+                className(binding.infobase),
+                standaloneServerName(binding.standaloneServer),
+                className(manager),
+                updateMethod.toGenericString(),
+                Boolean.valueOf(keepConnected));
+    }
+
+    private static EdtInfobaseUpdateException classifyUpdateFailure(InfobaseBinding binding, Throwable failure) {
+        Throwable sshCause = findMissingSshProviderCause(failure);
+        if (sshCause == null) {
+            return null;
+        }
+        String message = failure.getMessage() == null || failure.getMessage().isBlank()
+                ? sshCause.getMessage() : failure.getMessage();
+        return new EdtInfobaseUpdateException(message, failure, "ssh", //$NON-NLS-1$
+                binding == null ? "" : binding.bindingSourceDetail(), //$NON-NLS-1$
+                sshCause.getClass().getName());
+    }
+
+    private static Throwable findMissingSshProviderCause(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null
+                    && (message.contains("Provider \"ssh\" not installed") //$NON-NLS-1$
+                            || message.contains("Provider 'ssh' not installed"))) { //$NON-NLS-1$
+                return current;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private static String className(Object value) {
+        return value == null ? "" : value.getClass().getName(); //$NON-NLS-1$
+    }
+
+    private static String standaloneServerName(IServer server) {
+        if (server == null) {
+            return ""; //$NON-NLS-1$
+        }
+        try {
+            String name = server.getName();
+            return name == null ? "" : name; //$NON-NLS-1$
+        } catch (RuntimeException | NoSuchMethodError e) {
+            return server.toString();
         }
     }
 

@@ -81,6 +81,25 @@ public class FileEditApplier {
 
             if (matchResult.isSuccess()) {
                 MatchLocation location = matchResult.getLocation().orElseThrow();
+                if (matchResult.getStrategy() != MatchStrategy.EXACT) {
+                    ReplacementShapeSafety.SafetyResult safety = ReplacementShapeSafety.evaluate(
+                            location.getMatchedText(), block.getReplaceText());
+                    if (!safety.isSafe()) {
+                        Hunk failedHunk = new Hunk(
+                                block.getBlockIndex(),
+                                location.getStartLine(),
+                                location.getEndLine(),
+                                location.getMatchedText(),
+                                block.getReplaceText(),
+                                HunkStatus.FAILED,
+                                safety.reason()
+                        );
+                        failedHunks.add(failedHunk);
+                        LOG.warn("FileEditApplier: block %d failed safety check: %s", //$NON-NLS-1$
+                                block.getBlockIndex(), safety.reason());
+                        continue;
+                    }
+                }
                 matchedEdits.add(new MatchedEdit(block, location, matchResult.getStrategy()));
             } else {
                 // Create failed hunk with feedback

@@ -54,6 +54,7 @@ public class MetadataBuildProfile implements AgentProfile {
             "edt_go_to_definition",
             "edt_get_symbol_info",
             "edt_diagnostics",
+            "update_infobase_status",
             // Forms
             "create_form",
             "apply_form_recipe",
@@ -157,6 +158,7 @@ public class MetadataBuildProfile implements AgentProfile {
                 PermissionRule.ask("edt_diagnostics")
                         .withDescription("EDT диагностика: smoke, trace, анализ ошибок, обновление ИБ, запуск")
                         .forAllResources(),
+                PermissionRule.allow("update_infobase_status").forAllResources(),
                 PermissionRule.ask("ensure_module_artifact")
                         .withDescription("Создание/подготовка файлов модулей EDT")
                         .forAllResources()

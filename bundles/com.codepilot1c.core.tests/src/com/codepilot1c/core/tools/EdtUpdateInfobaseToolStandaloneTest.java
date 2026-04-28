@@ -16,6 +16,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -26,11 +28,16 @@ import org.junit.Test;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessManager;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociation;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationManager;
+import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseManager;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IRuntimeComponentManager;
 import com._1c.g5.v8.dt.platform.services.model.InfobaseReference;
+import com.codepilot1c.core.edt.runtime.EdtInfobaseUpdateException;
 import com.codepilot1c.core.edt.runtime.EdtProjectResolver;
 import com.codepilot1c.core.edt.runtime.EdtRuntimeGateway;
 import com.codepilot1c.core.edt.runtime.EdtRuntimeService;
+import com.codepilot1c.core.tools.workspace.BackgroundJobRegistry;
+import com.codepilot1c.core.tools.workspace.BackgroundJobRegistry.JobState;
+import com.codepilot1c.core.tools.workspace.BackgroundJobRegistry.JobStatus;
 import com.codepilot1c.core.tools.workspace.EdtUpdateInfobaseTool;
 import com.e1c.g5.v8.dt.platform.standaloneserver.wst.core.IStandaloneServerService;
 import com.e1c.g5.v8.dt.platform.standaloneserver.wst.core.StandaloneServerInfobase;
@@ -156,7 +163,102 @@ public class EdtUpdateInfobaseToolStandaloneTest {
         assertEquals("StandaloneDemo", json.get("project_name").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
+    @Test
+    public void asyncStandaloneUpdateClassifiesMissingSshProviderFailure() throws Exception {
+        File workspaceRoot = Files.createTempDirectory("edt-update-standalone-async").toFile(); //$NON-NLS-1$
+        InfobaseReference resolved = newInfobaseReferenceProxy();
+        EdtUpdateInfobaseTool tool = new StandaloneTestTool(
+                new StubResolverReturning(resolved),
+                new MissingSshProviderRuntimeService(),
+                workspaceRoot);
+
+        ToolResult accepted = tool.execute(Map.of(
+                "project_name", "StandaloneDemo", //$NON-NLS-1$ //$NON-NLS-2$
+                "async", Boolean.TRUE //$NON-NLS-1$
+        )).join();
+
+        assertTrue(accepted.isSuccess());
+        JsonObject acceptedJson = JsonParser.parseString(accepted.getContent()).getAsJsonObject();
+        String jobId = acceptedJson.get("job_id").getAsString(); //$NON-NLS-1$
+        JobStatus finished = pollForTerminal(BackgroundJobRegistry.getInstance(), jobId);
+
+        assertEquals(JobState.DONE, finished.getState());
+        assertNotNull(finished.getResult());
+        JsonObject json = JsonParser.parseString(finished.getResult()).getAsJsonObject();
+        assertEquals("error", json.get("status").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals("UPDATE_FAILED", json.get("error_code").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
+        JsonObject details = json.getAsJsonObject("details"); //$NON-NLS-1$
+        assertNotNull(details);
+        assertTrue("missing details.provider in async error payload: " + finished.getResult(), //$NON-NLS-1$
+                details.has("provider")); //$NON-NLS-1$
+        assertEquals("ssh", details.get("provider").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue("missing details.binding_source in async error payload: " + finished.getResult(), //$NON-NLS-1$
+                details.has("binding_source")); //$NON-NLS-1$
+        assertEquals("standalone_server", details.get("binding_source").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void standaloneUpdateUsesBoundInfobaseReferenceWhenAvailable() throws Exception {
+        IProject project = newProjectProxy("StandaloneDemo"); //$NON-NLS-1$
+        UUID infobaseId = UUID.randomUUID();
+        InfobaseReference adapterFallback = newInfobaseReferenceProxy();
+        InfobaseReference canonical = newInfobaseReferenceProxy();
+        StandaloneServerInfobase module = newStandaloneModule(project, "StandaloneDemo", //$NON-NLS-1$
+                infobaseId, "Standalone IB", adapterFallback); //$NON-NLS-1$
+        RecordingSynchronizationManager syncManager = new RecordingSynchronizationManager();
+        EdtRuntimeService runtimeService = new EdtRuntimeService(
+                new CanonicalStandaloneGateway(project,
+                        new StubStandaloneServerService(List.of(newServerWithModules(module))),
+                        newInfobaseManagerReturning(infobaseId, "Standalone IB", canonical), //$NON-NLS-1$
+                        syncManager));
+
+        assertTrue(runtimeService.updateInfobase("StandaloneDemo", true, null)); //$NON-NLS-1$
+
+        assertSame("EDT sync manager must receive the canonical IInfobaseManager reference", //$NON-NLS-1$
+                canonical, syncManager.infobase);
+        assertFalse("Canonical reference must differ from the standalone adapter fallback", //$NON-NLS-1$
+                adapterFallback == syncManager.infobase);
+    }
+
+    @Test
+    public void standaloneUpdateFallsBackToAdapterWhenUuidMissesEvenIfNameMatches() throws Exception {
+        IProject project = newProjectProxy("StandaloneDemo"); //$NON-NLS-1$
+        UUID infobaseId = UUID.randomUUID();
+        InfobaseReference adapterFallback = newInfobaseReferenceProxy();
+        InfobaseReference sameNameWrongReference = newInfobaseReferenceProxy();
+        StandaloneServerInfobase module = newStandaloneModule(project, "StandaloneDemo", //$NON-NLS-1$
+                infobaseId, "Standalone IB", adapterFallback); //$NON-NLS-1$
+        RecordingSynchronizationManager syncManager = new RecordingSynchronizationManager();
+        EdtRuntimeService runtimeService = new EdtRuntimeService(
+                new CanonicalStandaloneGateway(project,
+                        new StubStandaloneServerService(List.of(newServerWithModules(module))),
+                        newInfobaseManagerReturning(UUID.randomUUID(), "Standalone IB", //$NON-NLS-1$
+                                sameNameWrongReference),
+                        syncManager));
+
+        assertTrue(runtimeService.updateInfobase("StandaloneDemo", true, null)); //$NON-NLS-1$
+
+        assertSame("UUID miss must not fall through to name lookup for a mutating update", //$NON-NLS-1$
+                adapterFallback, syncManager.infobase);
+        assertFalse("Same-name reference must not be used when standalone UUID does not match", //$NON-NLS-1$
+                sameNameWrongReference == syncManager.infobase);
+    }
+
     // --- helpers --------------------------------------------------------------------------------
+
+    private static JobStatus pollForTerminal(BackgroundJobRegistry registry, String jobId)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline) {
+            JobStatus status = registry.getStatus(jobId).orElse(null);
+            if (status != null
+                    && (status.getState() == JobState.DONE || status.getState() == JobState.FAILED)) {
+                return status;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("Job " + jobId + " never reached terminal state"); //$NON-NLS-1$ //$NON-NLS-2$
+    }
 
     private static IProject newProjectProxy(String projectName) {
         return (IProject) Proxy.newProxyInstance(
@@ -179,7 +281,12 @@ public class EdtUpdateInfobaseToolStandaloneTest {
 
     private static StandaloneServerInfobase newStandaloneModule(IProject project, String projectName,
             InfobaseReference adapter) {
-        StandaloneServerInfobase module = new StandaloneServerInfobase(java.util.UUID.randomUUID()) {
+        return newStandaloneModule(project, projectName, UUID.randomUUID(), projectName, adapter);
+    }
+
+    private static StandaloneServerInfobase newStandaloneModule(IProject project, String projectName,
+            UUID infobaseId, String infobaseName, InfobaseReference adapter) {
+        StandaloneServerInfobase module = new StandaloneServerInfobase(infobaseId) {
             @Override
             public IProject getProject() {
                 return project;
@@ -188,6 +295,16 @@ public class EdtUpdateInfobaseToolStandaloneTest {
             @Override
             public String getProjectName() {
                 return projectName;
+            }
+
+            @Override
+            public UUID getInfobaseId() {
+                return infobaseId;
+            }
+
+            @Override
+            public String getName() {
+                return infobaseName;
             }
 
             @SuppressWarnings("rawtypes")
@@ -200,6 +317,21 @@ public class EdtUpdateInfobaseToolStandaloneTest {
             }
         };
         return module;
+    }
+
+    private static IInfobaseManager newInfobaseManagerReturning(UUID infobaseId, String infobaseName,
+            InfobaseReference canonical) {
+        return (IInfobaseManager) Proxy.newProxyInstance(
+                IInfobaseManager.class.getClassLoader(),
+                new Class<?>[] { IInfobaseManager.class },
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "findInfobaseByUuid" -> Optional.ofNullable( //$NON-NLS-1$
+                            args != null && args.length == 1 && infobaseId.equals(args[0]) ? canonical : null);
+                    case "findInfobaseByName" -> Optional.ofNullable( //$NON-NLS-1$
+                            args != null && args.length == 1 && infobaseName.equals(args[0]) ? canonical : null);
+                    case "toString" -> "StubInfobaseManager"; //$NON-NLS-1$ //$NON-NLS-2$
+                    default -> defaultReturn(method);
+                });
     }
 
     private static IServer newServerWithModules(IModule... modules) {
@@ -372,6 +504,87 @@ public class EdtUpdateInfobaseToolStandaloneTest {
         @Override
         public IStandaloneServerService peekStandaloneServerService() {
             return standaloneService;
+        }
+    }
+
+    private static final class CanonicalStandaloneGateway extends EdtRuntimeGateway {
+        private final IProject project;
+        private final IStandaloneServerService standaloneService;
+        private final IInfobaseManager infobaseManager;
+        private final Object synchronizationManager;
+
+        CanonicalStandaloneGateway(IProject project, IStandaloneServerService standaloneService,
+                IInfobaseManager infobaseManager, Object synchronizationManager) {
+            this.project = project;
+            this.standaloneService = standaloneService;
+            this.infobaseManager = infobaseManager;
+            this.synchronizationManager = synchronizationManager;
+        }
+
+        @Override
+        public IProject resolveProject(String projectName) {
+            return project;
+        }
+
+        @Override
+        public IInfobaseAssociationManager getInfobaseAssociationManager() {
+            return (IInfobaseAssociationManager) Proxy.newProxyInstance(
+                    IInfobaseAssociationManager.class.getClassLoader(),
+                    new Class<?>[] { IInfobaseAssociationManager.class },
+                    (proxy, method, args) -> {
+                        if ("getAssociation".equals(method.getName())) { //$NON-NLS-1$
+                            return Optional.empty();
+                        }
+                        return defaultReturn(method);
+                    });
+        }
+
+        @Override
+        public IInfobaseManager getInfobaseManager() {
+            return infobaseManager;
+        }
+
+        @Override
+        public IInfobaseAccessManager getInfobaseAccessManager() {
+            throw new UnsupportedOperationException("not used by tests"); //$NON-NLS-1$
+        }
+
+        @Override
+        public IRuntimeComponentManager getRuntimeComponentManager() {
+            throw new UnsupportedOperationException("not used by tests"); //$NON-NLS-1$
+        }
+
+        @Override
+        public Object getInfobaseSynchronizationManager() {
+            return synchronizationManager;
+        }
+
+        @Override
+        public IStandaloneServerService getStandaloneServerServiceOrNull() {
+            return standaloneService;
+        }
+
+        @Override
+        public IStandaloneServerService peekStandaloneServerService() {
+            return standaloneService;
+        }
+    }
+
+    public static final class RecordingSynchronizationManager {
+        volatile IProject project;
+        volatile InfobaseReference infobase;
+        volatile Object callback;
+        volatile Boolean keepConnected;
+        volatile IProgressMonitor monitor;
+
+        public boolean updateInfobase(IProject project, InfobaseReference infobase, Object callback,
+                Boolean keepConnected, IProgressMonitor monitor) {
+            this.project = project;
+            this.infobase = infobase;
+            this.callback = callback;
+            this.keepConnected = keepConnected;
+            this.monitor = monitor;
+            return true;
         }
     }
 
@@ -558,6 +771,16 @@ public class EdtUpdateInfobaseToolStandaloneTest {
         @Override
         public boolean updateInfobase(String projectName, boolean keepConnected, IProgressMonitor monitor) {
             return true;
+        }
+    }
+
+    private static final class MissingSshProviderRuntimeService extends EdtRuntimeService {
+        @Override
+        public boolean updateInfobase(String projectName, boolean keepConnected, IProgressMonitor monitor)
+                throws EdtInfobaseUpdateException {
+            IllegalStateException cause = new IllegalStateException("Provider \"ssh\" not installed"); //$NON-NLS-1$
+            throw new EdtInfobaseUpdateException(cause.getMessage(), cause, "ssh", //$NON-NLS-1$
+                    "standalone_server", cause.getClass().getName()); //$NON-NLS-1$
         }
     }
 }

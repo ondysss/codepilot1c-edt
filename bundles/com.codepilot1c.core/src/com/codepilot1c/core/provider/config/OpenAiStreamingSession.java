@@ -21,13 +21,10 @@ final class OpenAiStreamingSession {
     private final boolean delayContentStreaming;
     private final StringBuilder bufferedContent = new StringBuilder();
     /**
-     * Real usage captured from the terminal usage chunk emitted by providers that
-     * honour {@code stream_options: {include_usage: true}}. Emitted downstream
-     * exactly once as {@link LlmStreamChunk#usage(LlmResponse.Usage)}; subsequent
-     * usage objects in the same stream are ignored to prevent double-emission.
+     * Most recent real usage captured from stream usage chunks emitted by
+     * providers that honour {@code stream_options: {include_usage: true}}.
      */
     private volatile LlmResponse.Usage lastUsage;
-    private boolean usageChunkEmitted;
 
     OpenAiStreamingSession(String correlationId, boolean requestHasTools,
             OpenAiStreamingToolCallParser toolCallParser) {
@@ -125,12 +122,9 @@ final class OpenAiStreamingSession {
             if (chunkData.hasUsage()) {
                 lastUsage = chunkData.getUsage();
                 summary.setUsage(chunkData.getUsage());
-                if (!usageChunkEmitted) {
-                    LlmStreamChunk usageChunk = LlmStreamChunk.usage(chunkData.getUsage());
-                    if (usageChunk != null) {
-                        consumer.accept(usageChunk);
-                        usageChunkEmitted = true;
-                    }
+                LlmStreamChunk usageChunk = LlmStreamChunk.usage(chunkData.getUsage());
+                if (usageChunk != null) {
+                    consumer.accept(usageChunk);
                 }
             }
 

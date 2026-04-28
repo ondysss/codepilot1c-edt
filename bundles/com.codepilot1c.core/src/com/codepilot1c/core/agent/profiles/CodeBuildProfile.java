@@ -64,6 +64,7 @@ public class CodeBuildProfile implements AgentProfile {
             "ensure_module_artifact",
             // Meta
             "edt_diagnostics",
+            "update_infobase_status",
             "skill",
             "task"
     ));
@@ -119,6 +120,7 @@ public class CodeBuildProfile implements AgentProfile {
                 PermissionRule.allow("get_tasks").forAllResources(),
                 PermissionRule.allow("inspect_platform_reference").forAllResources(),
                 PermissionRule.allow("edt_diagnostics").forAllResources(),
+                PermissionRule.allow("update_infobase_status").forAllResources(),
                 PermissionRule.allow("skill").forAllResources(),
                 PermissionRule.allow("task").forAllResources(),
                 // Write tools - ask

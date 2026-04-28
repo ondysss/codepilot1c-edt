@@ -9,9 +9,7 @@ package com.codepilot1c.core.tools.memory;
 
 import java.util.concurrent.CompletableFuture;
 
-import org.eclipse.core.runtime.ILog;
-import org.eclipse.core.runtime.Platform;
-
+import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.memory.MemoryCategory;
 import com.codepilot1c.core.memory.MemoryEntry;
 import com.codepilot1c.core.memory.MemoryService;
@@ -38,7 +36,7 @@ import com.codepilot1c.core.tools.ToolResult;
 )
 public class RememberFactTool extends AbstractTool {
 
-    private static final ILog LOG = Platform.getLog(RememberFactTool.class);
+    private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(RememberFactTool.class);
 
     private static final String SCHEMA = """
             {
@@ -106,7 +104,7 @@ public class RememberFactTool extends AbstractTool {
             }
 
             MemoryService.remember(projectPath, entry);
-            LOG.info("RememberFactTool: saved fact [" + category + "] " + content); //$NON-NLS-1$ //$NON-NLS-2$
+            LOG.info("RememberFactTool: saved fact [%s] %s", category, content); //$NON-NLS-1$
 
             return ToolResult.success("Fact saved to memory: " + content); //$NON-NLS-1$
         });

@@ -111,6 +111,7 @@ public class BuildAgentProfile implements AgentProfile {
             "evaluate_expression",
             "debug_status",
             "edt_diagnostics",
+            "update_infobase_status",
             "qa_inspect",
             "qa_generate",
             "qa_run",
@@ -191,6 +192,7 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("qa_plan_scenario").forAllResources(),
                 PermissionRule.allow("qa_validate_feature").forAllResources(),
                 PermissionRule.allow("get_profiling_results").forAllResources(),
+                PermissionRule.allow("update_infobase_status").forAllResources(),
                 PermissionRule.allow("skill").forAllResources(),
                 PermissionRule.allow("task").forAllResources(),
 

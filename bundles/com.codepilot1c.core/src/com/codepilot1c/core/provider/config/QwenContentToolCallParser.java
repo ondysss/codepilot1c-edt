@@ -16,6 +16,8 @@ import java.util.regex.Pattern;
 
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.model.ToolCall;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 
 /**
  * Safety-net fallback parser for Qwen tool calls emitted as XML in text content.
@@ -211,7 +213,7 @@ final class QwenContentToolCallParser {
             String key = paramMatcher.group(1).trim();
             String value = paramMatcher.group(2).trim();
             argsJson.append('"').append(escapeJsonString(key)).append("\":"); //$NON-NLS-1$
-            argsJson.append('"').append(escapeJsonString(value)).append('"');
+            appendXmlParameterValue(argsJson, functionName, key, value);
             first = false;
         }
 
@@ -331,6 +333,34 @@ final class QwenContentToolCallParser {
         }
 
         return results;
+    }
+
+    private static void appendXmlParameterValue(StringBuilder argsJson, String functionName, String key, String value) {
+        String trimmed = value == null ? "" : value.trim(); //$NON-NLS-1$
+        if (shouldParseJsonContainer(functionName, key) && looksLikeJsonContainer(trimmed)) {
+            try {
+                String json = JsonRepairUtil.isComplete(trimmed) ? trimmed : JsonRepairUtil.repair(trimmed);
+                if (JsonRepairUtil.isComplete(json)) {
+                    JsonElement parsed = JsonParser.parseString(json);
+                    if (parsed.isJsonArray() || parsed.isJsonObject()) {
+                        argsJson.append(parsed);
+                        return;
+                    }
+                }
+            } catch (RuntimeException e) {
+                LOG.debug("Content fallback: XML parameter is not valid JSON container: %s", e.getMessage()); //$NON-NLS-1$
+            }
+        }
+        argsJson.append('"').append(escapeJsonString(value)).append('"');
+    }
+
+    private static boolean shouldParseJsonContainer(String functionName, String key) {
+        return ("render_template".equals(functionName) && "sections".equals(key)) //$NON-NLS-1$ //$NON-NLS-2$
+                || ("mutate_form_model".equals(functionName) && "operations".equals(key)); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static boolean looksLikeJsonContainer(String value) {
+        return value.startsWith("{") || value.startsWith("["); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     /**

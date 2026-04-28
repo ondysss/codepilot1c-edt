@@ -95,18 +95,14 @@ final class ProviderStreamProcessingSummary {
     }
 
     /**
-     * Sets the real token usage parsed from a terminal stream usage chunk. The last
-     * non-null call wins; subsequent calls overwrite only if the previous value was
-     * {@code null}, so repeated usage chunks from misbehaving gateways do not
-     * downgrade a good measurement.
+     * Sets the real token usage parsed from a stream usage chunk. The latest
+     * non-null call wins so summaries match downstream latest-usage semantics.
      */
     void setUsage(LlmResponse.Usage usage) {
         if (usage == null) {
             return;
         }
-        if (this.usage == null) {
-            this.usage = usage;
-        }
+        this.usage = usage;
     }
 
     /**

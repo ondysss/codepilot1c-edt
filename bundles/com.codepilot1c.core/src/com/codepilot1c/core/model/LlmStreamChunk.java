@@ -150,8 +150,9 @@ public class LlmStreamChunk {
 
     /**
      * Creates a terminal usage chunk carrying real token counts from the
-     * provider. Emitted once per stream when the provider supports
-     * {@code stream_options: {include_usage: true}}.
+     * provider. A stream may contain multiple usage chunks when an
+     * OpenAI-compatible gateway sends incremental updates; downstream consumers
+     * should treat the latest one as authoritative.
      *
      * <p>The chunk is intentionally non-complete so it does not trigger the
      * stream-termination path in downstream consumers; the normal completion

@@ -58,6 +58,7 @@ public class QABuildProfile implements AgentProfile {
             "debug_status",
             // Smoke & validation (edt_diagnostics dispatches: metadata_smoke, analyze_error)
             "edt_diagnostics",
+            "update_infobase_status",
             "get_diagnostics",
             "get_bookmarks",
             "get_tasks",
@@ -97,6 +98,7 @@ public class QABuildProfile implements AgentProfile {
                 PermissionRule.allow("qa_inspect").forAllResources(),
                 PermissionRule.allow("qa_validate_feature").forAllResources(),
                 PermissionRule.allow("edt_diagnostics").forAllResources(),
+                PermissionRule.allow("update_infobase_status").forAllResources(),
                 PermissionRule.allow("get_diagnostics").forAllResources(),
                 PermissionRule.allow("get_bookmarks").forAllResources(),
                 PermissionRule.allow("get_tasks").forAllResources(),

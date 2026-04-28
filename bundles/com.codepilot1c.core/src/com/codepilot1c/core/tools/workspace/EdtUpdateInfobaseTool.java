@@ -14,6 +14,7 @@ import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.NullProgressMonitor;
 
 import com._1c.g5.v8.dt.platform.services.model.InfobaseReference;
+import com.codepilot1c.core.edt.runtime.EdtInfobaseUpdateException;
 import com.codepilot1c.core.edt.runtime.EdtProjectResolver;
 import com.codepilot1c.core.edt.runtime.EdtToolErrorCode;
 import com.codepilot1c.core.edt.runtime.EdtToolException;
@@ -164,6 +165,8 @@ public class EdtUpdateInfobaseTool extends AbstractTool {
                             "EDT update returned false for project: " + projectName); //$NON-NLS-1$
                 }
                 return ToolResult.success(pretty(result), ToolResult.ToolResultType.CODE);
+            } catch (EdtInfobaseUpdateException e) {
+                return ToolResult.failure(pretty(errorPayload(opId, projectName, workspaceRoot, e)));
             } catch (EdtToolException e) {
                 return ToolResult.failure(pretty(errorPayload(opId, projectName, workspaceRoot, e.getCode(), e.getMessage())));
             } catch (Exception e) {
@@ -199,6 +202,8 @@ public class EdtUpdateInfobaseTool extends AbstractTool {
                 return pretty(error);
             }
             return pretty(result);
+        } catch (EdtInfobaseUpdateException e) {
+            return pretty(errorPayload(opId, projectName, workspaceRoot, e));
         } catch (EdtToolException e) {
             return pretty(errorPayload(opId, projectName, workspaceRoot, e.getCode(), e.getMessage()));
         } catch (Exception e) {
@@ -228,6 +233,18 @@ public class EdtUpdateInfobaseTool extends AbstractTool {
         return result;
     }
 
+    private static JsonObject errorPayload(String opId, String projectName, File workspaceRoot,
+            EdtInfobaseUpdateException exception) {
+        JsonObject result = errorPayload(opId, projectName, workspaceRoot, EdtToolErrorCode.UPDATE_FAILED,
+                exception.getMessage());
+        JsonObject details = new JsonObject();
+        details.addProperty("provider", nullToEmpty(exception.getProvider())); //$NON-NLS-1$
+        details.addProperty("binding_source", nullToEmpty(exception.getBindingSource())); //$NON-NLS-1$
+        details.addProperty("cause_class", nullToEmpty(exception.getCauseClass())); //$NON-NLS-1$
+        result.add("details", details); //$NON-NLS-1$
+        return result;
+    }
+
     protected File getWorkspaceRoot() {
         IWorkspaceRoot root = ResourcesPlugin.getWorkspace() == null ? null : ResourcesPlugin.getWorkspace().getRoot();
         return root == null || root.getLocation() == null ? null : root.getLocation().toFile();
@@ -239,5 +256,9 @@ public class EdtUpdateInfobaseTool extends AbstractTool {
 
     private static String asString(Object value) {
         return value == null ? null : String.valueOf(value).trim();
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value; //$NON-NLS-1$
     }
 }
