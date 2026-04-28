@@ -933,6 +933,9 @@ public class ChatView extends ViewPart {
                     }
                 });
             }
+            if (chunk.isComplete()) {
+                registerDirectStreamUsageOnce(accumulatedContent, accumulatedReasoning, LlmResponse.FINISH_REASON_TOOL_USE);
+            }
             return;
         }
 
