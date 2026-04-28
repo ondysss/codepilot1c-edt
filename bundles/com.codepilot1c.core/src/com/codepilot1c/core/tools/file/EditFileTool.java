@@ -34,6 +34,7 @@ import com.codepilot1c.core.edit.FileEditApplier;
 import com.codepilot1c.core.edit.FuzzyMatcher;
 import com.codepilot1c.core.edit.MatchResult;
 import com.codepilot1c.core.edit.MatchStrategy;
+import com.codepilot1c.core.edit.ReplacementShapeSafety;
 import com.codepilot1c.core.edit.SearchReplaceFormat;
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;

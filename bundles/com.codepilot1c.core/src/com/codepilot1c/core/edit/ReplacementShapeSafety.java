@@ -5,7 +5,7 @@
  * the Free Software Foundation, version 3.
  * SPDX-License-Identifier: AGPL-3.0-only
  */
-package com.codepilot1c.core.tools.file;
+package com.codepilot1c.core.edit;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -15,7 +15,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-final class ReplacementShapeSafety {
+public final class ReplacementShapeSafety {
 
     private static final Pattern CALL_OCCURRENCE = Pattern.compile(
             "([\\p{L}_][\\p{L}\\p{N}_]*(?:\\.[\\p{L}_][\\p{L}\\p{N}_]*)*)\\s*\\("); //$NON-NLS-1$
@@ -25,7 +25,7 @@ final class ReplacementShapeSafety {
     private ReplacementShapeSafety() {
     }
 
-    static SafetyResult evaluate(String oldSlice, String newText) {
+    public static SafetyResult evaluate(String oldSlice, String newText) {
         if (oldSlice == null || newText == null) {
             return SafetyResult.unsafe("Replacement shape safety requires non-null old and new text"); //$NON-NLS-1$
         }
@@ -64,7 +64,8 @@ final class ReplacementShapeSafety {
 
         Map<String, List<CallShape>> newCallsByName = new HashMap<>();
         for (CallShape newCall : extractMultilineCallShapes(newText)) {
-            newCallsByName.computeIfAbsent(normalizeCallName(newCall.name()), ignored -> new ArrayList<>()).add(newCall);
+            newCallsByName.computeIfAbsent(normalizeCallName(newCall.name()), ignored -> new ArrayList<>())
+                    .add(newCall);
         }
 
         for (CallShape oldCall : oldCalls) {
@@ -141,29 +142,29 @@ final class ReplacementShapeSafety {
         return callName.toLowerCase(Locale.ROOT);
     }
 
-    static final class SafetyResult {
+    public static final class SafetyResult {
 
         private final boolean safe;
         private final String reason;
 
-        SafetyResult(boolean safe, String reason) {
+        public SafetyResult(boolean safe, String reason) {
             this.safe = safe;
             this.reason = reason;
         }
 
-        static SafetyResult safe() {
+        public static SafetyResult safe() {
             return new SafetyResult(true, null);
         }
 
-        static SafetyResult unsafe(String reason) {
+        public static SafetyResult unsafe(String reason) {
             return new SafetyResult(false, reason);
         }
 
-        boolean isSafe() {
+        public boolean isSafe() {
             return safe;
         }
 
-        String reason() {
+        public String reason() {
             return reason;
         }
     }
