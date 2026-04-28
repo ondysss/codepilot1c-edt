@@ -139,6 +139,8 @@ public class ChatView extends ViewPart {
     private volatile boolean isStreaming = false;
     /** Whether tool calls were handled during current streaming session */
     private volatile boolean streamingHandledToolCalls = false;
+    /** Prevents double-counting usage for one direct streaming round trip. */
+    private volatile boolean usageRegisteredForThisRoundTrip = false;
 
     /** Whether to show diff preview before applying file changes */
     private boolean previewModeEnabled = false;
@@ -783,6 +785,7 @@ public class ChatView extends ViewPart {
         streamingReasoning = new StringBuffer();
         isStreaming = true;
         streamingHandledToolCalls = false; // Reset for new streaming session
+        usageRegisteredForThisRoundTrip = false;
 
         // Add empty AI message that will be updated with streaming content
         if (!display.isDisposed()) {
@@ -824,6 +827,14 @@ public class ChatView extends ViewPart {
                         handleError(new RuntimeException(chunk.getErrorMessage()));
                     }
                 });
+            }
+            return;
+        }
+
+        if (chunk.hasUsage()) {
+            if (!usageRegisteredForThisRoundTrip) {
+                registerUsage(LlmResponse.builder().usage(chunk.getUsage()).build());
+                usageRegisteredForThisRoundTrip = true;
             }
             return;
         }
@@ -882,11 +893,9 @@ public class ChatView extends ViewPart {
                         // Create response object for tool handling
                         LlmResponse toolResponse = LlmResponse.builder()
                                 .content(accumulatedContent)
-                                .usage(estimateUsageForResponse(currentStreamingRequest, accumulatedContent, accumulatedReasoning))
                                 .toolCalls(toolCalls)
                                 .finishReason(LlmResponse.FINISH_REASON_TOOL_USE)
                                 .build();
-                        registerUsage(toolResponse);
 
                         // Update the displayed message with current content and reasoning
                         if (USE_BROWSER_RENDERING && browserChatPanel != null) {
@@ -938,13 +947,16 @@ public class ChatView extends ViewPart {
 
                         // Add to conversation history
                         if (!finalContent.isEmpty()) {
-                            LlmResponse usageResponse = LlmResponse.builder()
-                                    .content(finalContent)
-                                    .usage(estimateUsageForResponse(currentStreamingRequest, finalContent,
-                                            streamingReasoning != null ? streamingReasoning.toString() : null))
-                                    .finishReason(LlmResponse.FINISH_REASON_STOP)
-                                    .build();
-                            registerUsage(usageResponse);
+                            if (!usageRegisteredForThisRoundTrip) {
+                                LlmResponse usageResponse = LlmResponse.builder()
+                                        .content(finalContent)
+                                        .usage(estimateUsageForResponse(currentStreamingRequest, finalContent,
+                                                streamingReasoning != null ? streamingReasoning.toString() : null))
+                                        .finishReason(LlmResponse.FINISH_REASON_STOP)
+                                        .build();
+                                registerUsage(usageResponse);
+                                usageRegisteredForThisRoundTrip = true;
+                            }
                             conversationHistory.add(LlmMessage.assistant(finalContent));
                             lastAssistantResponse = finalContent;
 
@@ -958,6 +970,17 @@ public class ChatView extends ViewPart {
                 });
             }
         } else if (chunk.isComplete() && streamingHandledToolCalls) {
+            if (!usageRegisteredForThisRoundTrip) {
+                String finalContent = streamingContent != null ? streamingContent.toString() : ""; //$NON-NLS-1$
+                String finalReasoning = streamingReasoning != null ? streamingReasoning.toString() : null;
+                LlmResponse usageResponse = LlmResponse.builder()
+                        .content(finalContent)
+                        .usage(estimateUsageForResponse(currentStreamingRequest, finalContent, finalReasoning))
+                        .finishReason(LlmResponse.FINISH_REASON_TOOL_USE)
+                        .build();
+                registerUsage(usageResponse);
+                usageRegisteredForThisRoundTrip = true;
+            }
             LOG.debug("Stream complete ignored - tool calls are being processed"); //$NON-NLS-1$
         }
     }
@@ -1434,6 +1457,7 @@ public class ChatView extends ViewPart {
             StringBuilder reasoning = new StringBuilder();
             List<ToolCall> toolCalls = new java.util.ArrayList<>();
             final String[] finishReason = { LlmResponse.FINISH_REASON_STOP };
+            final LlmResponse.Usage[] streamUsage = { null };
 
             try {
                 provider.streamComplete(request, chunk -> {
@@ -1443,6 +1467,11 @@ public class ChatView extends ViewPart {
 
                     if (chunk.isError()) {
                         out.completeExceptionally(new RuntimeException(chunk.getErrorMessage()));
+                        return;
+                    }
+
+                    if (chunk.hasUsage()) {
+                        streamUsage[0] = chunk.getUsage();
                         return;
                     }
 
@@ -1471,12 +1500,14 @@ public class ChatView extends ViewPart {
                                     .reasoningContent(reasoning.toString())
                                     .toolCalls(toolCalls)
                                     .finishReason(LlmResponse.FINISH_REASON_TOOL_USE)
+                                    .usage(streamUsage[0])
                                     .build());
                         } else {
                             out.complete(LlmResponse.builder()
                                     .content(content.toString())
                                     .reasoningContent(reasoning.toString())
                                     .finishReason(finishReason[0])
+                                    .usage(streamUsage[0])
                                     .build());
                         }
                     }
@@ -1490,12 +1521,14 @@ public class ChatView extends ViewPart {
                                 .reasoningContent(reasoning.toString())
                                 .toolCalls(toolCalls)
                                 .finishReason(LlmResponse.FINISH_REASON_TOOL_USE)
+                                .usage(streamUsage[0])
                                 .build());
                     } else {
                         out.complete(LlmResponse.builder()
                                 .content(content.toString())
                                 .reasoningContent(reasoning.toString())
                                 .finishReason(finishReason[0])
+                                .usage(streamUsage[0])
                                 .build());
                     }
                 }

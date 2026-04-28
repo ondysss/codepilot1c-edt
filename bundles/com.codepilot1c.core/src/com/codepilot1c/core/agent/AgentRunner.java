@@ -352,6 +352,7 @@ public class AgentRunner implements IAgentRunner {
         StringBuilder contentBuilder = new StringBuilder();
         StringBuilder reasoningBuilder = new StringBuilder();
         List<ToolCall> toolCalls = new ArrayList<>();
+        final LlmResponse.Usage[] latestUsage = { null };
 
         Consumer<LlmStreamChunk> chunkHandler = chunk -> {
             if (cancelRequested.get()) {
@@ -375,6 +376,10 @@ public class AgentRunner implements IAgentRunner {
                 reasoningBuilder.append(chunk.getReasoningContent());
             }
 
+            if (chunk.hasUsage()) {
+                latestUsage[0] = chunk.getUsage();
+            }
+
             if (chunk.isComplete()) {
                 emit(StreamChunkEvent.complete(step, chunk.getFinishReason()));
 
@@ -383,6 +388,7 @@ public class AgentRunner implements IAgentRunner {
                         .toolCalls(toolCalls)
                         .finishReason(chunk.getFinishReason())
                         .reasoningContent(reasoningBuilder.length() > 0 ? reasoningBuilder.toString() : null)
+                        .usage(latestUsage[0])
                         .build();
                 future.complete(response);
             }

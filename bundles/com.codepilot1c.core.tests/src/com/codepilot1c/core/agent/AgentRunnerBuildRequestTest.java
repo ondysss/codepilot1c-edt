@@ -1,6 +1,8 @@
 package com.codepilot1c.core.agent;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Field;
@@ -61,10 +63,37 @@ public class AgentRunnerBuildRequestTest {
         assertFalse("Config disable list must exclude tool", toolNames.contains("glob")); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
+    @Test
+    public void executeStreamingPropagatesLatestUsageChunk() throws Exception {
+        ToolRegistry registry = isolatedRegistry(Map.of());
+        AgentRunner runner = new AgentRunner(new StreamingUsageProvider(), registry, "system"); //$NON-NLS-1$
+
+        LlmResponse response = invokeExecuteStreaming(runner, LlmRequest.builder()
+                .addMessage(LlmMessage.user("test")) //$NON-NLS-1$
+                .stream(true)
+                .build()).join();
+
+        assertEquals("ok", response.getContent()); //$NON-NLS-1$
+        LlmResponse.Usage usage = response.getUsage();
+        assertNotNull(usage);
+        assertEquals(11, usage.getPromptTokens());
+        assertEquals(7, usage.getCompletionTokens());
+        assertEquals(18, usage.getTotalTokens());
+    }
+
     private static LlmRequest invokeBuildRequest(AgentRunner runner, AgentConfig config) throws Exception {
         Method method = AgentRunner.class.getDeclaredMethod("buildRequest", AgentConfig.class); //$NON-NLS-1$
         method.setAccessible(true);
         return (LlmRequest) method.invoke(runner, config);
+    }
+
+    private static CompletableFuture<LlmResponse> invokeExecuteStreaming(AgentRunner runner, LlmRequest request)
+            throws Exception {
+        Method method = AgentRunner.class.getDeclaredMethod("executeStreaming", LlmRequest.class, int.class); //$NON-NLS-1$
+        method.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        CompletableFuture<LlmResponse> response = (CompletableFuture<LlmResponse>) method.invoke(runner, request, 1);
+        return response;
     }
 
     private static void primeContextGate(AgentRunner runner, Set<String> excludedTools) throws Exception {
@@ -161,6 +190,49 @@ public class AgentRunnerBuildRequestTest {
 
         @Override
         public void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer) {
+            consumer.accept(LlmStreamChunk.complete(LlmResponse.FINISH_REASON_STOP));
+        }
+
+        @Override
+        public void cancel() {
+        }
+
+        @Override
+        public void dispose() {
+        }
+    }
+
+    private static final class StreamingUsageProvider implements ILlmProvider {
+        @Override
+        public String getId() {
+            return "streaming-usage"; //$NON-NLS-1$
+        }
+
+        @Override
+        public String getDisplayName() {
+            return "Streaming Usage"; //$NON-NLS-1$
+        }
+
+        @Override
+        public boolean isConfigured() {
+            return true;
+        }
+
+        @Override
+        public boolean supportsStreaming() {
+            return true;
+        }
+
+        @Override
+        public CompletableFuture<LlmResponse> complete(LlmRequest request) {
+            return CompletableFuture.completedFuture(LlmResponse.of("unused")); //$NON-NLS-1$
+        }
+
+        @Override
+        public void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer) {
+            consumer.accept(LlmStreamChunk.content("ok")); //$NON-NLS-1$
+            consumer.accept(LlmStreamChunk.usage(new LlmResponse.Usage(1, 1, 2)));
+            consumer.accept(LlmStreamChunk.usage(new LlmResponse.Usage(11, 7, 18)));
             consumer.accept(LlmStreamChunk.complete(LlmResponse.FINISH_REASON_STOP));
         }
 
