@@ -3,6 +3,7 @@ package com.codepilot1c.core.provider.config;
 import java.util.function.Consumer;
 
 import com.codepilot1c.core.logging.VibeLogger;
+import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -19,6 +20,8 @@ final class OpenAiStreamingSession {
     private final boolean qwenContentFallbackEnabled;
     private final boolean delayContentStreaming;
     private final StringBuilder bufferedContent = new StringBuilder();
+    private volatile LlmResponse.Usage lastUsage;
+    private boolean usageChunkEmitted;
 
     OpenAiStreamingSession(String correlationId, boolean requestHasTools,
             OpenAiStreamingToolCallParser toolCallParser) {
@@ -37,6 +40,10 @@ final class OpenAiStreamingSession {
 
     ProviderStreamProcessingSummary getSummary() {
         return summary;
+    }
+
+    LlmResponse.Usage getLastUsage() {
+        return lastUsage;
     }
 
     String processLine(String line, Consumer<LlmStreamChunk> consumer) {
@@ -102,6 +109,18 @@ final class OpenAiStreamingSession {
                 summary.getMetadataChunks().incrementAndGet();
             } else if (chunkData.isOpaque()) {
                 summary.getOpaqueChunks().incrementAndGet();
+            }
+
+            if (chunkData.hasUsage()) {
+                lastUsage = chunkData.getUsage();
+                summary.setUsage(chunkData.getUsage());
+                if (!usageChunkEmitted) {
+                    LlmStreamChunk usageChunk = LlmStreamChunk.usage(chunkData.getUsage());
+                    if (usageChunk != null) {
+                        consumer.accept(usageChunk);
+                        usageChunkEmitted = true;
+                    }
+                }
             }
 
             return chunkData.getFinishReason();

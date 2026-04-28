@@ -21,14 +21,15 @@ final class OpenAiChunkAdapter {
 
     OpenAiStreamChunkData adapt(JsonObject json) {
         String errorMessage = extractErrorMessage(json);
+        LlmResponse.Usage usage = extractUsage(json);
         JsonArray choices = getArray(json, "choices"); //$NON-NLS-1$
         if (choices == null || choices.size() == 0) {
-            return OpenAiStreamChunkData.of(null, null, null, errorMessage, 0, 0, 0, List.of(), true, false);
+            return OpenAiStreamChunkData.of(null, null, null, errorMessage, 0, 0, 0, List.of(), true, false, usage);
         }
 
         JsonObject choice = getObject(choices.get(0));
         if (choice == null) {
-            return OpenAiStreamChunkData.of(null, null, null, errorMessage, 0, 0, 0, List.of(), true, false);
+            return OpenAiStreamChunkData.of(null, null, null, errorMessage, 0, 0, 0, List.of(), true, false, usage);
         }
 
         JsonObject delta = getObject(choice, "delta"); //$NON-NLS-1$
@@ -77,7 +78,30 @@ final class OpenAiChunkAdapter {
                 && source == null;
 
         return OpenAiStreamChunkData.of(content, reasoning, finishReason, errorMessage, toolCallFragments,
-                repairedToolCalls, truncatedToolCalls, completedToolCalls, metadataOnly, opaque);
+                repairedToolCalls, truncatedToolCalls, completedToolCalls, metadataOnly, opaque, usage);
+    }
+
+    private LlmResponse.Usage extractUsage(JsonObject json) {
+        JsonObject usageObject = getObject(json, "usage"); //$NON-NLS-1$
+        if (usageObject == null) {
+            return null;
+        }
+        try {
+            int promptTokens = getInt(usageObject, "prompt_tokens"); //$NON-NLS-1$
+            int completionTokens = getInt(usageObject, "completion_tokens"); //$NON-NLS-1$
+            int totalTokens = getInt(usageObject, "total_tokens"); //$NON-NLS-1$
+            JsonObject promptDetails = getObject(usageObject, "prompt_tokens_details"); //$NON-NLS-1$
+            int cachedPromptTokens = promptDetails != null ? getInt(promptDetails, "cached_tokens") : 0; //$NON-NLS-1$
+            if (totalTokens <= 0 && (promptTokens > 0 || completionTokens > 0)) {
+                totalTokens = promptTokens + completionTokens;
+            }
+            if (promptTokens == 0 && cachedPromptTokens == 0 && completionTokens == 0 && totalTokens == 0) {
+                return null;
+            }
+            return new LlmResponse.Usage(promptTokens, cachedPromptTokens, completionTokens, totalTokens);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private boolean isMetadataOnly(JsonObject choice, String content, String reasoning,
@@ -145,5 +169,20 @@ final class OpenAiChunkAdapter {
         }
         JsonElement element = object.get(propertyName);
         return element.isJsonPrimitive() ? element.getAsString() : null;
+    }
+
+    private int getInt(JsonObject object, String propertyName) {
+        if (object == null || propertyName == null || !object.has(propertyName) || object.get(propertyName).isJsonNull()) {
+            return 0;
+        }
+        JsonElement element = object.get(propertyName);
+        if (!element.isJsonPrimitive()) {
+            return 0;
+        }
+        try {
+            return element.getAsInt();
+        } catch (NumberFormatException | UnsupportedOperationException e) {
+            return 0;
+        }
     }
 }

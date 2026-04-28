@@ -2,6 +2,8 @@ package com.codepilot1c.core.provider.config;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.codepilot1c.core.model.LlmResponse;
+
 /**
  * Aggregated stream processing counters used for diagnostics and fallback decisions.
  */
@@ -24,6 +26,7 @@ final class ProviderStreamProcessingSummary {
     private final AtomicInteger truncatedToolCalls = new AtomicInteger();
     private final AtomicInteger errorChunks = new AtomicInteger();
     private volatile String terminalErrorMessage;
+    private volatile LlmResponse.Usage usage;
 
     ProviderStreamProcessingSummary(String correlationId, boolean requestHasTools) {
         this.correlationId = correlationId;
@@ -89,6 +92,21 @@ final class ProviderStreamProcessingSummary {
 
     String getTerminalErrorMessage() {
         return terminalErrorMessage;
+    }
+
+    void setUsage(LlmResponse.Usage usage) {
+        if (usage == null || this.usage != null) {
+            return;
+        }
+        this.usage = usage;
+    }
+
+    LlmResponse.Usage getUsage() {
+        return usage;
+    }
+
+    boolean hasUsage() {
+        return usage != null;
     }
 
     boolean hasMeaningfulOutput() {
