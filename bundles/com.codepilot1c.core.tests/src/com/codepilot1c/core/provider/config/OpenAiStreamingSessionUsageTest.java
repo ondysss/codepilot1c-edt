@@ -22,12 +22,12 @@ import com.codepilot1c.core.model.LlmStreamChunk;
 /**
  * Verifies that a terminal OpenAI-compatible usage chunk populates
  * {@link OpenAiStreamingSession#getLastUsage()} and is emitted downstream
- * exactly once via {@link LlmStreamChunk#usage(LlmResponse.Usage)}.
+ * via {@link LlmStreamChunk#usage(LlmResponse.Usage)}.
  */
 public class OpenAiStreamingSessionUsageTest {
 
     @Test
-    public void terminalUsageChunkPopulatesSessionUsageAndEmitsSingleUsageChunk() {
+    public void terminalUsageChunkPopulatesSessionUsageAndEmitsUsageChunk() {
         OpenAiStreamingSession session = new OpenAiStreamingSession(
                 "fixture-usage", false, new OpenAiStreamingToolCallParser()); //$NON-NLS-1$
         List<LlmStreamChunk> chunks = new ArrayList<>();
@@ -59,7 +59,7 @@ public class OpenAiStreamingSessionUsageTest {
         assertNotNull(session.getSummary().getUsage());
         assertEquals(150, session.getSummary().getUsage().getTotalTokens());
 
-        // Exactly one usage chunk emitted downstream.
+        // Usage chunk emitted downstream.
         long usageChunkCount = chunks.stream().filter(LlmStreamChunk::hasUsage).count();
         assertEquals(1L, usageChunkCount);
         LlmStreamChunk usageChunk = chunks.stream()
@@ -105,7 +105,7 @@ public class OpenAiStreamingSessionUsageTest {
     }
 
     @Test
-    public void repeatedUsageChunksAreEmittedOnlyOnce() {
+    public void repeatedUsageChunksEmitEachUpdateAndLatestWins() {
         OpenAiStreamingSession session = new OpenAiStreamingSession(
                 "fixture-usage-repeat", false, new OpenAiStreamingToolCallParser()); //$NON-NLS-1$
         List<LlmStreamChunk> chunks = new ArrayList<>();
@@ -117,14 +117,15 @@ public class OpenAiStreamingSessionUsageTest {
                 "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":99,\"completion_tokens\":99,\"total_tokens\":198}}", //$NON-NLS-1$
                 chunks::add);
 
-        assertEquals(1L, chunks.stream().filter(LlmStreamChunk::hasUsage).count());
-        // First usage emitted; session usage field keeps the latest observation.
-        LlmStreamChunk emitted = chunks.stream()
+        List<LlmStreamChunk> usageChunks = chunks.stream()
                 .filter(LlmStreamChunk::hasUsage)
-                .findFirst()
-                .orElseThrow();
-        assertEquals(10, emitted.getUsage().getPromptTokens());
+                .toList();
+        assertEquals(2, usageChunks.size());
+        assertEquals(10, usageChunks.get(0).getUsage().getPromptTokens());
+
+        LlmStreamChunk latestVisibleUsage = usageChunks.get(usageChunks.size() - 1);
+        assertEquals(99, latestVisibleUsage.getUsage().getPromptTokens());
         assertEquals(99, session.getLastUsage().getPromptTokens());
-        assertEquals(15, session.getSummary().getUsage().getTotalTokens());
+        assertEquals(198, session.getSummary().getUsage().getTotalTokens());
     }
 }
