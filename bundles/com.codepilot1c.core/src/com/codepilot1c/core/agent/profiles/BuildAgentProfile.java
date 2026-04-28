@@ -14,7 +14,6 @@ import java.util.Set;
 
 import com.codepilot1c.core.agent.prompts.AgentPromptTemplates;
 import com.codepilot1c.core.agent.prompts.PromptProviderRegistry;
-import com.codepilot1c.core.permissions.PermissionDecision;
 import com.codepilot1c.core.permissions.PermissionRule;
 
 /**
@@ -92,6 +91,8 @@ public class BuildAgentProfile implements AgentProfile {
             "qa_prepare_form_context",
             "qa_plan_scenario",
             "qa_validate_feature",
+            "start_profiling",
+            "get_profiling_results",
             "skill",
             "task"
     ));
@@ -153,6 +154,7 @@ public class BuildAgentProfile implements AgentProfile {
                 PermissionRule.allow("qa_run").forAllResources(),
                 PermissionRule.allow("qa_plan_scenario").forAllResources(),
                 PermissionRule.allow("qa_validate_feature").forAllResources(),
+                PermissionRule.allow("get_profiling_results").forAllResources(),
                 PermissionRule.allow("skill").forAllResources(),
                 PermissionRule.allow("task").forAllResources(),
 
@@ -219,6 +221,9 @@ public class BuildAgentProfile implements AgentProfile {
                         .forAllResources(),
                 PermissionRule.ask("edt_diagnostics")
                         .withDescription("EDT диагностика: smoke, trace, анализ ошибок, обновление ИБ, запуск")
+                        .forAllResources(),
+                PermissionRule.ask("start_profiling")
+                        .withDescription("Запуск профилирования")
                         .forAllResources()
 		        );
 	    }

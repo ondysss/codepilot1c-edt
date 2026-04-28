@@ -46,6 +46,8 @@ public class QABuildProfile implements AgentProfile {
             // Smoke & validation (edt_diagnostics dispatches: metadata_smoke, analyze_error)
             "edt_diagnostics",
             "get_diagnostics",
+            "start_profiling",
+            "get_profiling_results",
             "skill",
             "task"
     ));
@@ -83,6 +85,7 @@ public class QABuildProfile implements AgentProfile {
                 PermissionRule.allow("qa_validate_feature").forAllResources(),
                 PermissionRule.allow("edt_diagnostics").forAllResources(),
                 PermissionRule.allow("get_diagnostics").forAllResources(),
+                PermissionRule.allow("get_profiling_results").forAllResources(),
                 PermissionRule.allow("skill").forAllResources(),
                 PermissionRule.allow("task").forAllResources(),
                 // Write tools - ask
@@ -106,6 +109,9 @@ public class QABuildProfile implements AgentProfile {
                         .forAllResources(),
                 PermissionRule.ask("author_yaxunit_tests")
                         .withDescription("Генерация/обновление автотестов YAxUnit")
+                        .forAllResources(),
+                PermissionRule.ask("start_profiling")
+                        .withDescription("Запуск профилирования")
                         .forAllResources()
         );
     }

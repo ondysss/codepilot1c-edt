@@ -9,6 +9,9 @@ import java.util.Set;
 
 import org.junit.Test;
 
+import com.codepilot1c.core.permissions.PermissionDecision;
+import com.codepilot1c.core.permissions.PermissionRule;
+
 /**
  * Tests for {@link AgentProfileRegistry} and profile gate enforcement.
  */
@@ -56,6 +59,33 @@ public class AgentProfileRegistryTest {
         assertTrue("Build must include write_file", tools.contains("write_file")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("Build must include create_metadata", tools.contains("create_metadata")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("Build must include git_mutate", tools.contains("git_mutate")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue("Build must include start_profiling", tools.contains("start_profiling")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue("Build must include get_profiling_results", tools.contains("get_profiling_results")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void buildProfileDefinesProfilingPermissions() {
+        AgentProfile build = new BuildAgentProfile();
+
+        assertPermission(build, "get_profiling_results", PermissionDecision.ALLOW); //$NON-NLS-1$
+        assertPermission(build, "start_profiling", PermissionDecision.ASK); //$NON-NLS-1$
+    }
+
+    @Test
+    public void qaProfileContainsProfilingTools() {
+        AgentProfile qa = new QABuildProfile();
+        Set<String> tools = qa.getAllowedTools();
+
+        assertTrue("QA must include start_profiling", tools.contains("start_profiling")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue("QA must include get_profiling_results", tools.contains("get_profiling_results")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void qaProfileDefinesProfilingPermissions() {
+        AgentProfile qa = new QABuildProfile();
+
+        assertPermission(qa, "get_profiling_results", PermissionDecision.ALLOW); //$NON-NLS-1$
+        assertPermission(qa, "start_profiling", PermissionDecision.ASK); //$NON-NLS-1$
     }
 
     @Test
@@ -137,11 +167,36 @@ public class AgentProfileRegistryTest {
         assertFalse("Orchestrator must not include create_metadata", tools.contains("create_metadata")); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
+    @Test
+    public void readonlyProfilesDoNotExposeProfilingTools() {
+        assertProfilingToolsAbsent(new ExploreAgentProfile());
+        assertProfilingToolsAbsent(new PlanAgentProfile());
+        assertProfilingToolsAbsent(new OrchestratorProfile());
+    }
+
     private void assertToolCount(AgentProfile profile, int maxExpected) {
         int count = profile.getAllowedTools().size();
         assertTrue(
                 String.format("Profile '%s' has %d tools, expected <= %d", //$NON-NLS-1$
                         profile.getId(), count, maxExpected),
                 count <= maxExpected);
+    }
+
+    private void assertPermission(AgentProfile profile, String toolName, PermissionDecision expectedDecision) {
+        for (PermissionRule rule : profile.getDefaultPermissions()) {
+            if (toolName.equals(rule.getToolName())) {
+                assertEquals("Unexpected permission for " + toolName, expectedDecision, rule.getDecision()); //$NON-NLS-1$
+                assertEquals("Permission must apply to all resources for " + toolName, "*", rule.getResourcePattern()); //$NON-NLS-1$ //$NON-NLS-2$
+                return;
+            }
+        }
+        assertTrue("Missing permission for " + toolName, false); //$NON-NLS-1$
+    }
+
+    private void assertProfilingToolsAbsent(AgentProfile profile) {
+        Set<String> tools = profile.getAllowedTools();
+        assertFalse(profile.getId() + " must not include start_profiling", tools.contains("start_profiling")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertFalse(profile.getId() + " must not include get_profiling_results", //$NON-NLS-1$
+                tools.contains("get_profiling_results")); //$NON-NLS-1$
     }
 }
