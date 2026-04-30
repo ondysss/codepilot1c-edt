@@ -54,4 +54,27 @@ public class FuzzyMatcherTest {
         assertTrue(result.isSuccess());
         assertEquals(MatchStrategy.EXACT, result.getStrategy());
     }
+
+    @Test
+    public void normalizedWhitespaceMatchKeepsOriginalBoundariesWithCrLfAndTrailingSpaces() {
+        String document = ""
+                + "Процедура ИзменитьМесяц()\r\n"
+                + "\tОбновитьНаКлиенте();   \r\n"
+                + "КонецПроцедуры\r\n"
+                + "\r\n"
+                + "Процедура Следующая()\r\n"
+                + "КонецПроцедуры\r\n";
+        String oldText = ""
+                + "Процедура ИзменитьМесяц()\n"
+                + "\tОбновитьНаКлиенте();\n"
+                + "КонецПроцедуры";
+
+        MatchResult result = new FuzzyMatcher().findMatch(oldText, document);
+
+        assertTrue(result.isSuccess());
+        assertEquals(MatchStrategy.NORMALIZE_WHITESPACE, result.getStrategy());
+        assertEquals("Процедура ИзменитьМесяц()\r\n"
+                + "\tОбновитьНаКлиенте();   \r\n"
+                + "КонецПроцедуры", result.getLocation().orElseThrow().getMatchedText());
+    }
 }

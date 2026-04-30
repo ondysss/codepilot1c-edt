@@ -146,7 +146,27 @@ public class FileEditApplier {
             // Apply the replacement
             String before = currentContent.substring(0, start);
             String after = currentContent.substring(end);
-            currentContent = before + edit.block.getReplaceText() + after;
+            String replacement = edit.block.getReplaceText();
+            if (edit.strategy != MatchStrategy.EXACT) {
+                ReplacementShapeSafety.SafetyResult safety = ReplacementShapeSafety.evaluateResult(
+                        buildSafetyWindow(before, replacement, after));
+                if (!safety.isSafe()) {
+                    Hunk failedHunk = new Hunk(
+                            edit.block.getBlockIndex(),
+                            edit.location.getStartLine(),
+                            edit.location.getEndLine(),
+                            edit.location.getMatchedText(),
+                            replacement,
+                            HunkStatus.FAILED,
+                            safety.reason()
+                    );
+                    failedHunks.add(failedHunk);
+                    LOG.warn("FileEditApplier: block %d failed result safety check: %s", //$NON-NLS-1$
+                            edit.block.getBlockIndex(), safety.reason());
+                    continue;
+                }
+            }
+            currentContent = before + replacement + after;
 
             // Create successful hunk
             Hunk hunk = new Hunk(
@@ -175,6 +195,12 @@ public class FileEditApplier {
                 appliedHunks.size(), blocks.size());
 
         return new ApplyResult(beforeContent, currentContent, allHunks, failedHunks.isEmpty());
+    }
+
+    private String buildSafetyWindow(String before, String replacement, String after) {
+        int beforeStart = Math.max(0, before.length() - 500);
+        int afterEnd = Math.min(after.length(), 500);
+        return before.substring(beforeStart) + replacement + after.substring(0, afterEnd);
     }
 
     /**

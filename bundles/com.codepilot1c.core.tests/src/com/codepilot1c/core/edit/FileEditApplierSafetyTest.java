@@ -67,4 +67,26 @@ public class FileEditApplierSafetyTest {
         assertEquals(1, result.getAppliedHunks().size());
         assertTrue(result.getFailedHunks().isEmpty());
     }
+
+    @Test
+    public void fuzzySearchReplaceHunkIsRejectedWhenResultWouldGlueBslProcedureEnd() {
+        String beforeContent = ""
+                + "Процедура ИзменитьМесяц()\n"
+                + "\tОбновитьНаКлиенте(); \n"
+                + "КонецПроцедуры";
+        String searchText = beforeContent.replace("(); ", "();");
+        String replaceText = ""
+                + "Процедура ИзменитьМесяц()\n"
+                + "\tОбновитьНаКлиенте();\n"
+                + "КонецПроцедурыКонецПроцедуры";
+
+        ApplyResult result = new FileEditApplier().apply(beforeContent,
+                List.of(new EditBlock(searchText, replaceText)));
+
+        assertFalse(result.allSuccessful());
+        assertEquals(beforeContent, result.afterContent());
+        assertTrue(result.getAppliedHunks().isEmpty());
+        assertEquals(1, result.getFailedHunks().size());
+        assertTrue(result.getFailedHunks().get(0).message().contains("glued BSL"));
+    }
 }

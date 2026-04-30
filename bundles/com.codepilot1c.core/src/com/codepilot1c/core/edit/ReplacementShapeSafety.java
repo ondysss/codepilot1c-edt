@@ -21,6 +21,14 @@ public final class ReplacementShapeSafety {
             "([\\p{L}_][\\p{L}\\p{N}_]*(?:\\.[\\p{L}_][\\p{L}\\p{N}_]*)*)\\s*\\("); //$NON-NLS-1$
     private static final Pattern MULTILINE_CALL_START = Pattern.compile(
             "^\\s*([\\p{L}_][\\p{L}\\p{N}_]*(?:\\.[\\p{L}_][\\p{L}\\p{N}_]*)*)\\s*\\(\\s*$"); //$NON-NLS-1$
+    private static final Pattern GLUED_BSL_END = Pattern.compile(
+            "(?iu)(КонецПроцедурыКонецПроцедуры|КонецФункцииКонецФункции)"); //$NON-NLS-1$
+    private static final Pattern GLUED_BSL_DECLARATION = Pattern.compile(
+            "(?iu)(Процедура|Функция)[^\\r\\n]*\\)[ \\t]*(Процедура|Функция)"); //$NON-NLS-1$
+    private static final Pattern GLUED_BSL_END_TO_DECLARATION = Pattern.compile(
+            "(?iu)(КонецПроцедуры|КонецФункции)[ \\t]*(Процедура|Функция)"); //$NON-NLS-1$
+    private static final Pattern GLUED_OPERATOR_AFTER_SEMICOLON = Pattern.compile(
+            "\\S;\\t\\S"); //$NON-NLS-1$
 
     private ReplacementShapeSafety() {
     }
@@ -36,6 +44,36 @@ public final class ReplacementShapeSafety {
         }
 
         return rejectRemovedMultilineCallArguments(oldSlice, newText);
+    }
+
+    public static SafetyResult evaluateResult(String resultFragment) {
+        if (resultFragment == null) {
+            return SafetyResult.unsafe("Replacement shape safety requires non-null result text"); //$NON-NLS-1$
+        }
+
+        String normalized = normalizeLineEndings(resultFragment);
+        if (GLUED_BSL_END.matcher(normalized).find()) {
+            return SafetyResult.unsafe(
+                    "Unsafe fuzzy edit: result contains glued BSL procedure/function endings"); //$NON-NLS-1$
+        }
+        if (GLUED_BSL_END_TO_DECLARATION.matcher(normalized).find()) {
+            return SafetyResult.unsafe(
+                    "Unsafe fuzzy edit: result contains glued BSL procedure/function boundary"); //$NON-NLS-1$
+        }
+
+        String[] lines = normalized.split("\n", -1); //$NON-NLS-1$
+        for (String line : lines) {
+            if (GLUED_BSL_DECLARATION.matcher(line).find()) {
+                return SafetyResult.unsafe(
+                        "Unsafe fuzzy edit: result contains glued BSL procedure/function declarations"); //$NON-NLS-1$
+            }
+            if (GLUED_OPERATOR_AFTER_SEMICOLON.matcher(line).find()) {
+                return SafetyResult.unsafe(
+                        "Unsafe fuzzy edit: result contains glued BSL statements after semicolon"); //$NON-NLS-1$
+            }
+        }
+
+        return SafetyResult.safe();
     }
 
     private static SafetyResult rejectDuplicatedCallOnOneLine(String text) {

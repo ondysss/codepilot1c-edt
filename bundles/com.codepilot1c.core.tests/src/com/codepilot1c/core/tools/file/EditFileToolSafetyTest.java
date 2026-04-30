@@ -80,6 +80,29 @@ public class EditFileToolSafetyTest {
         assertEquals(newText, file.content());
     }
 
+    @Test
+    public void fuzzyReplacementFailsAndDoesNotMutateFileWhenResultWouldGlueProcedureDeclarations()
+            throws Exception {
+        String initialContent = ""
+                + "Процедура Текущая()\n"
+                + "\tВозврат; \n"
+                + "КонецПроцедуры";
+        String oldText = initialContent.replace("Возврат; ", "Возврат;");
+        String newText = ""
+                + "Процедура Текущая()\n"
+                + "\tВозврат;\n"
+                + "Процедура Следующая()Процедура Следующая()\n"
+                + "КонецПроцедуры";
+
+        TestFile file = new TestFile(initialContent);
+
+        ToolResult result = executeEdit(file, oldText, newText);
+
+        assertFalse(result.isSuccess());
+        assertTrue(result.getErrorMessage().contains("glued BSL"));
+        assertEquals(initialContent, file.content());
+    }
+
     private ToolResult executeEdit(TestFile file, String oldText, String newText) {
         return new TestableEditFileTool(file.asIFile()).execute(Map.of(
                 "path", "Project/Module.bsl",

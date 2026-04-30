@@ -8,6 +8,7 @@
 package com.codepilot1c.core.edit;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -131,25 +132,28 @@ public class FuzzyMatcher {
      * Match with whitespace normalization.
      */
     private MatchResult tryWhitespaceNormalizedMatch(String searchText, String documentContent) {
-        String normalizedSearch = normalizeWhitespace(searchText);
-        String normalizedDoc = normalizeWhitespace(documentContent);
+        NormalizedText normalizedSearch = normalizeWhitespaceWithOffsets(searchText);
+        NormalizedText normalizedDoc = normalizeWhitespaceWithOffsets(documentContent);
+        if (normalizedSearch.text().isEmpty()) {
+            return MatchResult.failure("Пустой текст после нормализации пробелов"); //$NON-NLS-1$
+        }
 
-        int normalizedIndex = normalizedDoc.indexOf(normalizedSearch);
+        int normalizedIndex = normalizedDoc.text().indexOf(normalizedSearch.text());
         if (normalizedIndex < 0) {
             return MatchResult.failure("Совпадение не найдено после нормализации пробелов"); //$NON-NLS-1$
         }
 
         // Map back to original offsets
-        int originalStart = mapNormalizedToOriginal(documentContent, normalizedDoc, normalizedIndex);
-        int originalEnd = findOriginalEnd(documentContent, originalStart, searchText, normalizedSearch.length());
+        int originalStart = normalizedDoc.originalStart(normalizedIndex);
+        int originalEnd = normalizedDoc.originalEnd(normalizedIndex + normalizedSearch.text().length());
 
         // Check uniqueness
-        int secondIndex = normalizedDoc.indexOf(normalizedSearch, normalizedIndex + 1);
+        int secondIndex = normalizedDoc.text().indexOf(normalizedSearch.text(), normalizedIndex + 1);
         if (secondIndex >= 0) {
             List<MatchResult.SimilarMatch> candidates = new ArrayList<>();
             candidates.add(extractCandidate(documentContent, originalStart, originalEnd));
-            int secondOriginalStart = mapNormalizedToOriginal(documentContent, normalizedDoc, secondIndex);
-            int secondOriginalEnd = findOriginalEnd(documentContent, secondOriginalStart, searchText, normalizedSearch.length());
+            int secondOriginalStart = normalizedDoc.originalStart(secondIndex);
+            int secondOriginalEnd = normalizedDoc.originalEnd(secondIndex + normalizedSearch.text().length());
             candidates.add(extractCandidate(documentContent, secondOriginalStart, secondOriginalEnd));
             return MatchResult.ambiguous(candidates);
         }
@@ -351,64 +355,59 @@ public class FuzzyMatcher {
      * Normalizes whitespace in text.
      */
     private String normalizeWhitespace(String text) {
-        // Normalize line endings
-        String normalized = text.replace("\r\n", "\n").replace("\r", "\n"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
-        // Remove trailing whitespace from each line
-        String[] lines = normalized.split("\n", -1); //$NON-NLS-1$
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < lines.length; i++) {
-            if (i > 0) sb.append("\n"); //$NON-NLS-1$
-            sb.append(lines[i].stripTrailing());
-        }
-        return sb.toString();
+        return normalizeWhitespaceWithOffsets(text).text();
     }
 
     /**
-     * Maps normalized index back to original document offset.
+     * Normalizes line endings and strips trailing line whitespace while preserving
+     * exact offset mapping back to the original text.
      */
-    private int mapNormalizedToOriginal(String original, String normalized, int normalizedIndex) {
-        // Simple approximation - count characters, adjusting for removed spaces
+    private NormalizedText normalizeWhitespaceWithOffsets(String text) {
+        StringBuilder normalized = new StringBuilder(text.length());
+        int[] originalStarts = new int[text.length()];
+        int[] originalEnds = new int[text.length()];
+        int position = 0;
         int originalIndex = 0;
-        int normalizedPos = 0;
 
-        String normalizedOriginal = normalizeWhitespace(original);
-        while (normalizedPos < normalizedIndex && originalIndex < original.length()) {
-            char origChar = original.charAt(originalIndex);
-            if (normalizedPos < normalizedOriginal.length()) {
-                char normChar = normalizedOriginal.charAt(normalizedPos);
-                if (origChar == normChar || (origChar == '\r' && normChar == '\n')) {
-                    normalizedPos++;
-                }
+        while (originalIndex < text.length()) {
+            int lineStart = originalIndex;
+            int lineEnd = originalIndex;
+            while (lineEnd < text.length() && text.charAt(lineEnd) != '\n' && text.charAt(lineEnd) != '\r') {
+                lineEnd++;
             }
-            originalIndex++;
-        }
-        return originalIndex;
-    }
 
-    /**
-     * Finds the end offset in original document.
-     */
-    private int findOriginalEnd(String documentContent, int originalStart, String searchText, int normalizedLength) {
-        // Approximate by finding the search text lines in document
-        String[] searchLines = searchText.split("\n", -1); //$NON-NLS-1$
-        int lineCount = searchLines.length;
-
-        int currentLine = 0;
-        int pos = originalStart;
-        while (pos < documentContent.length() && currentLine < lineCount) {
-            int nextNewline = documentContent.indexOf('\n', pos);
-            if (nextNewline < 0) {
-                pos = documentContent.length();
-                break;
+            int trimmedLineEnd = lineEnd;
+            while (trimmedLineEnd > lineStart && Character.isWhitespace(text.charAt(trimmedLineEnd - 1))) {
+                trimmedLineEnd--;
             }
-            currentLine++;
-            pos = nextNewline + 1;
+
+            for (int index = lineStart; index < trimmedLineEnd; index++) {
+                normalized.append(text.charAt(index));
+                originalStarts[position] = index;
+                originalEnds[position] = index + 1;
+                position++;
+            }
+
+            if (lineEnd >= text.length()) {
+                originalIndex = lineEnd;
+                continue;
+            }
+
+            int newlineEnd = lineEnd + 1;
+            if (text.charAt(lineEnd) == '\r' && newlineEnd < text.length() && text.charAt(newlineEnd) == '\n') {
+                newlineEnd++;
+            }
+            normalized.append('\n');
+            originalStarts[position] = lineEnd;
+            originalEnds[position] = newlineEnd;
+            position++;
+            originalIndex = newlineEnd;
         }
-        // Adjust for last line if not followed by newline
-        if (currentLine < lineCount && pos < documentContent.length()) {
-            pos = documentContent.length();
-        }
-        return Math.min(pos, documentContent.length());
+
+        return new NormalizedText(
+                normalized.toString(),
+                Arrays.copyOf(originalStarts, position),
+                Arrays.copyOf(originalEnds, position));
     }
 
     /**
@@ -543,5 +542,16 @@ public class FuzzyMatcher {
         int matchedLines = prev[n];
         int avgLineLength = (s1.length() + s2.length()) / (m + n + 1);
         return matchedLines * avgLineLength;
+    }
+
+    private record NormalizedText(String text, int[] originalStarts, int[] originalEnds) {
+
+        int originalStart(int normalizedIndex) {
+            return originalStarts[normalizedIndex];
+        }
+
+        int originalEnd(int normalizedEndIndex) {
+            return originalEnds[normalizedEndIndex - 1];
+        }
     }
 }

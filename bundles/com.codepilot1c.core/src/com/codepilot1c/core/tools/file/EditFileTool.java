@@ -391,6 +391,14 @@ public class EditFileTool extends AbstractTool {
         String after = currentContent.substring(location.getEndOffset());
         String normalizedNewText = normalizeLineEndings(newText, lineSeparator);
         String newContent = before + normalizedNewText + after;
+        if (matchResult.getStrategy() != MatchStrategy.EXACT) {
+            ReplacementShapeSafety.SafetyResult resultSafety = ReplacementShapeSafety.evaluateResult(
+                    buildSafetyWindow(before, normalizedNewText, after));
+            if (!resultSafety.isSafe()) {
+                LOG.warn("edit_file: unsafe fuzzy result blocked: %s", resultSafety.reason()); //$NON-NLS-1$
+                return ToolResult.failure(resultSafety.reason());
+            }
+        }
 
         // Write with same charset
         Charset charset = getFileCharset(file);
@@ -406,6 +414,12 @@ public class EditFileTool extends AbstractTool {
                 "Заменено в строках " + location.getStartLine() + "-" + location.getEndLine() + //$NON-NLS-1$ //$NON-NLS-2$
                         strategyInfo + " в: " + file.getFullPath().toString(), //$NON-NLS-1$
                 ToolResult.ToolResultType.CONFIRMATION);
+    }
+
+    private String buildSafetyWindow(String before, String replacement, String after) {
+        int beforeStart = Math.max(0, before.length() - 500);
+        int afterEnd = Math.min(after.length(), 500);
+        return before.substring(beforeStart) + replacement + after.substring(0, afterEnd);
     }
 
     /**
