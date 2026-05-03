@@ -22,6 +22,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import org.eclipse.core.resources.IFile;
@@ -258,14 +260,17 @@ public class EdtDiagnosticsCollector {
                 }
 
                 ResolvedFileContext context = resolveFileContext(filePath);
+
+                if (context.file() == null) {
+                    throw new IllegalArgumentException("File not found in workspace: " + filePath); //$NON-NLS-1$
+                }
+
                 String resultPath = context.resolvedPath() != null ? context.resolvedPath() : normalizePath(filePath);
 
                 List<EdtDiagnostic> diagnostics = new ArrayList<>();
                 Set<String> seen = new HashSet<>();
 
-                if (context.file() != null && context.file().exists()) {
-                    collectFromMarkers(context.file(), resultPath, query, diagnostics, seen);
-                }
+                collectFromMarkers(context.file(), resultPath, query, diagnostics, seen);
                 if (query.includeRuntimeMarkers() && context.project() != null) {
                     collectRuntimeFileMarkers(context, query, diagnostics, seen);
                 }
@@ -529,8 +534,10 @@ public class EdtDiagnosticsCollector {
                             return;
                         }
 
+                        String locationText = safeString(marker.getLocation());
                         diagnostics.add(EdtDiagnostic.fromRuntimeMarker(
                                 context.resolvedPath(),
+                                parseLineFromLocation(locationText),
                                 message,
                                 sev,
                                 safeString(marker.getSourceType()),
@@ -540,7 +547,7 @@ public class EdtDiagnosticsCollector {
                                 meta != null ? meta.issueType() : null,
                                 meta != null ? meta.issueSeverity() : null,
                                 safeString(marker.getObjectPresentation()),
-                                safeString(marker.getLocation())));
+                                locationText));
                     });
         } catch (Exception e) {
             LOG.warn("Runtime marker manager file diagnostics unavailable for %s: %s", //$NON-NLS-1$
@@ -943,6 +950,7 @@ public class EdtDiagnosticsCollector {
 
                 diagnostics.add(EdtDiagnostic.fromRuntimeMarker(
                         markerPath,
+                        parseLineFromLocation(location),
                         message,
                         sev,
                         safeString(marker.getSourceType()),
@@ -1135,6 +1143,22 @@ public class EdtDiagnosticsCollector {
         } catch (CoreException e) {
             return "unknown"; //$NON-NLS-1$
         }
+    }
+
+    private static final Pattern LOCATION_LINE_PATTERN =
+            Pattern.compile("(?i)\\bline\\s+(\\d+)\\b"); //$NON-NLS-1$
+
+    private static int parseLineFromLocation(String locationText) {
+        if (locationText == null || locationText.isBlank()) return -1;
+        Matcher m = LOCATION_LINE_PATTERN.matcher(locationText);
+        if (m.find()) {
+            try {
+                return Integer.parseInt(m.group(1));
+            } catch (NumberFormatException e) {
+                return -1;
+            }
+        }
+        return -1;
     }
 
     private int safeGetLineOfOffset(IDocument doc, int offset) {

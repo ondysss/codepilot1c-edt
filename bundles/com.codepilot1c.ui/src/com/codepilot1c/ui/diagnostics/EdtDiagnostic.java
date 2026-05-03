@@ -125,6 +125,7 @@ public record EdtDiagnostic(
      */
     public static EdtDiagnostic fromRuntimeMarker(
             String filePath,
+            int lineNumber,
             String message,
             Severity severity,
             String markerType,
@@ -137,7 +138,7 @@ public record EdtDiagnostic(
             String locationText) {
         return new EdtDiagnostic(
                 filePath,
-                -1,
+                lineNumber,
                 -1,
                 -1,
                 message,
