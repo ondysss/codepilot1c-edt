@@ -14,21 +14,28 @@ import java.util.Set;
  * EDT runtime marker haystacks.
  *
  * <p>Extracted as a pure Java utility so it can be unit-tested without the
- * Eclipse runtime. The regression this protects against: with a short
- * {@code generic} set, structural path fragments like
- * {@code DataProcessors/ManagerModule} remained in the token list, so the
- * 2-of-N matcher captured diagnostics from every other data processor's
- * {@code ManagerModule.bsl}.</p>
+ * Eclipse runtime.</p>
+ *
+ * <p>Design invariant: every surviving token must be discriminating, and the
+ * ALL-tokens threshold requires every token to appear in a marker's haystack.
+ * Named module-kind stems ({@code managermodule}, {@code objectmodule}, …)
+ * are intentionally kept out of {@link #GENERIC} so that a path like
+ * {@code Catalogs/InvoiceSettings/ManagerModule.bsl} produces tokens
+ * {@code ["invoicesettings", "managermodule"]} with threshold 2.  This
+ * excludes sibling-object markers — {@code Catalog.InvoiceSettings},
+ * {@code Catalog.InvoiceSettings.Form.ListForm.Form}, etc. — that share
+ * the object-name token but lack the module-kind token.</p>
  */
 public final class PathMatchTokens {
 
     /**
      * Path segments that are too structural/common to identify a specific
-     * metadata object. A path like
-     * {@code DataProcessors/BankStatementsLoader_v2/ManagerModule.bsl} must
-     * reduce to a single unique token {@code bankstatementsloader_v2} —
-     * everything else is either a container kind ({@code dataprocessors}) or
-     * a module filename ({@code managermodule}) shared by many objects.
+     * metadata object. Container kinds ({@code dataprocessors}, etc.) and
+     * truly structureless names ({@code module}) are filtered out; named
+     * module-kind stems such as {@code managermodule} or {@code objectmodule}
+     * are <em>not</em> generic — they are essential discriminators that
+     * prevent the ALL-tokens matcher from matching sibling objects that share
+     * the same object-name prefix but differ in module kind.
      */
     static final Set<String> GENERIC = Set.of(
             // workspace / project-level containers
@@ -97,19 +104,14 @@ public final class PathMatchTokens {
             "schemas", //$NON-NLS-1$
             "schema", //$NON-NLS-1$
             "layout", //$NON-NLS-1$
-            // module filename stems
+            // module filename stems — only truly structureless names are generic here.
+            // Named module types (managermodule, objectmodule, …) are deliberately kept
+            // OUT of this set so they remain as tokens: with ALL-tokens threshold they
+            // distinguish the target module from sibling objects (forms, the catalog/
+            // document itself, etc.) that share the same object-name prefix but differ
+            // in module kind.  Bare "module" (used for CommonModule / form Module.bsl)
+            // is still generic because it appears in many unrelated object types.
             "module", //$NON-NLS-1$
-            "managermodule", //$NON-NLS-1$
-            "objectmodule", //$NON-NLS-1$
-            "commandmodule", //$NON-NLS-1$
-            "formmodule", //$NON-NLS-1$
-            "valuemanagermodule", //$NON-NLS-1$
-            "recordsetmodule", //$NON-NLS-1$
-            "sessionmodule", //$NON-NLS-1$
-            "externalconnectionmodule", //$NON-NLS-1$
-            "managedapplicationmodule", //$NON-NLS-1$
-            "ordinaryapplicationmodule", //$NON-NLS-1$
-            "applicationmodule", //$NON-NLS-1$
             // file-format noise
             "mdo", //$NON-NLS-1$
             "module.bsl", //$NON-NLS-1$

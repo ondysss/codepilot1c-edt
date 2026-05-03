@@ -15,31 +15,49 @@ import org.junit.Test;
 /**
  * Tests for {@link PathMatchTokens}.
  *
- * <p>Regression: get_diagnostics path filter used to leak diagnostics from
- * unrelated objects because structural path segments (DataProcessors,
- * ManagerModule) were not filtered as generic and the 2-of-N threshold
- * matched any sibling data processor's manager module.</p>
+ * <p>Key invariant: named module-kind stems ({@code managermodule},
+ * {@code objectmodule}, …) are NOT in {@link PathMatchTokens#GENERIC}.
+ * With ALL-tokens threshold this prevents sibling-object leaks: a marker
+ * for {@code Catalog.InvoiceSettings} (missing {@code managermodule}) will
+ * not match a query for {@code Catalogs/InvoiceSettings/ManagerModule.bsl}.</p>
  */
 public class PathMatchTokensTest {
 
+    // --- token building ----------------------------------------------------
+
     @Test
-    public void dataProcessorManagerModuleReducesToSingleUniqueToken() {
+    public void dataProcessorManagerModuleKeepsModuleTypeToken() {
+        // managermodule is NOT generic; it stays in the token list so the
+        // ALL-tokens threshold can distinguish the manager module from sibling
+        // objects that share the same object-name prefix.
         List<String> tokens = PathMatchTokens.buildMatchTokens(
                 List.of("DataProcessors/BankStatementsLoader_v2/ManagerModule.bsl")); //$NON-NLS-1$
-        assertEquals(List.of("bankstatementsloader_v2"), tokens); //$NON-NLS-1$
-        assertEquals(1, PathMatchTokens.computeTokenThreshold(tokens));
+        assertEquals(List.of("bankstatementsloader_v2", "managermodule"), tokens); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals(2, PathMatchTokens.computeTokenThreshold(tokens));
     }
 
     @Test
-    public void differentDataProcessorsDoNotShareUniqueTokens() {
-        // This is the BF of the regression: two paths must produce disjoint
-        // unique-token sets so the matcher cannot cross-match them.
-        List<String> a = PathMatchTokens.buildMatchTokens(
+    public void differentDataProcessorsDoNotCrossMatchWithAllTokensThreshold() {
+        // Even though both paths produce "managermodule" as a shared token,
+        // the unique object-name token prevents cross-DP matches because
+        // ALL tokens must be present in the marker haystack.
+        List<String> tokensA = PathMatchTokens.buildMatchTokens(
                 List.of("DataProcessors/BankStatementsLoader_v2/ManagerModule.bsl")); //$NON-NLS-1$
-        List<String> b = PathMatchTokens.buildMatchTokens(
+        List<String> tokensB = PathMatchTokens.buildMatchTokens(
                 List.of("DataProcessors/CasinoCashFlowTransactionsLoading/ManagerModule.bsl")); //$NON-NLS-1$
-        assertFalse("Distinct data processors must not share tokens", //$NON-NLS-1$
-                a.stream().anyMatch(b::contains));
+
+        // A marker for DP-B must not satisfy all tokens of A (and vice versa).
+        String haystackB = "dataprocessor.casinocashflowtransactionsloading.managermodule"; //$NON-NLS-1$
+        assertFalse("DP-B marker must not match DP-A tokens", //$NON-NLS-1$
+                allTokensMatch(haystackB, tokensA));
+
+        String haystackA = "dataprocessor.bankstatementsloader_v2.managermodule"; //$NON-NLS-1$
+        assertFalse("DP-A marker must not match DP-B tokens", //$NON-NLS-1$
+                allTokensMatch(haystackA, tokensB));
+
+        // Each DP's own marker matches its own tokens.
+        assertTrue(allTokensMatch(haystackA, tokensA));
+        assertTrue(allTokensMatch(haystackB, tokensB));
     }
 
     @Test
@@ -53,23 +71,27 @@ public class PathMatchTokensTest {
 
     @Test
     public void commonModulePathReducesToModuleName() {
+        // bare "module" (Module.bsl) is still generic — it cannot distinguish
+        // between the many objects that use a plain Module.bsl file.
         List<String> tokens = PathMatchTokens.buildMatchTokens(
                 List.of("CommonModules/UsersSettings/Module.bsl")); //$NON-NLS-1$
         assertEquals(List.of("userssettings"), tokens); //$NON-NLS-1$
     }
 
     @Test
-    public void informationRegisterPathKept() {
+    public void informationRegisterRecordSetModuleKeepsModuleTypeToken() {
         List<String> tokens = PathMatchTokens.buildMatchTokens(
                 List.of("InformationRegisters/UserSessions/RecordSetModule.bsl")); //$NON-NLS-1$
-        assertEquals(List.of("usersessions"), tokens); //$NON-NLS-1$
+        assertEquals(List.of("usersessions", "recordsetmodule"), tokens); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals(2, PathMatchTokens.computeTokenThreshold(tokens));
     }
 
     @Test
-    public void catalogObjectModuleKept() {
+    public void catalogObjectModuleKeepsModuleTypeToken() {
         List<String> tokens = PathMatchTokens.buildMatchTokens(
                 List.of("Catalogs/Users/ObjectModule.bsl")); //$NON-NLS-1$
-        assertEquals(List.of("users"), tokens); //$NON-NLS-1$
+        assertEquals(List.of("users", "objectmodule"), tokens); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals(2, PathMatchTokens.computeTokenThreshold(tokens));
     }
 
     @Test
@@ -91,7 +113,7 @@ public class PathMatchTokensTest {
     public void genericSegmentsStrippedFromRussianCatalog() {
         List<String> tokens = PathMatchTokens.buildMatchTokens(
                 List.of("src/Конфигурация/Catalogs/Контрагенты/ObjectModule.bsl")); //$NON-NLS-1$
-        assertEquals(List.of("контрагенты"), tokens); //$NON-NLS-1$
+        assertEquals(List.of("контрагенты", "objectmodule"), tokens); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     @Test
@@ -125,15 +147,55 @@ public class PathMatchTokensTest {
         List<String> tokens = PathMatchTokens.buildMatchTokens(List.of(
                 "Catalogs/Users/ObjectModule.bsl", //$NON-NLS-1$
                 "src/Configuration/Catalogs/Users/ObjectModule.bsl")); //$NON-NLS-1$
-        assertEquals(List.of("users"), tokens); //$NON-NLS-1$
+        assertEquals(List.of("users", "objectmodule"), tokens); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     @Test
-    public void shortSegmentsDropped() {
-        // Segments under 3 chars cannot identify a metadata object.
+    public void shortObjectNameDroppedButModuleTypeKept() {
+        // Segments under 3 chars cannot identify a metadata object, so the
+        // short object name "A" is dropped. The module-kind stem (objectmodule)
+        // is NOT generic and survives as the sole token.
         List<String> tokens = PathMatchTokens.buildMatchTokens(
                 List.of("Catalogs/A/ObjectModule.bsl")); //$NON-NLS-1$
-        assertTrue(tokens.isEmpty());
+        assertEquals(List.of("objectmodule"), tokens); //$NON-NLS-1$
+        assertEquals(1, PathMatchTokens.computeTokenThreshold(tokens));
+    }
+
+
+// --- sibling-object isolation (core regression guard) ------------------
+
+    @Test
+    public void catalogManagerModuleExcludesSiblingObjectMarkers() {
+        // Regression guard for the sibling-object leak:
+        // get_diagnostics scope=file for InvoiceSettings/ManagerModule.bsl
+        // must NOT return markers from Catalog.InvoiceSettings (SU192),
+        // or from any InvoiceSettings form (SU101/SU102/SU110).
+        List<String> tokens = PathMatchTokens.buildMatchTokens(
+                List.of("Catalogs/InvoiceSettings/ManagerModule.bsl")); //$NON-NLS-1$
+        assertEquals(List.of("invoicesettings", "managermodule"), tokens); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals(2, PathMatchTokens.computeTokenThreshold(tokens));
+
+        // Sibling objects that used to leak — their haystacks lack "managermodule"
+        assertFalse(allTokensMatch("catalog.invoicesettings", tokens)); //$NON-NLS-1$
+        assertFalse(allTokensMatch("catalog.invoicesettings.form.listform.form", tokens)); //$NON-NLS-1$
+        assertFalse(allTokensMatch("catalog.invoicesettings.form.itemform.form", tokens)); //$NON-NLS-1$
+
+        // The actual ManagerModule marker must still match
+        assertTrue(allTokensMatch("catalog.invoicesettings.managermodule", tokens)); //$NON-NLS-1$
+    }
+
+    @Test
+    public void catalogManagerModuleDistinctFromObjectModule() {
+        // ManagerModule and ObjectModule of the same catalog are now distinguished.
+        List<String> mgr = PathMatchTokens.buildMatchTokens(
+                List.of("Catalogs/InvoiceSettings/ManagerModule.bsl")); //$NON-NLS-1$
+        List<String> obj = PathMatchTokens.buildMatchTokens(
+                List.of("Catalogs/InvoiceSettings/ObjectModule.bsl")); //$NON-NLS-1$
+
+        // Manager module query must not match an ObjectModule marker
+        assertFalse(allTokensMatch("catalog.invoicesettings.objectmodule", mgr)); //$NON-NLS-1$
+        // Object module query must not match a ManagerModule marker
+        assertFalse(allTokensMatch("catalog.invoicesettings.managermodule", obj)); //$NON-NLS-1$
     }
 
     // --- matchesAsWord: regression from 2026-04-21 ------------------------
@@ -194,11 +256,17 @@ public class PathMatchTokensTest {
     public void matchesAsWord_cyrillicLowercaseIsWordChar() {
         // "справочник" inside a longer Cyrillic identifier must not match.
         assertFalse(PathMatchTokens.matchesAsWord(
-                "\u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A\u0438", //$NON-NLS-1$
-                "\u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A")); //$NON-NLS-1$
+                "справочники", //$NON-NLS-1$
+                "справочник")); //$NON-NLS-1$
         // But the exact word should match when delimited.
         assertTrue(PathMatchTokens.matchesAsWord(
-                "\u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A.users", //$NON-NLS-1$
-                "\u0441\u043F\u0440\u0430\u0432\u043E\u0447\u043D\u0438\u043A")); //$NON-NLS-1$
+                "справочник.users", //$NON-NLS-1$
+                "справочник")); //$NON-NLS-1$
+    }
+
+    // --- helper ------------------------------------------------------------
+
+    private static boolean allTokensMatch(String haystack, List<String> tokens) {
+        return tokens.stream().allMatch(t -> PathMatchTokens.matchesAsWord(haystack, t));
     }
 }
