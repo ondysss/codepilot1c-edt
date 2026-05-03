@@ -7,10 +7,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import org.junit.Ignore;
 import org.junit.Test;
 
 import com.codepilot1c.core.skills.SkillCatalog;
 
+// Depends on Eclipse Platform OSGi (SystemPromptAssembler → SessionManager.<clinit> calls Platform.getLog)
+// which is unavailable in a plain Maven JUnit run. Run as Eclipse JUnit Plug-in Test.
+@Ignore("requires Eclipse Platform OSGi — run as Eclipse JUnit Plug-in Test") //$NON-NLS-1$
 public class SystemPromptAssemblerTest {
 
     @Test
