@@ -289,6 +289,8 @@ public class EdtDiagnosticsCollector {
 
                 return new DiagnosticsResult(resultPath, false, diagnostics, errors, warnings, infos);
 
+            } catch (IllegalArgumentException e) {
+                throw e; // propagate as exceptional future completion (e.g. file-not-found)
             } catch (Exception e) {
                 LOG.error("Error collecting diagnostics for file %s: %s", filePath, e.getMessage()); //$NON-NLS-1$
                 return new DiagnosticsResult(filePath, false, List.of(), 0, 0, 0);
