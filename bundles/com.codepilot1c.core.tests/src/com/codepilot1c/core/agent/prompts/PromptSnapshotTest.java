@@ -7,12 +7,16 @@ import java.lang.reflect.Field;
 import java.util.List;
 
 import org.junit.After;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import com.codepilot1c.core.provider.config.LlmProviderConfig;
 import com.codepilot1c.core.provider.config.LlmProviderConfigStore;
 import com.codepilot1c.core.provider.config.ProviderType;
 
+// Depends on Eclipse Platform OSGi (SystemPromptAssembler → SessionManager.<clinit> calls Platform.getLog)
+// which is unavailable in a plain Maven JUnit run. Run as Eclipse JUnit Plug-in Test.
+@Ignore("requires Eclipse Platform OSGi — run as Eclipse JUnit Plug-in Test") //$NON-NLS-1$
 public class PromptSnapshotTest {
 
     private final LlmProviderConfigStore store = LlmProviderConfigStore.getInstance();

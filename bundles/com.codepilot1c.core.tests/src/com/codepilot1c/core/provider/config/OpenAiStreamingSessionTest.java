@@ -161,8 +161,20 @@ public class OpenAiStreamingSessionTest {
     }
 
     private Path fixturePath(String fixtureName) {
-        return Path.of("/Users/alexorlik/repo/codepilot1c-oss/bundles/com.codepilot1c.core.tests/src/com/codepilot1c/core/provider/config/fixtures", //$NON-NLS-1$
-                fixtureName);
+        return findRepoRoot()
+                .resolve("bundles/com.codepilot1c.core.tests/src/com/codepilot1c/core/provider/config/fixtures") //$NON-NLS-1$
+                .resolve(fixtureName);
+    }
+
+    private Path findRepoRoot() {
+        Path current = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize(); //$NON-NLS-1$
+        while (current != null) {
+            if (Files.isDirectory(current.resolve("bundles")) && Files.isDirectory(current.resolve(".git"))) { //$NON-NLS-1$ //$NON-NLS-2$
+                return current;
+            }
+            current = current.getParent();
+        }
+        throw new IllegalStateException("Cannot locate repository root"); //$NON-NLS-1$
     }
 
     private LlmStreamChunk findToolChunk(List<LlmStreamChunk> chunks) {
