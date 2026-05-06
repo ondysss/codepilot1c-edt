@@ -813,6 +813,7 @@ public class EdtMetadataService {
                                 "Invalid group name: " + name, false); //$NON-NLS-1$
                     }
                     Map<String, Object> set = asMap(operation.get("set")); //$NON-NLS-1$
+                    rejectTableAsAddGroupType(operation, set, name);
                     ManagedFormGroupType groupType = resolveRequestedGroupType(operation, set);
                     Integer index = asOptionalInteger(operation.get("index"), "index"); //$NON-NLS-1$ //$NON-NLS-2$
                     FormGroup group = addGroupItem(
@@ -1200,9 +1201,17 @@ public class EdtMetadataService {
     }
 
     private ManagedFormGroupType resolveRequestedGroupType(Map<String, Object> operation, Map<String, Object> set) {
+        // Look at all three commonly-used positions in priority order:
+        // group_type (most specific), top-level type, set.type (legacy).
         Object rawType = hasMapKeyIgnoreCase(operation, "group_type") //$NON-NLS-1$
                 ? getMapValueIgnoreCase(operation, "group_type") //$NON-NLS-1$
-                : getMapValueIgnoreCase(set, "type"); //$NON-NLS-1$
+                : null;
+        if (rawType == null) {
+            rawType = getMapValueIgnoreCase(operation, "type"); //$NON-NLS-1$
+        }
+        if (rawType == null) {
+            rawType = getMapValueIgnoreCase(set, "type"); //$NON-NLS-1$
+        }
         if (rawType instanceof ManagedFormGroupType groupType) {
             return groupType;
         }
@@ -1215,6 +1224,32 @@ public class EdtMetadataService {
             }
         }
         return ManagedFormGroupType.USUAL_GROUP;
+    }
+
+    /**
+     * Pre-flight reject {@code add_group type:"TABLE"} (and aliases).  Table
+     * is a distinct EMF model class, not a FormGroup variant, so the
+     * historical fallback to USUAL_GROUP silently produced a UsualGroup
+     * pretending to be a Table.  Until mutate_form_model grows a dedicated
+     * {@code add_table} op, fail fast with an actionable hint pointing the
+     * agent at direct .form XML editing.
+     */
+    private void rejectTableAsAddGroupType(
+            Map<String, Object> operation,
+            Map<String, Object> set,
+            String groupName
+    ) {
+        String rawType = FormGroupTypeIntent.extractRawType(operation, set);
+        if (rawType == null) {
+            return;
+        }
+        FormGroupTypeIntent.Verdict verdict = FormGroupTypeIntent.classify(rawType);
+        if (verdict == FormGroupTypeIntent.Verdict.TABLE_NOT_A_GROUP) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    FormGroupTypeIntent.tableNotAGroupMessage(rawType, groupName),
+                    false);
+        }
     }
 
     private Map<String, Object> stripMapKeysIgnoreCase(Map<String, Object> source, String... keysToRemove) {
