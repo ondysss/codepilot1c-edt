@@ -1655,7 +1655,7 @@ public class EdtMetadataService {
             Object value = entry.getValue();
             String normalized = normalizeToken(key);
             if ("title".equals(normalized) && target instanceof Titled titled) { //$NON-NLS-1$
-                applyTitleValue(titled, value);
+                applyTitleValue(titled, value, resolveProjectDefaultLanguageCode(target));
                 continue;
             }
             if ("name".equals(normalized) && target instanceof NamedElement namedElement) { //$NON-NLS-1$
