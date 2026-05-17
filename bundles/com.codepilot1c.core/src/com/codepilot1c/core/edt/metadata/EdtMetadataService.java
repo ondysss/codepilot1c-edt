@@ -853,6 +853,7 @@ public class EdtMetadataService {
                                 "Invalid field name: " + name, false); //$NON-NLS-1$
                     }
                     rejectTableIncompatibleFieldType(parentContainer, operation, name);
+                    rejectDecorationAsFieldType(operation, name);
                     Map<String, Object> set = extractAddFieldSet(operation);
                     Integer index = asOptionalInteger(operation.get("index"), "index"); //$NON-NLS-1$ //$NON-NLS-2$
                     FormField field = addFieldItem(
@@ -2539,6 +2540,57 @@ public class EdtMetadataService {
      * agent ultimately wants.  Surface a clear message before the BM transaction
      * fires.
      */
+    /**
+     * Pre-flight reject {@code add_field field_type:"LABEL_DECORATION"} /
+     * {@code "PICTURE_DECORATION"}. Decorations are a different EMF class (Decoration)
+     * with its own xsi:type and ManagedFormDecorationType enum — they are not FormFields.
+     * The generic enum-coercion path bubbles up as the unhelpful
+     * "Unsupported value type for field type: LABEL_DECORATION"; replace it with an
+     * actionable message pointing the agent at the right approach until mutate_form_model
+     * grows a dedicated add_decoration op.
+     */
+    private void rejectDecorationAsFieldType(Map<String, Object> operation, String fieldName) {
+        if (operation == null) {
+            return;
+        }
+        String rawFieldType = asString(getMapValueIgnoreCase(operation, "field_type")); //$NON-NLS-1$
+        if (rawFieldType == null) {
+            rawFieldType = asString(getMapValueIgnoreCase(operation, "fieldType")); //$NON-NLS-1$
+        }
+        if (rawFieldType == null) {
+            Map<String, Object> set = asMap(operation.get("set")); //$NON-NLS-1$
+            rawFieldType = asString(getMapValueIgnoreCase(set, "field_type")); //$NON-NLS-1$
+            if (rawFieldType == null) {
+                rawFieldType = asString(getMapValueIgnoreCase(set, "fieldType")); //$NON-NLS-1$
+            }
+        }
+        if (rawFieldType == null) {
+            return;
+        }
+        String normalized = rawFieldType.replace("-", "_").replace(" ", "_").toUpperCase(Locale.ROOT); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$
+        if (!"LABEL_DECORATION".equals(normalized) && !"PICTURE_DECORATION".equals(normalized)) { //$NON-NLS-1$ //$NON-NLS-2$
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("add_field field_type='").append(rawFieldType).append("' is not supported"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (fieldName != null && !fieldName.isBlank()) {
+            sb.append(" (name='").append(fieldName).append("')"); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        sb.append(": decorations are a distinct form element type" //$NON-NLS-1$
+                + " (xsi:type=\"form:Decoration\" with type=Label/Picture)," //$NON-NLS-1$
+                + " not a FormField variant — emitting them via add_field" //$NON-NLS-1$
+                + " would silently downgrade to a non-decoration field. Until" //$NON-NLS-1$
+                + " mutate_form_model grows a dedicated add_decoration op, edit" //$NON-NLS-1$
+                + " the Form.form XML directly (Edit/Write tools) using a" //$NON-NLS-1$
+                + " sibling form's <items xsi:type=\"form:Decoration\"> block as" //$NON-NLS-1$
+                + " a template, then run inspect_form_layout to confirm" //$NON-NLS-1$
+                + " kind=\"Decoration\"."); //$NON-NLS-1$
+        throw new MetadataOperationException(
+                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                sb.toString(),
+                false);
+    }
+
     private void rejectTableIncompatibleFieldType(
             FormItemContainer parentContainer,
             Map<String, Object> operation,
