@@ -6416,9 +6416,13 @@ public class EdtMetadataService {
             return;
         }
         if (eFeature.isMany()) {
-            throw new MetadataOperationException(
-                    MetadataOperationCode.INVALID_METADATA_CHANGE,
-                    "Collection attribute updates are not supported: " + fieldName, false); //$NON-NLS-1$
+            if (!(eFeature instanceof EAttribute manyAttribute)) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "Collection reference updates are not supported: " + fieldName, false); //$NON-NLS-1$
+            }
+            applyManyAttributeReplacement(target, manyAttribute, value, fieldName);
+            return;
         }
         if (!(eFeature instanceof EAttribute attribute)) {
             throw new MetadataOperationException(
@@ -6428,6 +6432,56 @@ public class EdtMetadataService {
 
         Object converted = convertAttributeValue(attribute, value);
         target.eSet(eFeature, converted);
+    }
+
+    /**
+     * Replace the contents of a many-valued EAttribute (e.g. {@code usePurposes} on
+     * Configuration / BasicForm) with the supplied list. Accepts either a single value
+     * (single-element list) or a List/array of values; each element is coerced via the
+     * existing {@code convertAttributeValue}. Element-type unsupported by that helper
+     * (e.g. complex nested classes) still rejects with an actionable message.
+     */
+    @SuppressWarnings("unchecked")
+    private void applyManyAttributeReplacement(EObject target, EAttribute attribute, Object value, String fieldName) {
+        List<Object> incoming = new ArrayList<>();
+        if (value == null) {
+            // explicit null → clear
+        } else if (value instanceof List<?> list) {
+            for (Object element : list) {
+                if (element != null) {
+                    incoming.add(element);
+                }
+            }
+        } else if (value.getClass().isArray()) {
+            int len = java.lang.reflect.Array.getLength(value);
+            for (int i = 0; i < len; i++) {
+                Object element = java.lang.reflect.Array.get(value, i);
+                if (element != null) {
+                    incoming.add(element);
+                }
+            }
+        } else {
+            incoming.add(value);
+        }
+        List<Object> converted = new ArrayList<>(incoming.size());
+        for (Object raw : incoming) {
+            Object coerced = convertAttributeValue(attribute, raw);
+            if (coerced != null) {
+                converted.add(coerced);
+            }
+        }
+        Object current = target.eGet(attribute);
+        if (current instanceof List<?> existing) {
+            ((List<Object>) existing).clear();
+            ((List<Object>) existing).addAll(converted);
+            return;
+        }
+        // Defensive fallback — EMF many features normally expose List/EList; if for some
+        // reason the live value is not a List, surface a clear error rather than silently
+        // dropping the update.
+        throw new MetadataOperationException(
+                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                "Field " + fieldName + " is many-valued but its live value is not a List", false); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     /**
