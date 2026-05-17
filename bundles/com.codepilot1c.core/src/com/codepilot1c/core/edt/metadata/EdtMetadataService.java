@@ -880,6 +880,7 @@ public class EdtMetadataService {
                                 "set_item operation requires non-empty 'set' or 'properties' map", false); //$NON-NLS-1$
                     }
                     rejectTableAsSetItemType(operation, set, item);
+                    applyGroupKindMutation(item, set);
                     applyFormPropertySet(item, set);
                     summaries.add("set_item[" + operationIndex + "]: id=" + item.getId()); //$NON-NLS-1$ //$NON-NLS-2$
                 }
@@ -1296,6 +1297,46 @@ public class EdtMetadataService {
      * entry points: Table is a different EMF class, you cannot flip
      * xsi:type via set_item.
      */
+    /**
+     * Accept {@code kind} / {@code group_type} on set_item for FormGroup items and route
+     * it to {@code FormGroup.setType(...)} + {@code ensureFormGroupExtInfo}. The applyFormPropertySet
+     * generic path would otherwise complain "Unknown form property: kind", because the EMF
+     * model has no {@code kind} feature — it is purely a tool-surface alias for the underlying
+     * {@code type} enum that {@code add_group} already accepts.
+     */
+    private void applyGroupKindMutation(FormItem item, Map<String, Object> set) {
+        if (!(item instanceof FormGroup group) || set == null || set.isEmpty()) {
+            return;
+        }
+        Object rawKind = removeMapValueIgnoreCase(set, "kind", "group_type", "groupType"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        if (rawKind == null) {
+            return;
+        }
+        ManagedFormGroupType groupType;
+        if (rawKind instanceof ManagedFormGroupType direct) {
+            groupType = direct;
+        } else {
+            String raw = String.valueOf(rawKind).trim();
+            if (raw.isBlank()) {
+                return;
+            }
+            String normalized = raw.replace("-", "_").replace(" ", "_").toUpperCase(Locale.ROOT); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$
+            try {
+                groupType = ManagedFormGroupType.valueOf(normalized);
+            } catch (IllegalArgumentException e) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                        "Unknown group kind '" + raw + "': expected one of " //$NON-NLS-1$ //$NON-NLS-2$
+                                + "USUAL_GROUP, PAGES, PAGE, COLUMN_GROUP, BUTTON_GROUP, COMMAND_BAR, " //$NON-NLS-1$
+                                + "AUTO_COMMAND_BAR, POPUP", false); //$NON-NLS-1$
+            }
+        }
+        if (group.getType() != groupType) {
+            group.setType(groupType);
+        }
+        ensureFormGroupExtInfo(group);
+    }
+
     private void rejectTableAsSetItemType(
             Map<String, Object> operation,
             Map<String, Object> set,
