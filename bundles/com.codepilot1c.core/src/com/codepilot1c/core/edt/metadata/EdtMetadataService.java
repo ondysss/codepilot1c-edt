@@ -68,7 +68,13 @@ import com._1c.g5.v8.dt.form.model.FormAttribute;
 import com._1c.g5.v8.dt.form.model.FormCommand;
 import com._1c.g5.v8.dt.form.model.FormCommandHandlerContainer;
 import com._1c.g5.v8.dt.form.model.FormFactory;
+import com._1c.g5.v8.dt.form.model.FieldExtInfo;
 import com._1c.g5.v8.dt.form.model.FormField;
+import com._1c.g5.v8.dt.form.model.CheckBoxFieldExtInfo;
+import com._1c.g5.v8.dt.form.model.InputFieldExtInfo;
+import com._1c.g5.v8.dt.form.model.LabelFieldExtInfo;
+import com._1c.g5.v8.dt.form.model.ManagedFormFieldType;
+import com._1c.g5.v8.dt.form.model.RadioButtonsFieldExtInfo;
 import com._1c.g5.v8.dt.form.model.ButtonGroupExtInfo;
 import com._1c.g5.v8.dt.form.model.CommandBarExtInfo;
 import com._1c.g5.v8.dt.form.model.ColumnGroupExtInfo;
@@ -861,6 +867,7 @@ public class EdtMetadataService {
                         applyFormPropertySet(field, effectiveSet);
                     }
                     applyDefaultVisibility(field, effectiveSet);
+                    ensureFormFieldExtInfo(field);
                     summaries.add("add_field[" + operationIndex + "]: name=" + field.getName() + ", id=" //$NON-NLS-1$ //$NON-NLS-2$
                             + safeItemId(field)); //$NON-NLS-1$
                 }
@@ -1428,6 +1435,48 @@ public class EdtMetadataService {
                     usual.setRepresentation(UsualGroupRepresentation.AUTO);
                     group.setExtInfo(usual);
                 }
+            }
+        }
+    }
+
+    private void ensureFormFieldExtInfo(FormField field) {
+        if (field == null) {
+            return;
+        }
+        ManagedFormFieldType type = field.getType();
+        if (type == null) {
+            return;
+        }
+        FieldExtInfo extInfo = field.getExtInfo();
+        // Map a known field type to its xsi:type companion. EDT's IFormItemManagementService
+        // produces InputFieldExtInfo by default; if the agent later flips the type to
+        // CheckBoxField / RadioButtonField / LabelField, the extInfo block stays as
+        // InputFieldExtInfo and the platform flags SU107 on the wrong xsi:type pairing.
+        switch (type) {
+            case CHECK_BOX_FIELD -> {
+                if (!(extInfo instanceof CheckBoxFieldExtInfo)) {
+                    field.setExtInfo(FormFactory.eINSTANCE.createCheckBoxFieldExtInfo());
+                }
+            }
+            case RADIO_BUTTON_FIELD -> {
+                if (!(extInfo instanceof RadioButtonsFieldExtInfo)) {
+                    field.setExtInfo(FormFactory.eINSTANCE.createRadioButtonsFieldExtInfo());
+                }
+            }
+            case LABEL_FIELD -> {
+                if (!(extInfo instanceof LabelFieldExtInfo)) {
+                    field.setExtInfo(FormFactory.eINSTANCE.createLabelFieldExtInfo());
+                }
+            }
+            case INPUT_FIELD -> {
+                if (!(extInfo instanceof InputFieldExtInfo)) {
+                    field.setExtInfo(FormFactory.eINSTANCE.createInputFieldExtInfo());
+                }
+            }
+            default -> {
+                // Other field types (CHART_FIELD, PROGRESS_BAR_FIELD, etc.) keep whatever
+                // extInfo IFormItemManagementService or applyFormPropertySet produced; this
+                // helper only rescues the common boolean/radio/label/input mismatch.
             }
         }
     }
