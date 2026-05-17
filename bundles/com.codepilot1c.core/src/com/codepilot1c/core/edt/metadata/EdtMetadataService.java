@@ -63,6 +63,7 @@ import com._1c.g5.v8.dt.form.model.Button;
 import com._1c.g5.v8.dt.form.model.CommandHandler;
 import com._1c.g5.v8.dt.form.model.DataPath;
 import com._1c.g5.v8.dt.form.model.DynamicListExtInfo;
+import com._1c.g5.v8.dt.form.model.EventHandlerContainer;
 import com._1c.g5.v8.dt.form.model.Form;
 import com._1c.g5.v8.dt.form.model.FormAttribute;
 import com._1c.g5.v8.dt.form.model.FormCommand;
@@ -1338,6 +1339,33 @@ public class EdtMetadataService {
         ensureFormGroupExtInfo(group);
     }
 
+    /**
+     * Build the agent-facing rejection message for {@code set_item set:{handlers:[...]}}.
+     * Event handler binding routes through EventHandler.event, an EMF reference to the
+     * parent metadata's Event list (each form-item kind exposes its own legal events such
+     * as OnChange / OnReceiveHandler). Resolving event names to the correct Event instance
+     * requires walking the owning configuration's metadata-class registry, which the form
+     * service does not expose generically. Surface a clear pointer to the
+     * sibling-form-as-template workaround until mutate_form_model grows a dedicated
+     * bind_event op.
+     */
+    private String rejectEventHandlersMessage(EObject target) {
+        String className = target != null && target.eClass() != null
+                ? target.eClass().getName() : "FormItem"; //$NON-NLS-1$
+        StringBuilder sb = new StringBuilder();
+        sb.append("set_item set:{handlers:[...]} is not supported for ").append(className) //$NON-NLS-1$
+                .append(": event handler binding routes through EventHandler.event which is") //$NON-NLS-1$
+                .append(" an EMF reference to the parent metadata's Event list (each item") //$NON-NLS-1$
+                .append(" type has its own legal events such as OnChange, OnReceiveHandler)") //$NON-NLS-1$
+                .append(" — name-based lookup is not exposed by the form service. Until") //$NON-NLS-1$
+                .append(" mutate_form_model grows a dedicated bind_event op, attach handlers") //$NON-NLS-1$
+                .append(" via direct .form XML edit (Edit/Write tools) using a sibling") //$NON-NLS-1$
+                .append(" form's <handlers><event>OnX</event><name>HandlerProc</name></handlers>") //$NON-NLS-1$
+                .append(" block as a template, then run inspect_form_layout to confirm the") //$NON-NLS-1$
+                .append(" binding."); //$NON-NLS-1$
+        return sb.toString();
+    }
+
     private void rejectTableAsSetItemType(
             Map<String, Object> operation,
             Map<String, Object> set,
@@ -1699,6 +1727,12 @@ public class EdtMetadataService {
             if ("title".equals(normalized) && target instanceof Titled titled) { //$NON-NLS-1$
                 applyTitleValue(titled, value, resolveProjectDefaultLanguageCode(target));
                 continue;
+            }
+            if ("handlers".equals(normalized) && target instanceof EventHandlerContainer) { //$NON-NLS-1$
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        rejectEventHandlersMessage(target),
+                        false);
             }
             if ("name".equals(normalized) && target instanceof NamedElement namedElement) { //$NON-NLS-1$
                 String name = asString(value);
