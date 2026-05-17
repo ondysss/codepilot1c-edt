@@ -1034,18 +1034,28 @@ public class EdtMetadataService {
             Integer index,
             IFormItemManagementService itemManagementService) {
         FormNewItemDescriptor descriptor = buildFormNewItemDescriptor(operation, name);
+        FormGroup group;
         if (itemManagementService != null) {
             if (index != null && index.intValue() >= 0 && index.intValue() <= parentContainer.getItems().size()) {
-                return itemManagementService.addGroup(parentContainer, index.intValue(), groupType, formModel, descriptor);
+                group = itemManagementService.addGroup(parentContainer, index.intValue(), groupType, formModel, descriptor);
+            } else {
+                group = itemManagementService.addGroup(parentContainer, groupType, formModel, descriptor);
             }
-            return itemManagementService.addGroup(parentContainer, groupType, formModel, descriptor);
+        } else {
+            group = FormFactory.eINSTANCE.createFormGroup();
+            group.setId(nextFormItemId(formModel));
+            group.setName(name);
+            applyTitleValue(group, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
+            applySimpleFeatureValue(group, "type", groupType.name()); //$NON-NLS-1$
+            insertItemIntoContainer(parentContainer, group, index);
         }
-        FormGroup group = FormFactory.eINSTANCE.createFormGroup();
-        group.setId(nextFormItemId(formModel));
-        group.setName(name);
-        applyTitleValue(group, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
-        applySimpleFeatureValue(group, "type", groupType.name()); //$NON-NLS-1$
-        insertItemIntoContainer(parentContainer, group, index);
+        // IFormItemManagementService.addGroup returns a UsualGroup-typed group regardless of
+        // the requested ManagedFormGroupType when the caller asks for PAGES/PAGE. Force the
+        // type to match the request so ensureFormGroupExtInfo (called by the dispatcher right
+        // after) builds the matching PagesGroupExtInfo / PageGroupExtInfo companion block.
+        if (group != null && groupType != null && group.getType() != groupType) {
+            group.setType(groupType);
+        }
         return group;
     }
 
