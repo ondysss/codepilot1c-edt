@@ -1952,8 +1952,127 @@ public class EdtMetadataService {
             applyFormPropertySet(attribute.getExtInfo(), extInfoSet);
         }
 
+        applyFormAttributeTypeQualifiers(attribute, set);
+
         if (!set.isEmpty()) {
             applyFormPropertySet(attribute, set);
+        }
+    }
+
+    /**
+     * Hoist TypeDescription qualifier keys (stringQualifiers / numberQualifiers /
+     * dateQualifiers) out of an apply_form_recipe attribute patch and apply them to
+     * {@code attribute.valueType}. Without this, applyFormPropertySet's generic feature
+     * resolver fails with "Unknown form property: stringQualifiers", because FormAttribute
+     * has no such feature directly — the qualifier lives on the nested TypeDescription.
+     *
+     * <p>Consumes recognized keys from {@code set} in place so they are not retried by
+     * the downstream applyFormPropertySet pass.</p>
+     */
+    private void applyFormAttributeTypeQualifiers(FormAttribute attribute, Map<String, Object> set) {
+        if (attribute == null || set == null || set.isEmpty()) {
+            return;
+        }
+        Object stringQualifiers = removeMapValueIgnoreCase(set, "stringQualifiers", "string_qualifiers"); //$NON-NLS-1$ //$NON-NLS-2$
+        Object numberQualifiers = removeMapValueIgnoreCase(set, "numberQualifiers", "number_qualifiers"); //$NON-NLS-1$ //$NON-NLS-2$
+        Object dateQualifiers = removeMapValueIgnoreCase(set, "dateQualifiers", "date_qualifiers"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (stringQualifiers == null && numberQualifiers == null && dateQualifiers == null) {
+            return;
+        }
+        TypeDescription typeDesc = attribute.getValueType();
+        if (typeDesc == null) {
+            typeDesc = McoreFactory.eINSTANCE.createTypeDescription();
+            attribute.setValueType(typeDesc);
+        }
+        if (stringQualifiers != null) {
+            Map<String, Object> sq = asMap(stringQualifiers);
+            StringQualifiers existing = typeDesc.getStringQualifiers();
+            if (existing == null) {
+                existing = McoreFactory.eINSTANCE.createStringQualifiers();
+                typeDesc.setStringQualifiers(existing);
+            }
+            Object length = getMapValueIgnoreCase(sq, "length"); //$NON-NLS-1$
+            if (length != null) {
+                Integer parsed = parseInteger(length);
+                if (parsed != null) {
+                    existing.setLength(parsed.intValue());
+                }
+            }
+            Object fixed = getMapValueIgnoreCase(sq, "fixed"); //$NON-NLS-1$
+            if (fixed != null) {
+                Boolean parsed = parseBoolean(fixed);
+                if (parsed != null) {
+                    existing.setFixed(parsed.booleanValue());
+                }
+            }
+        }
+        if (numberQualifiers != null) {
+            Map<String, Object> nq = asMap(numberQualifiers);
+            NumberQualifiers existing = typeDesc.getNumberQualifiers();
+            if (existing == null) {
+                existing = McoreFactory.eINSTANCE.createNumberQualifiers();
+                typeDesc.setNumberQualifiers(existing);
+            }
+            Object precision = getMapValueIgnoreCase(nq, "precision"); //$NON-NLS-1$
+            if (precision != null) {
+                Integer parsed = parseInteger(precision);
+                if (parsed != null) {
+                    existing.setPrecision(parsed.intValue());
+                }
+            }
+            Object scale = getMapValueIgnoreCase(nq, "scale"); //$NON-NLS-1$
+            if (scale != null) {
+                Integer parsed = parseInteger(scale);
+                if (parsed != null) {
+                    existing.setScale(parsed.intValue());
+                }
+            }
+            Object nonNegative = getMapValueIgnoreCase(nq, "nonNegative"); //$NON-NLS-1$
+            if (nonNegative == null) {
+                nonNegative = getMapValueIgnoreCase(nq, "non_negative"); //$NON-NLS-1$
+            }
+            if (nonNegative != null) {
+                Boolean parsed = parseBoolean(nonNegative);
+                if (parsed != null) {
+                    existing.setNonNegative(parsed.booleanValue());
+                }
+            }
+        }
+        if (dateQualifiers != null) {
+            Map<String, Object> dq = asMap(dateQualifiers);
+            DateQualifiers existing = typeDesc.getDateQualifiers();
+            if (existing == null) {
+                existing = McoreFactory.eINSTANCE.createDateQualifiers();
+                typeDesc.setDateQualifiers(existing);
+            }
+            Object fractions = getMapValueIgnoreCase(dq, "dateFractions"); //$NON-NLS-1$
+            if (fractions == null) {
+                fractions = getMapValueIgnoreCase(dq, "date_fractions"); //$NON-NLS-1$
+            }
+            if (fractions == null) {
+                fractions = getMapValueIgnoreCase(dq, "fractions"); //$NON-NLS-1$
+            }
+            if (fractions != null) {
+                String raw = String.valueOf(fractions).trim();
+                if (!raw.isBlank()) {
+                    DateFractions enumValue;
+                    try {
+                        enumValue = DateFractions.valueOf(raw.toUpperCase(Locale.ROOT));
+                    } catch (IllegalArgumentException e) {
+                        DateFractions byName = DateFractions.getByName(raw);
+                        if (byName == null) {
+                            byName = DateFractions.get(raw);
+                        }
+                        if (byName == null) {
+                            throw new MetadataOperationException(
+                                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                                    "Unknown dateFractions value: " + raw, false); //$NON-NLS-1$
+                        }
+                        enumValue = byName;
+                    }
+                    existing.setDateFractions(enumValue);
+                }
+            }
         }
     }
 
