@@ -157,9 +157,20 @@ public class EdtUpdateInfobaseTool extends AbstractTool {
                     result.addProperty("updated", false); //$NON-NLS-1$
                     return ToolResult.success(pretty(result), ToolResult.ToolResultType.CODE);
                 }
-                boolean updated = runtimeService.updateInfobase(projectName, keepConnected, new NullProgressMonitor());
-                result.addProperty("updated", updated); //$NON-NLS-1$
-                if (!updated) {
+                EdtRuntimeService.UpdateInfobaseStatus status = runtimeService.updateInfobaseWithStatus(
+                        projectName, keepConnected, new NullProgressMonitor());
+                result.addProperty("updated", status.updated()); //$NON-NLS-1$
+                if (status.dynamicOnly()) {
+                    // EDT could not acquire an exclusive lock (existing client/test sessions hold
+                    // the infobase). The platform fell back to a dynamic-mode update, which does
+                    // not apply schema changes (new handlers, new metadata). Surface the flag so
+                    // callers know to close TC sessions and rerun, or verify via inspect_metadata.
+                    result.addProperty("dynamic_only", true); //$NON-NLS-1$
+                    result.addProperty("dynamic_only_reason", //$NON-NLS-1$
+                            "Could not acquire exclusive lock; existing client/test " //$NON-NLS-1$
+                                    + "sessions blocked the update. Schema changes are NOT live."); //$NON-NLS-1$
+                }
+                if (!status.updated()) {
                     throw new EdtToolException(EdtToolErrorCode.UPDATE_FAILED,
                             "EDT update returned false for project: " + projectName); //$NON-NLS-1$
                 }
@@ -190,8 +201,16 @@ public class EdtUpdateInfobaseTool extends AbstractTool {
                         infobase.getConnectionString().asConnectionString());
             }
             result.add("details", details); //$NON-NLS-1$
-            boolean updated = runtimeService.updateInfobase(projectName, keepConnected, new NullProgressMonitor());
+            EdtRuntimeService.UpdateInfobaseStatus status = runtimeService.updateInfobaseWithStatus(
+                    projectName, keepConnected, new NullProgressMonitor());
+            boolean updated = status.updated();
             result.addProperty("updated", updated); //$NON-NLS-1$
+            if (status.dynamicOnly()) {
+                result.addProperty("dynamic_only", true); //$NON-NLS-1$
+                result.addProperty("dynamic_only_reason", //$NON-NLS-1$
+                        "Could not acquire exclusive lock; existing client/test " //$NON-NLS-1$
+                                + "sessions blocked the update. Schema changes are NOT live."); //$NON-NLS-1$
+            }
             if (!updated) {
                 JsonObject error = errorPayload(opId, projectName, workspaceRoot,
                         EdtToolErrorCode.UPDATE_FAILED,

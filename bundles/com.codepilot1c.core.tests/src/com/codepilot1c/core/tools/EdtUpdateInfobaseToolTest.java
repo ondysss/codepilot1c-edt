@@ -181,6 +181,13 @@ public class EdtUpdateInfobaseToolTest {
             }
             return true;
         }
+
+        @Override
+        public UpdateInfobaseStatus updateInfobaseWithStatus(String projectName, boolean keepConnected,
+                org.eclipse.core.runtime.IProgressMonitor monitor) {
+            boolean updated = updateInfobase(projectName, keepConnected, monitor);
+            return new UpdateInfobaseStatus(updated, false);
+        }
     }
 
     private static class TestEdtUpdateInfobaseTool extends EdtUpdateInfobaseTool {
@@ -213,6 +220,13 @@ public class EdtUpdateInfobaseToolTest {
                 org.eclipse.core.runtime.IProgressMonitor monitor) {
             updateCalled = true;
             return true;
+        }
+
+        @Override
+        public UpdateInfobaseStatus updateInfobaseWithStatus(String projectName, boolean keepConnected,
+                org.eclipse.core.runtime.IProgressMonitor monitor) {
+            boolean updated = updateInfobase(projectName, keepConnected, monitor);
+            return new UpdateInfobaseStatus(updated, false);
         }
     }
 }

@@ -4,6 +4,7 @@ import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessManager;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessSettings;
@@ -448,6 +449,25 @@ public class EdtRuntimeService {
 
     public boolean updateInfobase(String projectName, boolean keepConnected, IProgressMonitor monitor)
             throws Exception {
+        return updateInfobaseWithStatus(projectName, keepConnected, monitor).updated();
+    }
+
+    /**
+     * Result of an EDT updateInfobase call carrying the lock-acquisition state so callers can
+     * distinguish "schema fully applied" from "EDT accepted but ran in dynamic mode because the
+     * exclusive lock was not available — handler bindings and new metadata may not be live yet".
+     *
+     * <p>{@code dynamicOnly} is true when EDT invoked the {@code onConfirm} callback to ask
+     * whether to proceed without an exclusive lock — the standard path EDT takes when an
+     * existing client session holds the infobase. The dialog the user sees in EDT-UI mode is
+     * the same decision point; our callback proxy answers TRUE so EDT proceeds, but the
+     * resulting update is dynamic-only.</p>
+     */
+    public record UpdateInfobaseStatus(boolean updated, boolean dynamicOnly) {
+    }
+
+    public UpdateInfobaseStatus updateInfobaseWithStatus(String projectName, boolean keepConnected,
+            IProgressMonitor monitor) throws Exception {
         IProject project = gateway.resolveProject(projectName);
         if (project == null) {
             throw new IllegalStateException("EDT project not found: " + projectName); //$NON-NLS-1$
@@ -455,7 +475,8 @@ public class EdtRuntimeService {
         InfobaseReference infobase = resolveDefaultInfobase(projectName);
         Object manager = gateway.getInfobaseSynchronizationManager();
         IProgressMonitor usedMonitor = monitor != null ? monitor : new NullProgressMonitor();
-        Object callback = createAutoUpdateCallback(manager.getClass().getClassLoader());
+        AtomicBoolean exclusiveLockUnavailable = new AtomicBoolean(false);
+        Object callback = createAutoUpdateCallback(manager.getClass().getClassLoader(), exclusiveLockUnavailable);
         Method updateMethod = findUpdateMethod(manager.getClass());
         if (updateMethod == null) {
             throw new IllegalStateException("EDT updateInfobase method not found"); //$NON-NLS-1$
@@ -463,7 +484,8 @@ public class EdtRuntimeService {
         try {
             Object result = updateMethod.invoke(manager, project, infobase, callback, Boolean.valueOf(keepConnected),
                     usedMonitor);
-            return result instanceof Boolean ? ((Boolean) result).booleanValue() : false;
+            boolean updated = result instanceof Boolean ? ((Boolean) result).booleanValue() : false;
+            return new UpdateInfobaseStatus(updated, exclusiveLockUnavailable.get());
         } catch (InvocationTargetException e) {
             if (e.getCause() instanceof Exception cause) {
                 throw cause;
@@ -503,20 +525,29 @@ public class EdtRuntimeService {
         return settings.withAdditionalParameters(merged);
     }
 
-    private static Object createAutoUpdateCallback(ClassLoader loader) throws ClassNotFoundException {
+    private static Object createAutoUpdateCallback(ClassLoader loader, AtomicBoolean exclusiveLockUnavailable)
+            throws ClassNotFoundException {
         Class<?> callbackInterface = Class.forName(
                 "com._1c.g5.v8.dt.platform.services.core.infobases.sync.IInfobaseUpdateCallback", //$NON-NLS-1$
                 true,
                 loader);
         return Proxy.newProxyInstance(callbackInterface.getClassLoader(),
                 new Class<?>[] { callbackInterface },
-                (Object proxy, Method method, Object[] args) -> handleUpdateCallback(method, args));
+                (Object proxy, Method method, Object[] args) -> handleUpdateCallback(method, args,
+                        exclusiveLockUnavailable));
     }
 
     @SuppressWarnings("unchecked")
-    private static Object handleUpdateCallback(Method method, Object[] args) throws Exception {
+    private static Object handleUpdateCallback(Method method, Object[] args,
+            AtomicBoolean exclusiveLockUnavailable) throws Exception {
         String name = method.getName();
         if ("onConfirm".equals(name)) { //$NON-NLS-1$
+            // EDT calls onConfirm when it cannot acquire an exclusive lock and asks whether to
+            // proceed with a dynamic-mode update. We answer TRUE (proceed) but remember the
+            // flag — schema changes are NOT applied in dynamic mode.
+            if (exclusiveLockUnavailable != null) {
+                exclusiveLockUnavailable.set(true);
+            }
             return Boolean.TRUE;
         }
         if ("onInfobaseChanges".equals(name)) { //$NON-NLS-1$
