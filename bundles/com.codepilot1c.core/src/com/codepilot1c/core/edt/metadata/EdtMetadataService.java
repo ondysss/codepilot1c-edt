@@ -33,6 +33,7 @@ import org.eclipse.emf.common.util.EMap;
 import org.eclipse.emf.common.util.TreeIterator;
 import org.eclipse.emf.common.util.URI;
 import org.eclipse.emf.ecore.EClass;
+import org.eclipse.emf.common.util.EList;
 import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.EAttribute;
 import org.eclipse.emf.ecore.EDataType;
@@ -99,6 +100,7 @@ import com._1c.g5.v8.dt.mcore.TypeDescription;
 import com._1c.g5.v8.dt.mcore.TypeItem;
 import com._1c.g5.v8.dt.mcore.util.McoreUtil;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicFeature;
+import com._1c.g5.v8.dt.metadata.common.ApplicationUsePurpose;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicForm;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicTemplate;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
@@ -4031,9 +4033,9 @@ public class EdtMetadataService {
         if ("externalreport".equals(ownerType) || "externaldataprocessor".equals(ownerType)) { //$NON-NLS-1$ //$NON-NLS-2$
             return false;
         }
-        if (usage == FormUsage.AUXILIARY) {
-            return false;
-        }
+        // AUXILIARY used to short-circuit to false; we now route it through bindDefaultForm too
+        // so DataProcessor/Report-style owners get setDefaultForm + useStandardCommands +
+        // form.usePurposes wired up, making the form openable via e1cib/app/... out of the box.
         return requestedSetAsDefault == null || requestedSetAsDefault.booleanValue();
     }
 
@@ -4465,25 +4467,77 @@ public class EdtMetadataService {
     }
 
     private void bindDefaultForm(MdObject owner, MdObject form, FormUsage usage, String opId) {
+        // Path 1: kind-specific setter for owners that distinguish forms by usage
+        // (Catalog/Document/Register/etc. have setDefaultObjectForm / setDefaultListForm / setDefaultChoiceForm).
         String setter = formOwnerStrategy.resolveDefaultSetter(usage);
-        if (setter == null) {
+        if (setter != null) {
+            Method targetMethod = findCompatibleSetter(owner.getClass(), setter, form.getClass());
+            if (targetMethod == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_FORM_USAGE,
+                        "Form usage " + usage + " is not supported for owner " + owner.eClass().getName(), false); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            try {
+                targetMethod.invoke(owner, form);
+                LOG.debug("[%s] Bound default form via %s for owner=%s form=%s", opId, setter, //$NON-NLS-1$
+                        owner.eClass().getName(), form.getName());
+                return;
+            } catch (ReflectiveOperationException e) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                        "Failed to bind default form via " + setter + ": " + e.getMessage(), false, e); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+        }
+        // Path 2: owner-level setDefaultForm wiring (DataProcessor/Report — these have no per-kind
+        // setters and need useStandardCommands + form.usePurposes to be openable via e1cib/app/...).
+        bindOwnerLevelDefaultForm(owner, form, opId);
+    }
+
+    private void bindOwnerLevelDefaultForm(MdObject owner, MdObject form, String opId) {
+        Method defaultFormSetter = findCompatibleSetter(owner.getClass(), "setDefaultForm", form.getClass()); //$NON-NLS-1$
+        if (defaultFormSetter == null) {
+            // Owner doesn't expose a generic defaultForm setter (e.g. Catalog/Document — they
+            // rely on kind-specific setters which are routed via path 1 above). No-op.
             return;
         }
-        Method targetMethod = findCompatibleSetter(owner.getClass(), setter, form.getClass());
-        if (targetMethod == null) {
-            throw new MetadataOperationException(
-                    MetadataOperationCode.INVALID_FORM_USAGE,
-                    "Form usage " + usage + " is not supported for owner " + owner.eClass().getName(), false); //$NON-NLS-1$ //$NON-NLS-2$
-        }
         try {
-            targetMethod.invoke(owner, form);
-            LOG.debug("[%s] Bound default form via %s for owner=%s form=%s", opId, setter, //$NON-NLS-1$
+            defaultFormSetter.invoke(owner, form);
+            LOG.debug("[%s] Bound owner-level setDefaultForm for owner=%s form=%s", opId, //$NON-NLS-1$
                     owner.eClass().getName(), form.getName());
         } catch (ReflectiveOperationException e) {
             throw new MetadataOperationException(
                     MetadataOperationCode.EDT_TRANSACTION_FAILED,
-                    "Failed to bind default form via " + setter + ": " + e.getMessage(), false, e); //$NON-NLS-1$ //$NON-NLS-2$
+                    "Failed to bind owner-level defaultForm: " + e.getMessage(), false, e); //$NON-NLS-1$
         }
+        enableStandardCommandsIfApplicable(owner, opId);
+        ensureFormVisibleOnPersonalComputer(form, opId);
+    }
+
+    private void enableStandardCommandsIfApplicable(MdObject owner, String opId) {
+        try {
+            Method m = owner.getClass().getMethod("setUseStandardCommands", boolean.class); //$NON-NLS-1$
+            m.invoke(owner, true);
+            LOG.debug("[%s] Enabled useStandardCommands for owner=%s", //$NON-NLS-1$
+                    opId, owner.eClass().getName());
+        } catch (NoSuchMethodException e) {
+            // Owner doesn't expose the property — Catalog/Document gain standard commands automatically.
+        } catch (ReflectiveOperationException e) {
+            LOG.warn("[%s] setUseStandardCommands failed for owner=%s: %s", //$NON-NLS-1$
+                    opId, owner.eClass().getName(), e.getMessage());
+        }
+    }
+
+    private void ensureFormVisibleOnPersonalComputer(MdObject form, String opId) {
+        if (!(form instanceof BasicForm basicForm)) {
+            return;
+        }
+        EList<ApplicationUsePurpose> purposes = basicForm.getUsePurposes();
+        if (purposes == null || purposes.contains(ApplicationUsePurpose.PERSONAL_COMPUTER)) {
+            return;
+        }
+        purposes.add(ApplicationUsePurpose.PERSONAL_COMPUTER);
+        LOG.debug("[%s] Added PERSONAL_COMPUTER to usePurposes for form=%s", //$NON-NLS-1$
+                opId, basicForm.getName());
     }
 
     private void populateFormContent(
