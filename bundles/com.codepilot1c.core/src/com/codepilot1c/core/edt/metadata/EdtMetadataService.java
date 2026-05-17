@@ -102,6 +102,7 @@ import com._1c.g5.v8.dt.metadata.mdclass.BasicFeature;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicForm;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicTemplate;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
+import com._1c.g5.v8.dt.metadata.mdclass.Language;
 import com._1c.g5.v8.dt.metadata.mdclass.DataProcessor;
 import com._1c.g5.v8.dt.metadata.mdclass.Document;
 import com._1c.g5.v8.dt.metadata.mdclass.FormType;
@@ -1078,11 +1079,12 @@ public class EdtMetadataService {
         // Assign a unique command ID (separate namespace from form items, but we reuse nextFormItemId for safety)
         int cmdId = nextFormCommandId(formModel);
         formCommand.setId(cmdId);
-        // Set title
-        applyTitleValue(formCommand, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
+        // Set title — track project's default language so titles don't leak "ru" in English-locale projects.
+        String defaultLanguageCode = resolveProjectDefaultLanguageCode(formModel);
+        applyTitleValue(formCommand, getMapValueIgnoreCase(operation, "title"), defaultLanguageCode); //$NON-NLS-1$
         // If no title was set, use command name as default title
         if (formCommand.getTitle().isEmpty()) {
-            formCommand.getTitle().put(RU_LANGUAGE, name);
+            formCommand.getTitle().put(defaultLanguageCode, name);
         }
         // Build action handler chain: FormCommand -> FormCommandHandlerContainer -> CommandHandler
         CommandHandler handler = FormFactory.eINSTANCE.createCommandHandler();
@@ -1090,9 +1092,19 @@ public class EdtMetadataService {
         FormCommandHandlerContainer handlerContainer = FormFactory.eINSTANCE.createFormCommandHandlerContainer();
         handlerContainer.setHandler(handler);
         formCommand.setAction(handlerContainer);
-        // Apply optional properties
+        // Apply optional properties. modifies_stored_data may arrive snake_case or camelCase,
+        // at the top of the operation map or nested in `set` / `properties`; accept all forms.
         Map<String, Object> set = extractOperationSet(operation);
-        Object modifiesStoredData = getMapValueIgnoreCase(set, "modifiesStoredData"); //$NON-NLS-1$
+        Object modifiesStoredData = getMapValueIgnoreCase(operation, "modifies_stored_data"); //$NON-NLS-1$
+        if (modifiesStoredData == null) {
+            modifiesStoredData = getMapValueIgnoreCase(operation, "modifiesStoredData"); //$NON-NLS-1$
+        }
+        if (modifiesStoredData == null) {
+            modifiesStoredData = getMapValueIgnoreCase(set, "modifies_stored_data"); //$NON-NLS-1$
+        }
+        if (modifiesStoredData == null) {
+            modifiesStoredData = getMapValueIgnoreCase(set, "modifiesStoredData"); //$NON-NLS-1$
+        }
         if (modifiesStoredData instanceof Boolean b) {
             formCommand.setModifiesStoredData(b.booleanValue());
         }
@@ -1626,6 +1638,10 @@ public class EdtMetadataService {
     }
 
     private void applyTitleValue(Titled titled, Object value) {
+        applyTitleValue(titled, value, RU_LANGUAGE);
+    }
+
+    private void applyTitleValue(Titled titled, Object value, String defaultLanguageCode) {
         if (titled == null || value == null) {
             return;
         }
@@ -1644,8 +1660,26 @@ public class EdtMetadataService {
         }
         String title = asString(value);
         if (title != null && !title.isBlank()) {
-            titled.getTitle().put(RU_LANGUAGE, title);
+            String lang = defaultLanguageCode != null && !defaultLanguageCode.isBlank()
+                    ? defaultLanguageCode : RU_LANGUAGE;
+            titled.getTitle().put(lang, title);
         }
+    }
+
+    private String resolveProjectDefaultLanguageCode(EObject ctx) {
+        if (ctx != null) {
+            EObject root = EcoreUtil.getRootContainer(ctx);
+            if (root instanceof Configuration config) {
+                Language defLang = config.getDefaultLanguage();
+                if (defLang != null) {
+                    String code = defLang.getLanguageCode();
+                    if (code != null && !code.isBlank()) {
+                        return code;
+                    }
+                }
+            }
+        }
+        return RU_LANGUAGE;
     }
 
     private void applyDataPath(FormField field, Object value) {
