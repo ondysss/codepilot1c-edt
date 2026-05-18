@@ -106,17 +106,25 @@ public final class FormGroupTypeIntent {
 
     /**
      * Resolve the raw type-string from an {@code add_group} operation,
-     * looking at all three commonly-used positions in priority order:
-     * {@code group_type} (most specific), top-level {@code type},
-     * {@code set.type} (legacy nested form).  Case-insensitive.  Returns
-     * null when none is set.
+     * looking at the commonly-used positions in priority order:
+     * {@code group_type} (most specific), top-level {@code kind} or {@code type},
+     * {@code set.kind}, {@code set.type} (legacy nested form).  Case-insensitive.
+     * Returns null when none is set.
      */
     public static String extractRawType(Map<String, Object> operation, Map<String, Object> set) {
         String value = caseInsensitiveString(operation, "group_type"); //$NON-NLS-1$
         if (value != null) {
             return value;
         }
+        value = caseInsensitiveString(operation, "kind"); //$NON-NLS-1$
+        if (value != null) {
+            return value;
+        }
         value = caseInsensitiveString(operation, "type"); //$NON-NLS-1$
+        if (value != null) {
+            return value;
+        }
+        value = caseInsensitiveString(set, "kind"); //$NON-NLS-1$
         if (value != null) {
             return value;
         }

@@ -1239,13 +1239,21 @@ public class EdtMetadataService {
     }
 
     private ManagedFormGroupType resolveRequestedGroupType(Map<String, Object> operation, Map<String, Object> set) {
-        // Look at all three commonly-used positions in priority order:
-        // group_type (most specific), top-level type, set.type (legacy).
+        // Look at the commonly-used positions in priority order:
+        // group_type (most specific), top-level kind, top-level type, set.type (legacy).
+        // `kind` was missing here and silently fell through to USUAL_GROUP — the same
+        // alias is already accepted by set_item, so add_group should match.
         Object rawType = hasMapKeyIgnoreCase(operation, "group_type") //$NON-NLS-1$
                 ? getMapValueIgnoreCase(operation, "group_type") //$NON-NLS-1$
                 : null;
         if (rawType == null) {
+            rawType = getMapValueIgnoreCase(operation, "kind"); //$NON-NLS-1$
+        }
+        if (rawType == null) {
             rawType = getMapValueIgnoreCase(operation, "type"); //$NON-NLS-1$
+        }
+        if (rawType == null) {
+            rawType = getMapValueIgnoreCase(set, "kind"); //$NON-NLS-1$
         }
         if (rawType == null) {
             rawType = getMapValueIgnoreCase(set, "type"); //$NON-NLS-1$
