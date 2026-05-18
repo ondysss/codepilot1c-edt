@@ -154,10 +154,8 @@ public class FormGroupTypeIntentTest {
                 msg.contains("xsi:type=\"form:Table\"")); //$NON-NLS-1$
         assertTrue("must mention silent downgrade to UsualGroup:\n" + msg, //$NON-NLS-1$
                 msg.contains("UsualGroup")); //$NON-NLS-1$
-        assertTrue("must mention add_table op as the future path:\n" + msg, //$NON-NLS-1$
-                msg.contains("add_table")); //$NON-NLS-1$
-        assertTrue("must mention .form XML / Edit/Write workaround:\n" + msg, //$NON-NLS-1$
-                msg.contains(".form") && msg.contains("Edit/Write")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue("must point at add_table op as the supported path:\n" + msg, //$NON-NLS-1$
+                msg.contains("add_table") && msg.contains("data_path")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("must mention inspect_form_layout for verification:\n" + msg, //$NON-NLS-1$
                 msg.contains("inspect_form_layout")); //$NON-NLS-1$
     }
@@ -187,8 +185,8 @@ public class FormGroupTypeIntentTest {
                 msg.contains("cannot be flipped")); //$NON-NLS-1$
         assertTrue("must point at remove_item as the remediation entry point:\n" + msg, //$NON-NLS-1$
                 msg.contains("remove_item")); //$NON-NLS-1$
-        assertTrue("must mention .form XML / Edit/Write workaround:\n" + msg, //$NON-NLS-1$
-                msg.contains(".form") && msg.contains("Edit/Write")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue("must point at add_table for the recreate step:\n" + msg, //$NON-NLS-1$
+                msg.contains("add_table") && msg.contains("data_path")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("must reference inspect_form_layout for verification:\n" + msg, //$NON-NLS-1$
                 msg.contains("inspect_form_layout")); //$NON-NLS-1$
     }

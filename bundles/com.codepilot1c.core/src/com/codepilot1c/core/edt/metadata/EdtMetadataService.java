@@ -58,6 +58,8 @@ import com._1c.g5.v8.dt.core.platform.IExternalObjectProject;
 import com._1c.g5.v8.dt.core.platform.IDtProject;
 import com._1c.g5.v8.dt.core.platform.IDtProjectManager;
 import com._1c.g5.v8.dt.form.model.AbstractDataPath;
+import com._1c.g5.v8.dt.form.model.AutoCommandBar;
+import com._1c.g5.v8.dt.form.model.Table;
 import com._1c.g5.v8.dt.form.model.AbstractFormAttribute;
 import com._1c.g5.v8.dt.form.model.Button;
 import com._1c.g5.v8.dt.form.model.CommandHandler;
@@ -884,6 +886,32 @@ public class EdtMetadataService {
                     summaries.add("add_field[" + operationIndex + "]: name=" + field.getName() + ", id=" //$NON-NLS-1$ //$NON-NLS-2$
                             + safeItemId(field)); //$NON-NLS-1$
                 }
+                case "addtable", "createtable" -> {
+                    FormItemContainer parentContainer = resolveTargetContainer(formModel, operation);
+                    String name = asString(getMapValueIgnoreCase(operation, "name")); //$NON-NLS-1$
+                    if (!MetadataNameValidator.isValidName(name)) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_NAME,
+                                "Invalid table name: " + name, false); //$NON-NLS-1$
+                    }
+                    Map<String, Object> set = extractOperationSet(operation);
+                    Integer index = asOptionalInteger(operation.get("index"), "index"); //$NON-NLS-1$ //$NON-NLS-2$
+                    Table table = addTableItem(formModel, parentContainer, operation, name, index,
+                            itemManagementService);
+                    applyTableDefaults(formModel, table, operation, set);
+                    Map<String, Object> effectiveSet = stripMapKeysIgnoreCase(set, "name", "title", //$NON-NLS-1$ //$NON-NLS-2$
+                            "data_path", "dataPath", //$NON-NLS-1$ //$NON-NLS-2$
+                            "change_row_set", "changeRowSet", //$NON-NLS-1$ //$NON-NLS-2$
+                            "change_row_order", "changeRowOrder", //$NON-NLS-1$ //$NON-NLS-2$
+                            "header", "headerHeight", "header_height", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                            "auto_command_bar", "autoCommandBar"); //$NON-NLS-1$ //$NON-NLS-2$
+                    if (!effectiveSet.isEmpty()) {
+                        applyFormPropertySet(table, effectiveSet);
+                    }
+                    applyDefaultVisibility(table, effectiveSet);
+                    summaries.add("add_table[" + operationIndex + "]: name=" + table.getName() + ", id=" //$NON-NLS-1$ //$NON-NLS-2$
+                            + safeItemId(table)); //$NON-NLS-1$
+                }
                 case "adddecoration", "createdecoration" -> {
                     FormItemContainer parentContainer = resolveTargetContainer(formModel, operation);
                     String name = asString(getMapValueIgnoreCase(operation, "name")); //$NON-NLS-1$
@@ -1106,6 +1134,128 @@ public class EdtMetadataService {
             group.setType(groupType);
         }
         return group;
+    }
+
+    private Table addTableItem(
+            Form formModel,
+            FormItemContainer parentContainer,
+            Map<String, Object> operation,
+            String name,
+            Integer index,
+            IFormItemManagementService itemManagementService) {
+        FormNewItemDescriptor descriptor = buildFormNewItemDescriptor(operation, name);
+        Table table;
+        if (itemManagementService != null) {
+            int insertIndex = index != null && index.intValue() >= 0
+                    && index.intValue() <= parentContainer.getItems().size()
+                            ? index.intValue() : parentContainer.getItems().size();
+            table = itemManagementService.addTable(parentContainer, insertIndex, formModel, descriptor);
+        } else {
+            table = FormFactory.eINSTANCE.createTable();
+            table.setId(nextFormItemId(formModel));
+            table.setName(name);
+            applyTitleValue(table, getMapValueIgnoreCase(operation, "title"), //$NON-NLS-1$
+                    resolveProjectDefaultLanguageCode(formModel));
+            insertItemIntoContainer(parentContainer, table, index);
+        }
+        return table;
+    }
+
+    /**
+     * Apply Table-specific defaults from the {@code add_table} operation: dataPath, changeRowSet,
+     * header (with the SU107-mandated headerHeight=1 when header=true), and the
+     * autoCommandBar attachment. Mirror the conventions the 2026-05-18 broken-cases report
+     * lists as expected defaults for non-DynamicList tables on data-input forms.
+     */
+    private void applyTableDefaults(Form formModel, Table table, Map<String, Object> operation, Map<String, Object> set) {
+        if (table == null) {
+            return;
+        }
+        Object dataPathValue = getMapValueIgnoreCase(operation, "data_path"); //$NON-NLS-1$
+        if (dataPathValue == null) {
+            dataPathValue = getMapValueIgnoreCase(operation, "dataPath"); //$NON-NLS-1$
+        }
+        if (dataPathValue == null) {
+            dataPathValue = getMapValueIgnoreCase(set, "data_path"); //$NON-NLS-1$
+        }
+        if (dataPathValue == null) {
+            dataPathValue = getMapValueIgnoreCase(set, "dataPath"); //$NON-NLS-1$
+        }
+        if (dataPathValue != null) {
+            table.setDataPath(toDataPath(dataPathValue, "data_path")); //$NON-NLS-1$
+        }
+        // changeRowSet — default true (matches the platform's "user can Add / Move up / Move down"
+        // expectation on non-DynamicList input tables). Default explicit only when caller did not
+        // provide a value, so an explicit false from the agent still wins.
+        Object changeRowSet = firstNonNull(
+                getMapValueIgnoreCase(operation, "change_row_set"), //$NON-NLS-1$
+                getMapValueIgnoreCase(operation, "changeRowSet"), //$NON-NLS-1$
+                getMapValueIgnoreCase(set, "change_row_set"), //$NON-NLS-1$
+                getMapValueIgnoreCase(set, "changeRowSet")); //$NON-NLS-1$
+        if (changeRowSet != null) {
+            Boolean parsed = parseBoolean(changeRowSet);
+            if (parsed != null) {
+                table.setChangeRowSet(parsed.booleanValue());
+            }
+        } else {
+            table.setChangeRowSet(true);
+        }
+        // changeRowOrder — no default, only when caller asks.
+        Object changeRowOrder = firstNonNull(
+                getMapValueIgnoreCase(operation, "change_row_order"), //$NON-NLS-1$
+                getMapValueIgnoreCase(operation, "changeRowOrder"), //$NON-NLS-1$
+                getMapValueIgnoreCase(set, "change_row_order"), //$NON-NLS-1$
+                getMapValueIgnoreCase(set, "changeRowOrder")); //$NON-NLS-1$
+        if (changeRowOrder != null) {
+            Boolean parsed = parseBoolean(changeRowOrder);
+            if (parsed != null) {
+                table.setChangeRowOrder(parsed.booleanValue());
+            }
+        }
+        // header / headerHeight — default header=true. Whenever header is enabled, headerHeight
+        // must be >=1 (SU107). Default to 1 if caller didn't specify.
+        Object headerVal = firstNonNull(
+                getMapValueIgnoreCase(operation, "header"), //$NON-NLS-1$
+                getMapValueIgnoreCase(set, "header")); //$NON-NLS-1$
+        boolean headerOn;
+        if (headerVal == null) {
+            headerOn = true;
+            table.setHeader(true);
+        } else {
+            Boolean parsed = parseBoolean(headerVal);
+            headerOn = parsed != null && parsed.booleanValue();
+            table.setHeader(headerOn);
+        }
+        if (headerOn) {
+            Object headerHeightVal = firstNonNull(
+                    getMapValueIgnoreCase(operation, "header_height"), //$NON-NLS-1$
+                    getMapValueIgnoreCase(operation, "headerHeight"), //$NON-NLS-1$
+                    getMapValueIgnoreCase(set, "header_height"), //$NON-NLS-1$
+                    getMapValueIgnoreCase(set, "headerHeight")); //$NON-NLS-1$
+            Integer height = headerHeightVal == null ? null : parseInteger(headerHeightVal);
+            table.setHeaderHeight(height != null && height.intValue() >= 1 ? height.intValue() : 1);
+        }
+        // autoCommandBar — default true (attach a fresh AutoCommandBar so the platform shows the
+        // standard Add / Delete / Move toolbar). Skip when the table already has one or the
+        // agent explicitly opts out.
+        Object autoCommandBar = firstNonNull(
+                getMapValueIgnoreCase(operation, "auto_command_bar"), //$NON-NLS-1$
+                getMapValueIgnoreCase(operation, "autoCommandBar"), //$NON-NLS-1$
+                getMapValueIgnoreCase(set, "auto_command_bar"), //$NON-NLS-1$
+                getMapValueIgnoreCase(set, "autoCommandBar")); //$NON-NLS-1$
+        boolean wantAutoCommandBar = true;
+        if (autoCommandBar != null) {
+            Boolean parsed = parseBoolean(autoCommandBar);
+            wantAutoCommandBar = parsed == null || parsed.booleanValue();
+        }
+        if (wantAutoCommandBar && table.getAutoCommandBar() == null) {
+            AutoCommandBar bar = FormFactory.eINSTANCE.createAutoCommandBar();
+            if (formModel != null) {
+                bar.setId(nextFormItemId(formModel));
+            }
+            bar.setAutoFill(true);
+            table.setAutoCommandBar(bar);
+        }
     }
 
     private Decoration addDecorationItem(
@@ -3123,12 +3273,10 @@ public class EdtMetadataService {
             }
             tableMsg.append(": Tables are a top-level form element" //$NON-NLS-1$
                     + " (xsi:type=\"form:Table\" with a dataPath to a ValueTable/TabularSection" //$NON-NLS-1$
-                    + " attribute), not a FormField variant — emitting them via add_field would" //$NON-NLS-1$
-                    + " silently downgrade to a UsualGroup. add_group kind:\"TABLE\" currently" //$NON-NLS-1$
-                    + " also down-emits to UsualGroup; until that ships, build tables via direct" //$NON-NLS-1$
-                    + " .form XML edit (Edit/Write tools) using a sibling form's <items" //$NON-NLS-1$
-                    + " xsi:type=\"form:Table\"> block as a template, then run inspect_form_layout" //$NON-NLS-1$
-                    + " to confirm kind=\"Table\". See playbook §21.6.4a for the tabular-section" //$NON-NLS-1$
+                    + " attribute), not a FormField variant. Use {op:\"add_table\"," //$NON-NLS-1$
+                    + " name:\"<name>\", data_path:\"<attribute path>\"," //$NON-NLS-1$
+                    + " parent_item_id:<id>} instead. Then run inspect_form_layout to" //$NON-NLS-1$
+                    + " confirm kind=\"Table\". See playbook §21.6.4a for the tabular-section" //$NON-NLS-1$
                     + " end-to-end pattern."); //$NON-NLS-1$
             throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_CHANGE,

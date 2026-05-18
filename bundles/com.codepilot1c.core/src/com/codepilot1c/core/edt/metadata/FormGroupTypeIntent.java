@@ -149,11 +149,10 @@ public final class FormGroupTypeIntent {
         }
         sb.append(": Table is a distinct form element type (xsi:type=\"form:Table\")," //$NON-NLS-1$
                 + " not a FormGroup variant — emitting it from add_group" //$NON-NLS-1$
-                + " would silently downgrade to UsualGroup. Until mutate_form_model" //$NON-NLS-1$
-                + " grows a dedicated add_table op, edit the Form.form XML directly" //$NON-NLS-1$
-                + " (Edit/Write tools) using the Table block from a sibling form as" //$NON-NLS-1$
-                + " a template, then run inspect_form_layout to confirm" //$NON-NLS-1$
-                + " kind=\"Table\"."); //$NON-NLS-1$
+                + " would silently downgrade to UsualGroup. Use" //$NON-NLS-1$
+                + " {op:\"add_table\", name:\"<name>\", data_path:\"<attribute path>\"," //$NON-NLS-1$
+                + " parent_item_id:<id>} instead. Then run inspect_form_layout to" //$NON-NLS-1$
+                + " confirm kind=\"Table\"."); //$NON-NLS-1$
         return sb.toString();
     }
 
@@ -187,10 +186,10 @@ public final class FormGroupTypeIntent {
                 + " so xsi:type cannot be flipped in place via set_item" //$NON-NLS-1$
                 + " — the underlying EMF class differs. To convert an" //$NON-NLS-1$
                 + " existing UsualGroup into a Table, remove_item the" //$NON-NLS-1$
-                + " group and reconstruct the Table via direct Form.form" //$NON-NLS-1$
-                + " XML edit (Edit/Write tools) using the Table block from" //$NON-NLS-1$
-                + " a sibling form as a template, then run" //$NON-NLS-1$
-                + " inspect_form_layout to confirm kind=\"Table\"."); //$NON-NLS-1$
+                + " group and recreate it with {op:\"add_table\"," //$NON-NLS-1$
+                + " name:\"<name>\", data_path:\"<attribute path>\"," //$NON-NLS-1$
+                + " parent_item_id:<id>}. Then run inspect_form_layout to" //$NON-NLS-1$
+                + " confirm kind=\"Table\"."); //$NON-NLS-1$
         return sb.toString();
     }
 
