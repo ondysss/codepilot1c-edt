@@ -2921,6 +2921,24 @@ public class EdtMetadataService {
             }
         }
         if (txTypeItem == null) {
+            String canonicalBuiltIn = canonicalPlatformBuiltInTypeName(typeQuery);
+            if (canonicalBuiltIn != null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                        canonicalBuiltIn + " is a platform built-in type that is not yet referenced" //$NON-NLS-1$
+                                + " by any attribute in this project, so the configuration-scan" //$NON-NLS-1$
+                                + " fallback could not locate a matching TypeItem. The proper" //$NON-NLS-1$
+                                + " fix routes through TypeProviderService (xtext scoping)," //$NON-NLS-1$
+                                + " which is a larger change. Workaround for first-time use:" //$NON-NLS-1$
+                                + " create one form attribute of this type via direct .form XML" //$NON-NLS-1$
+                                + " edit (Edit/Write tools) using a sibling form's <attributes>" //$NON-NLS-1$
+                                + " <valueType><types>" + canonicalBuiltIn + "</types></valueType>" //$NON-NLS-1$ //$NON-NLS-2$
+                                + " block as a template; subsequent apply_form_recipe calls" //$NON-NLS-1$
+                                + " referencing " + canonicalBuiltIn + " will find the existing" //$NON-NLS-1$ //$NON-NLS-2$
+                                + " TypeItem and succeed. See playbook §21.6.4a for the" //$NON-NLS-1$
+                                + " tabular-section end-to-end pattern.", //$NON-NLS-1$
+                        false);
+            }
             throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_PROPERTY_VALUE,
                     "Type value cannot be resolved for form attribute: " + typeQuery, false); //$NON-NLS-1$
@@ -3053,7 +3071,7 @@ public class EdtMetadataService {
         executeRead(project, readTx -> {
             for (String typeString : typeStrings) {
                 TypeItem item = resolveTypeItem(typeString, readTx);
-                if (item == null && !isSimpleTypeQuery(typeString)) {
+                if (item == null && !isSimpleTypeQuery(typeString) && !isPlatformBuiltInType(typeString)) {
                     throw new MetadataOperationException(
                             MetadataOperationCode.INVALID_PROPERTY_VALUE,
                             "Type not found in BM: " + typeString, false); //$NON-NLS-1$
@@ -6284,7 +6302,7 @@ public class EdtMetadataService {
         executeRead(project, readTx -> {
             for (String typeString : typeStrings) {
                 TypeItem item = resolveTypeItem(typeString, readTx);
-                if (item == null && !isSimpleTypeQuery(typeString)) {
+                if (item == null && !isSimpleTypeQuery(typeString) && !isPlatformBuiltInType(typeString)) {
                     throw new MetadataOperationException(
                             MetadataOperationCode.INVALID_PROPERTY_VALUE,
                             "Type not found in BM: " + typeString, false); //$NON-NLS-1$
@@ -7833,7 +7851,7 @@ public class EdtMetadataService {
     }
 
     private TypeItem resolveSimpleTypeItemFromConfiguration(Configuration configuration, String typeString) {
-        if (configuration == null || !isSimpleTypeQuery(typeString)) {
+        if (configuration == null || (!isSimpleTypeQuery(typeString) && !isPlatformBuiltInType(typeString))) {
             return null;
         }
         Set<String> queries = expandTypeQueries(typeString);
@@ -8541,6 +8559,51 @@ public class EdtMetadataService {
 
     private boolean isSimpleTypeQuery(String typeString) {
         return canonicalSimpleTypeName(typeString) != null;
+    }
+
+    /**
+     * Platform built-in types (ValueTable, Array, Structure, Map, ValueList, and their
+     * fixed/immutable variants) are not registered as Type instances in the project's BM
+     * transaction the way metadata-defined types are — they live in a separate
+     * platform-types partition that the BSL semantic engine loads from .type resources in
+     * com._1c.g5.v8.dt.platform_v8.3.x jars.
+     *
+     * <p>For attribute-type resolution we accept these as "let pre-resolve fall through";
+     * the configuration-scan fallback ({@link #resolveSimpleTypeItemFromConfiguration})
+     * can pick them up if any other form / attribute in the project already references
+     * the same type. On a fresh project with no prior reference, the final error message
+     * tells the agent what is going on and how to bootstrap.</p>
+     */
+    private boolean isPlatformBuiltInType(String typeString) {
+        return canonicalPlatformBuiltInTypeName(typeString) != null;
+    }
+
+    private String canonicalPlatformBuiltInTypeName(String typeString) {
+        if (typeString == null || typeString.isBlank()) {
+            return null;
+        }
+        String base = typeString.trim();
+        int openParen = base.indexOf('(');
+        if (openParen > 0) {
+            base = base.substring(0, openParen).trim();
+        }
+        int dot = base.indexOf('.');
+        if (dot > 0) {
+            base = base.substring(0, dot);
+        }
+        String token = normalizeToken(base);
+        return switch (token) {
+            case "valuetable", "таблицазначений" -> "ValueTable"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "valuelist", "списокзначений" -> "ValueList"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "valuetree", "деревозначений" -> "ValueTree"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "array", "массив" -> "Array"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "fixedarray", "фиксированныймассив" -> "FixedArray"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "structure", "структура" -> "Structure"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "fixedstructure", "фиксированнаяструктура" -> "FixedStructure"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "map", "соответствие" -> "Map"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "fixedmap", "фиксированноесоответствие" -> "FixedMap"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            default -> null;
+        };
     }
 
     private String canonicalSimpleTypeName(String typeString) {
