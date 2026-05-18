@@ -2018,6 +2018,72 @@ public class EdtMetadataService {
         Object stringQualifiers = removeMapValueIgnoreCase(set, "stringQualifiers", "string_qualifiers"); //$NON-NLS-1$ //$NON-NLS-2$
         Object numberQualifiers = removeMapValueIgnoreCase(set, "numberQualifiers", "number_qualifiers"); //$NON-NLS-1$ //$NON-NLS-2$
         Object dateQualifiers = removeMapValueIgnoreCase(set, "dateQualifiers", "date_qualifiers"); //$NON-NLS-1$ //$NON-NLS-2$
+        // Generic wrapper: {qualifiers:{string:{length:N}, number:{precision:N}, date:{...}}}
+        Object qualifiersWrapper = removeMapValueIgnoreCase(set, "qualifiers"); //$NON-NLS-1$
+        if (qualifiersWrapper instanceof Map<?, ?> wrap) {
+            if (stringQualifiers == null) {
+                stringQualifiers = getMapValueIgnoreCase(wrap, "string"); //$NON-NLS-1$
+                if (stringQualifiers == null) {
+                    stringQualifiers = getMapValueIgnoreCase(wrap, "stringQualifiers"); //$NON-NLS-1$
+                }
+            }
+            if (numberQualifiers == null) {
+                numberQualifiers = getMapValueIgnoreCase(wrap, "number"); //$NON-NLS-1$
+                if (numberQualifiers == null) {
+                    numberQualifiers = getMapValueIgnoreCase(wrap, "numberQualifiers"); //$NON-NLS-1$
+                }
+            }
+            if (dateQualifiers == null) {
+                dateQualifiers = getMapValueIgnoreCase(wrap, "date"); //$NON-NLS-1$
+                if (dateQualifiers == null) {
+                    dateQualifiers = getMapValueIgnoreCase(wrap, "dateQualifiers"); //$NON-NLS-1$
+                }
+            }
+        }
+        // Flat keys: hoist length/fixed → stringQualifiers, precision/scale/nonNegative →
+        // numberQualifiers, dateFractions/fractions → dateQualifiers. Same shape the
+        // BasicFeature path (normalizeSetChangesForTarget) already accepts for the
+        // update_metadata tool — apply_form_recipe should match.
+        Object flatLength = removeMapValueIgnoreCase(set, "length"); //$NON-NLS-1$
+        Object flatFixed = removeMapValueIgnoreCase(set, "fixed", "fixedLength"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (flatLength != null || flatFixed != null) {
+            Map<String, Object> merged = stringQualifiers instanceof Map<?, ?>
+                    ? new LinkedHashMap<>(asMap(stringQualifiers))
+                    : new LinkedHashMap<>();
+            if (flatLength != null) {
+                merged.put("length", flatLength); //$NON-NLS-1$
+            }
+            if (flatFixed != null) {
+                merged.put("fixed", flatFixed); //$NON-NLS-1$
+            }
+            stringQualifiers = merged;
+        }
+        Object flatPrecision = removeMapValueIgnoreCase(set, "precision"); //$NON-NLS-1$
+        Object flatScale = removeMapValueIgnoreCase(set, "scale"); //$NON-NLS-1$
+        Object flatNonNegative = removeMapValueIgnoreCase(set, "nonNegative", "non_negative"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (flatPrecision != null || flatScale != null || flatNonNegative != null) {
+            Map<String, Object> merged = numberQualifiers instanceof Map<?, ?>
+                    ? new LinkedHashMap<>(asMap(numberQualifiers))
+                    : new LinkedHashMap<>();
+            if (flatPrecision != null) {
+                merged.put("precision", flatPrecision); //$NON-NLS-1$
+            }
+            if (flatScale != null) {
+                merged.put("scale", flatScale); //$NON-NLS-1$
+            }
+            if (flatNonNegative != null) {
+                merged.put("nonNegative", flatNonNegative); //$NON-NLS-1$
+            }
+            numberQualifiers = merged;
+        }
+        Object flatDateFractions = removeMapValueIgnoreCase(set, "dateFractions", "date_fractions", "fractions"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        if (flatDateFractions != null) {
+            Map<String, Object> merged = dateQualifiers instanceof Map<?, ?>
+                    ? new LinkedHashMap<>(asMap(dateQualifiers))
+                    : new LinkedHashMap<>();
+            merged.put("dateFractions", flatDateFractions); //$NON-NLS-1$
+            dateQualifiers = merged;
+        }
         if (stringQualifiers == null && numberQualifiers == null && dateQualifiers == null) {
             return;
         }
@@ -2729,6 +2795,26 @@ public class EdtMetadataService {
             return;
         }
         String normalized = rawFieldType.replace("-", "_").replace(" ", "_").toUpperCase(Locale.ROOT); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$
+        if ("TABLE".equals(normalized) || "FORMTABLE".equals(normalized) || "DATATABLE".equals(normalized)) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            StringBuilder tableMsg = new StringBuilder();
+            tableMsg.append("add_field field_type='").append(rawFieldType).append("' is not supported"); //$NON-NLS-1$ //$NON-NLS-2$
+            if (fieldName != null && !fieldName.isBlank()) {
+                tableMsg.append(" (name='").append(fieldName).append("')"); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            tableMsg.append(": Tables are a top-level form element" //$NON-NLS-1$
+                    + " (xsi:type=\"form:Table\" with a dataPath to a ValueTable/TabularSection" //$NON-NLS-1$
+                    + " attribute), not a FormField variant — emitting them via add_field would" //$NON-NLS-1$
+                    + " silently downgrade to a UsualGroup. add_group kind:\"TABLE\" currently" //$NON-NLS-1$
+                    + " also down-emits to UsualGroup; until that ships, build tables via direct" //$NON-NLS-1$
+                    + " .form XML edit (Edit/Write tools) using a sibling form's <items" //$NON-NLS-1$
+                    + " xsi:type=\"form:Table\"> block as a template, then run inspect_form_layout" //$NON-NLS-1$
+                    + " to confirm kind=\"Table\". See playbook §21.6.4a for the tabular-section" //$NON-NLS-1$
+                    + " end-to-end pattern."); //$NON-NLS-1$
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    tableMsg.toString(),
+                    false);
+        }
         if (!"LABEL_DECORATION".equals(normalized) && !"PICTURE_DECORATION".equals(normalized)) { //$NON-NLS-1$ //$NON-NLS-2$
             return;
         }
