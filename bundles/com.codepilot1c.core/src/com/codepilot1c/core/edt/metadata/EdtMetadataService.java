@@ -63,7 +63,12 @@ import com._1c.g5.v8.dt.form.model.Button;
 import com._1c.g5.v8.dt.form.model.CommandHandler;
 import com._1c.g5.v8.dt.form.model.DataPath;
 import com._1c.g5.v8.dt.form.model.DynamicListExtInfo;
+import com._1c.g5.v8.dt.form.model.EventHandler;
 import com._1c.g5.v8.dt.form.model.EventHandlerContainer;
+import com._1c.g5.v8.dt.form.model.ExtInfo;
+import com._1c.g5.v8.dt.form.model.FormVisualEntity;
+import com._1c.g5.v8.dt.form.service.FormItemInformationService;
+import com._1c.g5.v8.dt.mcore.Event;
 import com._1c.g5.v8.dt.form.model.Form;
 import com._1c.g5.v8.dt.form.model.FormAttribute;
 import com._1c.g5.v8.dt.form.model.FormCommand;
@@ -201,6 +206,7 @@ public class EdtMetadataService {
     private final EdtMetadataGateway gateway;
     private final MetadataProjectReadinessChecker readinessChecker;
     private final FormOwnerStrategy formOwnerStrategy;
+    private final FormItemInformationService formItemInformationService = new FormItemInformationService();
 
     private record TypeSpec(
             String typeQuery,
@@ -1348,30 +1354,184 @@ public class EdtMetadataService {
     }
 
     /**
-     * Build the agent-facing rejection message for {@code set_item set:{handlers:[...]}}.
-     * Event handler binding routes through EventHandler.event, an EMF reference to the
-     * parent metadata's Event list (each form-item kind exposes its own legal events such
-     * as OnChange / OnReceiveHandler). Resolving event names to the correct Event instance
-     * requires walking the owning configuration's metadata-class registry, which the form
-     * service does not expose generically. Surface a clear pointer to the
-     * sibling-form-as-template workaround until mutate_form_model grows a dedicated
-     * bind_event op.
+     * Apply {@code set_item set:{handlers:[{event,name}, ...]}} on any EventHandlerContainer.
+     *
+     * <p>For each requested entry, the Event-name is resolved through
+     * {@link FormItemInformationService#getAllowedEvents(FormVisualEntity)} (top-level
+     * events on the FormItem itself, e.g. OnChange) and/or
+     * {@link FormItemInformationService#getAllowedEvents(ExtInfo)} (type-specific events
+     * declared by the item's ExtInfo, e.g. CheckBoxField's OnClick). Each EventHandler is
+     * created via FormFactory, wired with the resolved Event reference + handler-procedure
+     * name, and appended to the container whose getAllowedEvents listed that Event. The
+     * supplied handlers list replaces any prior handlers on the container (and its ExtInfo
+     * sibling, when applicable) — that matches the set_item replace-not-merge convention
+     * already used by update_metadata's many-valued attribute writes.</p>
      */
-    private String rejectEventHandlersMessage(EObject target) {
-        String className = target != null && target.eClass() != null
-                ? target.eClass().getName() : "FormItem"; //$NON-NLS-1$
-        StringBuilder sb = new StringBuilder();
-        sb.append("set_item set:{handlers:[...]} is not supported for ").append(className) //$NON-NLS-1$
-                .append(": event handler binding routes through EventHandler.event which is") //$NON-NLS-1$
-                .append(" an EMF reference to the parent metadata's Event list (each item") //$NON-NLS-1$
-                .append(" type has its own legal events such as OnChange, OnReceiveHandler)") //$NON-NLS-1$
-                .append(" — name-based lookup is not exposed by the form service. Until") //$NON-NLS-1$
-                .append(" mutate_form_model grows a dedicated bind_event op, attach handlers") //$NON-NLS-1$
-                .append(" via direct .form XML edit (Edit/Write tools) using a sibling") //$NON-NLS-1$
-                .append(" form's <handlers><event>OnX</event><name>HandlerProc</name></handlers>") //$NON-NLS-1$
-                .append(" block as a template, then run inspect_form_layout to confirm the") //$NON-NLS-1$
-                .append(" binding."); //$NON-NLS-1$
-        return sb.toString();
+    private void applyEventHandlersBinding(EObject target, EventHandlerContainer container, Object handlersValue) {
+        List<Map<String, Object>> entries = coerceHandlerEntries(handlersValue);
+        // Establish the allowed-event scope. For FormVisualEntity targets we get top-level
+        // events (Form-as-a-whole, FormField directly, etc.). For ExtInfo targets (when the
+        // caller routes the extInfo) we get the type-specific events.
+        List<Event> topLevelEvents = List.of();
+        List<Event> extInfoEvents = List.of();
+        EventHandlerContainer extInfoContainer = null;
+        if (target instanceof FormVisualEntity fve) {
+            topLevelEvents = nonNullList(formItemInformationService.getAllowedEvents(fve));
+            ExtInfo extInfo = formItemInformationService.getExtensionInfo(target);
+            if (extInfo != null) {
+                extInfoEvents = nonNullList(formItemInformationService.getAllowedEvents(extInfo));
+                if (extInfo instanceof EventHandlerContainer ehc) {
+                    extInfoContainer = ehc;
+                }
+            }
+        } else if (target instanceof ExtInfo extInfo) {
+            extInfoEvents = nonNullList(formItemInformationService.getAllowedEvents(extInfo));
+            extInfoContainer = container;
+        }
+        if (topLevelEvents.isEmpty() && extInfoEvents.isEmpty()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "No events declared for " + target.eClass().getName() //$NON-NLS-1$
+                            + ": this form-item kind does not host event handlers via the EDT API.", //$NON-NLS-1$
+                    false);
+        }
+        if (entries.isEmpty()) {
+            container.getHandlers().clear();
+            if (extInfoContainer != null && extInfoContainer != container) {
+                extInfoContainer.getHandlers().clear();
+            }
+            return;
+        }
+        // Pre-resolve every requested event so we can validate before clearing existing handlers.
+        record Bound(Event event, String handlerName, boolean atExtInfo) { }
+        List<Bound> bound = new ArrayList<>(entries.size());
+        for (Map<String, Object> entry : entries) {
+            String eventName = asString(getMapValueIgnoreCase(entry, "event")); //$NON-NLS-1$
+            if (eventName == null) {
+                eventName = asString(getMapValueIgnoreCase(entry, "name")); //$NON-NLS-1$
+                // Some callers put event name under "name" and handler under "handler"; allow that.
+            }
+            String handlerName = asString(getMapValueIgnoreCase(entry, "handler")); //$NON-NLS-1$
+            if (handlerName == null) {
+                handlerName = asString(getMapValueIgnoreCase(entry, "procedure")); //$NON-NLS-1$
+            }
+            if (handlerName == null) {
+                // Falling back to "name" only makes sense when "event" was provided explicitly.
+                Object explicitEvent = getMapValueIgnoreCase(entry, "event"); //$NON-NLS-1$
+                if (explicitEvent != null) {
+                    handlerName = asString(getMapValueIgnoreCase(entry, "name")); //$NON-NLS-1$
+                }
+            }
+            if (eventName == null || eventName.isBlank()) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                        "handler entry missing 'event' name: " + entry, false); //$NON-NLS-1$
+            }
+            if (handlerName == null || handlerName.isBlank()) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                        "handler entry missing 'handler' procedure name for event '" //$NON-NLS-1$
+                                + eventName + "'", false); //$NON-NLS-1$
+            }
+            Event resolved = findEventByName(topLevelEvents, eventName);
+            boolean atExtInfo = false;
+            if (resolved == null) {
+                resolved = findEventByName(extInfoEvents, eventName);
+                atExtInfo = resolved != null;
+            }
+            if (resolved == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                        "Event '" + eventName + "' is not declared on " //$NON-NLS-1$ //$NON-NLS-2$
+                                + target.eClass().getName() + ". Allowed: " //$NON-NLS-1$
+                                + describeAllowedEvents(topLevelEvents, extInfoEvents), false);
+            }
+            bound.add(new Bound(resolved, handlerName, atExtInfo && extInfoContainer != null));
+        }
+        // All validated — now clear and rebuild.
+        container.getHandlers().clear();
+        if (extInfoContainer != null && extInfoContainer != container) {
+            extInfoContainer.getHandlers().clear();
+        }
+        for (Bound b : bound) {
+            EventHandler handler = FormFactory.eINSTANCE.createEventHandler();
+            handler.setEvent(b.event());
+            handler.setName(b.handlerName());
+            if (b.atExtInfo() && extInfoContainer != null) {
+                extInfoContainer.getHandlers().add(handler);
+            } else {
+                container.getHandlers().add(handler);
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> coerceHandlerEntries(Object value) {
+        if (value == null) {
+            return List.of();
+        }
+        if (value instanceof List<?> list) {
+            List<Map<String, Object>> result = new ArrayList<>(list.size());
+            for (Object element : list) {
+                if (element instanceof Map<?, ?> map) {
+                    result.add((Map<String, Object>) map);
+                } else if (element != null) {
+                    throw new MetadataOperationException(
+                            MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                            "handlers[] entry must be a map of {event, handler}, got: " //$NON-NLS-1$
+                                    + element.getClass().getSimpleName(), false);
+                }
+            }
+            return result;
+        }
+        if (value instanceof Map<?, ?> singleMap) {
+            return List.of((Map<String, Object>) singleMap);
+        }
+        throw new MetadataOperationException(
+                MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                "handlers expects a list of {event, handler} maps, got: " //$NON-NLS-1$
+                        + value.getClass().getSimpleName(), false);
+    }
+
+    private static List<Event> nonNullList(List<Event> source) {
+        return source == null ? List.of() : source;
+    }
+
+    private static Event findEventByName(List<Event> events, String name) {
+        if (events == null || name == null) {
+            return null;
+        }
+        for (Event event : events) {
+            if (event == null) {
+                continue;
+            }
+            if (name.equalsIgnoreCase(event.getName())) {
+                return event;
+            }
+            String ru = event.getNameRu();
+            if (ru != null && name.equalsIgnoreCase(ru)) {
+                return event;
+            }
+        }
+        return null;
+    }
+
+    private static String describeAllowedEvents(List<Event> topLevel, List<Event> extInfo) {
+        List<String> names = new ArrayList<>();
+        for (Event e : topLevel) {
+            if (e != null && e.getName() != null) {
+                names.add(e.getName());
+            }
+        }
+        for (Event e : extInfo) {
+            if (e != null && e.getName() != null && !names.contains(e.getName())) {
+                names.add(e.getName());
+            }
+        }
+        if (names.isEmpty()) {
+            return "(none)"; //$NON-NLS-1$
+        }
+        return String.join(", ", names); //$NON-NLS-1$
     }
 
     private void rejectTableAsSetItemType(
@@ -1736,11 +1896,9 @@ public class EdtMetadataService {
                 applyTitleValue(titled, value, resolveProjectDefaultLanguageCode(target));
                 continue;
             }
-            if ("handlers".equals(normalized) && target instanceof EventHandlerContainer) { //$NON-NLS-1$
-                throw new MetadataOperationException(
-                        MetadataOperationCode.INVALID_METADATA_CHANGE,
-                        rejectEventHandlersMessage(target),
-                        false);
+            if ("handlers".equals(normalized) && target instanceof EventHandlerContainer container) { //$NON-NLS-1$
+                applyEventHandlersBinding(target, container, value);
+                continue;
             }
             if ("name".equals(normalized) && target instanceof NamedElement namedElement) { //$NON-NLS-1$
                 String name = asString(value);
