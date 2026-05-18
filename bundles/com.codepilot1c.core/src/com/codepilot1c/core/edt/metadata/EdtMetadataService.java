@@ -2088,6 +2088,29 @@ public class EdtMetadataService {
             return;
         }
         if (value instanceof Map<?, ?> map) {
+            // Recognize the explicit {locale: "en", value: "..."} envelope before treating the
+            // map as a multi-locale {en: "...", ru: "..."} payload. This matches the shape the
+            // 2026-05-18 broken-cases report asks for and makes single-locale overrides
+            // unambiguous when the project default differs from the agent's intent.
+            Object explicitLocale = getMapValueIgnoreCase(map, "locale"); //$NON-NLS-1$
+            if (explicitLocale == null) {
+                explicitLocale = getMapValueIgnoreCase(map, "lang"); //$NON-NLS-1$
+            }
+            if (explicitLocale == null) {
+                explicitLocale = getMapValueIgnoreCase(map, "language"); //$NON-NLS-1$
+            }
+            Object explicitValue = getMapValueIgnoreCase(map, "value"); //$NON-NLS-1$
+            if (explicitValue == null) {
+                explicitValue = getMapValueIgnoreCase(map, "text"); //$NON-NLS-1$
+            }
+            if (explicitLocale != null && explicitValue != null) {
+                String localeStr = String.valueOf(explicitLocale).trim();
+                String valueStr = String.valueOf(explicitValue);
+                if (!localeStr.isBlank() && !valueStr.isBlank()) {
+                    titled.getTitle().put(localeStr, valueStr);
+                }
+                return;
+            }
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 if (entry.getKey() == null || entry.getValue() == null) {
                     continue;
