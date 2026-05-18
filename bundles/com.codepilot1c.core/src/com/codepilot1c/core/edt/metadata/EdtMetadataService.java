@@ -213,7 +213,7 @@ public class EdtMetadataService {
     private final EdtMetadataGateway gateway;
     private final MetadataProjectReadinessChecker readinessChecker;
     private final FormOwnerStrategy formOwnerStrategy;
-    private final FormItemInformationService formItemInformationService = new FormItemInformationService();
+    private volatile FormItemInformationService formItemInformationService;
 
     private record TypeSpec(
             String typeQuery,
@@ -1090,6 +1090,33 @@ public class EdtMetadataService {
         return set;
     }
 
+    /**
+     * Lazy-resolve {@link FormItemInformationService} via the form bundle's Guice injector.
+     * A bare {@code new FormItemInformationService()} leaves the service's {@code @Inject}
+     * collaborators (notably {@code IRuntimeVersionSupport}) null, which trips an NPE inside
+     * {@code getAllowedEvents(...)} when EDT walks the runtime-version filter. Cached so we
+     * don't hit the OSGi bundle / injector lookup on every event-handler bind.
+     */
+    private FormItemInformationService resolveFormItemInformationService() {
+        FormItemInformationService cached = formItemInformationService;
+        if (cached != null) {
+            return cached;
+        }
+        try {
+            Bundle formBundle = requireBundle(FORM_BUNDLE_ID);
+            Object injector = resolveFormInjector(formBundle);
+            cached = (FormItemInformationService) resolveInjectorService(injector,
+                    FormItemInformationService.class);
+        } catch (MetadataOperationException | ReflectiveOperationException e) {
+            LOG.warn("FormItemInformationService injector lookup failed, falling back to a bare instance " //$NON-NLS-1$
+                    + "(event-handler binding may NPE inside EDT runtime-version filtering): %s", //$NON-NLS-1$
+                    e.getMessage());
+            cached = new FormItemInformationService();
+        }
+        formItemInformationService = cached;
+        return cached;
+    }
+
     private IFormItemManagementService resolveOptionalFormItemManagementService() {
         try {
             Bundle formBundle = requireBundle(FORM_BUNDLE_ID);
@@ -1248,13 +1275,19 @@ public class EdtMetadataService {
             Boolean parsed = parseBoolean(autoCommandBar);
             wantAutoCommandBar = parsed == null || parsed.booleanValue();
         }
-        if (wantAutoCommandBar && table.getAutoCommandBar() == null) {
-            AutoCommandBar bar = FormFactory.eINSTANCE.createAutoCommandBar();
-            if (formModel != null) {
-                bar.setId(nextFormItemId(formModel));
+        if (wantAutoCommandBar) {
+            if (table.getAutoCommandBar() == null) {
+                AutoCommandBar bar = FormFactory.eINSTANCE.createAutoCommandBar();
+                if (formModel != null) {
+                    bar.setId(nextFormItemId(formModel));
+                }
+                bar.setAutoFill(true);
+                table.setAutoCommandBar(bar);
             }
-            bar.setAutoFill(true);
-            table.setAutoCommandBar(bar);
+        } else if (table.getAutoCommandBar() != null) {
+            // EDT's IFormItemManagementService.addTable creates an AutoCommandBar internally
+            // regardless of caller intent; explicit auto_command_bar:false must detach it.
+            table.setAutoCommandBar(null);
         }
     }
 
@@ -1658,6 +1691,7 @@ public class EdtMetadataService {
      */
     private void applyEventHandlersBinding(EObject target, EventHandlerContainer container, Object handlersValue) {
         List<Map<String, Object>> entries = coerceHandlerEntries(handlersValue);
+        FormItemInformationService infoService = resolveFormItemInformationService();
         // Establish the allowed-event scope. For FormVisualEntity targets we get top-level
         // events (Form-as-a-whole, FormField directly, etc.). For ExtInfo targets (when the
         // caller routes the extInfo) we get the type-specific events.
@@ -1665,16 +1699,16 @@ public class EdtMetadataService {
         List<Event> extInfoEvents = List.of();
         EventHandlerContainer extInfoContainer = null;
         if (target instanceof FormVisualEntity fve) {
-            topLevelEvents = nonNullList(formItemInformationService.getAllowedEvents(fve));
-            ExtInfo extInfo = formItemInformationService.getExtensionInfo(target);
+            topLevelEvents = nonNullList(infoService.getAllowedEvents(fve));
+            ExtInfo extInfo = infoService.getExtensionInfo(target);
             if (extInfo != null) {
-                extInfoEvents = nonNullList(formItemInformationService.getAllowedEvents(extInfo));
+                extInfoEvents = nonNullList(infoService.getAllowedEvents(extInfo));
                 if (extInfo instanceof EventHandlerContainer ehc) {
                     extInfoContainer = ehc;
                 }
             }
         } else if (target instanceof ExtInfo extInfo) {
-            extInfoEvents = nonNullList(formItemInformationService.getAllowedEvents(extInfo));
+            extInfoEvents = nonNullList(infoService.getAllowedEvents(extInfo));
             extInfoContainer = container;
         }
         if (topLevelEvents.isEmpty() && extInfoEvents.isEmpty()) {
