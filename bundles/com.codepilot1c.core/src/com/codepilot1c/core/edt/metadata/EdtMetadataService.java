@@ -62,7 +62,12 @@ import com._1c.g5.v8.dt.form.model.AbstractFormAttribute;
 import com._1c.g5.v8.dt.form.model.Button;
 import com._1c.g5.v8.dt.form.model.CommandHandler;
 import com._1c.g5.v8.dt.form.model.DataPath;
+import com._1c.g5.v8.dt.form.model.Decoration;
+import com._1c.g5.v8.dt.form.model.DecorationExtInfo;
 import com._1c.g5.v8.dt.form.model.DynamicListExtInfo;
+import com._1c.g5.v8.dt.form.model.LabelDecorationExtInfo;
+import com._1c.g5.v8.dt.form.model.ManagedFormDecorationType;
+import com._1c.g5.v8.dt.form.model.PictureDecorationExtInfo;
 import com._1c.g5.v8.dt.form.model.EventHandler;
 import com._1c.g5.v8.dt.form.model.EventHandlerContainer;
 import com._1c.g5.v8.dt.form.model.ExtInfo;
@@ -879,6 +884,34 @@ public class EdtMetadataService {
                     summaries.add("add_field[" + operationIndex + "]: name=" + field.getName() + ", id=" //$NON-NLS-1$ //$NON-NLS-2$
                             + safeItemId(field)); //$NON-NLS-1$
                 }
+                case "adddecoration", "createdecoration" -> {
+                    FormItemContainer parentContainer = resolveTargetContainer(formModel, operation);
+                    String name = asString(getMapValueIgnoreCase(operation, "name")); //$NON-NLS-1$
+                    if (!MetadataNameValidator.isValidName(name)) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_NAME,
+                                "Invalid decoration name: " + name, false); //$NON-NLS-1$
+                    }
+                    Map<String, Object> set = extractOperationSet(operation);
+                    ManagedFormDecorationType decorationType = resolveRequestedDecorationType(operation, set);
+                    Integer index = asOptionalInteger(operation.get("index"), "index"); //$NON-NLS-1$ //$NON-NLS-2$
+                    Decoration decoration = addDecorationItem(
+                            formModel,
+                            parentContainer,
+                            operation,
+                            name,
+                            decorationType,
+                            index,
+                            itemManagementService);
+                    Map<String, Object> effectiveSet = stripMapKeysIgnoreCase(set, "name", "title", "decoration_type", "decorationType", "kind"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+                    if (!effectiveSet.isEmpty()) {
+                        applyFormPropertySet(decoration, effectiveSet);
+                    }
+                    applyDefaultVisibility(decoration, effectiveSet);
+                    ensureFormDecorationExtInfo(decoration);
+                    summaries.add("add_decoration[" + operationIndex + "]: name=" + decoration.getName() + ", id=" //$NON-NLS-1$ //$NON-NLS-2$
+                            + safeItemId(decoration)); //$NON-NLS-1$
+                }
                 case "setitemprops", "setitem", "updateitem", "set" -> {
                     FormItem item = resolveRequiredItem(formModel, operation);
                     Map<String, Object> set = extractOperationSet(operation);
@@ -1073,6 +1106,112 @@ public class EdtMetadataService {
             group.setType(groupType);
         }
         return group;
+    }
+
+    private Decoration addDecorationItem(
+            Form formModel,
+            FormItemContainer parentContainer,
+            Map<String, Object> operation,
+            String name,
+            ManagedFormDecorationType decorationType,
+            Integer index,
+            IFormItemManagementService itemManagementService) {
+        FormNewItemDescriptor descriptor = buildFormNewItemDescriptor(operation, name);
+        Decoration decoration;
+        if (itemManagementService != null) {
+            if (index != null && index.intValue() >= 0 && index.intValue() <= parentContainer.getItems().size()) {
+                decoration = itemManagementService.addDecoration(parentContainer, index.intValue(),
+                        decorationType, formModel, descriptor);
+            } else {
+                decoration = itemManagementService.addDecoration(parentContainer, decorationType, formModel, descriptor);
+            }
+        } else {
+            decoration = FormFactory.eINSTANCE.createDecoration();
+            decoration.setId(nextFormItemId(formModel));
+            decoration.setName(name);
+            applyTitleValue(decoration, getMapValueIgnoreCase(operation, "title"), //$NON-NLS-1$
+                    resolveProjectDefaultLanguageCode(formModel));
+            insertItemIntoContainer(parentContainer, decoration, index);
+        }
+        // IFormItemManagementService.addDecoration uses the supplied decorationType internally,
+        // but mirror the addGroup pattern: force-set after the call so a future EDT regression
+        // can't silently downgrade us. ensureFormDecorationExtInfo (called by the dispatcher
+        // right after) rebuilds the matching LabelDecorationExtInfo / PictureDecorationExtInfo.
+        if (decoration != null && decorationType != null && decoration.getType() != decorationType) {
+            decoration.setType(decorationType);
+        }
+        return decoration;
+    }
+
+    private ManagedFormDecorationType resolveRequestedDecorationType(Map<String, Object> operation, Map<String, Object> set) {
+        // Accept decoration_type / decorationType / kind / type at top-level or inside set.
+        Object raw = getMapValueIgnoreCase(operation, "decoration_type"); //$NON-NLS-1$
+        if (raw == null) {
+            raw = getMapValueIgnoreCase(operation, "decorationType"); //$NON-NLS-1$
+        }
+        if (raw == null) {
+            raw = getMapValueIgnoreCase(operation, "kind"); //$NON-NLS-1$
+        }
+        if (raw == null) {
+            raw = getMapValueIgnoreCase(operation, "type"); //$NON-NLS-1$
+        }
+        if (raw == null) {
+            raw = getMapValueIgnoreCase(set, "decoration_type"); //$NON-NLS-1$
+        }
+        if (raw == null) {
+            raw = getMapValueIgnoreCase(set, "decorationType"); //$NON-NLS-1$
+        }
+        if (raw == null) {
+            raw = getMapValueIgnoreCase(set, "kind"); //$NON-NLS-1$
+        }
+        if (raw == null) {
+            raw = getMapValueIgnoreCase(set, "type"); //$NON-NLS-1$
+        }
+        if (raw instanceof ManagedFormDecorationType direct) {
+            return direct;
+        }
+        if (raw == null) {
+            return ManagedFormDecorationType.LABEL;
+        }
+        String normalized = String.valueOf(raw).trim().replace("-", "_").replace(" ", "_").toUpperCase(Locale.ROOT); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$
+        // Tolerate the LABEL_DECORATION / PICTURE_DECORATION form a previous error message
+        // recommended — they're equivalent to LABEL / PICTURE in this context.
+        if ("LABEL_DECORATION".equals(normalized)) { //$NON-NLS-1$
+            normalized = "LABEL"; //$NON-NLS-1$
+        } else if ("PICTURE_DECORATION".equals(normalized)) { //$NON-NLS-1$
+            normalized = "PICTURE"; //$NON-NLS-1$
+        }
+        try {
+            return ManagedFormDecorationType.valueOf(normalized);
+        } catch (IllegalArgumentException e) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "Unknown decoration type '" + raw + "': expected LABEL or PICTURE", false); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+    }
+
+    private void ensureFormDecorationExtInfo(Decoration decoration) {
+        if (decoration == null) {
+            return;
+        }
+        ManagedFormDecorationType type = decoration.getType();
+        if (type == null) {
+            type = ManagedFormDecorationType.LABEL;
+            decoration.setType(type);
+        }
+        DecorationExtInfo extInfo = decoration.getExtInfo();
+        switch (type) {
+            case LABEL -> {
+                if (!(extInfo instanceof LabelDecorationExtInfo)) {
+                    decoration.setExtInfo(FormFactory.eINSTANCE.createLabelDecorationExtInfo());
+                }
+            }
+            case PICTURE -> {
+                if (!(extInfo instanceof PictureDecorationExtInfo)) {
+                    decoration.setExtInfo(FormFactory.eINSTANCE.createPictureDecorationExtInfo());
+                }
+            }
+        }
     }
 
     private FormField addFieldItem(
@@ -2983,13 +3122,10 @@ public class EdtMetadataService {
         }
         sb.append(": decorations are a distinct form element type" //$NON-NLS-1$
                 + " (xsi:type=\"form:Decoration\" with type=Label/Picture)," //$NON-NLS-1$
-                + " not a FormField variant — emitting them via add_field" //$NON-NLS-1$
-                + " would silently downgrade to a non-decoration field. Until" //$NON-NLS-1$
-                + " mutate_form_model grows a dedicated add_decoration op, edit" //$NON-NLS-1$
-                + " the Form.form XML directly (Edit/Write tools) using a" //$NON-NLS-1$
-                + " sibling form's <items xsi:type=\"form:Decoration\"> block as" //$NON-NLS-1$
-                + " a template, then run inspect_form_layout to confirm" //$NON-NLS-1$
-                + " kind=\"Decoration\"."); //$NON-NLS-1$
+                + " not a FormField variant. Use {op:\"add_decoration\"," //$NON-NLS-1$
+                + " name:\"<name>\", decoration_type:\"LABEL\"|\"PICTURE\"," //$NON-NLS-1$
+                + " parent_item_id:<id>, title:\"<text>\"} instead. Then run" //$NON-NLS-1$
+                + " inspect_form_layout to confirm kind=\"Decoration\"."); //$NON-NLS-1$
         throw new MetadataOperationException(
                 MetadataOperationCode.INVALID_METADATA_CHANGE,
                 sb.toString(),
