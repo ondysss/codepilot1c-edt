@@ -58,7 +58,14 @@ import com._1c.g5.v8.dt.core.platform.IExternalObjectProject;
 import com._1c.g5.v8.dt.core.platform.IDtProject;
 import com._1c.g5.v8.dt.core.platform.IDtProjectManager;
 import com._1c.g5.v8.dt.form.model.AbstractDataPath;
+import com._1c.g5.v8.dt.form.model.Addition;
 import com._1c.g5.v8.dt.form.model.AutoCommandBar;
+import com._1c.g5.v8.dt.form.model.ContextMenu;
+import com._1c.g5.v8.dt.form.model.ContextMenuHolder;
+import com._1c.g5.v8.dt.form.model.DynamicListTableExtInfo;
+import com._1c.g5.v8.dt.form.model.ExtendedTooltip;
+import com._1c.g5.v8.dt.form.model.ItemHorizontalAlignment;
+import com._1c.g5.v8.dt.form.model.ManagedFormAdditionType;
 import com._1c.g5.v8.dt.form.model.Table;
 import com._1c.g5.v8.dt.form.model.AbstractFormAttribute;
 import com._1c.g5.v8.dt.form.model.Button;
@@ -98,8 +105,12 @@ import com._1c.g5.v8.dt.form.model.ManagedFormGroupType;
 import com._1c.g5.v8.dt.form.model.PageGroupExtInfo;
 import com._1c.g5.v8.dt.form.model.PagesGroupExtInfo;
 import com._1c.g5.v8.dt.form.model.PopupGroupExtInfo;
+import com._1c.g5.v8.dt.form.model.CurrentRowUse;
+import com._1c.g5.v8.dt.form.model.FormChildrenGroup;
+import com._1c.g5.v8.dt.form.model.UsualGroupBehavior;
 import com._1c.g5.v8.dt.form.model.UsualGroupExtInfo;
 import com._1c.g5.v8.dt.form.model.UsualGroupRepresentation;
+import com._1c.g5.v8.dt.form.model.UsualGroupThroughAlign;
 import com._1c.g5.v8.dt.form.model.FormItem;
 import com._1c.g5.v8.dt.form.model.FormItemContainer;
 import com._1c.g5.v8.dt.form.model.Titled;
@@ -601,6 +612,11 @@ public class EdtMetadataService {
             List<String> summaries = hasLayoutOps
                     ? applyFormModelOperations(formModel, request.layoutOperations())
                     : List.of();
+            // Normalize platform-required defaults after both attribute and
+            // layout passes — handles the attributes-only path that does
+            // not go through applyFormModelOperations. Idempotent when
+            // applyFormModelOperations already ran the normalize.
+            normalizeFormSerializationDefaults(formModel);
             if (Boolean.TRUE.equals(request.setAsDefault())) {
                 boolean bindDefault = resolveDefaultBinding(Boolean.TRUE, usageForDefault, applyOwnerFqn, externalProject);
                 if (bindDefault) {
@@ -850,11 +866,16 @@ public class EdtMetadataService {
                             index,
                             itemManagementService);
                     Map<String, Object> effectiveSet = stripMapKeysIgnoreCase(set, "name", "title", "group_type"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    // Category #7: hoist UsualGroupExtInfo layout properties out of the
+                    // effective set before the generic feature resolver runs — these
+                    // live on the ExtInfo, not on FormGroup, so applyFormPropertySet
+                    // would otherwise reject them as unknown features.
+                    ensureFormGroupExtInfo(group);
+                    applyUsualGroupLayoutProperties(group, effectiveSet);
                     if (!effectiveSet.isEmpty()) {
                         applyFormPropertySet(group, effectiveSet);
                     }
                     applyDefaultVisibility(group, effectiveSet);
-                    ensureFormGroupExtInfo(group);
                     summaries.add("add_group[" + operationIndex + "]: name=" + group.getName() + ", id=" //$NON-NLS-1$ //$NON-NLS-2$
                             + safeItemId(group)); //$NON-NLS-1$
                 }
@@ -950,6 +971,9 @@ public class EdtMetadataService {
                     }
                     rejectTableAsSetItemType(operation, set, item);
                     applyGroupKindMutation(item, set);
+                    if (item instanceof FormGroup formGroup) {
+                        applyUsualGroupLayoutProperties(formGroup, set);
+                    }
                     applyFormPropertySet(item, set);
                     summaries.add("set_item[" + operationIndex + "]: id=" + item.getId()); //$NON-NLS-1$ //$NON-NLS-2$
                 }
@@ -1048,7 +1072,287 @@ public class EdtMetadataService {
             }
             operationIndex++;
         }
+        normalizeFormSerializationDefaults(formModel);
         return summaries;
+    }
+
+    /**
+     * Materialize the EMF features that the 1С platform requires explicitly
+     * present on a serialized {@code .form} resource — even though their
+     * default values would otherwise be elided by the BM API's strict
+     * {@code eIsSet()}-driven serializer.
+     *
+     * <p>Without this pass, mutations done through {@code mutate_form_model}
+     * and {@code apply_form_recipe} accumulate lossy round-trips: each
+     * pass strips the platform-required sub-elements that the EDT
+     * designer needs to render the form, until the designer eventually
+     * fails silently (zero diagnostics, empty preview). See
+     * {@code 2026-05-18-bm-serialization-lossy.md} in the AM-side
+     * feedback notes for the incident report that motivated this pass.</p>
+     *
+     * <p>The pass is idempotent: every materialization checks for
+     * {@code null} first, so an explicit value set by the agent always
+     * wins. The pass covers categories #1-6 of the report; category #7
+     * (UsualGroup layout properties) is handled at first-emit on
+     * {@code add_group} / {@code set_item}, not here.</p>
+     *
+     * <p>The decision tables (which events live in
+     * {@code InputFieldExtInfo}, which attribute names are exempt from
+     * implicit {@code view}/{@code edit}, how the auto-generated sub-
+     * elements are named) live in {@link FormDefaultsRules}.</p>
+     */
+    private void normalizeFormSerializationDefaults(Form formModel) {
+        if (formModel == null) {
+            return;
+        }
+        int[] nextId = { nextFormItemId(formModel) };
+
+        // Category #4: every form attribute (except `Object`, which is
+        // implicit) gets <view><common>true</common></view> +
+        // <edit><common>true</common></edit>.
+        for (FormAttribute attribute : formModel.getAttributes()) {
+            if (attribute == null) {
+                continue;
+            }
+            if (!FormDefaultsRules.shouldMaterializeAttributeViewEdit(attribute.getName())) {
+                continue;
+            }
+            if (attribute.getView() == null) {
+                attribute.setView(adjustableBooleanTrue());
+            }
+            if (attribute.getEdit() == null) {
+                attribute.setEdit(adjustableBooleanTrue());
+            }
+        }
+
+        // Category #5: every form command gets <use><common>true</common></use>.
+        for (FormCommand command : formModel.getFormCommands()) {
+            if (command == null) {
+                continue;
+            }
+            if (command.getUse() == null) {
+                command.setUse(adjustableBooleanTrue());
+            }
+        }
+
+        // Categories #1, #3, #6, #2: walk every visual item and materialize
+        // table helpers, context menus, rowFilter, and re-bucket handlers.
+        // Snapshot the EObject set first because the iteration mutates the
+        // tree (newly added Addition / ContextMenu sub-objects).
+        List<EObject> snapshot = new ArrayList<>();
+        TreeIterator<EObject> iterator = formModel.eAllContents();
+        while (iterator.hasNext()) {
+            snapshot.add(iterator.next());
+        }
+        for (EObject obj : snapshot) {
+            if (obj instanceof Table table) {
+                ensureTableHelpers(table, nextId);
+            } else if (obj instanceof ExtendedTooltip tip) {
+                // ExtendedTooltip extends Decoration in the form EMF model — it's
+                // the Label-class child nested inside every visual item's
+                // <extendedTooltip> block. The 1С platform / Configurator does
+                // NOT emit a ContextMenu on ExtendedTooltip; the 2026-05-19
+                // verification ("normalize-pass over-emit") showed that emitting
+                // one (27 phantom ContextMenus on the playground form) breaks
+                // the EDT designer's form-item registry — the actual root
+                // cause behind the 3-day designer-blank-preview saga.
+                //
+                // Skip every ExtendedTooltip before the Decoration branch matches
+                // it. The parent visual item already gets its own ContextMenu
+                // via the Decoration / FormField / Table branches.
+                //
+                // Also actively strip any pre-existing ContextMenu on an
+                // ExtendedTooltip — earlier builds (0.1.7.20260518-{1933,2204,
+                // 2248}) over-emitted them; this cleanup undoes inherited
+                // damage on the next mutation without requiring a Configurator
+                // round-trip.
+                if (tip.getContextMenu() != null) {
+                    tip.setContextMenu(null);
+                }
+                continue;
+            } else if (obj instanceof Decoration decoration) {
+                ensureContextMenu(decoration, nextId);
+            } else if (obj instanceof FormField field) {
+                ensureContextMenu(field, nextId);
+                rebucketInputFieldHandlers(field);
+            }
+        }
+    }
+
+    /**
+     * Category #1: ensure the three Addition helpers + #6 rowFilter
+     * + #3 contextMenu are materialized on the table. Skips any that
+     * are already present so an explicit agent-supplied value is
+     * preserved.
+     */
+    private void ensureTableHelpers(Table table, int[] nextId) {
+        if (table == null) {
+            return;
+        }
+        String tableName = safeName(table.getName());
+        if (table.getSearchStringAddition() == null) {
+            table.setSearchStringAddition(buildAddition(
+                    table, tableName, FormDefaultsRules.AdditionKind.SEARCH_STRING, nextId));
+        }
+        if (table.getViewStatusAddition() == null) {
+            table.setViewStatusAddition(buildAddition(
+                    table, tableName, FormDefaultsRules.AdditionKind.VIEW_STATUS, nextId));
+        }
+        if (table.getSearchControlAddition() == null) {
+            table.setSearchControlAddition(buildAddition(
+                    table, tableName, FormDefaultsRules.AdditionKind.SEARCH_CONTROL, nextId));
+        }
+        // Cat-C: <rowFilter xsi:type="core:UndefinedValue"/> is a property of
+        // a regular Table bound to a ValueTable/TabularSection. For Tables
+        // bound to a DynamicList, filtering lives on the DynamicList settings
+        // — a top-level <rowFilter> is redundant and Configurator strips it
+        // on round-trip. Materialize only on non-DynamicList tables.
+        if (table.getRowFilter() == null && !(table.getExtInfo() instanceof DynamicListTableExtInfo)) {
+            table.setRowFilter(McoreFactory.eINSTANCE.createUndefinedValue());
+        }
+        ensureContextMenu(table, nextId);
+    }
+
+    /**
+     * Build a single Addition sub-element (searchStringAddition,
+     * viewStatusAddition, or searchControlAddition). Wires up the EMF
+     * {@code source} back-reference, the matching {@code extInfo}
+     * discriminator, and the ContextMenu that the Configurator always
+     * emits on each Addition.
+     */
+    private Addition buildAddition(
+            Table parent,
+            String parentName,
+            FormDefaultsRules.AdditionKind kind,
+            int[] nextId) {
+        Addition addition = FormFactory.eINSTANCE.createAddition();
+        addition.setId(nextId[0]++);
+        addition.setName(kind.nameFor(parentName));
+        addition.setSource(parent);
+        switch (kind) {
+            case SEARCH_STRING -> {
+                addition.setType(ManagedFormAdditionType.SEARCH_STRING_ADDITION);
+                addition.setExtInfo(FormFactory.eINSTANCE.createSearchStringAdditionExtInfo());
+            }
+            case VIEW_STATUS -> {
+                addition.setType(ManagedFormAdditionType.VIEW_STATUS_ADDITION);
+                addition.setExtInfo(FormFactory.eINSTANCE.createViewStatusAdditionExtInfo());
+            }
+            case SEARCH_CONTROL -> {
+                addition.setType(ManagedFormAdditionType.SEARCH_CONTROL_ADDITION);
+                addition.setExtInfo(FormFactory.eINSTANCE.createSearchControlAdditionExtInfo());
+            }
+        }
+        // Cat-B (2026-05-19 verification): Configurator emits
+        // <enabled>false</enabled> + a nested <extendedTooltip> Label on every
+        // Addition. Adding both for round-trip cosmetic stability. The nested
+        // ExtendedTooltip is itself a Decoration but must NOT receive a
+        // ContextMenu — Cat-A filter in the normalize loop handles that.
+        addition.setEnabled(false);
+        if (addition.getExtendedTooltip() == null) {
+            ExtendedTooltip tip = FormFactory.eINSTANCE.createExtendedTooltip();
+            tip.setId(nextId[0]++);
+            tip.setName(addition.getName() + FormDefaultsRules.EXTENDED_TOOLTIP_SUFFIX);
+            tip.setType(ManagedFormDecorationType.LABEL);
+            tip.setAutoMaxWidth(true);
+            tip.setAutoMaxHeight(true);
+            LabelDecorationExtInfo tipExtInfo = FormFactory.eINSTANCE.createLabelDecorationExtInfo();
+            tipExtInfo.setHorizontalAlign(ItemHorizontalAlignment.LEFT);
+            tip.setExtInfo(tipExtInfo);
+            addition.setExtendedTooltip(tip);
+        }
+        // Addition extends ContextMenuHolder — Configurator emits a
+        // ContextMenu on every Addition. Materialize it here so the
+        // designer doesn't have to fill it in lazily.
+        if (addition.getContextMenu() == null) {
+            addition.setContextMenu(buildContextMenu(addition.getName(), nextId));
+        }
+        return addition;
+    }
+
+    /**
+     * Category #3: ensure the visual item has an explicit ContextMenu.
+     * The platform fills one in at runtime when absent, but the EDT
+     * designer expects it present in the serialized model.
+     */
+    private void ensureContextMenu(ContextMenuHolder holder, int[] nextId) {
+        if (holder == null || holder.getContextMenu() != null) {
+            return;
+        }
+        String parentName = null;
+        if (holder instanceof NamedElement named) {
+            parentName = named.getName();
+        }
+        holder.setContextMenu(buildContextMenu(safeName(parentName), nextId));
+    }
+
+    /**
+     * Build a fresh ContextMenu with the conventional
+     * {@code <parentName>ContextMenu} name pattern, a unique id, and
+     * {@code autoFill=true} (matches Configurator's emit).
+     */
+    private ContextMenu buildContextMenu(String parentName, int[] nextId) {
+        ContextMenu menu = FormFactory.eINSTANCE.createContextMenu();
+        menu.setId(nextId[0]++);
+        menu.setName(FormDefaultsRules.contextMenuNameFor(parentName));
+        menu.setAutoFill(true);
+        return menu;
+    }
+
+    /**
+     * Category #2: move event handlers from the FormField top-level
+     * container into the {@code InputFieldExtInfo} container for events
+     * that Configurator round-trips inside {@code <extInfo>}. The
+     * decision is encoded in
+     * {@link FormDefaultsRules#preferExtInfoForInputField(String)}.
+     *
+     * <p>Only operates when the field carries an InputFieldExtInfo —
+     * other field kinds (CheckBoxField, RadioButtonField, …) keep their
+     * handlers where the original EDT API placed them.</p>
+     */
+    private void rebucketInputFieldHandlers(FormField field) {
+        if (field == null) {
+            return;
+        }
+        if (!(field.getExtInfo() instanceof InputFieldExtInfo extInfo)) {
+            return;
+        }
+        if (!(extInfo instanceof EventHandlerContainer extInfoContainer)) {
+            return;
+        }
+        List<EventHandler> toMove = new ArrayList<>();
+        for (EventHandler handler : field.getHandlers()) {
+            if (handler == null) {
+                continue;
+            }
+            Event event = handler.getEvent();
+            String eventName = event == null ? null : event.getName();
+            if (FormDefaultsRules.preferExtInfoForInputField(eventName)) {
+                toMove.add(handler);
+            }
+        }
+        if (toMove.isEmpty()) {
+            return;
+        }
+        field.getHandlers().removeAll(toMove);
+        extInfoContainer.getHandlers().addAll(toMove);
+    }
+
+    /**
+     * Build an {@code AdjustableBoolean} with {@code common=true} — the
+     * standard {@code <view><common>true</common></view>}-style block
+     * that the 1С platform expects on attribute view/edit and command
+     * use slots.
+     */
+    private AdjustableBoolean adjustableBooleanTrue() {
+        AdjustableBoolean adjusted = MdClassFactory.eINSTANCE.createAdjustableBoolean();
+        adjusted.setCommon(true);
+        adjusted.getFor().clear();
+        return adjusted;
+    }
+
+    private static String safeName(String value) {
+        return value == null ? "" : value; //$NON-NLS-1$
     }
 
     private Map<String, Object> extractOperationSet(Map<String, Object> operation) {
@@ -1129,6 +1433,49 @@ public class EdtMetadataService {
         }
     }
 
+    /**
+     * Force-reassign a new top-level form item's id <em>and</em> the
+     * ids of every FormItem auto-attached as a containment child by
+     * {@code IFormItemManagementService.addXxx} (the
+     * {@code ExtendedTooltip}, the direct {@code ContextMenu}, the
+     * {@code ContextMenu} nested inside the {@code ExtendedTooltip},
+     * the {@code AutoCommandBar} a Table gets, etc.) via the upgraded
+     * {@link #nextFormItemId(FormItemContainer)} allocator that walks
+     * {@code eAllContents()} on a Form root.
+     *
+     * <p>EDT's {@code IFormItemManagementService.addXxx} uses an
+     * internal allocator that scans only the {@code getItems()} tree —
+     * it does <em>not</em> see FormItem ids living inside the
+     * {@code Addition} / {@code ContextMenu} / {@code ExtendedTooltip}
+     * sub-element blocks the normalize pass (and prior {@code add_*}
+     * calls) materialized. Reassigning only the top-level id fixes
+     * collisions on the parent but not on its sub-elements — the
+     * 2026-05-19 verification of build {@code 20260518-2204} caught
+     * exactly that: the new FormGroup's id was safe (624) but its
+     * EDT-allocated {@code ExtendedTooltip} got id 623, colliding with
+     * a prior Decoration's nested ContextMenu also at 623.</p>
+     *
+     * <p>This recursive pass renumbers the entire sub-tree of the
+     * newly-added item with consecutive ids past the current global
+     * max, making collisions impossible. Idempotent for items already
+     * holding safe ids (each {@code setId} just re-issues the next
+     * fresh value).</p>
+     */
+    private void assignSafeFormItemId(Form formModel, FormItem item) {
+        if (formModel == null || item == null) {
+            return;
+        }
+        int[] nextId = { nextFormItemId(formModel) };
+        item.setId(nextId[0]++);
+        TreeIterator<EObject> iterator = item.eAllContents();
+        while (iterator.hasNext()) {
+            EObject obj = iterator.next();
+            if (obj instanceof FormItem nested) {
+                nested.setId(nextId[0]++);
+            }
+        }
+    }
+
     private FormGroup addGroupItem(
             Form formModel,
             FormItemContainer parentContainer,
@@ -1160,6 +1507,7 @@ public class EdtMetadataService {
         if (group != null && groupType != null && group.getType() != groupType) {
             group.setType(groupType);
         }
+        assignSafeFormItemId(formModel, group);
         return group;
     }
 
@@ -1185,6 +1533,7 @@ public class EdtMetadataService {
                     resolveProjectDefaultLanguageCode(formModel));
             insertItemIntoContainer(parentContainer, table, index);
         }
+        assignSafeFormItemId(formModel, table);
         return table;
     }
 
@@ -1323,6 +1672,7 @@ public class EdtMetadataService {
         if (decoration != null && decorationType != null && decoration.getType() != decorationType) {
             decoration.setType(decorationType);
         }
+        assignSafeFormItemId(formModel, decoration);
         return decoration;
     }
 
@@ -1405,17 +1755,21 @@ public class EdtMetadataService {
             Integer index,
             IFormItemManagementService itemManagementService) {
         FormNewItemDescriptor descriptor = buildFormNewItemDescriptor(operation, name);
+        FormField field;
         if (itemManagementService != null) {
             if (index != null && index.intValue() >= 0 && index.intValue() <= parentContainer.getItems().size()) {
-                return itemManagementService.addField(parentContainer, index.intValue(), formModel, descriptor);
+                field = itemManagementService.addField(parentContainer, index.intValue(), formModel, descriptor);
+            } else {
+                field = itemManagementService.addField(parentContainer, formModel, descriptor);
             }
-            return itemManagementService.addField(parentContainer, formModel, descriptor);
+        } else {
+            field = FormFactory.eINSTANCE.createFormField();
+            field.setId(nextFormItemId(formModel));
+            field.setName(name);
+            applyTitleValue(field, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
+            insertItemIntoContainer(parentContainer, field, index);
         }
-        FormField field = FormFactory.eINSTANCE.createFormField();
-        field.setId(nextFormItemId(formModel));
-        field.setName(name);
-        applyTitleValue(field, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
-        insertItemIntoContainer(parentContainer, field, index);
+        assignSafeFormItemId(formModel, field);
         return field;
     }
 
@@ -1471,28 +1825,34 @@ public class EdtMetadataService {
             Integer index,
             IFormItemManagementService itemManagementService) {
         FormNewItemDescriptor descriptor = buildFormNewItemDescriptor(operation, name);
+        Button button = null;
         if (itemManagementService != null && command != null) {
             try {
                 if (index != null && index.intValue() >= 0 && index.intValue() <= parentContainer.getItems().size()) {
-                    return itemManagementService.addButton(parentContainer, index.intValue(), command, null, formModel, descriptor);
+                    button = itemManagementService.addButton(parentContainer, index.intValue(), command, null, formModel, descriptor);
+                } else {
+                    button = itemManagementService.addButton(parentContainer, command, null, formModel, descriptor);
                 }
-                return itemManagementService.addButton(parentContainer, command, null, formModel, descriptor);
             } catch (Exception e) {
                 LOG.warn("IFormItemManagementService.addButton() failed, using manual path: %s", e.getMessage()); //$NON-NLS-1$
+                button = null;
             }
         }
-        // Manual / fallback path
-        Button button = FormFactory.eINSTANCE.createButton();
-        button.setId(nextFormItemId(formModel));
-        button.setName(name);
-        applyTitleValue(button, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
-        if (command != null) {
-            button.setCommandName(command);
+        if (button == null) {
+            // Manual / fallback path
+            button = FormFactory.eINSTANCE.createButton();
+            button.setId(nextFormItemId(formModel));
+            button.setName(name);
+            applyTitleValue(button, getMapValueIgnoreCase(operation, "title")); //$NON-NLS-1$
+            if (command != null) {
+                button.setCommandName(command);
+            }
+            // Resolve button type
+            ManagedFormButtonType buttonType = resolveButtonType(operation);
+            button.setType(buttonType);
+            insertItemIntoContainer(parentContainer, button, index);
         }
-        // Resolve button type
-        ManagedFormButtonType buttonType = resolveButtonType(operation);
-        button.setType(buttonType);
-        insertItemIntoContainer(parentContainer, button, index);
+        assignSafeFormItemId(formModel, button);
         return button;
     }
 
@@ -1673,6 +2033,163 @@ public class EdtMetadataService {
             group.setType(groupType);
         }
         ensureFormGroupExtInfo(group);
+    }
+
+    /**
+     * Category #7: accept {@code add_group} / {@code set_item} layout
+     * properties ({@code group}, {@code united}, {@code behavior},
+     * {@code representation}, {@code show_left_margin},
+     * {@code show_title}, {@code through_align}, {@code current_row_use})
+     * and apply them to the FormGroup's {@code UsualGroupExtInfo}.
+     *
+     * <p>Before this hoist, the BM API emitted {@code <extInfo xsi:type="form:UsualGroupExtInfo"/>}
+     * empty self-closing, leaving the platform to fall back to EMF
+     * defaults at runtime ({@code group=Vertical}, {@code united=false}).
+     * The visual result was wide vertical spread on header groups that
+     * the agent intended to lay out inline. Accepting the layout
+     * properties at first-emit lets the resulting {@code .form} be
+     * unambiguous about layout intent.</p>
+     *
+     * <p>Recognized keys are removed from {@code set} so the downstream
+     * generic feature resolver does not retry them on the FormGroup
+     * itself (which has no matching EMF features).</p>
+     */
+    private void applyUsualGroupLayoutProperties(FormGroup group, Map<String, Object> set) {
+        if (group == null || set == null || set.isEmpty()) {
+            return;
+        }
+        if (!(group.getExtInfo() instanceof UsualGroupExtInfo usualExtInfo)) {
+            return;
+        }
+        Object groupValue = removeMapValueIgnoreCase(set, "group", "children_group", "childrenGroup"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        if (groupValue != null) {
+            String literal = FormDefaultsRules.parseFormChildrenGroupLiteral(groupValue);
+            if (literal == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                        "Unknown UsualGroup 'group' value '" + groupValue //$NON-NLS-1$
+                                + "': expected Auto, Vertical, Horizontal, AlwaysHorizontal, " //$NON-NLS-1$
+                                + "HorizontalIfPossible, or AutoScreenTypeSensitive", false); //$NON-NLS-1$
+            }
+            // Switch on the canonical literal and resolve to the Java enum
+            // constant directly — bypasses any EMF getByName lookup quirk
+            // (the 2026-05-19 verification reported `AlwaysHorizontal` being
+            // silently rewritten as `HorizontalIfPossible` on serialize,
+            // which is consistent with getByName misrouting).
+            FormChildrenGroup parsed = switch (literal) {
+                case "Horizontal" -> FormChildrenGroup.HORIZONTAL; //$NON-NLS-1$
+                case "Vertical" -> FormChildrenGroup.VERTICAL; //$NON-NLS-1$
+                case "Auto" -> FormChildrenGroup.AUTO; //$NON-NLS-1$
+                case "AlwaysHorizontal" -> FormChildrenGroup.ALWAYS_HORIZONTAL; //$NON-NLS-1$
+                case "HorizontalIfPossible" -> FormChildrenGroup.HORIZONTAL_IF_POSSIBLE; //$NON-NLS-1$
+                case "AutoScreenTypeSensitive" -> FormChildrenGroup.AUTO_SCREEN_TYPE_SENSITIVE; //$NON-NLS-1$
+                default -> null;
+            };
+            if (parsed != null) {
+                usualExtInfo.setGroup(parsed);
+            }
+        }
+        Object united = removeMapValueIgnoreCase(set, "united"); //$NON-NLS-1$
+        if (united != null) {
+            Boolean parsed = parseBoolean(united);
+            if (parsed != null) {
+                usualExtInfo.setUnited(parsed.booleanValue());
+            }
+        }
+        Object showLeftMargin = removeMapValueIgnoreCase(set, "show_left_margin", "showLeftMargin"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (showLeftMargin != null) {
+            Boolean parsed = parseBoolean(showLeftMargin);
+            if (parsed != null) {
+                usualExtInfo.setShowLeftMargin(parsed.booleanValue());
+            }
+        }
+        Object showTitle = removeMapValueIgnoreCase(set, "show_title", "showTitle"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (showTitle != null) {
+            Boolean parsed = parseBoolean(showTitle);
+            if (parsed != null) {
+                usualExtInfo.setShowTitle(parsed.booleanValue());
+            }
+        }
+        Object behavior = removeMapValueIgnoreCase(set, "behavior"); //$NON-NLS-1$
+        if (behavior != null) {
+            String literal = FormDefaultsRules.parseUsualGroupBehaviorLiteral(behavior);
+            if (literal == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                        "Unknown UsualGroup 'behavior' value '" + behavior //$NON-NLS-1$
+                                + "': expected Usual, Collapsible, PopUp, or Auto", false); //$NON-NLS-1$
+            }
+            UsualGroupBehavior parsed = switch (literal) {
+                case "Usual" -> UsualGroupBehavior.USUAL; //$NON-NLS-1$
+                case "Collapsible" -> UsualGroupBehavior.COLLAPSIBLE; //$NON-NLS-1$
+                case "PopUp" -> UsualGroupBehavior.POP_UP; //$NON-NLS-1$
+                case "Auto" -> UsualGroupBehavior.AUTO; //$NON-NLS-1$
+                default -> null;
+            };
+            if (parsed != null) {
+                usualExtInfo.setBehavior(parsed);
+            }
+        }
+        Object representation = removeMapValueIgnoreCase(set, "representation"); //$NON-NLS-1$
+        if (representation != null) {
+            String literal = FormDefaultsRules.parseUsualGroupRepresentationLiteral(representation);
+            if (literal == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                        "Unknown UsualGroup 'representation' value '" + representation //$NON-NLS-1$
+                                + "': expected None, WeakSeparation, NormalSeparation, " //$NON-NLS-1$
+                                + "StrongSeparation, or Auto", false); //$NON-NLS-1$
+            }
+            UsualGroupRepresentation parsed = switch (literal) {
+                case "None" -> UsualGroupRepresentation.NONE; //$NON-NLS-1$
+                case "WeakSeparation" -> UsualGroupRepresentation.WEAK_SEPARATION; //$NON-NLS-1$
+                case "NormalSeparation" -> UsualGroupRepresentation.NORMAL_SEPARATION; //$NON-NLS-1$
+                case "StrongSeparation" -> UsualGroupRepresentation.STRONG_SEPARATION; //$NON-NLS-1$
+                case "Auto" -> UsualGroupRepresentation.AUTO; //$NON-NLS-1$
+                default -> null;
+            };
+            if (parsed != null) {
+                usualExtInfo.setRepresentation(parsed);
+            }
+        }
+        Object throughAlign = removeMapValueIgnoreCase(set, "through_align", "throughAlign"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (throughAlign != null) {
+            String literal = FormDefaultsRules.parseUsualGroupThroughAlignLiteral(throughAlign);
+            if (literal == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                        "Unknown UsualGroup 'through_align' value '" + throughAlign //$NON-NLS-1$
+                                + "': expected Auto, Use, or DontUse", false); //$NON-NLS-1$
+            }
+            UsualGroupThroughAlign parsed = switch (literal) {
+                case "Auto" -> UsualGroupThroughAlign.AUTO; //$NON-NLS-1$
+                case "Use" -> UsualGroupThroughAlign.USE; //$NON-NLS-1$
+                case "DontUse" -> UsualGroupThroughAlign.DONT_USE; //$NON-NLS-1$
+                default -> null;
+            };
+            if (parsed != null) {
+                usualExtInfo.setThroughAlign(parsed);
+            }
+        }
+        Object currentRowUse = removeMapValueIgnoreCase(set, "current_row_use", "currentRowUse"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (currentRowUse != null) {
+            String literal = FormDefaultsRules.parseCurrentRowUseLiteral(currentRowUse);
+            if (literal == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                        "Unknown UsualGroup 'current_row_use' value '" + currentRowUse //$NON-NLS-1$
+                                + "': expected Auto, Use, or DontUse", false); //$NON-NLS-1$
+            }
+            CurrentRowUse parsed = switch (literal) {
+                case "Auto" -> CurrentRowUse.AUTO; //$NON-NLS-1$
+                case "Use" -> CurrentRowUse.USE; //$NON-NLS-1$
+                case "DontUse" -> CurrentRowUse.DONT_USE; //$NON-NLS-1$
+                default -> null;
+            };
+            if (parsed != null) {
+                usualExtInfo.setCurrentRowUse(parsed);
+            }
+        }
     }
 
     /**
@@ -2194,6 +2711,25 @@ public class EdtMetadataService {
     }
 
     private int nextFormItemId(FormItemContainer container) {
+        // When called on a Form (the root), use a global walk so we
+        // include FormItem ids that live OUTSIDE the items tree —
+        // ContextMenu blocks, Addition helpers, ExtendedTooltip labels,
+        // etc. all share the FormItem id namespace, and Configurator
+        // emits them with ids in the 500+ range. Without this the
+        // normalize pass can re-issue an id already taken by a
+        // Configurator-round-tripped form, producing duplicates on
+        // serialize.
+        if (container instanceof Form formModel) {
+            int maxId = 0;
+            TreeIterator<EObject> iterator = formModel.eAllContents();
+            while (iterator.hasNext()) {
+                EObject obj = iterator.next();
+                if (obj instanceof FormItem item) {
+                    maxId = Math.max(maxId, item.getId());
+                }
+            }
+            return maxId + 1;
+        }
         int maxId = 0;
         for (FormItem item : container.getItems()) {
             if (item == null) {
