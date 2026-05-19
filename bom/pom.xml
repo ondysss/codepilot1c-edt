@@ -137,4 +137,38 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+            Local development on a machine where `default.target` does not
+            resolve (e.g. the upstream macOS path on a Windows worktree).
+            Activate with `mvn -Plocal-target …`. Picks the
+            `targets/default/local.target` file (installed as the `local`
+            classifier of the `com.codepilot1c:default` artifact) instead
+            of the default `default.target`.
+        -->
+        <profile>
+            <id>local-target</id>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>org.eclipse.tycho</groupId>
+                            <artifactId>target-platform-configuration</artifactId>
+                            <configuration>
+                                <target>
+                                    <artifact>
+                                        <groupId>com.codepilot1c</groupId>
+                                        <artifactId>default</artifactId>
+                                        <version>${project.version}</version>
+                                        <classifier>local</classifier>
+                                    </artifact>
+                                </target>
+                            </configuration>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+            </build>
+        </profile>
+    </profiles>
 </project>
