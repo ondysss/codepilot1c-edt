@@ -658,14 +658,18 @@ public class ConnectInfobaseToolTest {
         @Override
         public void storeSettings(InfobaseReference reference,
                 com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessSettings settings) {
-            throw toThrow;
+            // EDT 2025.2.x removed this method — production code must not call it.
+            // See EdtInfobaseConnectStoreSettingsBindingTest for the regression contract.
+            throw new NoSuchMethodError("IInfobaseAccessManager.storeSettings(InfobaseReference, " //$NON-NLS-1$
+                    + "IInfobaseAccessSettings) — removed in EDT 2025.2"); //$NON-NLS-1$
         }
 
         @Override
         public void storeSettings(InfobaseReference reference,
                 com._1c.g5.v8.dt.platform.services.model.InfobaseAccess access, String userName,
                 String password, String additionalProperties) {
-            throw toThrow;
+            throw new NoSuchMethodError("IInfobaseAccessManager.storeSettings(InfobaseReference, " //$NON-NLS-1$
+                    + "InfobaseAccess, String, String, String) — removed in EDT 2025.2"); //$NON-NLS-1$
         }
 
         @Override
@@ -687,6 +691,9 @@ public class ConnectInfobaseToolTest {
         @Override
         public void updateSettings(InfobaseReference reference,
                 com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessSettings settings) {
+            // Production code routes through here on both EDT 2025.1 and 2025.2.
+            // Tests that want to simulate a failure raise it from here.
+            throw toThrow;
         }
     }
 

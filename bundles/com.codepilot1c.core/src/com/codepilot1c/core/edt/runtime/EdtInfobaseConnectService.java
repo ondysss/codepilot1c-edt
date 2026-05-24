@@ -15,7 +15,10 @@ import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.NullProgressMonitor;
+import org.eclipse.core.runtime.jobs.Job;
+import org.eclipse.wst.server.core.IModule;
 import org.eclipse.wst.server.core.IRuntime;
 import org.eclipse.wst.server.core.IServer;
 
@@ -207,7 +210,7 @@ public class EdtInfobaseConnectService {
         }
         persistReference(reference);
         storeAccessSettings(reference, request.login(), request.password());
-        boolean primary = associate(project, reference, request.setPrimary());
+        boolean primary = associate(project, reference, request.setPrimary(), request.force());
 
         LOG.info("connect_infobase(file) project=%s path=%s primary=%s", //$NON-NLS-1$
                 request.projectName(), filePathArg, Boolean.valueOf(primary));
@@ -250,7 +253,16 @@ public class EdtInfobaseConnectService {
         ensureDirectory(Path.of(publicationPath));
 
         InfobaseReference boundReference;
-        try {
+        IServer createdServer = findExistingStandaloneServerForProject(service, request.projectName());
+        if (createdServer != null) {
+            // Reuse: EDT already has a standalone server for this project. Skip
+            // createServerWithInfobase to avoid port-conflict / duplicate-entity issues.
+            StandaloneServerInfobase existingSai = extractStandaloneInfobase(createdServer);
+            boundReference = existingSai != null
+                    ? resolveBoundReference(existingSai, reference) : reference;
+            LOG.info("connect_infobase(standalone) reusing existing server for project=%s", //$NON-NLS-1$
+                    request.projectName());
+        } else try {
             Object pair = invokeCreateServerWithInfobase(service,
                     version == null ? "" : version, //$NON-NLS-1$
                     request.projectName(),
@@ -268,6 +280,7 @@ public class EdtInfobaseConnectService {
                         "Standalone server creation returned incomplete result"); //$NON-NLS-1$
             }
             boundReference = resolveBoundReference(standaloneInfobase, reference);
+            createdServer = server;
         } catch (EdtToolException e) {
             throw e;
         } catch (StandaloneServerException e) {
@@ -287,7 +300,11 @@ public class EdtInfobaseConnectService {
         }
 
         storeAccessSettings(boundReference, request.login(), request.password());
-        boolean primary = associate(project, boundReference, request.setPrimary());
+        boolean primary = associate(project, boundReference, request.setPrimary(), request.force());
+
+        // Background Job: synchronous startServer would leak EDT's "continue waiting?"
+        // modal into the tool call.
+        scheduleStandaloneServerStart(service, createdServer, request.projectName());
 
         LOG.info("connect_infobase(standalone) project=%s path=%s port=%d primary=%s", //$NON-NLS-1$
                 request.projectName(), filePathArg, Integer.valueOf(port), Boolean.valueOf(primary));
@@ -479,9 +496,7 @@ public class EdtInfobaseConnectService {
     }
 
     protected void storeAccessSettings(InfobaseReference reference, String login, String password) {
-        // Guard against EDT's storeSettings NPE when the reference has no UUID. persistReference()
-        // is responsible for assigning one; bail early with a clear diagnostic if it didn't so the
-        // failure doesn't surface as an opaque ": null" message. See GH issue #31.
+        // Guard against EDT's downstream NPE: persistReference() must have assigned a UUID by now.
         if (reference.getUuid() == null) {
             throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
                     "Cannot store access settings: infobase reference has no UUID " //$NON-NLS-1$
@@ -496,7 +511,13 @@ public class EdtInfobaseConnectService {
                 access == InfobaseAccess.INFOBASE ? (password == null ? "" : password) : null, //$NON-NLS-1$
                 null);
         try {
-            accessManager.storeSettings(reference, settings);
+            // storeSettings was removed in EDT 2025.2; updateSettings exists on both 2025.1
+            // and 2025.2. Pinned by EdtInfobaseConnectStoreSettingsBindingTest.
+            accessManager.updateSettings(reference, settings);
+        } catch (NoSuchMethodError e) {
+            throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
+                    "EDT API mismatch in IInfobaseAccessManager.updateSettings: " //$NON-NLS-1$
+                            + e.getMessage(), e);
         } catch (Exception e) {
             String detail = e.getMessage() != null && !e.getMessage().isBlank()
                     ? e.getMessage() : e.getClass().getSimpleName();
@@ -505,29 +526,221 @@ public class EdtInfobaseConnectService {
         }
     }
 
-    protected boolean associate(IProject project, InfobaseReference reference, boolean setPrimary) {
+    protected boolean associate(IProject project, InfobaseReference reference, boolean setPrimary,
+            boolean force) {
         IInfobaseAssociationManager associationManager = gateway.getInfobaseAssociationManager();
-        InfobaseAssociationSettings settings = InfobaseAssociationSettings.alreadySynchronized();
+        // ctx must be the same for associate() and setDefaultInfobase() — EDT 2025.2's
+        // setDefaultInfobase looks the binding up via IInfobaseAssociationContextProvider.
+        InfobaseAssociationContext ctx = resolveAssociationContext(project);
+        boolean alreadyBoundToSame = handleExistingBindingBeforeAssociate(
+                associationManager, project, ctx, reference, force);
+
+        if (!alreadyBoundToSame) {
+            try {
+                associationManager.associate(project, reference,
+                        InfobaseAssociationSettings.alreadySynchronized(ctx));
+            } catch (InfobaseAssociationException | IllegalArgumentException e) {
+                // EDT 2025.2 throws bare IAE from internal Preconditions; catch both.
+                String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                        ? e.getMessage() : e.getClass().getSimpleName();
+                String lower = detail.toLowerCase();
+                if (lower.contains("already connected") || lower.contains("уже подключ")) { //$NON-NLS-1$ //$NON-NLS-2$
+                    throw new EdtToolException(EdtToolErrorCode.INFOBASE_ALREADY_BOUND,
+                            "Project already bound to an infobase (pass force=true to replace): " //$NON-NLS-1$
+                                    + detail, e);
+                }
+                throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
+                        "Failed to associate infobase with project: " + detail, e); //$NON-NLS-1$
+            }
+        }
+        if (!setPrimary) {
+            return false;
+        }
+        // EDT 2025.2 strict-checks identity; use the canonical reference stored by associate().
+        InfobaseReference canonical = resolveCanonicalAssociatedReference(
+                associationManager, project, ctx, reference);
         try {
-            associationManager.associate(project, reference, settings);
+            associationManager.setDefaultInfobase(project, canonical, ctx);
         } catch (InfobaseAssociationException e) {
             String detail = e.getMessage() != null && !e.getMessage().isBlank()
                     ? e.getMessage() : e.getClass().getSimpleName();
             throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
-                    "Failed to associate infobase with project: " + detail, e); //$NON-NLS-1$
-        }
-        if (setPrimary) {
-            try {
-                associationManager.setDefaultInfobase(project, reference, InfobaseAssociationContext.empty());
-            } catch (InfobaseAssociationException e) {
-                String detail = e.getMessage() != null && !e.getMessage().isBlank()
-                        ? e.getMessage() : e.getClass().getSimpleName();
-                throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
-                        "Failed to set default infobase for project: " + detail, e); //$NON-NLS-1$
+                    "Failed to set default infobase for project: " + detail, e); //$NON-NLS-1$
+        } catch (IllegalArgumentException e) {
+            // EDT 2025.2 context-provider drift: associate() succeeded but setDefaultInfobase's
+            // internal lookup uses a different context. Binding works; primary flag does not.
+            // Degrade gracefully — report whatever defaultInfobase EDT actually has.
+            String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                    ? e.getMessage() : e.getClass().getSimpleName();
+            String lower = detail.toLowerCase();
+            if (lower.contains("is not associated") //$NON-NLS-1$
+                    || lower.contains("не связан") //$NON-NLS-1$
+                    || lower.contains("does not contain infobase") //$NON-NLS-1$
+                    || lower.contains("не содержит")) { //$NON-NLS-1$
+                boolean actuallyPrimary = isReferenceMarkedDefault(associationManager, project, ctx, canonical);
+                LOG.warn("setDefaultInfobase declined (EDT 2025.2 context drift); primary=%s: %s", //$NON-NLS-1$
+                        Boolean.valueOf(actuallyPrimary), detail);
+                return actuallyPrimary;
             }
-            return true;
+            throw new EdtToolException(EdtToolErrorCode.INFOBASE_ASSOCIATION_NOT_FOUND,
+                    "EDT rejected setDefaultInfobase: " + detail, e); //$NON-NLS-1$
+        }
+        return true;
+    }
+
+    /**
+     * Returns {@code true} if project is already bound to the same infobase (caller should
+     * skip associate). Dissociates an existing different binding when {@code force=true};
+     * throws {@link EdtToolErrorCode#INFOBASE_ALREADY_BOUND} when {@code force=false} and a
+     * different infobase is bound.
+     */
+    private static boolean handleExistingBindingBeforeAssociate(
+            IInfobaseAssociationManager associationManager, IProject project,
+            InfobaseAssociationContext ctx, InfobaseReference reference, boolean force) {
+        if (associationManager == null || project == null || reference == null) {
+            return false;
+        }
+        Optional<IInfobaseAssociation> existingOpt;
+        try {
+            existingOpt = ctx != null ? associationManager.getAssociation(project, ctx)
+                    : associationManager.getAssociation(project);
+        } catch (RuntimeException e) {
+            LOG.warn("Pre-associate getAssociation failed; proceeding to associate: %s", e.getMessage()); //$NON-NLS-1$
+            return false;
+        }
+        if (existingOpt.isEmpty()) {
+            return false;
+        }
+        IInfobaseAssociation existing = existingOpt.get();
+        InfobaseReference existingRef = existing.getDefaultInfobase();
+        if (existingRef == null) {
+            java.util.Collection<InfobaseReference> bound = existing.getInfobases();
+            existingRef = (bound == null || bound.isEmpty()) ? null : bound.iterator().next();
+        }
+        if (existingRef == null) {
+            return false;
+        }
+        UUID existingUuid = safeUuid(existingRef);
+        UUID incomingUuid = safeUuid(reference);
+        if (existingUuid != null && existingUuid.equals(incomingUuid)) {
+            return true; // same infobase already bound — skip associate
+        }
+        if (!force) {
+            String existingName = safeName(existingRef, "<unnamed>"); //$NON-NLS-1$
+            throw new EdtToolException(EdtToolErrorCode.INFOBASE_ALREADY_BOUND,
+                    "Project already bound to infobase '" + existingName //$NON-NLS-1$
+                            + "' (pass force=true to replace)"); //$NON-NLS-1$
+        }
+        try {
+            associationManager.dissociate(project, existingRef, ctx);
+        } catch (RuntimeException e) {
+            String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                    ? e.getMessage() : e.getClass().getSimpleName();
+            throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
+                    "Failed to dissociate existing infobase before re-binding " //$NON-NLS-1$
+                            + "(force=true): " + detail, e); //$NON-NLS-1$
         }
         return false;
+    }
+
+    /**
+     * Returns {@code true} if EDT already considers {@code reference} the project's default
+     * infobase under {@code ctx}. Used to report truthful {@code primary=true} after
+     * graceful-degraded setDefaultInfobase when EDT had it set via another path.
+     */
+    private static boolean isReferenceMarkedDefault(IInfobaseAssociationManager associationManager,
+            IProject project, InfobaseAssociationContext ctx, InfobaseReference reference) {
+        try {
+            Optional<IInfobaseAssociation> assoc = ctx != null
+                    ? associationManager.getAssociation(project, ctx)
+                    : associationManager.getAssociation(project);
+            if (assoc.isEmpty()) {
+                return false;
+            }
+            InfobaseReference def = assoc.get().getDefaultInfobase();
+            UUID expected = safeUuid(reference);
+            return def != null && expected != null && expected.equals(safeUuid(def));
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    private static UUID safeUuid(InfobaseReference ref) {
+        try {
+            return ref == null ? null : ref.getUuid();
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static String safeName(InfobaseReference ref, String fallback) {
+        try {
+            if (ref == null) {
+                return fallback;
+            }
+            String name = ref.getName();
+            return name == null || name.isBlank() ? fallback : name;
+        } catch (RuntimeException e) {
+            return fallback;
+        }
+    }
+
+    /**
+     * Default association context for {@code project}. Falls back to {@code empty()} if the
+     * provider service isn't registered (EDT 2025.1 behaviour).
+     */
+    private InfobaseAssociationContext resolveAssociationContext(IProject project) {
+        try {
+            InfobaseAssociationContext ctx =
+                    gateway.getInfobaseAssociationContextProvider().get(project);
+            return ctx != null ? ctx : InfobaseAssociationContext.empty();
+        } catch (RuntimeException e) {
+            LOG.warn("IInfobaseAssociationContextProvider unavailable, using empty context: %s", //$NON-NLS-1$
+                    e.getMessage());
+            return InfobaseAssociationContext.empty();
+        }
+    }
+
+    /**
+     * After a successful {@link IInfobaseAssociationManager#associate} call, EDT internally stores
+     * the binding under some {@link InfobaseReference} instance — which may NOT be identity-equal
+     * to the one we just passed in. EDT 2025.2's {@code setDefaultInfobase} strict-checks identity,
+     * so we need the canonical stored reference back. Best-effort: look it up by UUID; if anything
+     * unexpected happens, fall back to the original — the worst case is the original behaviour
+     * (which already produced a useful diagnostic via the typed exception catch).
+     */
+    private static InfobaseReference resolveCanonicalAssociatedReference(
+            IInfobaseAssociationManager associationManager, IProject project,
+            InfobaseAssociationContext ctx, InfobaseReference fallback) {
+        if (associationManager == null || project == null) {
+            return fallback;
+        }
+        try {
+            // 2-arg getAssociation: the 1-arg overload re-resolves context via the provider,
+            // which can differ from the one associate() used.
+            Optional<IInfobaseAssociation> assoc =
+                    ctx != null ? associationManager.getAssociation(project, ctx)
+                            : associationManager.getAssociation(project);
+            if (assoc.isEmpty()) {
+                return fallback;
+            }
+            Collection<InfobaseReference> bound = assoc.get().getInfobases();
+            if (bound == null || bound.isEmpty()) {
+                return fallback;
+            }
+            UUID expectedUuid = fallback.getUuid();
+            if (expectedUuid != null) {
+                for (InfobaseReference candidate : bound) {
+                    if (candidate != null && expectedUuid.equals(candidate.getUuid())) {
+                        return candidate;
+                    }
+                }
+            }
+            return bound.iterator().next();
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to resolve canonical associated InfobaseReference: %s", e.getMessage()); //$NON-NLS-1$
+            return fallback;
+        }
     }
 
     // -- Helpers --------------------------------------------------------------------------------
@@ -682,6 +895,101 @@ public class EdtInfobaseConnectService {
         } catch (NoSuchFieldException e) {
             throw new ReflectiveOperationException("Pair accessor not found: " + methodName, e); //$NON-NLS-1$
         }
+    }
+
+    /**
+     * Scan EDT's WST server registry for a standalone server whose hosted infobase belongs to
+     * the named project. Returns {@code null} if none exists. Lets {@code connect_infobase}
+     * reuse an existing server entity instead of duplicating it via createServerWithInfobase
+     * (which would conflict on the cluster port and leave orphaned registrations).
+     */
+    private static IServer findExistingStandaloneServerForProject(IStandaloneServerService service,
+            String projectName) {
+        if (service == null || projectName == null || projectName.isBlank()) {
+            return null;
+        }
+        try {
+            List<IServer> servers = service.getServers();
+            if (servers == null) {
+                return null;
+            }
+            for (IServer server : servers) {
+                if (server == null) {
+                    continue;
+                }
+                StandaloneServerInfobase sai = extractStandaloneInfobase(server);
+                if (sai != null && projectName.equals(sai.getProjectName())) {
+                    return server;
+                }
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to scan existing standalone servers: %s", e.getMessage()); //$NON-NLS-1$
+        }
+        return null;
+    }
+
+    /** Returns the first {@link StandaloneServerInfobase} module hosted by {@code server}, or null. */
+    private static StandaloneServerInfobase extractStandaloneInfobase(IServer server) {
+        if (server == null) {
+            return null;
+        }
+        try {
+            IModule[] modules = server.getModules();
+            if (modules == null) {
+                return null;
+            }
+            for (IModule module : modules) {
+                if (module instanceof StandaloneServerInfobase sai) {
+                    return sai;
+                }
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to read IServer.getModules(): %s", e.getMessage()); //$NON-NLS-1$
+        }
+        return null;
+    }
+
+    /**
+     * Schedule the freshly-created standalone server to start in a background system Job.
+     *
+     * <p>Synchronous {@code service.startServer(server, "run", monitor)} blocks until EDT's
+     * {@code StandaloneServerCommandExecutor.executeAndWaitServerStart} either gets a ready
+     * signal from the spawned 1C process or times out. The timeout path surfaces a modal
+     * "Продолжить ожидание?" dialog and an eventual {@code StandaloneServerException} that
+     * leak through to the IDE UI even when our tool already returned. By scheduling the
+     * start as a system Job we make {@code connect_infobase} return immediately and let
+     * EDT handle the lifecycle exactly like its own Servers view does.</p>
+     *
+     * <p>If start fails, EDT shows it in the Servers view; we just log a warn. A failed
+     * server-start does not invalidate the binding the tool already created.</p>
+     */
+    private static void scheduleStandaloneServerStart(IStandaloneServerService service,
+            IServer server, String projectName) {
+        if (service == null || server == null) {
+            return;
+        }
+        // Skip if EDT already has it up (e.g. extension hook listening on createServer).
+        int state = server.getServerState();
+        if (state == IServer.STATE_STARTED || state == IServer.STATE_STARTING) {
+            return;
+        }
+        Job job = Job.create("Start standalone server: " + projectName, monitor -> { //$NON-NLS-1$
+            try {
+                IStatus status = service.startServer(server, "run", monitor); //$NON-NLS-1$
+                if (status != null && !status.isOK()) {
+                    LOG.warn("Standalone server start returned non-OK status for project=%s: %s", //$NON-NLS-1$
+                            projectName, status.getMessage());
+                }
+            } catch (RuntimeException e) {
+                String detail = e.getMessage() != null && !e.getMessage().isBlank()
+                        ? e.getMessage() : e.getClass().getSimpleName();
+                LOG.warn("Standalone server start failed for project=%s (binding still ok): %s", //$NON-NLS-1$
+                        projectName, detail);
+            }
+        });
+        job.setUser(false);   // suppress IDE progress dialog
+        job.setSystem(false); // visible in Progress view but not modal
+        job.schedule();
     }
 
     private InfobaseReference resolveBoundReference(StandaloneServerInfobase standaloneInfobase,

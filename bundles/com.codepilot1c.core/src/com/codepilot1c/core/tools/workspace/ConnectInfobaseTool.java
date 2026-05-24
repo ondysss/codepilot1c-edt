@@ -232,6 +232,10 @@ public class ConnectInfobaseTool extends AbstractTool {
                         "database_path must be inside workspace or home directory"); //$NON-NLS-1$
             }
             case EDT_NOT_READY -> json.addProperty("error", "edt_not_ready"); //$NON-NLS-1$ //$NON-NLS-2$
+            case INFOBASE_ALREADY_BOUND -> {
+                json.addProperty("error", "infobase_already_bound"); //$NON-NLS-1$ //$NON-NLS-2$
+                json.addProperty("hint", "pass force=true to replace"); //$NON-NLS-1$ //$NON-NLS-2$
+            }
             default -> { /* no extra shape */ }
         }
         return json;

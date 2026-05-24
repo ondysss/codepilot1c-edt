@@ -253,7 +253,7 @@ public class EdtRuntimeService {
         IInfobaseAccessSettings settings;
         try {
             IInfobaseAccessManager accessManager = gateway.getInfobaseAccessManager();
-            settings = accessManager.getSettings(infobase, InfobaseAccess.INFOBASE);
+            settings = resolveAccessSettingsCompat(accessManager, infobase);
         } catch (Exception | NoSuchMethodError e) {
             return null;
         }
@@ -465,8 +465,21 @@ public class EdtRuntimeService {
                     usedMonitor);
             return result instanceof Boolean ? ((Boolean) result).booleanValue() : false;
         } catch (InvocationTargetException e) {
-            if (e.getCause() instanceof Exception cause) {
-                throw cause;
+            Throwable cause = e.getCause();
+            // EDT 2025.2 keeps in-memory connection state across calls; if a previous
+            // update didn't fully release, EDT rejects with "already connected" — remap
+            // to a typed code so callers can hint about restarting EDT.
+            if (cause != null) {
+                String msg = cause.getMessage() != null ? cause.getMessage() : ""; //$NON-NLS-1$
+                String lower = msg.toLowerCase();
+                if (lower.contains("already connected") || lower.contains("уже подключ")) { //$NON-NLS-1$ //$NON-NLS-2$
+                    throw new EdtToolException(EdtToolErrorCode.INFOBASE_ALREADY_BOUND,
+                            "EDT already tracks an open connection to this infobase. " //$NON-NLS-1$
+                                    + "Restart EDT and retry: " + msg, cause); //$NON-NLS-1$
+                }
+            }
+            if (cause instanceof Exception exCause) {
+                throw exCause;
             }
             throw new IllegalStateException("EDT updateInfobase failed: " + e.getMessage(), e); //$NON-NLS-1$
         }
@@ -543,6 +556,38 @@ public class EdtRuntimeService {
         return findMethod(managerClass, "updateInfobase", 5); //$NON-NLS-1$
     }
 
+    /**
+     * EDT 2025.1/2025.2 compat: probes {@code resolveSettings(ref)} (2025.2) via reflection,
+     * falls back to {@code getSettings(ref, InfobaseAccess.INFOBASE)} (2025.1, compiled
+     * against target). Returns {@code null} if neither yields settings — callers degrade.
+     */
+    private static IInfobaseAccessSettings resolveAccessSettingsCompat(
+            IInfobaseAccessManager accessManager, InfobaseReference infobase) throws Exception {
+        if (accessManager == null || infobase == null) {
+            return null;
+        }
+        Method resolveSettings = findResolveSettingsMethod(accessManager.getClass());
+        if (resolveSettings != null) {
+            try {
+                return (IInfobaseAccessSettings) resolveSettings.invoke(accessManager, infobase);
+            } catch (InvocationTargetException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                if (cause instanceof Error err) throw err;
+                throw new RuntimeException(cause);
+            }
+        }
+        return accessManager.getSettings(infobase, InfobaseAccess.INFOBASE);
+    }
+
+    private static Method findResolveSettingsMethod(Class<?> managerClass) {
+        try {
+            return managerClass.getMethod("resolveSettings", InfobaseReference.class); //$NON-NLS-1$
+        } catch (NoSuchMethodException e) {
+            return null;
+        }
+    }
+
     private static Method findMethod(Class<?> type, String name, int paramCount) {
         for (Method method : type.getMethods()) {
             if (method.getName().equals(name) && method.getParameterCount() == paramCount) {
@@ -567,7 +612,7 @@ public class EdtRuntimeService {
         IInfobaseAccessSettings settings = null;
         try {
             IInfobaseAccessManager accessManager = gateway.getInfobaseAccessManager();
-            settings = accessManager.getSettings(infobase, InfobaseAccess.INFOBASE);
+            settings = resolveAccessSettingsCompat(accessManager, infobase);
         } catch (Exception | NoSuchMethodError e) {
             LOG.warn("Failed to resolve access settings (possible EDT 2025.2 API change): " + e.getMessage(), e); //$NON-NLS-1$
             settings = null;

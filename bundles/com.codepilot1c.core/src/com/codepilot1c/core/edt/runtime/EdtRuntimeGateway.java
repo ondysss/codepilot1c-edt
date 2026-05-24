@@ -5,6 +5,7 @@ import org.eclipse.core.resources.IWorkspace;
 import org.eclipse.core.resources.ResourcesPlugin;
 
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessManager;
+import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationContextProvider;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationManager;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseManager;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IRuntimeComponentManager;
@@ -73,6 +74,25 @@ public class EdtRuntimeGateway {
         Object service = context.getService(ref);
         if (service == null) {
             throw serviceUnavailable("IInfobaseSynchronizationManager"); //$NON-NLS-1$
+        }
+        return service;
+    }
+
+    /** Resolves the {@link IInfobaseAssociationContextProvider} OSGi service. */
+    public IInfobaseAssociationContextProvider getInfobaseAssociationContextProvider() {
+        VibeCorePlugin plugin = requirePlugin();
+        BundleContext context = plugin.getBundle() == null ? null : plugin.getBundle().getBundleContext();
+        if (context == null) {
+            throw serviceUnavailable("BundleContext for IInfobaseAssociationContextProvider"); //$NON-NLS-1$
+        }
+        ServiceReference<IInfobaseAssociationContextProvider> ref =
+                context.getServiceReference(IInfobaseAssociationContextProvider.class);
+        if (ref == null) {
+            throw serviceUnavailable("IInfobaseAssociationContextProvider"); //$NON-NLS-1$
+        }
+        IInfobaseAssociationContextProvider service = context.getService(ref);
+        if (service == null) {
+            throw serviceUnavailable("IInfobaseAssociationContextProvider"); //$NON-NLS-1$
         }
         return service;
     }
