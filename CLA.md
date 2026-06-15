@@ -92,4 +92,4 @@ To sign this CLA, add your name to the table below via a pull request:
 
 | Name | GitHub Username | Email | Date |
 |------|----------------|-------|------|
-| | | | |
+| Anton Miagkov | regniws | a@wow1c.com | 2026-06-16 |
