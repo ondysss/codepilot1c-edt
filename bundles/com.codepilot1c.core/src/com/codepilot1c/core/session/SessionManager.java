@@ -361,11 +361,20 @@ public class SessionManager {
             com._1c.g5.v8.dt.core.platform.IV8ProjectManager v8pm =
                     com.codepilot1c.core.internal.VibeCorePlugin.getDefault().getV8ProjectManager();
             if (v8pm != null) {
+                IProject openedProject = null;
                 for (com._1c.g5.v8.dt.core.platform.IV8Project v8p : v8pm.getProjects()) {
                     IProject project = v8p.getProject();
                     if (project != null && project.exists() && project.isOpen()) {
-                        return project;
+                        if (v8pm.isServiceContextActive(project)) {
+                            return project;
+                        }
+                        if (openedProject == null) {
+                            openedProject = project;
+                        }
                     }
+                }
+                if (openedProject != null) {
+                    return openedProject;
                 }
             }
         } catch (Exception e) {
