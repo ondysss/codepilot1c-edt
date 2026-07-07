@@ -1,4 +1,4 @@
-#Wed Jun 24 08:11:28 MSK 2026
+#Tue Jul 07 21:24:40 MSK 2026
 artifact.repository.factory.order=artifacts.xml.xz,artifacts.xml,\!
-metadata.repository.factory.order=content.xml.xz,content.xml,\!
 version=1
+metadata.repository.factory.order=content.xml.xz,content.xml,\!
