@@ -387,6 +387,22 @@ function clearMessageFlow() {
 }
 
 /**
+ * Convert an empty assistant placeholder into a visual tool-only turn.
+ * The Java model keeps this node as the ordering anchor for tool-call cards.
+ */
+function markMessageAsToolTurn(id) {
+    var message = document.getElementById(id);
+    if (!message) return;
+
+    addClassName(message, 'tool-turn');
+
+    var contentEl = message.querySelector('.message-content');
+    if (contentEl) {
+        contentEl.innerHTML = '';
+    }
+}
+
+/**
  * Returns true when user is close to the bottom of message list.
  */
 function isNearBottom() {
@@ -406,7 +422,13 @@ function isNearBottom() {
  */
 function updateMessageWithReasoning(reasoningHtml, contentHtml) {
     var messages = document.querySelectorAll('.message.assistant');
-    var lastMessage = messages[messages.length - 1];
+    var lastMessage = null;
+    for (var i = messages.length - 1; i >= 0; i--) {
+        if (!hasClassSelector(messages[i], '.tool-turn')) {
+            lastMessage = messages[i];
+            break;
+        }
+    }
     if (!lastMessage) return;
 
     var contentEl = lastMessage.querySelector('.message-content');

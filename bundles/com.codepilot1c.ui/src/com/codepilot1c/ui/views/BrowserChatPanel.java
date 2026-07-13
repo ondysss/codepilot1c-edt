@@ -245,6 +245,7 @@ public class BrowserChatPanel extends Composite {
         public final List<LlmAttachment> attachments;
         public final String modelName;
         public final List<ToolCallDisplayData> toolCalls;
+        public final boolean toolTurn;
 
         public ChatMessageData(String sender, String content, boolean isAssistant, boolean isSystem) {
             this(sender, content, isAssistant, isSystem, null, List.of(), null);
@@ -262,11 +263,12 @@ public class BrowserChatPanel extends Composite {
         public ChatMessageData(String sender, String content, boolean isAssistant, boolean isSystem, String reasoning,
                 List<LlmAttachment> attachments, String modelName) {
             this(sender, content, isAssistant, isSystem, reasoning, attachments, modelName,
-                    "msg-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 10000), List.of()); //$NON-NLS-1$ //$NON-NLS-2$
+                    "msg-" + System.currentTimeMillis() + "-" + (int)(Math.random() * 10000), List.of(), false); //$NON-NLS-1$ //$NON-NLS-2$
         }
 
         private ChatMessageData(String sender, String content, boolean isAssistant, boolean isSystem, String reasoning,
-                List<LlmAttachment> attachments, String modelName, String id, List<ToolCallDisplayData> toolCalls) {
+                List<LlmAttachment> attachments, String modelName, String id, List<ToolCallDisplayData> toolCalls,
+                boolean toolTurn) {
             this.sender = sender;
             this.content = content;
             this.isAssistant = isAssistant;
@@ -276,16 +278,26 @@ public class BrowserChatPanel extends Composite {
             this.modelName = modelName;
             this.id = id;
             this.toolCalls = toolCalls != null ? List.copyOf(toolCalls) : List.of();
+            this.toolTurn = toolTurn;
         }
 
         public ChatMessageData withContent(String newContent, String newReasoning) {
+            boolean keepToolTurn = toolTurn && isBlank(newContent) && isBlank(newReasoning);
             return new ChatMessageData(sender, newContent, isAssistant, isSystem, newReasoning, attachments, modelName,
-                    id, toolCalls);
+                    id, toolCalls, keepToolTurn);
         }
 
         public ChatMessageData withToolCalls(List<ToolCallDisplayData> newToolCalls) {
             return new ChatMessageData(sender, content, isAssistant, isSystem, reasoning, attachments, modelName,
-                    id, newToolCalls);
+                    id, newToolCalls, toolTurn);
+        }
+
+        public ChatMessageData asToolTurn() {
+            return new ChatMessageData(sender, "", isAssistant, isSystem, "", attachments, modelName, id, toolCalls, true); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+
+        private static boolean isBlank(String text) {
+            return text == null || text.isBlank();
         }
     }
 
@@ -480,13 +492,11 @@ public class BrowserChatPanel extends Composite {
     }
 
     /**
-     * Removes the last message if it is an empty assistant placeholder (blank content
-     * and blank reasoning).
+     * Converts the last empty assistant placeholder into a tool-only turn.
      *
-     * <p>Each streaming round-trip adds an empty assistant bubble up front; on a
-     * tool-call-only turn it never gets filled and would otherwise leave a blank row
-     * in the transcript. GSD mode produces many such turns, so these accumulate.
-     * Removal targets the bubble by its DOM id, so tool-call cards are never touched.</p>
+     * <p>Each streaming round-trip adds an empty assistant bubble up front. On a
+     * tool-call-only turn that bubble is still the ordering anchor for tool cards,
+     * so keep it in the transcript model and hide its normal assistant chrome.</p>
      */
     public void removeLastMessageIfEmptyAssistant() {
         if (messages.isEmpty()) {
@@ -494,16 +504,20 @@ public class BrowserChatPanel extends Composite {
         }
         int idx = messages.size() - 1;
         ChatMessageData last = messages.get(idx);
-        boolean emptyAssistant = last.isAssistant && !last.isSystem
-                && (last.content == null || last.content.isBlank())
-                && (last.reasoning == null || last.reasoning.isBlank());
-        if (!emptyAssistant) {
+        if (!isEmptyAssistantPlaceholder(last)) {
             return;
         }
-        String id = last.id;
-        messages.remove(idx);
+        ChatMessageData toolTurn = last.asToolTurn();
+        messages.set(idx, toolTurn);
         if (browserReady && browser != null && !browser.isDisposed()) {
-            browser.execute("var el = document.getElementById('" + id + "'); if (el) { el.remove(); }"); //$NON-NLS-1$ //$NON-NLS-2$
+            String id = escapeForJs(toolTurn.id);
+            browser.execute(
+                    "if (typeof markMessageAsToolTurn === 'function') {" + //$NON-NLS-1$
+                    "  markMessageAsToolTurn('" + id + "');" + //$NON-NLS-1$ //$NON-NLS-2$
+                    "} else {" + //$NON-NLS-1$
+                    "  var el = document.getElementById('" + id + "');" + //$NON-NLS-1$ //$NON-NLS-2$
+                    "  if (el) el.className = (el.className || '') + ' tool-turn';" + //$NON-NLS-1$
+                    "}"); //$NON-NLS-1$
         }
     }
 
@@ -734,6 +748,22 @@ public class BrowserChatPanel extends Composite {
             }
         }
         return -1;
+    }
+
+    private int findToolCallOwnerMessageIndex() {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            ChatMessageData msg = messages.get(i);
+            if (msg.isAssistant && !msg.isSystem && (msg.toolTurn || isEmptyAssistantPlaceholder(msg))) {
+                return i;
+            }
+        }
+        return findLastAssistantMessageIndex();
+    }
+
+    private static boolean isEmptyAssistantPlaceholder(ChatMessageData msg) {
+        return msg != null && msg.isAssistant && !msg.isSystem
+                && (msg.content == null || msg.content.isBlank())
+                && (msg.reasoning == null || msg.reasoning.isBlank());
     }
 
     private void applyTypingIndicatorState() {
@@ -1067,7 +1097,7 @@ public class BrowserChatPanel extends Composite {
     }
 
     private String attachToolCallToCurrentTurn(ToolCallDisplayData toolCall) {
-        int assistantIndex = findLastAssistantMessageIndex();
+        int assistantIndex = findToolCallOwnerMessageIndex();
         if (assistantIndex >= 0) {
             ChatMessageData owner = messages.get(assistantIndex);
             List<ToolCallDisplayData> ownedToolCalls = new ArrayList<>(owner.toolCalls);
@@ -1251,25 +1281,28 @@ public class BrowserChatPanel extends Composite {
 
     private String buildMessageHtml(ChatMessageData msg, String extraContentHtml) {
         String messageClass = msg.isSystem ? "system" : (msg.isAssistant ? "assistant" : "user"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-        String contentHtml = buildMessageContentHtml(msg.content);
-        String attachmentsHtml = buildAttachmentsHtml(msg.attachments);
+        if (msg.toolTurn) {
+            messageClass += " tool-turn"; //$NON-NLS-1$
+        }
+        String contentHtml = msg.toolTurn ? "" : buildMessageContentHtml(msg.content); //$NON-NLS-1$
+        String attachmentsHtml = msg.toolTurn ? "" : buildAttachmentsHtml(msg.attachments); //$NON-NLS-1$
         String extraHtml = extraContentHtml != null ? extraContentHtml : ""; //$NON-NLS-1$
 
         // Include reasoning block if present (for thinking mode)
         String reasoningHtml = ""; //$NON-NLS-1$
-        if (msg.reasoning != null && !msg.reasoning.isEmpty()) {
+        if (!msg.toolTurn && msg.reasoning != null && !msg.reasoning.isEmpty()) {
             reasoningHtml = buildReasoningBlock(msg.reasoning);
         }
 
         // Model badge for assistant messages
         String modelBadgeHtml = ""; //$NON-NLS-1$
-        if (msg.isAssistant && msg.modelName != null && !msg.modelName.isEmpty()) {
+        if (msg.isAssistant && !msg.toolTurn && msg.modelName != null && !msg.modelName.isEmpty()) {
             modelBadgeHtml = " <span class=\"model-badge\">" + escapeHtml(msg.modelName) + "</span>"; //$NON-NLS-1$ //$NON-NLS-2$
         }
 
         // Copy response button for assistant messages
         String copyResponseHtml = ""; //$NON-NLS-1$
-        if (msg.isAssistant && !msg.isSystem) {
+        if (msg.isAssistant && !msg.isSystem && !msg.toolTurn) {
             copyResponseHtml = "        <button class=\"copy-response-btn\" onclick=\"copyResponse(this)\" title=\"\u041A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043E\u0442\u0432\u0435\u0442\">\uD83D\uDCCB</button>\n"; //$NON-NLS-1$
         }
 
