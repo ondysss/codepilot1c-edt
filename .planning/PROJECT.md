@@ -32,7 +32,16 @@ Predictable, typed, diagnosable, and safe migration of existing 1C:EDT metadata 
 - ✓ EDTEXT-07 — Clone/migration plan for complex metadata objects — v0.1.9
 - ✓ EDTEXT-08 — Regression tests and EDT smoke proof — v0.1.9
 
-### Active (next milestone — carried from v0.1.9 Future Requirements)
+### Active (v0.1.10 — Managed Form Event Handlers)
+
+- [ ] Agent can wire form-level event handlers (OnCreateAtServer, OnOpen, BeforeClose, …) on managed forms.
+- [ ] Agent can wire item-level event handlers (field OnChange/StartChoice, table OnActivateRow, …).
+- [ ] Wiring generates the handler procedure stub in the form module (BSL) with correct client/server directive and signature.
+- [ ] Event-handler operations are added to `mutate_form_model` under the existing validation-token flow.
+- [ ] Event handlers work for forms inside 1C extensions (расширения), not only base configuration.
+- [ ] `inspect_form_layout` surfaces existing event handlers.
+
+### Deferred (backlog — carried from v0.1.9 Future Requirements)
 
 - [ ] Full deletion/move workflow that removes base objects only after verified extension-native replacements and explicit user confirmation.
 - [ ] Complete semantic reference rewriting inside arbitrary BSL modules (v0.1.9 started with metadata references and explicit copy lists).
@@ -52,9 +61,21 @@ Predictable, typed, diagnosable, and safe migration of existing 1C:EDT metadata 
 - ✓ Tool errors distinguish unsupported kind/API limitation from missing object, and list actionable alternatives/available values where possible.
 - — Live-EDT verification is a human gate (not CLI-automatable); the user is verifier of record for closure smokes. (Pending: revisit if a headless EDT harness becomes available.)
 
-## Next Milestone Goals
+## Current Milestone: v0.1.10 Managed Form Event Handlers
 
-Not yet scoped. Run `/gsd-new-milestone` to define the next milestone from the Active requirements above (questioning → research → requirements → roadmap). Phase numbering continues from Phase 6.
+**Goal:** The agent can wire managed-form event handlers — setting the event property on the form/item model AND generating the handler procedure stub in the form module — for both base configuration and extension forms.
+
+**Target features:**
+
+- Extend `mutate_form_model` with event-handler operations (add/set/remove event handler) under the existing `MUTATE_FORM_MODEL` validation-token flow.
+- Form-level events (OnCreateAtServer, OnOpen, BeforeClose, OnReopen, NotificationProcessing, …).
+- Item-level events (fields: OnChange/StartChoice/ChoiceProcessing; tables: OnActivateRow/BeforeAddRow; groups/buttons where applicable).
+- BSL handler stub generation in `Module.bsl` with correct client/server directive (`&НаКлиенте`/`&НаСервере`) and signature — consistent with EDT-native behavior.
+- Extension (расширения) form support: adopted forms and their modules.
+- `inspect_form_layout` reports existing event handlers so the agent can read current state.
+- Regression tests + live-EDT smoke closure gate.
+
+**Key context:** Study the EDT EMF form event API via the `edt-javadoc` MCP (source of truth) before coding — exact EClasses (FormHandler / event-handler containers) and how events attach to `Form`/`FormItem`. Reuse the two-phase validation-token pattern (extend, do not add a new tool). Live-EDT verification remains a human gate. Phase numbering continues from Phase 6.
 
 ## Evolution
 
@@ -73,4 +94,4 @@ This document evolves at phase transitions and milestone boundaries.
 3. Audit Out of Scope.
 4. Update Current State with shipped version.
 
-_Last updated: 2026-07-13 after v0.1.9 milestone_
+_Last updated: 2026-07-13 after starting v0.1.10 milestone_
