@@ -6,7 +6,7 @@
 - [x] **Phase 2: Low-Level EDT Tooling Fixes** - Fix EDT-native mutation primitives that block extension migration.
 - [x] **Phase 3: Native Extension Migration Planner** - Add a dry-run-first high-level migration planner/tool over the fixed primitives.
 - [x] **Phase 4: Live EDT Audit Remediation** - Fix blocking defects found by live EDT audit after installing the extension.
-- [ ] **Phase 5: Release Install and Live EDT Closure Smoke** - Rebuild, install into EDT, and rerun live audit to close the milestone with runtime proof.
+- [x] **Phase 5: Release Install and Live EDT Closure Smoke** - Rebuild, install into EDT, and rerun live audit to close the milestone with runtime proof. (completed 2026-07-13)
 
 ## Phase 1 — Research EDT API Contracts and Lock Failure Reproductions
 
@@ -99,7 +99,7 @@ Turn live EDT audit failures into concrete runtime/code fixes before closure.
 
 ### Status
 
-planned
+complete (2026-07-13 — live-verified in EDT by user; closure authorized)
 
 ### Intent
 
@@ -120,4 +120,4 @@ Close the milestone only after runtime proof from the installed EDT plugin.
 - Targeted Phase 4 regression: passed.
 - Broader focused EDT metadata/extension suite: passed.
 - Full reactor update-site build: passed.
-- Live EDT closure smoke: pending Phase 5.
+- Live EDT closure smoke: passed (2026-07-13 — user live-verification in `/Volumes/T9/workspace/do`; v0.1.9 closed).
