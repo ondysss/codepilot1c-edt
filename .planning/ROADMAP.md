@@ -41,7 +41,10 @@ Requirements traceability: [milestones/v0.1.9-REQUIREMENTS.md](milestones/v0.1.9
   2. Wiring an event on a `Form`, `FormField`, or `Table` sets the handler slot on the EMF model; the event and its concrete `mcore.Event` are resolved at runtime via `FormItemInformationService.getAllowedEvents(item)` and matched by name (RU/EN), with no hardcoded event spellings.
   3. Wiring an event on a button/group is rejected with an actionable redirect to `add_command`, and an unknown/invalid event returns the item's allowed events instead of a generic error.
   4. `inspect_form_layout` surfaces existing event handlers per node as `{event, handlerName}`, so the agent can read current state to drive idempotent set/remove and base-handler detection.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 06-01-PLAN.md — Foundation: FormItemInformationService seam spike + injectable catalog, MANIFEST import, SCHEMA op enum, DTO extension, symmetry + schema tests (Wave 0)
+- [ ] 06-02-PLAN.md — Core wiring: add/set/remove_event_handler switch cases, form-root-aware target resolution, upsert semantics, button rejection, runtime event resolution (Wave 1)
+- [ ] 06-03-PLAN.md — Inspect surfacing: eventHandlers on form root + each FormItemNode, plus phase-gate reactor build (Wave 2)
 **UI hint**: yes
 
 ### Phase 7: BSL Handler Stub Generation (Base Configuration)
@@ -89,7 +92,7 @@ Phases execute in numeric order: 6 → 7 → 8 → 9
 | 3. Native Extension Migration Planner | v0.1.9 | 1/1 | Complete | 2026-07-13 |
 | 4. Live EDT Audit Remediation | v0.1.9 | 1/1 | Complete | 2026-07-13 |
 | 5. Release Install and Live EDT Closure Smoke | v0.1.9 | 1/1 | Complete | 2026-07-13 |
-| 6. Event-Handler API Spine, Operation Plumbing & Inspect Surfacing | v0.1.10 | 0/TBD | Not started | - |
+| 6. Event-Handler API Spine, Operation Plumbing & Inspect Surfacing | v0.1.10 | 0/3 | Planned | - |
 | 7. BSL Handler Stub Generation (Base Config) | v0.1.10 | 0/TBD | Not started | - |
 | 8. Extension (Расширения) Form Support | v0.1.10 | 0/TBD | Not started | - |
 | 9. Qwen Priming, Regression Tests & Live-EDT Smoke Closure | v0.1.10 | 0/TBD | Not started | - |
