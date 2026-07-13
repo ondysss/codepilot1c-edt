@@ -137,6 +137,9 @@ import com._1c.g5.v8.dt.moxel.Rect;
 import com._1c.g5.v8.dt.moxel.Row;
 import com._1c.g5.v8.dt.moxel.RowsArea;
 import com._1c.g5.v8.dt.moxel.SpreadsheetDocument;
+import com.codepilot1c.core.edt.forms.BslHandlerStubGenerator;
+import com.codepilot1c.core.edt.forms.BslHandlerStubWriter;
+import com.codepilot1c.core.edt.forms.BslHandlerStubWriter.StubWriteOutcome;
 import com.codepilot1c.core.edt.forms.CreateFormRequest;
 import com.codepilot1c.core.edt.forms.CreateFormResult;
 import com.codepilot1c.core.edt.forms.EventHandlerTargetResolver;
@@ -147,6 +150,8 @@ import com.codepilot1c.core.edt.forms.FormRecipeResult;
 import com.codepilot1c.core.edt.forms.FormUsage;
 import com.codepilot1c.core.edt.forms.InspectFormLayoutRequest;
 import com.codepilot1c.core.edt.forms.InspectFormLayoutResult;
+import com.codepilot1c.core.edt.forms.ModuleFileWriter;
+import com.codepilot1c.core.edt.forms.ModuleFileWriter.IFileModuleFileWriter;
 import com.codepilot1c.core.edt.forms.UpdateFormModelRequest;
 import com.codepilot1c.core.edt.forms.UpdateFormModelResult;
 import com.codepilot1c.core.edt.BmObjectHelper;
@@ -211,6 +216,7 @@ public class EdtMetadataService {
     private final FormOwnerStrategy formOwnerStrategy;
     private final CommandGroupResolver commandGroupResolver;
     private final EventHandlerTargetResolver eventHandlerTargetResolver;
+    private final ModuleFileWriter moduleFileWriter;
 
     private record TypeSpec(
             String typeQuery,
@@ -240,11 +246,24 @@ public class EdtMetadataService {
      * wiring stays unit-testable without a live EDT/BM/OSGi session.
      */
     EdtMetadataService(EdtMetadataGateway gateway, EventHandlerTargetResolver eventHandlerTargetResolver) {
+        this(gateway, eventHandlerTargetResolver, new IFileModuleFileWriter());
+    }
+
+    /**
+     * Test/DI-injection constructor: additionally accepts a {@link ModuleFileWriter}
+     * seam (e.g. an in-memory fake), so the post-export BSL handler-stub write
+     * (07-03, STUB-01/STUB-06) stays unit-testable without a live workspace {@code IFile}.
+     */
+    EdtMetadataService(
+            EdtMetadataGateway gateway,
+            EventHandlerTargetResolver eventHandlerTargetResolver,
+            ModuleFileWriter moduleFileWriter) {
         this.gateway = gateway;
         this.readinessChecker = new MetadataProjectReadinessChecker(gateway);
         this.formOwnerStrategy = FormOwnerStrategy.defaultStrategy();
         this.commandGroupResolver = new CommandGroupResolver();
         this.eventHandlerTargetResolver = eventHandlerTargetResolver;
+        this.moduleFileWriter = moduleFileWriter;
     }
 
     public boolean isEdtAvailable() {
@@ -474,6 +493,7 @@ public class EdtMetadataService {
                     "Cannot resolve project configuration", false); //$NON-NLS-1$
         }
 
+        List<PendingStub> pendingStubs = new ArrayList<>();
         List<String> operationSummaries = executeWrite(project, transaction -> {
             Configuration txConfiguration = toTransactionConfigurationOrNull(transaction, configuration);
             MdObject resolved = resolveObjectForTransaction(project, transaction, txConfiguration, request.formFqn());
@@ -483,7 +503,7 @@ public class EdtMetadataService {
                         "Form metadata not found: " + request.formFqn(), false); //$NON-NLS-1$
             }
             Form formModel = resolveManagedFormModel(basicForm, request.formFqn());
-            List<String> applied = applyFormModelOperations(formModel, request.operations());
+            List<String> applied = applyFormModelOperations(formModel, request.operations(), pendingStubs);
             ensureUuidsRecursively(basicForm, opId, request.formFqn());
             return applied;
         });
@@ -491,6 +511,17 @@ public class EdtMetadataService {
         String topLevelFqn = extractTopLevelFqn(request.formFqn());
         forceExportTopLevelObject(project, topLevelFqn, opId);
         verifyObjectPersisted(project, request.formFqn(), opId);
+
+        // PHASE C (07-03, STUB-06): BSL handler stub write, strictly AFTER the BM
+        // export/verify above — never inside the executeWrite transaction that
+        // committed the model slot.
+        if (!pendingStubs.isEmpty()) {
+            List<String> stubSummaries = writeHandlerStubs(
+                    project, configuration, request.formFqn(), topLevelFqn, pendingStubs, opId);
+            operationSummaries = new ArrayList<>(operationSummaries);
+            operationSummaries.addAll(stubSummaries);
+        }
+
         refreshProjectSafely(project);
         LOG.info("[%s] updateFormModel SUCCESS in %s form=%s operations=%d", //$NON-NLS-1$
                 opId,
@@ -503,6 +534,122 @@ public class EdtMetadataService {
                 request.formFqn(),
                 operationSummaries.size(),
                 operationSummaries);
+    }
+
+    /**
+     * Post-export tail (07-03, STUB-06): for each pending stub, ensures {@code Module.bsl}
+     * exists (createIfMissing, Pitfall 4), generates + writes the BSL handler stub via
+     * {@link BslHandlerStubWriter}, and on {@link StubWriteOutcome#WRITE_FAILURE} runs the
+     * compensating {@link #rollbackHandlerSlot} + re-export, then throws
+     * {@code EDT_TRANSACTION_FAILED} (STUB-01 both-or-neither).
+     * {@link StubWriteOutcome#SKIPPED_EXISTING_WARN} appends a warning summary only — the
+     * model slot stays wired, NO rollback (Pitfall 3).
+     */
+    private List<String> writeHandlerStubs(
+            IProject project,
+            Configuration configuration,
+            String formFqn,
+            String topLevelFqn,
+            List<PendingStub> pendingStubs,
+            String opId) {
+        ScriptVariant variant = resolveScriptVariant(configuration);
+        String modulePath = ensureFormModulePath(project, formFqn, opId);
+        List<String> summaries = new ArrayList<>();
+        BslHandlerStubGenerator generator = new BslHandlerStubGenerator();
+        BslHandlerStubWriter stubWriter = new BslHandlerStubWriter(moduleFileWriter);
+        for (PendingStub pending : pendingStubs) {
+            Event freshEvent = resolveFreshEvent(project, configuration, formFqn, pending);
+            BslHandlerStubGenerator.StubText stub = generator.generate(freshEvent, pending.handlerName(), variant);
+            StubWriteOutcome outcome = stubWriter.write(modulePath, pending.handlerName(), stub, variant);
+            switch (outcome) {
+                case WRITTEN -> summaries.add(
+                        "stub generated: " + pending.handlerName() + " (" + stub.directive() + ")"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                case SKIPPED_EXISTING_WARN -> {
+                    LOG.warn("[%s] Handler procedure '%s' already exists; leaving untouched", //$NON-NLS-1$
+                            opId, pending.handlerName());
+                    summaries.add("stub skipped (exists): " + pending.handlerName()); //$NON-NLS-1$
+                }
+                case WRITE_FAILURE -> {
+                    LOG.error("[%s] Stub write failed for handler '%s'; rolling back handler slot", //$NON-NLS-1$
+                            opId, pending.handlerName());
+                    rollbackHandlerSlot(project, configuration, formFqn, pending, opId);
+                    forceExportTopLevelObject(project, topLevelFqn, opId);
+                    throw new MetadataOperationException(
+                            MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                            "Stub write failed for handler '" + pending.handlerName() //$NON-NLS-1$
+                                    + "'; handler slot rolled back", true); //$NON-NLS-1$
+                }
+                default -> throw new IllegalStateException("Unhandled StubWriteOutcome: " + outcome); //$NON-NLS-1$
+            }
+        }
+        return summaries;
+    }
+
+    /**
+     * Ensures the form's {@code Module.bsl} exists (Pitfall 4: the very-first mutation on a
+     * fresh form must not fail with file-not-found) and returns its workspace-relative path.
+     */
+    private String ensureFormModulePath(IProject project, String formFqn, String opId) {
+        ModuleArtifactResult result = ensureModuleArtifact(new EnsureModuleArtifactRequest(
+                project.getName(), formFqn, ModuleArtifactKind.MODULE, true, "")); //$NON-NLS-1$
+        LOG.debug("[%s] ensureFormModulePath resolved path=%s (created=%s)", //$NON-NLS-1$
+                opId, result.modulePath(), Boolean.valueOf(result.created()));
+        return result.modulePath();
+    }
+
+    /**
+     * Re-resolves a FRESH {@code Event} for stub generation (directive/signature source),
+     * completely independent of the original (by-now-committed) transaction's object graph
+     * (Pitfall 2) — re-runs the exact same target/container/event resolution
+     * {@link #wireEventHandler} used, via a fresh read-only {@code executeRead}.
+     */
+    private Event resolveFreshEvent(
+            IProject project, Configuration configuration, String formFqn, PendingStub pending) {
+        return executeRead(project, tx -> {
+            Configuration txConfiguration = toTransactionConfigurationOrNull(tx, configuration);
+            if (txConfiguration == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                        "Cannot access configuration in BM read transaction", false); //$NON-NLS-1$
+            }
+            MdObject resolved = resolveByFqn(txConfiguration, formFqn);
+            if (!(resolved instanceof BasicForm basicForm)) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_NOT_FOUND,
+                        "Form metadata not found: " + formFqn, false); //$NON-NLS-1$
+            }
+            Form formModel = resolveManagedFormModel(basicForm, formFqn);
+            FormVisualEntity target = resolveEventHandlerFormItem(formModel, pending.operation());
+            EventHandlerContainer container = eventHandlerTargetResolver.requireEventHandlerContainer(target);
+            return eventHandlerTargetResolver.resolveConcreteEvent(container, pending.eventName());
+        });
+    }
+
+    /**
+     * Compensating transaction (STUB-01 "both or neither"): re-resolves the Form/container/
+     * handler completely FRESH inside a NEW {@code executeWrite} — never closing over the
+     * original transaction's (now-stale) object references (Pitfall 2) — and removes the
+     * just-wired handler slot.
+     */
+    private void rollbackHandlerSlot(
+            IProject project, Configuration configuration, String formFqn, PendingStub pending, String opId) {
+        executeWrite(project, transaction -> {
+            Configuration txConfiguration = toTransactionConfigurationOrNull(transaction, configuration);
+            MdObject resolved = resolveObjectForTransaction(project, transaction, txConfiguration, formFqn);
+            if (!(resolved instanceof BasicForm basicForm)) {
+                LOG.warn("[%s] rollbackHandlerSlot: form metadata not found: %s", opId, formFqn); //$NON-NLS-1$
+                return null;
+            }
+            Form formModel = resolveManagedFormModel(basicForm, formFqn);
+            FormVisualEntity target = resolveEventHandlerFormItem(formModel, pending.operation());
+            EventHandlerContainer container = eventHandlerTargetResolver.requireEventHandlerContainer(target);
+            Event freshEvent = eventHandlerTargetResolver.resolveConcreteEvent(container, pending.eventName());
+            EventHandler existing = findExistingHandler(container, freshEvent);
+            if (existing != null) {
+                container.getHandlers().remove(existing);
+            }
+            return null;
+        });
     }
 
     public FormRecipeResult applyFormRecipe(FormRecipeRequest request) {
@@ -835,6 +982,20 @@ public class EdtMetadataService {
     }
 
     private List<String> applyFormModelOperations(Form formModel, List<Map<String, Object>> operations) {
+        return applyFormModelOperations(formModel, operations, new ArrayList<>());
+    }
+
+    /**
+     * Same as {@link #applyFormModelOperations(Form, List)}, additionally threading out
+     * a {@code pendingStubs} list: every {@code add_event_handler}/{@code set_event_handler}
+     * upsert appends a {@link PendingStub} record here, consumed by {@code updateFormModel}'s
+     * post-export tail (07-03) to generate/write the matching BSL stub strictly AFTER
+     * {@code forceExportTopLevelObject}/{@code verifyObjectPersisted} (STUB-06). The
+     * {@code remove_event_handler} case records nothing. The single-arg overload above
+     * (used by {@code EventHandlerWiringTest} via reflection) simply discards this list.
+     */
+    private List<String> applyFormModelOperations(
+            Form formModel, List<Map<String, Object>> operations, List<PendingStub> pendingStubs) {
         List<String> summaries = new ArrayList<>();
         IFormItemManagementService itemManagementService = resolveOptionalFormItemManagementService();
         int operationIndex = 1;
@@ -1045,6 +1206,7 @@ public class EdtMetadataService {
                 }
                 case "addeventhandler", "seteventhandler" -> {
                     EventHandler handler = wireEventHandler(formModel, operation);
+                    pendingStubs.add(new PendingStub(operation, handler.getEvent().getName(), handler.getName()));
                     summaries.add("add_event_handler[" + operationIndex + "]: event=" //$NON-NLS-1$ //$NON-NLS-2$
                             + handler.getEvent().getName() + ", handler=" + handler.getName()); //$NON-NLS-1$
                 }
@@ -1124,6 +1286,26 @@ public class EdtMetadataService {
             }
         }
         return null;
+    }
+
+    /**
+     * A recorded {@code add_event_handler}/{@code set_event_handler} upsert awaiting its
+     * post-export BSL stub write (07-03, STUB-06).
+     *
+     * <p>{@code operation} is the ORIGINAL operation map and {@code eventName} the
+     * resolved event's EN name — both retained (rather than the live, transaction-scoped
+     * {@code Event}/container EMF references) so BOTH the stub-write tail and the
+     * compensating rollback ({@link #rollbackHandlerSlot}) re-resolve the
+     * target/container/event completely FRESH via {@link #resolveEventHandlerFormItem} +
+     * {@code resolveConcreteEvent} inside their own transactions — never touching a
+     * reference from the (by-then-committed, transaction-scoped) original transaction
+     * (Pitfall 2).</p>
+     *
+     * <p>{@code handlerName} is the already-validated handler procedure name (validated
+     * upstream by {@code MetadataNameValidator.isValidName} in {@link #wireEventHandler} —
+     * not re-validated here or downstream, per V5).</p>
+     */
+    private record PendingStub(Map<String, Object> operation, String eventName, String handlerName) {
     }
 
     /**
