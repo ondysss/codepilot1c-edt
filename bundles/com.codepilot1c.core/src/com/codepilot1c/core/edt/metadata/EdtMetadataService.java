@@ -2720,7 +2720,8 @@ public class EdtMetadataService {
             throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_CHANGE,
                     "Operation requires \"op\" field. Valid values: add_field, add_table, add_group, add_command, " //$NON-NLS-1$
-                            + "add_button, set_item, remove_item, move_item, set_form_props", false); //$NON-NLS-1$
+                            + "add_button, set_item, remove_item, move_item, set_form_props, " //$NON-NLS-1$
+                            + "add_event_handler, set_event_handler, remove_event_handler", false); //$NON-NLS-1$
         }
 
         // Detect "type":"field" hallucination — model should use op:"add_field"
@@ -2758,7 +2759,11 @@ public class EdtMetadataService {
                 + "For commands: {op:\"add_command\", name:\"CmdName\", action:\"HandlerProc\", title:\"Button Title\"}, " //$NON-NLS-1$
                 + "then {op:\"add_button\", name:\"BtnName\", command_name:\"CmdName\"} — parent defaults to existing CommandBar. " //$NON-NLS-1$
                 + "DO NOT create a new CommandBar group — the form already has one. DO NOT use add_group for command bars. " //$NON-NLS-1$
-                + "Valid ops: add_field, add_table, add_group, add_command, add_button, set_item, remove_item, move_item, set_form_props."; //$NON-NLS-1$
+                + "For form-level events: {op:\"add_event_handler\", target:\"form\", event:\"<eventName>\", handler_name:\"...\"}. " //$NON-NLS-1$
+                + "For a field/table event: {op:\"add_event_handler\", item_id:<id>, event:\"<eventName>\"} — omit handler_name for a deterministic default. " //$NON-NLS-1$
+                + "set_event_handler upserts the same (target,event) pair; remove_event_handler removes it. " //$NON-NLS-1$
+                + "Valid ops: add_field, add_table, add_group, add_command, add_button, set_item, remove_item, move_item, set_form_props, " //$NON-NLS-1$
+                + "add_event_handler, set_event_handler, remove_event_handler."; //$NON-NLS-1$
     }
 
     private Map<String, Object> collectFormRootProperties(
