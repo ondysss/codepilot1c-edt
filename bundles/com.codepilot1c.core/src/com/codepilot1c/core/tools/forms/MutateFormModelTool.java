@@ -47,7 +47,7 @@ public class MutateFormModelTool extends AbstractTool {
                     "properties": {
                       "op": {
                         "type": "string",
-                        "enum": ["set_form_props", "add_group", "add_field", "add_table", "add_command", "add_button", "set_item", "remove_item", "move_item"],
+                        "enum": ["set_form_props", "add_group", "add_field", "add_table", "add_command", "add_button", "set_item", "remove_item", "move_item", "add_event_handler", "set_event_handler", "remove_event_handler"],
                         "description": "Visual form operation. add_field creates a simple UI field; add_table creates a Table item and, with data_path to a ValueTable/ValueTree/tabular attribute, auto-generates its columns. Neither creates the form attribute — create attributes with apply_form_recipe first."
                       },
                       "data_path": {
@@ -77,6 +77,18 @@ public class MutateFormModelTool extends AbstractTool {
                       "item_id": {
                         "type": "integer",
                         "description": "Target item id for set_item/remove_item/move_item (from inspect_form_layout)."
+                      },
+                      "event": {
+                        "type": "string",
+                        "description": "Event name (EN or RU) for add_event_handler/set_event_handler/remove_event_handler; validated at runtime against the item's allowed events."
+                      },
+                      "handler_name": {
+                        "type": "string",
+                        "description": "BSL handler procedure name for the event op. Strongly recommended; a deterministic name is used when omitted."
+                      },
+                      "target": {
+                        "type": "string",
+                        "description": "For event ops: 'form' for form-level events, or omit and pass item_id/item_name for a field/table event."
                       }
                     },
                     "required": ["op"],
