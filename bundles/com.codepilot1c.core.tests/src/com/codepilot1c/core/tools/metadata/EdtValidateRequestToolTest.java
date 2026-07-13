@@ -208,6 +208,91 @@ public class EdtValidateRequestToolTest {
     }
 
     @Test
+    public void updateMetadataValidationRejectsInvalidEventSubscriptionSourceType() {
+        MetadataRequestValidationService service = new MetadataRequestValidationService();
+
+        try {
+            service.normalizeUpdatePayload(
+                    "ДО.Артель", //$NON-NLS-1$
+                    "EventSubscription.ар_аи_СобытияИзменений_Задача", //$NON-NLS-1$
+                    Map.of("set", Map.of("source", "NotAType"))); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        } catch (RuntimeException e) {
+            assertTrue(e.getMessage().contains("Invalid TypeDescription")); //$NON-NLS-1$
+            assertTrue(e.getMessage().contains("changes.set.source")); //$NON-NLS-1$
+            assertTrue(e.getMessage().contains("NotAType")); //$NON-NLS-1$
+            return;
+        }
+        assertFalse("Invalid EventSubscription.source TypeDescription must be rejected before token issuance", true); //$NON-NLS-1$
+    }
+
+    @Test
+    public void updateMetadataValidationNormalizesEventSubscriptionSourceChildOp() {
+        MetadataRequestValidationService service = new MetadataRequestValidationService();
+
+        Map<String, Object> payload = service.normalizeUpdatePayload(
+                "ДО.Артель", //$NON-NLS-1$
+                "EventSubscription.ар_аи_СобытияИзменений_Задача", //$NON-NLS-1$
+                Map.of("children_ops", List.of(Map.of( //$NON-NLS-1$
+                        "op", "upsert", //$NON-NLS-1$ //$NON-NLS-2$
+                        "name", "source", //$NON-NLS-1$ //$NON-NLS-2$
+                        "kind", "TypeDescription", //$NON-NLS-1$ //$NON-NLS-2$
+                        "set", Map.of("types", List.of("TaskObject.ЗадачаИсполнителя")))))); //$NON-NLS-1$ //$NON-NLS-2$
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> changes = (Map<String, Object>) payload.get("changes"); //$NON-NLS-1$
+        @SuppressWarnings("unchecked")
+        Map<String, Object> set = (Map<String, Object>) changes.get("set"); //$NON-NLS-1$
+        @SuppressWarnings("unchecked")
+        Map<String, Object> source = (Map<String, Object>) set.get("source"); //$NON-NLS-1$
+
+        assertEquals(List.of("TaskObject.ЗадачаИсполнителя"), source.get("types")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertFalse(changes.containsKey("children_ops")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void updateMetadataValidationNormalizesEventSubscriptionSourceChildFqn() {
+        MetadataRequestValidationService service = new MetadataRequestValidationService();
+
+        Map<String, Object> payload = service.normalizeUpdatePayload(
+                "ДО.Артель", //$NON-NLS-1$
+                "EventSubscription.ар_аи_СобытияИзменений_Задача", //$NON-NLS-1$
+                Map.of("children_ops", List.of(Map.of( //$NON-NLS-1$
+                        "op", "upsert", //$NON-NLS-1$ //$NON-NLS-2$
+                        "child_fqn", "EventSubscription.ар_аи_СобытияИзменений_Задача.source", //$NON-NLS-1$ //$NON-NLS-2$
+                        "kind", "TypeDescription", //$NON-NLS-1$ //$NON-NLS-2$
+                        "set", Map.of("types", List.of("TaskObject.ЗадачаИсполнителя")))))); //$NON-NLS-1$ //$NON-NLS-2$
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> changes = (Map<String, Object>) payload.get("changes"); //$NON-NLS-1$
+        @SuppressWarnings("unchecked")
+        Map<String, Object> set = (Map<String, Object>) changes.get("set"); //$NON-NLS-1$
+        @SuppressWarnings("unchecked")
+        Map<String, Object> source = (Map<String, Object>) set.get("source"); //$NON-NLS-1$
+
+        assertEquals(List.of("TaskObject.ЗадачаИсполнителя"), source.get("types")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertFalse(changes.containsKey("children_ops")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void updateMetadataValidationRejectsUnsupportedChildOpWithoutChildFqn() {
+        MetadataRequestValidationService service = new MetadataRequestValidationService();
+
+        try {
+            service.normalizeUpdatePayload(
+                    "ДО.Артель", //$NON-NLS-1$
+                    "Catalog.Номенклатура", //$NON-NLS-1$
+                    Map.of("children_ops", List.of(Map.of( //$NON-NLS-1$
+                            "op", "update", //$NON-NLS-1$ //$NON-NLS-2$
+                            "name", "Реквизит", //$NON-NLS-1$ //$NON-NLS-2$
+                            "set", Map.of("synonym", "Реквизит"))))); //$NON-NLS-1$ //$NON-NLS-2$
+        } catch (RuntimeException e) {
+            assertTrue(e.getMessage().contains("children_ops item must contain child_fqn")); //$NON-NLS-1$
+            return;
+        }
+        assertFalse("Unsupported children_ops without child_fqn must be rejected before token issuance", true); //$NON-NLS-1$
+    }
+
+    @Test
     public void acceptsMutateRoleRightsOperationAndKeepsOperationName() {
         StubValidationService validationService = new StubValidationService();
         EdtValidateRequestTool tool = new EdtValidateRequestTool(validationService);

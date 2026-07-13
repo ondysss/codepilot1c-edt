@@ -40,7 +40,7 @@ public class UpdateMetadataTool extends AbstractTool {
                 },
                 "changes": {
                   "type": "object",
-                  "description": "Property changes for an existing object: {set:{...}, unset:[...], children_ops:[...]}. Use add_metadata_child for a new child and mutate_form_model for forms."
+                  "description": "Property changes for an existing object: {set:{...}, unset:[...], children_ops:[...]}. For EventSubscription.source use set.source as a TypeDescription string or {types:[...]}. Use add_metadata_child for a new child and mutate_form_model for forms."
                 },
                 "validation_token": {
                   "type": "string",

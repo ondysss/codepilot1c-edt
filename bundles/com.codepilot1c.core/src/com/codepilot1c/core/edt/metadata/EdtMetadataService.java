@@ -5697,6 +5697,7 @@ public class EdtMetadataService {
         }
         addTypeStringIfPresent(typeStrings, properties, "type"); //$NON-NLS-1$
         addTypeStringIfPresent(typeStrings, properties, "commandParameterType"); //$NON-NLS-1$
+        addTypeStringIfPresent(typeStrings, properties, "source"); //$NON-NLS-1$
         return typeStrings;
     }
 
@@ -6428,18 +6429,27 @@ public class EdtMetadataService {
         if (target == null || reference == null || !reference.isContainment()) {
             return false;
         }
-        if (!"type".equalsIgnoreCase(reference.getName()) //$NON-NLS-1$
-                && !"commandParameterType".equalsIgnoreCase(reference.getName())) { //$NON-NLS-1$
+        if (!isTypeDescriptionPropertyName(reference.getName())) {
             return false;
         }
         if (value instanceof TypeDescription typeDescription) {
-            setTypeDescriptionOnEObject(target, typeDescription);
+            target.eSet(reference, typeDescription);
             return true;
         }
         TypeDescription typeDescription = createTypeDescription(configuration, target, reference, value,
                 transaction, preResolvedTypes);
         target.eSet(reference, typeDescription);
         return true;
+    }
+
+    private boolean isTypeDescriptionPropertyName(String name) {
+        if (name == null) {
+            return false;
+        }
+        return switch (name) {
+            case "type", "commandParameterType", "source" -> true; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            default -> false;
+        };
     }
 
     private TypeDescription createTypeDescription(Configuration configuration, MdObject target, EReference reference,
@@ -7442,16 +7452,17 @@ public class EdtMetadataService {
     }
 
     /**
-     * Collects all "type" string values from changes (top-level set and children_ops).
+     * Collects all TypeDescription string values from changes (top-level set and children_ops).
      */
     @SuppressWarnings("unchecked")
     private Set<String> collectTypeStrings(Map<String, Object> changes) {
         Set<String> typeStrings = new LinkedHashSet<>();
-        // Top-level set.type / set.commandParameterType
+        // Top-level set.type / set.commandParameterType / set.source
         Map<String, Object> setMap = extractSetMap(changes);
         if (setMap != null) {
             addTypeStringIfPresent(typeStrings, setMap, "type"); //$NON-NLS-1$
             addTypeStringIfPresent(typeStrings, setMap, "commandParameterType"); //$NON-NLS-1$
+            addTypeStringIfPresent(typeStrings, setMap, "source"); //$NON-NLS-1$
             // Also scan set values that are Maps containing "type"
             // (auto-redirect case: {"set":{"AttrName":{"type":"CatalogRef.Foo"}}})
             for (Object val : setMap.values()) {

@@ -43,6 +43,27 @@ public class EdtMetadataServiceTypeDescriptionTest {
                 source.contains("addTypeStringIfPresent(typeStrings, setMap, \"commandParameterType\")")); //$NON-NLS-1$
     }
 
+    @Test
+    public void updateMetadataSupportsEventSubscriptionSourceTypeDescription() throws Exception {
+        String source = readCoreSource(
+                "bundles/com.codepilot1c.core/src/com/codepilot1c/core/edt/metadata/EdtMetadataService.java"); //$NON-NLS-1$
+
+        assertTrue(
+                "update_metadata must support EventSubscription.source TypeDescription instead of generic containment rejection", //$NON-NLS-1$
+                source.contains("isTypeDescriptionPropertyName(reference.getName())") //$NON-NLS-1$
+                        && source.contains("\"source\" -> true")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void updateMetadataPreResolvesEventSubscriptionSourceStrings() throws Exception {
+        String source = readCoreSource(
+                "bundles/com.codepilot1c.core/src/com/codepilot1c/core/edt/metadata/EdtMetadataService.java"); //$NON-NLS-1$
+
+        assertTrue(
+                "update_metadata must pre-resolve EventSubscription.source string values before the write transaction, matching edt_field_type_candidates resolver semantics", //$NON-NLS-1$
+                source.contains("addTypeStringIfPresent(typeStrings, setMap, \"source\")")); //$NON-NLS-1$
+    }
+
     private String readCoreSource(String relativePath) throws Exception {
         Path path = Path.of(relativePath);
         if (!Files.exists(path)) {

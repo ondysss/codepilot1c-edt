@@ -145,7 +145,7 @@ public final class AgentPromptTemplates {
             sb.append("   сначала вызывай edt_validate_request.\n"); //$NON-NLS-1$
             sb.append("2. Бери validation_token из ответа edt_validate_request и передавай в мутационный инструмент без изменения payload. Для composite tools command находится внутри payload, не на верхнем уровне edt_validate_request.\n"); //$NON-NLS-1$
             sb.append("3. Не создавай реквизиты с зарезервированными именами стандартных реквизитов.\n"); //$NON-NLS-1$
-            sb.append("4. Для update_metadata используй changes.children_ops для изменения существующих реквизитов.\n"); //$NON-NLS-1$
+            sb.append("4. Для update_metadata используй changes.children_ops для существующих дочерних объектов; для EventSubscription.source используй changes.set.source={types:[...]}\n"); //$NON-NLS-1$
             sb.append("5. Для примитивных типов (String/Number/Date/Boolean) сначала вызывай edt_field_type_candidates.\n"); //$NON-NLS-1$
             sb.append("6. Перед изменением модулей BSL объекта метаданных всегда сначала вызывай ensure_module_artifact.\n"); //$NON-NLS-1$
             sb.append("7. После любых изменений BSL/метаданных перед финальным ответом всегда вызывай get_diagnostics.\n\n"); //$NON-NLS-1$

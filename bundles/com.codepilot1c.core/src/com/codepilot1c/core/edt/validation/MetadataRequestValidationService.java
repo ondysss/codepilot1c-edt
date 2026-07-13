@@ -620,10 +620,118 @@ public class MetadataRequestValidationService {
         payload.put("project", projectName); //$NON-NLS-1$
         payload.put("target_fqn", targetFqn); //$NON-NLS-1$
         if (changes != null && !changes.isEmpty()) {
-            validateUpdateTypeDescriptionValues(changes);
-            payload.put("changes", normalizeStandardCommandGroupChanges(changes)); //$NON-NLS-1$
+            Map<String, Object> normalizedChanges = normalizeEventSubscriptionSourceChildOps(changes, targetFqn);
+            validateUpdateTypeDescriptionValues(normalizedChanges);
+            payload.put("changes", normalizeStandardCommandGroupChanges(normalizedChanges)); //$NON-NLS-1$
         }
         return payload;
+    }
+
+    private Map<String, Object> normalizeEventSubscriptionSourceChildOps(
+            Map<String, Object> changes,
+            String targetFqn
+    ) {
+        Map<String, Object> normalized = new LinkedHashMap<>(changes);
+        List<Map<String, Object>> childOps = asListOfMaps(normalized.get("children_ops")); //$NON-NLS-1$
+        if (childOps.isEmpty()) {
+            return normalized;
+        }
+
+        List<Map<String, Object>> remaining = new ArrayList<>();
+        Object sourceValue = null;
+        for (Map<String, Object> op : childOps) {
+            if (isEventSubscriptionSourceTypeDescriptionOp(targetFqn, op)) {
+                if (sourceValue != null) {
+                    throw new MetadataOperationException(
+                            MetadataOperationCode.INVALID_METADATA_CHANGE,
+                            "EventSubscription source is specified more than once in children_ops", false); //$NON-NLS-1$
+                }
+                sourceValue = extractEventSubscriptionSourceValue(op);
+                continue;
+            }
+
+            String childFqn = asOptionalString(getMapValueIgnoreCase(op, "child_fqn", "childFqn")); //$NON-NLS-1$ //$NON-NLS-2$
+            if (childFqn == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "children_ops item must contain child_fqn", false); //$NON-NLS-1$
+            }
+            remaining.add(new LinkedHashMap<>(op));
+        }
+
+        if (sourceValue != null) {
+            Map<String, Object> set = new LinkedHashMap<>(asMap(normalized.get("set"))); //$NON-NLS-1$
+            if (hasMapKeyIgnoreCase(set, "source")) { //$NON-NLS-1$
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "EventSubscription source is specified both in set.source and children_ops", false); //$NON-NLS-1$
+            }
+            set.put("source", sourceValue); //$NON-NLS-1$
+            normalized.put("set", set); //$NON-NLS-1$
+        }
+        if (remaining.isEmpty()) {
+            normalized.remove("children_ops"); //$NON-NLS-1$
+        } else {
+            normalized.put("children_ops", remaining); //$NON-NLS-1$
+        }
+        return normalized;
+    }
+
+    private boolean isEventSubscriptionSourceTypeDescriptionOp(String targetFqn, Map<String, Object> op) {
+        if (!isEventSubscriptionFqn(targetFqn) || op == null || op.isEmpty()) {
+            return false;
+        }
+        String rawOp = asOptionalString(getMapValueIgnoreCase(op, "op")); //$NON-NLS-1$
+        if (rawOp != null) {
+            String normalizedOp = normalizeActionToken(rawOp);
+            if (!normalizedOp.equals("upsert") && !normalizedOp.equals("set") //$NON-NLS-1$ //$NON-NLS-2$
+                    && !normalizedOp.equals("update") && !normalizedOp.equals("replace")) { //$NON-NLS-1$ //$NON-NLS-2$
+                return false;
+            }
+        }
+        String kind = asOptionalString(getMapValueIgnoreCase(op, "kind", "child_kind", "childKind")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        if (kind != null && !kind.equalsIgnoreCase("TypeDescription")) { //$NON-NLS-1$
+            return false;
+        }
+        String name = asOptionalString(getMapValueIgnoreCase(op, "name")); //$NON-NLS-1$
+        if ("source".equalsIgnoreCase(name)) { //$NON-NLS-1$
+            return true;
+        }
+        String childFqn = asOptionalString(getMapValueIgnoreCase(op, "child_fqn", "childFqn")); //$NON-NLS-1$ //$NON-NLS-2$
+        return isEventSubscriptionSourceChildFqn(targetFqn, childFqn);
+    }
+
+    private boolean isEventSubscriptionFqn(String targetFqn) {
+        return targetFqn != null && targetFqn.regionMatches(true, 0,
+                "EventSubscription.", 0, "EventSubscription.".length()); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private boolean isEventSubscriptionSourceChildFqn(String targetFqn, String childFqn) {
+        return targetFqn != null && childFqn != null
+                && childFqn.equalsIgnoreCase(targetFqn + ".source"); //$NON-NLS-1$
+    }
+
+    private Object extractEventSubscriptionSourceValue(Map<String, Object> op) {
+        Object setObj = getMapValueIgnoreCase(op, "set"); //$NON-NLS-1$
+        if (setObj instanceof Map<?, ?> setMap) {
+            return new LinkedHashMap<>(asMap(setMap));
+        }
+
+        Object types = getMapValueIgnoreCase(op, "types"); //$NON-NLS-1$
+        if (types != null) {
+            Map<String, Object> source = new LinkedHashMap<>();
+            source.put("types", types); //$NON-NLS-1$
+            return source;
+        }
+
+        Object type = getMapValueIgnoreCase(op, "type"); //$NON-NLS-1$
+        if (type != null) {
+            return type;
+        }
+
+        throw new MetadataOperationException(
+                MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                "Invalid TypeDescription for children_ops.source: map must include set.types or type", false); //$NON-NLS-1$
     }
 
     private Map<String, Object> normalizeStandardCommandGroupChanges(Map<String, Object> changes) {
@@ -653,6 +761,7 @@ public class MetadataRequestValidationService {
         validateTypeDescriptionValue(getMapValueIgnoreCase(set, "type"), "changes.set.type"); //$NON-NLS-1$ //$NON-NLS-2$
         validateTypeDescriptionValue(getMapValueIgnoreCase(set, "commandParameterType"), //$NON-NLS-1$
                 "changes.set.commandParameterType"); //$NON-NLS-1$
+        validateTypeDescriptionValue(getMapValueIgnoreCase(set, "source"), "changes.set.source"); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private String normalizeStandardCommandGroup(String rawValue) {
@@ -1498,6 +1607,21 @@ public class MetadataRequestValidationService {
             }
         }
         return null;
+    }
+
+    private boolean hasMapKeyIgnoreCase(Map<?, ?> map, String key) {
+        if (map == null || key == null || key.isBlank()) {
+            return false;
+        }
+        if (map.containsKey(key)) {
+            return true;
+        }
+        for (Object candidate : map.keySet()) {
+            if (candidate instanceof String text && text.equalsIgnoreCase(key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private EffectiveName resolveEffectiveName(String projectName, String name) {
