@@ -2782,7 +2782,28 @@ public class EdtMetadataService {
         if (includeProperties) {
             result.put("properties", collectScalarProperties(formModel, includeTitles)); //$NON-NLS-1$
         }
+        List<InspectFormLayoutResult.EventHandlerInfo> eventHandlers = collectEventHandlerInfos(formModel);
+        if (!eventHandlers.isEmpty()) {
+            result.put("eventHandlers", eventHandlers); //$NON-NLS-1$
+        }
         return result;
+    }
+
+    /**
+     * Surfaces the {@code {event, handlerName}} pairs already wired on an
+     * {@link EventHandlerContainer} (form root or a form item). Read path only,
+     * unconditional (not gated by include_properties/include_titles) — INSP-01.
+     * Handlers whose {@link EventHandler#getEvent()} is {@code null} are skipped.
+     */
+    private List<InspectFormLayoutResult.EventHandlerInfo> collectEventHandlerInfos(EventHandlerContainer container) {
+        if (container == null || container.getHandlers().isEmpty()) {
+            return List.of();
+        }
+        return container.getHandlers().stream()
+                .filter(handler -> handler != null && handler.getEvent() != null)
+                .map(handler -> new InspectFormLayoutResult.EventHandlerInfo(
+                        handler.getEvent().getName(), handler.getName()))
+                .toList();
     }
 
     private List<InspectFormLayoutResult.FormItemNode> collectFormItemNodes(
@@ -2864,6 +2885,9 @@ public class EdtMetadataService {
                     commandRef = namedCmd.getName();
                 }
             }
+            List<InspectFormLayoutResult.EventHandlerInfo> eventHandlers = item instanceof EventHandlerContainer handlerContainer
+                    ? collectEventHandlerInfos(handlerContainer)
+                    : List.of();
 
             result.add(new InspectFormLayoutResult.FormItemNode(
                     item.getId(),
@@ -2879,6 +2903,7 @@ public class EdtMetadataService {
                     dataPath,
                     fieldType,
                     commandRef,
+                    eventHandlers,
                     properties,
                     children));
             index++;
