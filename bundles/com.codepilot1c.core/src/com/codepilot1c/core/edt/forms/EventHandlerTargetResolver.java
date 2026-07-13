@@ -25,7 +25,12 @@ public class EventHandlerTargetResolver {
         this(new FormItemInformationEventCatalog());
     }
 
-    EventHandlerTargetResolver(EventHandlerCatalog catalog) {
+    /**
+     * Test/DI-injection constructor: accepts an arbitrary {@link EventHandlerCatalog},
+     * e.g. a fake catalog substituted by unit tests outside this package (such as
+     * {@code EventHandlerWiringTest}), avoiding any live EDT/BM/OSGi dependency.
+     */
+    public EventHandlerTargetResolver(EventHandlerCatalog catalog) {
         this.catalog = catalog;
     }
 

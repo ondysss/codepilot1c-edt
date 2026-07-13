@@ -65,10 +65,13 @@ import com._1c.g5.v8.dt.form.model.Button;
 import com._1c.g5.v8.dt.form.model.CommandHandler;
 import com._1c.g5.v8.dt.form.model.DataPath;
 import com._1c.g5.v8.dt.form.model.DynamicListExtInfo;
+import com._1c.g5.v8.dt.form.model.EventHandler;
+import com._1c.g5.v8.dt.form.model.EventHandlerContainer;
 import com._1c.g5.v8.dt.form.model.Form;
 import com._1c.g5.v8.dt.form.model.FormAttribute;
 import com._1c.g5.v8.dt.form.model.FormAttributeColumn;
 import com._1c.g5.v8.dt.form.model.FormCommand;
+import com._1c.g5.v8.dt.form.model.FormVisualEntity;
 import com._1c.g5.v8.dt.form.model.FormCommandHandlerContainer;
 import com._1c.g5.v8.dt.form.model.FormFactory;
 import com._1c.g5.v8.dt.form.model.FormField;
@@ -95,6 +98,7 @@ import com._1c.g5.v8.dt.form.service.item.FormNewItemDescriptor;
 import com._1c.g5.v8.dt.form.service.item.IFormItemManagementService;
 import com._1c.g5.v8.dt.mcore.DateQualifiers;
 import com._1c.g5.v8.dt.mcore.DateFractions;
+import com._1c.g5.v8.dt.mcore.Event;
 import com._1c.g5.v8.dt.mcore.McoreFactory;
 import com._1c.g5.v8.dt.mcore.McorePackage;
 import com._1c.g5.v8.dt.mcore.NamedElement;
@@ -135,6 +139,7 @@ import com._1c.g5.v8.dt.moxel.RowsArea;
 import com._1c.g5.v8.dt.moxel.SpreadsheetDocument;
 import com.codepilot1c.core.edt.forms.CreateFormRequest;
 import com.codepilot1c.core.edt.forms.CreateFormResult;
+import com.codepilot1c.core.edt.forms.EventHandlerTargetResolver;
 import com.codepilot1c.core.edt.forms.FormOwnerStrategy;
 import com.codepilot1c.core.edt.forms.FormRecipeMode;
 import com.codepilot1c.core.edt.forms.FormRecipeRequest;
@@ -205,6 +210,7 @@ public class EdtMetadataService {
     private final MetadataProjectReadinessChecker readinessChecker;
     private final FormOwnerStrategy formOwnerStrategy;
     private final CommandGroupResolver commandGroupResolver;
+    private final EventHandlerTargetResolver eventHandlerTargetResolver;
 
     private record TypeSpec(
             String typeQuery,
@@ -225,10 +231,20 @@ public class EdtMetadataService {
     }
 
     public EdtMetadataService(EdtMetadataGateway gateway) {
+        this(gateway, new EventHandlerTargetResolver());
+    }
+
+    /**
+     * Test/DI-injection constructor: accepts an {@link EventHandlerTargetResolver}
+     * instance (e.g. one backed by a fake {@code EventHandlerCatalog}), so event-handler
+     * wiring stays unit-testable without a live EDT/BM/OSGi session.
+     */
+    EdtMetadataService(EdtMetadataGateway gateway, EventHandlerTargetResolver eventHandlerTargetResolver) {
         this.gateway = gateway;
         this.readinessChecker = new MetadataProjectReadinessChecker(gateway);
         this.formOwnerStrategy = FormOwnerStrategy.defaultStrategy();
         this.commandGroupResolver = new CommandGroupResolver();
+        this.eventHandlerTargetResolver = eventHandlerTargetResolver;
     }
 
     public boolean isEdtAvailable() {
@@ -1027,6 +1043,22 @@ public class EdtMetadataService {
                             + ", id=" + safeItemId(button) //$NON-NLS-1$
                             + (commandRef != null ? ", command=" + commandRef : "")); //$NON-NLS-1$ //$NON-NLS-2$
                 }
+                case "addeventhandler", "seteventhandler" -> {
+                    EventHandler handler = wireEventHandler(formModel, operation);
+                    summaries.add("add_event_handler[" + operationIndex + "]: event=" //$NON-NLS-1$ //$NON-NLS-2$
+                            + handler.getEvent().getName() + ", handler=" + handler.getName()); //$NON-NLS-1$
+                }
+                case "removeeventhandler" -> {
+                    FormVisualEntity target = resolveEventHandlerFormItem(formModel, operation);
+                    EventHandlerContainer container = eventHandlerTargetResolver.requireEventHandlerContainer(target);
+                    String requestedEvent = asString(getMapValueIgnoreCase(operation, "event")); //$NON-NLS-1$
+                    Event event = eventHandlerTargetResolver.resolveConcreteEvent(container, requestedEvent);
+                    EventHandler existing = findExistingHandler(container, event);
+                    if (existing != null) {
+                        container.getHandlers().remove(existing);
+                    }
+                    summaries.add("remove_event_handler[" + operationIndex + "]: event=" + event.getName()); //$NON-NLS-1$ //$NON-NLS-2$
+                }
                 default -> throw new MetadataOperationException(
                         MetadataOperationCode.INVALID_METADATA_CHANGE,
                         "Unsupported form operation: " + rawOp, false); //$NON-NLS-1$
@@ -1034,6 +1066,88 @@ public class EdtMetadataService {
             operationIndex++;
         }
         return summaries;
+    }
+
+    /**
+     * Resolves the target {@link FormVisualEntity} for an event-handler operation.
+     * If {@code target=="form"} (or no item reference is present), the {@code Form}
+     * root itself is returned — {@code resolveRequiredItem} cannot provide this since
+     * {@code Form} does not implement {@link FormItem}, only {@link FormVisualEntity}.
+     * Otherwise the resolution delegates to {@link #resolveRequiredItem}.
+     */
+    private FormVisualEntity resolveEventHandlerFormItem(Form formModel, Map<String, Object> operation) {
+        String target = asString(getMapValueIgnoreCase(operation, "target")); //$NON-NLS-1$
+        boolean explicitFormTarget = target != null && "form".equalsIgnoreCase(target); //$NON-NLS-1$
+        boolean noItemReference = target == null
+                && getMapValueIgnoreCase(operation, "item_id") == null //$NON-NLS-1$
+                && getMapValueIgnoreCase(operation, "id") == null //$NON-NLS-1$
+                && getMapValueIgnoreCase(operation, "item_name") == null //$NON-NLS-1$
+                && getMapValueIgnoreCase(operation, "name") == null; //$NON-NLS-1$
+        if (explicitFormTarget || noItemReference) {
+            return formModel;
+        }
+        return resolveRequiredItem(formModel, operation);
+    }
+
+    /**
+     * Upsert-by-(target,event) implementation shared by {@code add_event_handler} and
+     * {@code set_event_handler}: re-wiring the same event never duplicates the handler.
+     */
+    private EventHandler wireEventHandler(Form formModel, Map<String, Object> operation) {
+        FormVisualEntity target = resolveEventHandlerFormItem(formModel, operation);
+        EventHandlerContainer container = eventHandlerTargetResolver.requireEventHandlerContainer(target);
+        String requestedEvent = asString(getMapValueIgnoreCase(operation, "event")); //$NON-NLS-1$
+        Event event = eventHandlerTargetResolver.resolveConcreteEvent(container, requestedEvent);
+        String handlerName = asString(getMapValueIgnoreCase(operation, "handler_name")); //$NON-NLS-1$
+        if (handlerName == null || handlerName.isBlank()) {
+            handlerName = defaultHandlerName(target, event);
+        }
+        if (!MetadataNameValidator.isValidName(handlerName)) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_NAME,
+                    "Invalid event handler name: " + handlerName, false); //$NON-NLS-1$
+        }
+        EventHandler handler = findExistingHandler(container, event);
+        if (handler == null) {
+            handler = FormFactory.eINSTANCE.createEventHandler();
+            handler.setEvent(event);
+            container.getHandlers().add(handler);
+        }
+        handler.setName(handlerName);
+        return handler;
+    }
+
+    private EventHandler findExistingHandler(EventHandlerContainer container, Event event) {
+        for (EventHandler handler : container.getHandlers()) {
+            if (handler != null && handler.getEvent() == event) {
+                return handler;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Deterministic fallback handler name: {@code {ItemOrForm}{EventNameEn}} PascalCase.
+     * The event-name portion is derived ONLY from the resolved {@link Event#getName()}
+     * (the EN name) — never a hardcoded literal (EVT-04).
+     */
+    private String defaultHandlerName(FormVisualEntity target, Event event) {
+        String itemPart;
+        if (target instanceof NamedElement namedElement && namedElement.getName() != null
+                && !namedElement.getName().isBlank()) {
+            itemPart = pascalCase(namedElement.getName());
+        } else {
+            itemPart = "Form"; //$NON-NLS-1$
+        }
+        String eventPart = pascalCase(event.getName());
+        return itemPart + eventPart;
+    }
+
+    private String pascalCase(String value) {
+        if (value == null || value.isBlank()) {
+            return ""; //$NON-NLS-1$
+        }
+        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
     }
 
     private Map<String, Object> extractOperationSet(Map<String, Object> operation) {
