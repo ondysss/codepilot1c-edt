@@ -76,33 +76,39 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| OPS-01 | Phase ? | Pending |
-| OPS-02 | Phase ? | Pending |
-| OPS-03 | Phase ? | Pending |
-| OPS-04 | Phase ? | Pending |
-| EVT-01 | Phase ? | Pending |
-| EVT-02 | Phase ? | Pending |
-| EVT-03 | Phase ? | Pending |
-| EVT-04 | Phase ? | Pending |
-| STUB-01 | Phase ? | Pending |
-| STUB-02 | Phase ? | Pending |
-| STUB-03 | Phase ? | Pending |
-| STUB-04 | Phase ? | Pending |
-| STUB-05 | Phase ? | Pending |
-| STUB-06 | Phase ? | Pending |
-| EXT-01 | Phase ? | Pending |
-| EXT-02 | Phase ? | Pending |
-| EXT-03 | Phase ? | Pending |
-| INSP-01 | Phase ? | Pending |
-| QA-01 | Phase ? | Pending |
-| QA-02 | Phase ? | Pending |
-| QA-03 | Phase ? | Pending |
+| OPS-01 | Phase 6 | Pending |
+| OPS-02 | Phase 6 | Pending |
+| OPS-03 | Phase 6 | Pending |
+| OPS-04 | Phase 6 | Pending |
+| EVT-01 | Phase 7 | Pending |
+| EVT-02 | Phase 7 | Pending |
+| EVT-03 | Phase 7 | Pending |
+| EVT-04 | Phase 6 | Pending |
+| STUB-01 | Phase 7 | Pending |
+| STUB-02 | Phase 7 | Pending |
+| STUB-03 | Phase 7 | Pending |
+| STUB-04 | Phase 7 | Pending |
+| STUB-05 | Phase 7 | Pending |
+| STUB-06 | Phase 7 | Pending |
+| EXT-01 | Phase 8 | Pending |
+| EXT-02 | Phase 8 | Pending |
+| EXT-03 | Phase 8 | Pending |
+| INSP-01 | Phase 6 | Pending |
+| QA-01 | Phase 9 | Pending |
+| QA-02 | Phase 9 | Pending |
+| QA-03 | Phase 9 | Pending |
 
 **Coverage:**
 - v1 requirements: 21 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 21 ⚠️
+- Mapped to phases: 21 ✓
+- Unmapped: 0 ✓
+
+**Per-phase distribution:**
+- Phase 6 (API spine + ops + inspect): OPS-01, OPS-02, OPS-03, OPS-04, EVT-04, INSP-01 (6)
+- Phase 7 (BSL stub gen, base config): EVT-01, EVT-02, EVT-03, STUB-01, STUB-02, STUB-03, STUB-04, STUB-05, STUB-06 (9)
+- Phase 8 (extension form support): EXT-01, EXT-02, EXT-03 (3)
+- Phase 9 (Qwen priming + tests + smoke): QA-01, QA-02, QA-03 (3)
 
 ---
 *Requirements defined: 2026-07-13*
-*Last updated: 2026-07-13 after initial definition*
+*Last updated: 2026-07-13 after roadmap creation (traceability populated, Phases 6–9)*
