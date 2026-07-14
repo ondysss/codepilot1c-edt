@@ -67,6 +67,8 @@ import com._1c.g5.v8.dt.form.model.DataPath;
 import com._1c.g5.v8.dt.form.model.DynamicListExtInfo;
 import com._1c.g5.v8.dt.form.model.EventHandler;
 import com._1c.g5.v8.dt.form.model.EventHandlerContainer;
+import com._1c.g5.v8.dt.form.model.EventHandlerExtension;
+import com._1c.g5.v8.dt.form.model.ExtendedMethodCallType;
 import com._1c.g5.v8.dt.form.model.Form;
 import com._1c.g5.v8.dt.form.model.FormAttribute;
 import com._1c.g5.v8.dt.form.model.FormAttributeColumn;
@@ -124,6 +126,8 @@ import com._1c.g5.v8.dt.metadata.mdclass.ScriptVariant;
 import com._1c.g5.v8.dt.metadata.mdclass.MdClassPackage;
 import com._1c.g5.v8.dt.metadata.mdclass.MdClassFactory;
 import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
+import com._1c.g5.v8.dt.metadata.mdclass.ObjectBelonging;
+import com._1c.g5.v8.dt.md.extension.adopt.IModelObjectAdopter;
 import com._1c.g5.v8.dt.moxel.Cell;
 import com._1c.g5.v8.dt.moxel.Column;
 import com._1c.g5.v8.dt.moxel.Columns;
@@ -143,6 +147,7 @@ import com.codepilot1c.core.edt.forms.BslHandlerStubWriter.StubWriteOutcome;
 import com.codepilot1c.core.edt.forms.CreateFormRequest;
 import com.codepilot1c.core.edt.forms.CreateFormResult;
 import com.codepilot1c.core.edt.forms.EventHandlerTargetResolver;
+import com.codepilot1c.core.edt.forms.ExtendedMethodCallTypeResolver;
 import com.codepilot1c.core.edt.forms.FormOwnerStrategy;
 import com.codepilot1c.core.edt.forms.FormRecipeMode;
 import com.codepilot1c.core.edt.forms.FormRecipeRequest;
@@ -217,6 +222,7 @@ public class EdtMetadataService {
     private final CommandGroupResolver commandGroupResolver;
     private final EventHandlerTargetResolver eventHandlerTargetResolver;
     private final ModuleFileWriter moduleFileWriter;
+    private final ExtendedMethodCallTypeResolver extendedMethodCallTypeResolver;
 
     private record TypeSpec(
             String typeQuery,
@@ -264,6 +270,7 @@ public class EdtMetadataService {
         this.commandGroupResolver = new CommandGroupResolver();
         this.eventHandlerTargetResolver = eventHandlerTargetResolver;
         this.moduleFileWriter = moduleFileWriter;
+        this.extendedMethodCallTypeResolver = new ExtendedMethodCallTypeResolver();
     }
 
     public boolean isEdtAvailable() {
@@ -1205,10 +1212,20 @@ public class EdtMetadataService {
                             + (commandRef != null ? ", command=" + commandRef : "")); //$NON-NLS-1$ //$NON-NLS-2$
                 }
                 case "addeventhandler", "seteventhandler" -> {
-                    EventHandler handler = wireEventHandler(formModel, operation);
+                    WiredEventHandler wired = wireEventHandler(formModel, operation);
+                    EventHandler handler = wired.handler();
                     pendingStubs.add(new PendingStub(operation, handler.getEvent().getName(), handler.getName()));
-                    summaries.add("add_event_handler[" + operationIndex + "]: event=" //$NON-NLS-1$ //$NON-NLS-2$
-                            + handler.getEvent().getName() + ", handler=" + handler.getName()); //$NON-NLS-1$
+                    StringBuilder summary = new StringBuilder("add_event_handler[") //$NON-NLS-1$
+                            .append(operationIndex)
+                            .append("]: event=") //$NON-NLS-1$
+                            .append(handler.getEvent().getName())
+                            .append(", handler=") //$NON-NLS-1$
+                            .append(handler.getName());
+                    if (wired.adopted()) {
+                        summary.append(", call_type=").append(wired.callType().getLiteral()); //$NON-NLS-1$
+                        summary.append(", base_handler_exists=").append(wired.baseHandlerExists()); //$NON-NLS-1$
+                    }
+                    summaries.add(summary.toString());
                 }
                 case "removeeventhandler" -> {
                     FormVisualEntity target = resolveEventHandlerFormItem(formModel, operation);
@@ -1254,8 +1271,27 @@ public class EdtMetadataService {
     /**
      * Upsert-by-(target,event) implementation shared by {@code add_event_handler} and
      * {@code set_event_handler}: re-wiring the same event never duplicates the handler.
+     *
+     * <p>Extension-adoption branch (EXT-01/EXT-02/EXT-03, Phase 8): if the form's owning
+     * {@code BasicForm} is {@link ObjectBelonging#ADOPTED} (a single uniform signal reached
+     * via {@code formModel.getMdForm()} — NOT a per-item {@code ExtensionAdoptedProperty}
+     * check, since {@code Table} does not implement it), the created handler is an
+     * {@link EventHandlerExtension} with an explicit-or-resolved
+     * {@link ExtendedMethodCallType} (never relying on the EMF-unset implicit default),
+     * and a {@code baseHandlerExists} observability flag is computed via the adopter's
+     * reverse lookup ({@link IModelObjectAdopter#getSource}). A NATIVE target continues to
+     * get a plain {@link EventHandler} exactly as Phase 6 — unchanged.</p>
+     *
+     * <p>EXT-03 note: no {@code generateExternalPropertyFqn}/{@code attachTopObject} call is
+     * added here — this SUPERSEDES the CONTEXT.md suggestion to reuse that mechanism.
+     * {@code resolveManagedFormModel} (already used by the caller to resolve
+     * {@code formModel}) already resolves the correct, already-adopted, already-materialized
+     * {@code Form} via {@code basicForm.getForm()} — the SAME path base config uses. The
+     * external-property FQN mechanism is a form-CREATION-time concern
+     * (see {@code createForm}/{@code linkGeneratedFormToTransaction}), not an event-wiring
+     * concern, per D-RESEARCH Pattern 3.</p>
      */
-    private EventHandler wireEventHandler(Form formModel, Map<String, Object> operation) {
+    private WiredEventHandler wireEventHandler(Form formModel, Map<String, Object> operation) {
         FormVisualEntity target = resolveEventHandlerFormItem(formModel, operation);
         EventHandlerContainer container = eventHandlerTargetResolver.requireEventHandlerContainer(target);
         String requestedEvent = asString(getMapValueIgnoreCase(operation, "event")); //$NON-NLS-1$
@@ -1269,14 +1305,106 @@ public class EdtMetadataService {
                     MetadataOperationCode.INVALID_METADATA_NAME,
                     "Invalid event handler name: " + handlerName, false); //$NON-NLS-1$
         }
+        boolean adopted = isAdoptedTarget(formModel);
+        ExtendedMethodCallType requestedCallType = extendedMethodCallTypeResolver.resolve(
+                asString(getMapValueIgnoreCase(operation, "call_type"))); //$NON-NLS-1$
         EventHandler handler = findExistingHandler(container, event);
         if (handler == null) {
-            handler = FormFactory.eINSTANCE.createEventHandler();
+            handler = createHandlerForTarget(adopted, requestedCallType);
             handler.setEvent(event);
             container.getHandlers().add(handler);
+        } else if (adopted && handler instanceof EventHandlerExtension extensionHandler) {
+            extensionHandler.setCallType(requestedCallType);
         }
         handler.setName(handlerName);
-        return handler;
+        boolean baseExists = adopted && baseHandlerExists(formModel, operation, event);
+        return new WiredEventHandler(handler, requestedCallType, adopted, baseExists);
+    }
+
+    /**
+     * EClass auto-detection (EXT-01): a single boolean check on data already in scope,
+     * uniform across {@code Form}/{@code FormField}/{@code Table} (D-RESEARCH Pattern 1).
+     */
+    private boolean isAdoptedTarget(Form formModel) {
+        BasicForm mdForm = formModel.getMdForm();
+        return mdForm != null && mdForm.getObjectBelonging() == ObjectBelonging.ADOPTED;
+    }
+
+    private EventHandler createHandlerForTarget(boolean adopted, ExtendedMethodCallType callType) {
+        if (adopted) {
+            EventHandlerExtension extensionHandler = FormFactory.eINSTANCE.createEventHandlerExtension();
+            extensionHandler.setCallType(callType);
+            return extensionHandler;
+        }
+        return FormFactory.eINSTANCE.createEventHandler();
+    }
+
+    /**
+     * Base-handler-exists detection (EXT-02): resolves the BASE configuration's
+     * corresponding form via {@link IModelObjectAdopter#getSource} (the reverse of
+     * {@code getAdopted}), re-runs {@link #resolveEventHandlerFormItem} against it to reach
+     * the same-shape container, then checks for a handler matching the wired event's NAME —
+     * never by {@code Event} object reference, since the base side resolves a separate
+     * {@code Event} instance for the same event name (Pitfall 5). This flag is OBSERVABILITY
+     * only; it never gates or changes the resolved {@code call_type}.
+     *
+     * <p>If the {@link IModelObjectAdopter} service itself is unavailable (e.g. a headless
+     * unit-test double with no live {@code VibeCorePlugin}, or a genuinely degraded EDT
+     * runtime), this resolves to {@code false} rather than failing the whole wiring
+     * operation — the flag is best-effort observability, not a hard dependency of EXT-01's
+     * primary EClass/call_type behavior.</p>
+     */
+    private boolean baseHandlerExists(Form adoptedFormModel, Map<String, Object> operation, Event event) {
+        BasicForm adoptedBasicForm = adoptedFormModel.getMdForm();
+        if (adoptedBasicForm == null) {
+            return false;
+        }
+        BasicForm baseBasicForm;
+        try {
+            baseBasicForm = gateway.getModelObjectAdopter().getSource(adoptedBasicForm);
+        } catch (MetadataOperationException e) {
+            if (e.getCode() == MetadataOperationCode.EDT_SERVICE_UNAVAILABLE) {
+                return false;
+            }
+            throw e;
+        }
+        if (baseBasicForm == null || baseBasicForm.getForm() == null) {
+            return false;
+        }
+        if (!(baseBasicForm.getForm() instanceof Form baseFormModel)) {
+            return false;
+        }
+        FormVisualEntity baseTarget;
+        try {
+            baseTarget = resolveEventHandlerFormItem(baseFormModel, operation);
+        } catch (RuntimeException e) {
+            // The base side may not (yet) have the same-shape item resolvable (e.g. a
+            // brand-new adopted-only item) — base_handler_exists is observability only,
+            // never a hard failure of the wiring operation itself.
+            return false;
+        }
+        if (!(baseTarget instanceof EventHandlerContainer baseContainer)) {
+            return false;
+        }
+        return containsHandlerForEventName(baseContainer, event.getName());
+    }
+
+    /**
+     * Pure name-matching helper (Pitfall 5): whether {@code container} already has a
+     * handler for the event whose {@code getName()} String-equals {@code eventName}.
+     * Factored out so it is unit-testable headlessly (no live BM transaction) against a
+     * pre-seeded base-side fixture, independent of the live {@code getSource} lookup.
+     */
+    private boolean containsHandlerForEventName(EventHandlerContainer container, String eventName) {
+        if (eventName == null) {
+            return false;
+        }
+        for (EventHandler handler : container.getHandlers()) {
+            if (handler != null && handler.getEvent() != null && eventName.equals(handler.getEvent().getName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private EventHandler findExistingHandler(EventHandlerContainer container, Event event) {
@@ -1286,6 +1414,16 @@ public class EdtMetadataService {
             }
         }
         return null;
+    }
+
+    /**
+     * Carries {@link #wireEventHandler}'s applied handler plus the resolved/observability
+     * facts the {@code add_event_handler}/{@code set_event_handler} summary echoes for
+     * adopted targets (EXT-01/EXT-02). For NATIVE targets, {@code callType} is still resolved
+     * (validated) but never applied/echoed — {@code adopted} is {@code false}.
+     */
+    private record WiredEventHandler(
+            EventHandler handler, ExtendedMethodCallType callType, boolean adopted, boolean baseHandlerExists) {
     }
 
     /**
