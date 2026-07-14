@@ -6,18 +6,25 @@ Eclipse RCP/OSGi plugin suite for 1C:EDT. The active product area is the desktop
 
 ## Current State
 
-**Shipped: v0.1.9 — EDT Extension Native Migration Tooling (2026-07-13).**
+**Shipped: v0.1.10 — Managed Form Event Handlers (2026-07-14).**
 
-- Low-level EDT metadata mutation primitives fixed: TypeDescription fields (incl. `commandParameterType` and `EventSubscription.source`), CommonCommand command modules, StandardCommandGroup aliases, Bot adoption diagnostics, extension role-right diagnostics.
-- Validation surface exposes effective extension-prefixed names/FQNs and explicit unsupported/available-kind responses before mutation.
-- High-level dry-run-first `migrate_to_extension_native` planner/tool over the fixed primitives (gated apply, no unsafe source deletion).
-- Regression tests across the reported defect classes; live-EDT smoke closure gate.
-- **Closure basis:** the live-EDT smoke (install into EDT + audit prompt on `/Volumes/T9/workspace/do`, `ДО` / `ДО.Артель`) was performed and verified by the user on 2026-07-13; the live EDT/BM model is not CLI-reachable, so closure rests on that manual verification, not an automated report. The prior 2026-07-06 audit reports (FAIL) predate the remediation and are retained for history.
+- The agent safely wires managed-form event handlers via the existing `mutate_form_model` tool (reusing the `MUTATE_FORM_MODEL` validation-token flow): `add_event_handler` / `set_event_handler` / `remove_event_handler` set the EMF handler slot AND atomically generate the matching BSL handler procedure stub in `Module.bsl`.
+- Full base-config event coverage (form/field/table incl. differentiators + drag-and-drop). Stub directive derived from `Event.isServerCallWithContextNotAllowed()`/`Environments` (never a name-suffix heuristic), verbatim widest-`ParamSet` signature in the configuration's RU/EN `ScriptVariant`, and true both-or-neither atomicity via a compensating `executeWrite` rollback after force-export.
+- Extension (расширения) support: adopted forms get `EventHandlerExtension` with an explicit-or-defaulted (`BEFORE`) `call_type`, name-matched `base_handler_exists`, and unprefixed handler procedure names.
+- Provider-neutral Qwen priming for the new ops in `BackendToolSurfaceRewriteContributor`; 9-class regression matrix green; full reactor build + p2 site (`0.1.7.20260714-0435`).
+- **Closure basis:** the human-gated live-EDT smoke (base + extension forms) was performed and verified by the user on 2026-07-14. The live EDT/BM model is not CLI-reachable, so closure rests on that manual verification.
 - Codebase: OSGi bundles `com.codepilot1c.core` (agent loop, tools, providers, MCP, EDT integrations) and `com.codepilot1c.ui` (workbench/chat UI); tests in `*.tests` bundles; Tycho reactor build (`mvn -DskipTests package`).
+
+<details>
+<summary>Prior: v0.1.9 — EDT Extension Native Migration Tooling (shipped 2026-07-13)</summary>
+
+- Low-level EDT metadata mutation primitives fixed (TypeDescription fields incl. `commandParameterType`/`EventSubscription.source`, CommonCommand modules, StandardCommandGroup aliases, Bot adoption + role-right diagnostics); validation surface exposes effective extension names/FQNs; dry-run-first `migrate_to_extension_native` planner; regression tests + live-EDT smoke closure (user-verified 2026-07-13).
+
+</details>
 
 ## Core Value
 
-Predictable, typed, diagnosable, and safe migration of existing 1C:EDT metadata objects into extension-native objects — driven by EDT-native tooling, never by manual `.mdo` XML patching.
+Predictable, typed, diagnosable, and safe EDT-native mutation of 1C:EDT metadata — extension-native migration AND managed-form authoring (layout + event-handler wiring with matching BSL stubs) — driven by BM/EDT APIs and the validation-token flow, never by manual `.mdo`/`.form`/`Module.bsl` text patching.
 
 ## Requirements
 
@@ -31,15 +38,16 @@ Predictable, typed, diagnosable, and safe migration of existing 1C:EDT metadata 
 - ✓ EDTEXT-06 — Extension role/config rights diagnostics — v0.1.9
 - ✓ EDTEXT-07 — Clone/migration plan for complex metadata objects — v0.1.9
 - ✓ EDTEXT-08 — Regression tests and EDT smoke proof — v0.1.9
+- ✓ Wire form-level event handlers (OnCreateAtServer, OnOpen, BeforeClose, …) on managed forms — v0.1.10
+- ✓ Wire item-level event handlers (field OnChange/StartChoice, table OnActivateRow + drag-and-drop, …) — v0.1.10
+- ✓ Wiring generates the BSL handler procedure stub with correct client/server directive + verbatim signature, atomically — v0.1.10
+- ✓ Event-handler operations added to `mutate_form_model` under the existing validation-token flow (no new tool/ValidationOperation) — v0.1.10
+- ✓ Event handlers work for forms inside 1C extensions (расширения), not only base configuration — v0.1.10
+- ✓ `inspect_form_layout` surfaces existing event handlers — v0.1.10
 
-### Active (v0.1.10 — Managed Form Event Handlers)
+### Active
 
-- [ ] Agent can wire form-level event handlers (OnCreateAtServer, OnOpen, BeforeClose, …) on managed forms.
-- [ ] Agent can wire item-level event handlers (field OnChange/StartChoice, table OnActivateRow, …).
-- [ ] Wiring generates the handler procedure stub in the form module (BSL) with correct client/server directive and signature.
-- [ ] Event-handler operations are added to `mutate_form_model` under the existing validation-token flow.
-- [ ] Event handlers work for forms inside 1C extensions (расширения), not only base configuration.
-- [ ] `inspect_form_layout` surfaces existing event handlers.
+_No active milestone — run `/gsd-new-milestone` to define the next milestone's requirements._
 
 ### Deferred (backlog — carried from v0.1.9 Future Requirements)
 
@@ -60,22 +68,20 @@ Predictable, typed, diagnosable, and safe migration of existing 1C:EDT metadata 
 - ✓ Extension-native migration is dry-run-first; destructive deletes stay out of scope until a confirmed, verified clone exists.
 - ✓ Tool errors distinguish unsupported kind/API limitation from missing object, and list actionable alternatives/available values where possible.
 - — Live-EDT verification is a human gate (not CLI-automatable); the user is verifier of record for closure smokes. (Pending: revisit if a headless EDT harness becomes available.)
+- ✓ Event-handler wiring extends `mutate_form_model` (reuses `MUTATE_FORM_MODEL`); no new tool, no new `ValidationOperation`. (v0.1.10)
+- ✓ BSL stub atomicity ("both or neither") uses a compensating second `executeWrite` (fresh EMF re-resolution) after force-export, since BM commits are not retroactively undoable. (v0.1.10, STUB-01)
+- ✓ Stub directive derives from `Event.isServerCallWithContextNotAllowed()`/`Environments`, never a name-suffix heuristic; the `ParamSet` is arity-widest (overload variants), NOT `Version`-keyed — `getAllowedEvents` already resolves the version-correct `Event`. (v0.1.10, research-corrected)
+- ✓ Extension wiring auto-detects adoption via `getMdForm().getObjectBelonging()==ADOPTED` (uniform Form/Field/Table signal, not the per-item `ExtensionAdoptedProperty`); `call_type` defaults to bytecode-verified `BEFORE`; no `generateExternalPropertyFqn`/`attachTopObject` needed for already-adopted forms. (v0.1.10, EXT-03 override, user-approved)
+- ⚠️ Qwen priming is provider-neutral in the code — the CLAUDE.md Qwen-native branch (`isQwenNative`/`getResolvedModelFamily`/`QwenFunctionCallingTransport`) was generalized into `OpenAiCompatibilityProfileResolver` and no longer exists. **CLAUDE.md's Qwen Optimization Rules are stale and should be revisited/rewritten.** (v0.1.10, QA-01 override, user-approved)
 
-## Current Milestone: v0.1.10 Managed Form Event Handlers
+## Current Milestone
 
-**Goal:** The agent can wire managed-form event handlers — setting the event property on the form/item model AND generating the handler procedure stub in the form module — for both base configuration and extension forms.
+_None active. v0.1.10 shipped 2026-07-14 (Phases 6–9). Run `/gsd-new-milestone` to define the next._
 
-**Target features:**
-
-- Extend `mutate_form_model` with event-handler operations (add/set/remove event handler) under the existing `MUTATE_FORM_MODEL` validation-token flow.
-- Form-level events (OnCreateAtServer, OnOpen, BeforeClose, OnReopen, NotificationProcessing, …).
-- Item-level events (fields: OnChange/StartChoice/ChoiceProcessing; tables: OnActivateRow/BeforeAddRow; groups/buttons where applicable).
-- BSL handler stub generation in `Module.bsl` with correct client/server directive (`&НаКлиенте`/`&НаСервере`) and signature — consistent with EDT-native behavior.
-- Extension (расширения) form support: adopted forms and their modules.
-- `inspect_form_layout` reports existing event handlers so the agent can read current state.
-- Regression tests + live-EDT smoke closure gate.
-
-**Key context:** Study the EDT EMF form event API via the `edt-javadoc` MCP (source of truth) before coding — exact EClasses (FormHandler / event-handler containers) and how events attach to `Form`/`FormItem`. Reuse the two-phase validation-token pattern (extend, do not add a new tool). Live-EDT verification remains a human gate. Phase numbering continues from Phase 6.
+**Carried backlog (candidates for the next milestone):**
+- Deferred migration tooling: full deletion/move workflow (base removal only after verified extension-native replacement + confirmation), complete BSL semantic reference rewriting, visual migration wizard UI.
+- v0.1.10 tech debt (from `milestones/v0.1.10-MILESTONE-AUDIT.md`): add a log line on `baseHandlerExists`' `EDT_SERVICE_UNAVAILABLE` degrade; surface `call_type`/adoption in `inspect_form_layout`'s `EventHandlerInfo`.
+- Doc debt: rewrite CLAUDE.md's stale Qwen Optimization Rules to match the generalized provider-neutral `OpenAiCompatibilityProfileResolver` architecture.
 
 ## Evolution
 
@@ -94,4 +100,4 @@ This document evolves at phase transitions and milestone boundaries.
 3. Audit Out of Scope.
 4. Update Current State with shipped version.
 
-_Last updated: 2026-07-13 after starting v0.1.10 milestone_
+_Last updated: 2026-07-14 after v0.1.10 (Managed Form Event Handlers) milestone completion_
