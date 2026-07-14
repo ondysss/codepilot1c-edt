@@ -75,7 +75,11 @@ public final class BackendToolSurfaceRewriteContributor implements ToolSurfaceCo
                     + "add_command: name+action(обработчик)+title. add_button: name+command_name(ссылка на команду), parent автоматически=CommandBar. " //$NON-NLS-1$
                     + "set_item: ОБЯЗАТЕЛЬНО item_id(число) ИЛИ item_name(строка) + set:{...}. НЕ используй id или name вместо item_id/item_name. " //$NON-NLS-1$
                     + "Родитель: parent_item_id(число) ИЛИ parent_item_name(строка). НЕ используй parent_id или parent. " //$NON-NLS-1$
-                    + "Сначала вызови inspect_form_layout чтобы узнать ID элементов."; //$NON-NLS-1$
+                    + "Сначала вызови inspect_form_layout чтобы узнать ID элементов. " //$NON-NLS-1$
+                    + "op: add_event_handler|set_event_handler|remove_event_handler: event(имя события EN/RU)+" //$NON-NLS-1$
+                    + "target('form' для формы, иначе item_id/item_name)+handler_name(опционально, иначе {Item}{EventEn})+" //$NON-NLS-1$
+                    + "call_type(только для расширений: BEFORE|AFTER|OVERRIDE|CHANGE_AND_VALIDATE, по умолчанию BEFORE). " //$NON-NLS-1$
+                    + "Пример: {op:'add_event_handler', target:'form', event:'ПриОткрытии'}."; //$NON-NLS-1$
             case "delete_metadata" -> "Delete a metadata object through EDT BM APIs with an explicit validation_token. Use recursive or force only when the request truly requires it."; //$NON-NLS-1$
             case "render_template" -> "Генерирует содержимое макета (.mxl) из секций: Шапка, ШапкаТаблицы, СтрокаТаблицы, Подвал. " //$NON-NLS-1$
                     + "Каждая ячейка — либо статический текст, либо [Привязка]. " //$NON-NLS-1$
