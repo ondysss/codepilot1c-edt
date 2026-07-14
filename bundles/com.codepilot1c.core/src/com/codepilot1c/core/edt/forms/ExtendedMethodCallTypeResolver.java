@@ -33,8 +33,14 @@ public class ExtendedMethodCallTypeResolver {
      * Java constant name ({@code BEFORE}/{@code AFTER}/{@code OVERRIDE}/
      * {@code CHANGE_AND_VALIDATE}) and the EMF literal ({@code Before}/{@code After}/
      * {@code Override}/{@code ChangeAndValidate}) of every candidate in
-     * {@link ExtendedMethodCallType#VALUES}. This closed-set scan is the ONLY permitted match
-     * path — the enum's exact-match static lookup factory method MUST NOT be used, since it
+     * {@link ExtendedMethodCallType#VALUES}. Note that {@link ExtendedMethodCallType#getName()}
+     * is EMF's short-name attribute, which is bytecode-verified to equal
+     * {@link ExtendedMethodCallType#getLiteral()} for every literal on this platform version
+     * (e.g. {@code CHANGE_AND_VALIDATE.getName()} returns {@code "ChangeAndValidate"}, not the
+     * underscored Java constant identifier) — the inherited {@link Enum#name()} (not overridden
+     * here) is the one that actually returns the underscored Java constant identifier, so it is
+     * used for the Java-name half of the dual match. This closed-set scan is the ONLY permitted
+     * match path — the enum's exact-match static lookup factory method MUST NOT be used, since it
      * throws an uncaught {@link IllegalArgumentException} on any non-exact match (Security V5 /
      * DoS concern in the Phase 8 threat model).</p>
      *
@@ -51,7 +57,7 @@ public class ExtendedMethodCallTypeResolver {
             return ExtendedMethodCallType.BEFORE;
         }
         for (ExtendedMethodCallType candidate : ExtendedMethodCallType.VALUES) {
-            if (requested.equalsIgnoreCase(candidate.getName())
+            if (requested.equalsIgnoreCase(candidate.name())
                     || requested.equalsIgnoreCase(candidate.getLiteral())) {
                 return candidate;
             }
