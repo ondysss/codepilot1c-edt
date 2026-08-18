@@ -168,6 +168,7 @@ public class ToolRegistry {
         register(new EdtDiagnosticsTool());
         register(new GetOneCProcessesTool());
         register(new GetInfobaseLocksTool());
+        register(new QueryEventLogTool());
         register(new GetStandaloneServerStatusTool());
         register(new ResolveWebClientUrlTool());
         register(new GetInfobaseCredentialsTool());
