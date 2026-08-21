@@ -1,12 +1,15 @@
 package com.codepilot1c.core.tools.file;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.eclipse.core.resources.IFile;
@@ -63,6 +66,36 @@ public class WorkspacePathContainmentTest {
         Path externalProject = Files.createTempDirectory("ship-project-"); //$NON-NLS-1$
         assertFalse(WorkspacePathContainment.isContained(
                 workspace, externalProject, externalProject.resolve("CHANGELOG.md"))); //$NON-NLS-1$
+    }
+
+    @Test
+    public void shipArtifactWriteRejectsDeterministicAncestrySwap() throws Exception {
+        Path workspace = Files.createTempDirectory("ship-race-workspace-"); //$NON-NLS-1$
+        Path project = Files.createDirectories(workspace.resolve("project")); //$NON-NLS-1$
+        Path parent = Files.createDirectories(project.resolve("docs/release-notes")); //$NON-NLS-1$
+        Path target = parent.resolve("v1.md"); //$NON-NLS-1$
+        Path outside = Files.createTempDirectory("ship-race-outside-"); //$NON-NLS-1$
+        Path outsideTarget = Files.writeString(
+                Files.createDirectories(outside.resolve("release-notes")).resolve("v1.md"), //$NON-NLS-1$ //$NON-NLS-2$
+                "outside", StandardCharsets.UTF_8); //$NON-NLS-1$
+
+        try {
+            WorkspacePathContainment.writeContained(
+                    workspace, project, target, "inside".getBytes(StandardCharsets.UTF_8), //$NON-NLS-1$
+                    operation -> {
+                        assertEquals("ship-artifact", operation); //$NON-NLS-1$
+                        Files.move(project.resolve("docs"), project.resolve("docs-original")); //$NON-NLS-1$ //$NON-NLS-2$
+                        Files.createSymbolicLink(project.resolve("docs"), outside); //$NON-NLS-1$
+                    });
+            throw new AssertionError("expected changed ancestry rejection"); //$NON-NLS-1$
+        } catch (IOException expected) {
+            assertTrue(expected.getMessage().contains("changed") //$NON-NLS-1$
+                    || expected.getMessage().contains("escaped")); //$NON-NLS-1$
+        }
+
+        assertEquals("outside", Files.readString(outsideTarget)); //$NON-NLS-1$
+        assertFalse(Files.exists(
+                project.resolve("docs-original/release-notes/v1.md"))); //$NON-NLS-1$
     }
 
     @Test

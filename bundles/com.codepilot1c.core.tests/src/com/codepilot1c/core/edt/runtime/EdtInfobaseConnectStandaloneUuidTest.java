@@ -43,7 +43,7 @@ import com._1c.g5.v8.dt.platform.services.model.InfobaseReference;
 import com._1c.g5.v8.dt.platform.services.model.RuntimeInstallation;
 import com.codepilot1c.core.edt.runtime.EdtInfobaseConnectService.ConnectRequest;
 import com.codepilot1c.core.edt.runtime.EdtInfobaseConnectService.ConnectionKind;
-import com.e1c.g5.v8.dt.platform.standaloneserver.wst.core.IStandaloneServerRuntimeDelegate;
+import com.e1c.g5.v8.dt.platform.standaloneserver.wst.core.IStandaloneServerRuntime;
 import com.e1c.g5.v8.dt.platform.standaloneserver.wst.core.IStandaloneServerService;
 import com.e1c.g5.v8.dt.platform.standaloneserver.wst.core.StandaloneServerBehaviourDelegate;
 import com.e1c.g5.v8.dt.platform.standaloneserver.wst.core.StandaloneServerDelegate;
@@ -200,7 +200,7 @@ public class EdtInfobaseConnectStandaloneUuidTest {
         public List<IServer> getServers() { return Collections.emptyList(); }
 
         @Override
-        public IServer createServer(String name, IRuntime r, IProgressMonitor monitor) {
+        public IServer createServer(IRuntime r, IProgressMonitor monitor) {
             throw new UnsupportedOperationException();
         }
 
@@ -219,7 +219,7 @@ public class EdtInfobaseConnectStandaloneUuidTest {
         public IStatus validateRuntimeInstallation(RuntimeInstallation installation) { return null; }
 
         @Override
-        public Optional<IStandaloneServerRuntimeDelegate> getStandaloneServerRuntimeDelegate(IRuntime r,
+        public Optional<IStandaloneServerRuntime> getStandaloneServerRuntime(IRuntime r,
                 IProgressMonitor monitor) {
             return Optional.empty();
         }
@@ -260,8 +260,6 @@ public class EdtInfobaseConnectStandaloneUuidTest {
         @Override
         public boolean isStandaloneServer(IServer server) { return false; }
 
-        @Override
-        public RuntimeInstallation toPlatformInstallation(IRuntime r) { return null; }
     }
 
     // ---- proxies -----------------------------------------------------------------------------

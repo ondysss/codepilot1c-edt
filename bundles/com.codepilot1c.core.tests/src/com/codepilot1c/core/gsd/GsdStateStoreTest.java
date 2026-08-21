@@ -373,6 +373,100 @@ public class GsdStateStoreTest {
     }
 
     @Test
+    public void lockWriteRejectsDeterministicAncestrySwap() throws IOException {
+        Path root = newProject();
+        Path outside = tmp.newFolder("outside-lock-race").toPath(); //$NON-NLS-1$
+        Files.createDirectories(root.resolve(GsdStateStore.GSD_DIR_NAME));
+        Path outsideGsd = Files.createDirectories(outside.resolve("gsd")); //$NON-NLS-1$
+        Path outsideLock = Files.writeString(outsideGsd.resolve(GsdStateStore.STATE_LOCK),
+                "outside-lock", StandardCharsets.UTF_8); //$NON-NLS-1$
+
+        GsdStateStore store = new GsdStateStore(root,
+                swapAncestryOn(root, outside, GsdStateStore.Mutation.LOCK.operation()));
+        assertRejected(store::load);
+
+        assertEquals("outside-lock", Files.readString(outsideLock)); //$NON-NLS-1$
+    }
+
+    @Test
+    public void stateWriteRejectsDeterministicAncestrySwap() throws IOException {
+        Path root = newProject();
+        GsdStateStore normal = new GsdStateStore(root);
+        GsdState current = normal.save(normal.load());
+        Path outside = tmp.newFolder("outside-state-race").toPath(); //$NON-NLS-1$
+        Path outsideState = Files.writeString(
+                Files.createDirectories(outside.resolve("gsd")).resolve(GsdStateStore.STATE_JSON), //$NON-NLS-1$
+                "outside-state", StandardCharsets.UTF_8); //$NON-NLS-1$
+
+        GsdStateStore raced = new GsdStateStore(root,
+                swapAncestryOn(root, outside, GsdStateStore.Mutation.STATE.operation()));
+        assertRejected(() -> raced.save(current));
+
+        assertEquals("outside-state", Files.readString(outsideState)); //$NON-NLS-1$
+    }
+
+    @Test
+    public void backupWriteRejectsDeterministicAncestrySwap() throws IOException {
+        Path root = newProject();
+        GsdStateStore normal = new GsdStateStore(root);
+        GsdState current = normal.save(normal.load());
+        Path outside = tmp.newFolder("outside-backup-race").toPath(); //$NON-NLS-1$
+        Path outsideBackup = Files.writeString(
+                Files.createDirectories(outside.resolve("gsd")).resolve(GsdStateStore.STATE_BAK), //$NON-NLS-1$
+                "outside-backup", StandardCharsets.UTF_8); //$NON-NLS-1$
+
+        GsdStateStore raced = new GsdStateStore(root,
+                swapAncestryOn(root, outside, GsdStateStore.Mutation.BACKUP.operation()));
+        assertRejected(() -> raced.save(current));
+
+        assertEquals("outside-backup", Files.readString(outsideBackup)); //$NON-NLS-1$
+    }
+
+    @Test
+    public void projectionWriteRejectsDeterministicAncestrySwap() throws IOException {
+        Path root = newProject();
+        GsdStateStore normal = new GsdStateStore(root);
+        GsdState current = normal.save(normal.load());
+        Path outside = tmp.newFolder("outside-projection-race").toPath(); //$NON-NLS-1$
+        Path outsideProjection = Files.writeString(
+                Files.createDirectories(outside.resolve("gsd")).resolve(GsdProjections.STATE_FILE), //$NON-NLS-1$
+                "outside-projection", StandardCharsets.UTF_8); //$NON-NLS-1$
+
+        GsdStateStore raced = new GsdStateStore(root,
+                swapAncestryOn(root, outside, GsdStateStore.Mutation.PROJECTION.operation()));
+        assertRejected(() -> raced.writeProjections(current));
+
+        assertEquals("outside-projection", Files.readString(outsideProjection)); //$NON-NLS-1$
+    }
+
+    private com.codepilot1c.core.filesystem.SecureDirectoryMutation.MutationHook swapAncestryOn(
+            Path root, Path outside, String expectedOperation) {
+        return operation -> {
+            if (!expectedOperation.equals(operation)) {
+                return;
+            }
+            Path codepilot = root.resolve(".codepilot1c"); //$NON-NLS-1$
+            Files.move(codepilot, root.resolve(".codepilot1c-original")); //$NON-NLS-1$
+            Files.createSymbolicLink(codepilot, outside);
+        };
+    }
+
+    private static void assertRejected(IoCall call) throws IOException {
+        try {
+            call.run();
+            fail("expected changed ancestry to be rejected"); //$NON-NLS-1$
+        } catch (AccessDeniedException e) {
+            assertTrue(e.getMessage().contains("changed") //$NON-NLS-1$
+                    || e.getMessage().contains("escaped")); //$NON-NLS-1$
+        }
+    }
+
+    @FunctionalInterface
+    private interface IoCall {
+        void run() throws IOException;
+    }
+
+    @Test
     public void blankAndNullProjectRootAreRejected() {
         try {
             new GsdStateStore((String) null);
