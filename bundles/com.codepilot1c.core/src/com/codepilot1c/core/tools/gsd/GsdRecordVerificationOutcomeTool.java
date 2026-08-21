@@ -83,9 +83,13 @@ public final class GsdRecordVerificationOutcomeTool extends AbstractTool {
                     GsdToolSupport.stateEnvelope(operation, state));
         } catch (GsdToolSupport.GsdToolIdentityException e) {
             return GsdToolSupport.identityFailure(operation, e);
+        } catch (IllegalStateException e) {
+            return failure(operation, GsdWorkflowService.ERR_INVALID, e.getMessage());
         } catch (ToolParameterException | IllegalArgumentException e) {
             return failure(operation, GsdWorkflowService.ERR_INVALID, e.getMessage());
         } catch (com.codepilot1c.core.gsd.GsdStaleTokenException e) {
+            return failure(operation, GsdWorkflowService.ERR_STALE, "stale concurrency token"); //$NON-NLS-1$
+        } catch (com.codepilot1c.core.gsd.GsdStaleRevisionException e) {
             return failure(operation, GsdWorkflowService.ERR_STALE, "stale concurrency token"); //$NON-NLS-1$
         } catch (GsdContentRejectedException e) {
             return failure(operation, GsdWorkflowService.ERR_SECURITY, e.getMessage());
@@ -95,6 +99,9 @@ public final class GsdRecordVerificationOutcomeTool extends AbstractTool {
             return failure(operation, GsdWorkflowService.ERR_CORRUPT, e.getMessage());
         } catch (IOException e) {
             return failure(operation, GsdWorkflowService.ERR_IO, e.getMessage());
+        } catch (RuntimeException e) {
+            return failure(operation, GsdWorkflowService.ERR_INVALID,
+                    "Unexpected runtime failure while recording verification outcome"); //$NON-NLS-1$
         }
     }
 

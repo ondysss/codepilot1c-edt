@@ -186,6 +186,40 @@ public class GsdToolsTest {
     }
 
     @Test
+    public void allMutatingGsdToolsRejectNumericStringsForIntegerTokenFields()
+            throws ExecutionException, InterruptedException {
+        ITool[] tools = {
+            new GsdRecordDecisionTool(), new GsdCreatePlanTool(),
+            new GsdUpdateTaskTool(), new GsdRecordEvidenceTool(),
+            new GsdTransitionTool(), new GsdRecordVerificationOutcomeTool(),
+            new GsdRecordShipmentTool()
+        };
+        for (ITool tool : tools) {
+            ToolResult stringGeneration = execute(tool, Map.of(
+                    "project_path", projectPath, //$NON-NLS-1$
+                    "expected_cycle_id", "cycle-1", //$NON-NLS-1$ //$NON-NLS-2$
+                    "expected_generation", "0", //$NON-NLS-1$ //$NON-NLS-2$
+                    "expected_revision", 0L)).get(); //$NON-NLS-1$
+            assertFalse(tool.getName(), stringGeneration.isSuccess());
+            assertEquals(tool.getName(), "invalid", //$NON-NLS-1$
+                    stringGeneration.getStructuredString("error_code")); //$NON-NLS-1$
+            assertTrue(tool.getName(), stringGeneration.getErrorMessage()
+                    .contains("expected_generation")); //$NON-NLS-1$
+
+            ToolResult stringRevision = execute(tool, Map.of(
+                    "project_path", projectPath, //$NON-NLS-1$
+                    "expected_cycle_id", "cycle-1", //$NON-NLS-1$ //$NON-NLS-2$
+                    "expected_generation", 0L, //$NON-NLS-1$
+                    "expected_revision", "0")).get(); //$NON-NLS-1$ //$NON-NLS-2$
+            assertFalse(tool.getName(), stringRevision.isSuccess());
+            assertEquals(tool.getName(), "invalid", //$NON-NLS-1$
+                    stringRevision.getStructuredString("error_code")); //$NON-NLS-1$
+            assertTrue(tool.getName(), stringRevision.getErrorMessage()
+                    .contains("expected_revision")); //$NON-NLS-1$
+        }
+    }
+
+    @Test
     public void allSchemasAreStrictProviderNeutralObjects() {
         ITool[] tools = {
             new GsdGetStateTool(), new GsdRecordDecisionTool(), new GsdCreatePlanTool(),
@@ -546,6 +580,33 @@ public class GsdToolsTest {
                 "tasks", List.of(),
                 "waves", List.of(Map.of("id", "w1", "name", "w")))).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         assertFalse(result.isSuccess());
+    }
+
+    @Test
+    public void createPlanAllOptionalAcceptanceCriteriaReturnsInvalid()
+            throws ExecutionException, InterruptedException {
+        long rev = transitionToPlanning();
+        ToolResult result = execute(new GsdCreatePlanTool(), Map.of(
+                "project_path", projectPath, //$NON-NLS-1$
+                "expected_revision", rev, //$NON-NLS-1$
+                "goal", "Ship it", //$NON-NLS-1$ //$NON-NLS-2$
+                "acceptance_criteria", List.of(Map.of( //$NON-NLS-1$
+                        "id", "ac-optional", //$NON-NLS-1$ //$NON-NLS-2$
+                        "description", "nice to have", //$NON-NLS-1$ //$NON-NLS-2$
+                        "required", false)), //$NON-NLS-1$
+                "tasks", List.of(Map.of( //$NON-NLS-1$
+                        "id", "t1", "title", "task", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                        "execution_kind", "READ_ONLY", "wave_id", "w1")), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                "waves", List.of(Map.of( //$NON-NLS-1$
+                        "id", "w1", "name", "wave", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                        "task_ids", List.of("t1"))))).get(); //$NON-NLS-1$ //$NON-NLS-2$
+
+        assertFalse(result.isSuccess());
+        assertEquals("invalid", result.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(result.getErrorMessage().contains("required criterion")); //$NON-NLS-1$
+        ToolResult unchanged = execute(new GsdGetStateTool(),
+                Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
+        assertEquals(rev, unchanged.getStructuredInt("revision", -1)); //$NON-NLS-1$
     }
 
     @Test
@@ -968,6 +1029,42 @@ public class GsdToolsTest {
                 "id", "d1", "summary", "scope", "rationale", "reason")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
         assertFalse(result.isSuccess());
         assertEquals("stale", result.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void verificationOutcomeFromWrongPhaseReturnsStructuredInvalid()
+            throws ExecutionException, InterruptedException {
+        ToolResult result = execute(new GsdRecordVerificationOutcomeTool(), Map.of(
+                "project_path", projectPath, //$NON-NLS-1$
+                "expected_revision", 0L, //$NON-NLS-1$
+                "criterion_id", "ac-1", //$NON-NLS-1$ //$NON-NLS-2$
+                "outcome", "PASSED")).get(); //$NON-NLS-1$ //$NON-NLS-2$
+
+        assertFalse(result.isSuccess());
+        assertTrue(result.hasStructuredData());
+        assertEquals("error", result.getStructuredString("status")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals("gsd_record_verification_outcome", //$NON-NLS-1$
+                result.getStructuredString("operation")); //$NON-NLS-1$
+        assertEquals("invalid", result.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(result.getErrorMessage().contains("requires phase VERIFYING")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void shipmentFromWrongPhaseReturnsStructuredInvalid()
+            throws ExecutionException, InterruptedException {
+        ToolResult result = execute(new GsdRecordShipmentTool(), Map.of(
+                "project_path", projectPath, //$NON-NLS-1$
+                "expected_revision", 0L, //$NON-NLS-1$
+                "shipment_id", "release-1", //$NON-NLS-1$ //$NON-NLS-2$
+                "delivery_reference", "registry/release-1", //$NON-NLS-1$ //$NON-NLS-2$
+                "status", "FAILED")).get(); //$NON-NLS-1$ //$NON-NLS-2$
+
+        assertFalse(result.isSuccess());
+        assertTrue(result.hasStructuredData());
+        assertEquals("error", result.getStructuredString("status")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals("gsd_record_shipment", result.getStructuredString("operation")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals("invalid", result.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(result.getErrorMessage().contains("requires phase SHIPPING")); //$NON-NLS-1$
     }
 
     @Test

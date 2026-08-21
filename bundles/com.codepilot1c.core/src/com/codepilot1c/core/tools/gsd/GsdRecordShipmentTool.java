@@ -116,6 +116,10 @@ public final class GsdRecordShipmentTool extends AbstractTool {
             return failure(operation, GsdWorkflowService.ERR_CONFLICT, e.getMessage());
         } catch (com.codepilot1c.core.gsd.GsdStaleTokenException e) {
             return failure(operation, GsdWorkflowService.ERR_STALE, "stale concurrency token"); //$NON-NLS-1$
+        } catch (com.codepilot1c.core.gsd.GsdStaleRevisionException e) {
+            return failure(operation, GsdWorkflowService.ERR_STALE, "stale concurrency token"); //$NON-NLS-1$
+        } catch (IllegalStateException e) {
+            return failure(operation, GsdWorkflowService.ERR_INVALID, e.getMessage());
         } catch (ToolParameterException | IllegalArgumentException e) {
             return failure(operation, GsdWorkflowService.ERR_INVALID, e.getMessage());
         } catch (GsdContentRejectedException e) {
@@ -126,6 +130,9 @@ public final class GsdRecordShipmentTool extends AbstractTool {
             return failure(operation, GsdWorkflowService.ERR_CORRUPT, e.getMessage());
         } catch (IOException e) {
             return failure(operation, GsdWorkflowService.ERR_IO, e.getMessage());
+        } catch (RuntimeException e) {
+            return failure(operation, GsdWorkflowService.ERR_INVALID,
+                    "Unexpected runtime failure while recording shipment"); //$NON-NLS-1$
         }
     }
 
