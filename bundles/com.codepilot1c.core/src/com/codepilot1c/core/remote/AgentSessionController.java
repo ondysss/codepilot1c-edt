@@ -138,27 +138,46 @@ public class AgentSessionController {
     }
 
     public RemoteBootstrapResponse buildBootstrap(String clientId, IdeSnapshot ideSnapshot) {
+        String capturedSessionId;
+        String capturedControllerClientId;
+        AgentState capturedState;
+        int historySize;
+        String capturedProfileId;
+        String capturedError;
+        boolean capturedRunning;
+        PendingRemoteAction remoteAction;
+        ConfirmationRequiredEvent agentConfirmation;
         synchronized (lock) {
-            return new RemoteBootstrapResponse(
-                    clientId,
-                    sessionId,
-                    clientId != null && clientId.equals(controllerClientId),
-                    controllerClientId,
-                    payload(
-                            "state", currentState.name(), //$NON-NLS-1$
-                            "running", Boolean.valueOf(isRunning()), //$NON-NLS-1$
-                            "profileId", currentProfileId, //$NON-NLS-1$
-                            "historySize", Integer.valueOf(conversationHistory.size()), //$NON-NLS-1$
-                            "lastError", lastErrorMessage != null ? lastErrorMessage : "" //$NON-NLS-1$ //$NON-NLS-2$
-                    ),
-                    currentPendingConfirmation(),
-                    ideSnapshot,
-                    availableProfiles());
+            capturedSessionId = sessionId;
+            capturedControllerClientId = controllerClientId;
+            capturedState = currentState;
+            historySize = conversationHistory.size();
+            capturedProfileId = currentProfileId;
+            capturedError = lastErrorMessage;
+            capturedRunning = activeRunner != null || activeTask != null;
+            remoteAction = pendingRemoteAction;
+            agentConfirmation = pendingAgentConfirmation;
         }
+        return new RemoteBootstrapResponse(
+                clientId,
+                capturedSessionId,
+                clientId != null && clientId.equals(capturedControllerClientId),
+                capturedControllerClientId,
+                payload(
+                        "state", capturedState.name(), //$NON-NLS-1$
+                        "running", Boolean.valueOf(capturedRunning), //$NON-NLS-1$
+                        "profileId", capturedProfileId, //$NON-NLS-1$
+                        "historySize", Integer.valueOf(historySize), //$NON-NLS-1$
+                        "lastError", capturedError != null ? capturedError : "" //$NON-NLS-1$ //$NON-NLS-2$
+                ),
+                pendingConfirmationPayload(remoteAction, agentConfirmation),
+                ideSnapshot,
+                availableProfiles());
     }
 
     public RemoteCommandResult startNewSession(String prompt, String profileId, String clientId) {
         Objects.requireNonNull(prompt, "prompt"); //$NON-NLS-1$
+        String normalizedProfile = normalizeProfile(profileId);
         synchronized (lock) {
             if (!canControl(clientId)) {
                 return leaseConflict();
@@ -169,14 +188,20 @@ public class AgentSessionController {
             sessionId = UUID.randomUUID().toString();
             conversationHistory = new ArrayList<>();
             lastErrorMessage = null;
-            currentProfileId = normalizeProfile(profileId);
+            currentProfileId = normalizedProfile;
         }
         emitRemote("session_reset", payload("reason", "start")); //$NON-NLS-1$ //$NON-NLS-2$
-        return submitPrompt(prompt, currentProfileId, true, null, null).commandResult;
+        return submitPrompt(prompt, normalizedProfile, true, null, null).commandResult;
     }
 
     public RemoteCommandResult continueSession(String prompt, String profileId, String clientId) {
         Objects.requireNonNull(prompt, "prompt"); //$NON-NLS-1$
+        String currentProfile;
+        synchronized (lock) {
+            currentProfile = currentProfileId;
+        }
+        String normalizedProfile = normalizeProfile(
+                profileId != null && !profileId.isBlank() ? profileId : currentProfile);
         synchronized (lock) {
             if (!canControl(clientId)) {
                 return leaseConflict();
@@ -184,12 +209,13 @@ public class AgentSessionController {
             if (isRunning()) {
                 return RemoteCommandResult.error("agent_busy", "Сессия агента уже выполняется"); //$NON-NLS-1$ //$NON-NLS-2$
             }
-            currentProfileId = normalizeProfile(profileId != null && !profileId.isBlank() ? profileId : currentProfileId);
+            currentProfileId = normalizedProfile;
         }
-        return submitPrompt(prompt, currentProfileId, false, null, null).commandResult;
+        return submitPrompt(prompt, normalizedProfile, false, null, null).commandResult;
     }
 
     public RemoteCommandResult stop(String clientId) {
+        IAgentRunner runner;
         synchronized (lock) {
             if (!canControl(clientId)) {
                 return leaseConflict();
@@ -197,10 +223,11 @@ public class AgentSessionController {
             if (activeRunner == null) {
                 return RemoteCommandResult.error("no_active_run", "Нет активного запуска агента"); //$NON-NLS-1$ //$NON-NLS-2$
             }
-            activeRunner.cancel();
-            emitRemote("agent_stop_requested", payload("clientId", clientId)); //$NON-NLS-1$ //$NON-NLS-2$
-            return RemoteCommandResult.ok("Запрошена остановка агента"); //$NON-NLS-1$
+            runner = activeRunner;
         }
+        runner.cancel();
+        emitRemote("agent_stop_requested", payload("clientId", clientId)); //$NON-NLS-1$ //$NON-NLS-2$
+        return RemoteCommandResult.ok("Запрошена остановка агента"); //$NON-NLS-1$
     }
 
     public RemoteCommandResult approvePending(String confirmationId, String clientId) {
@@ -278,22 +305,26 @@ public class AgentSessionController {
     }
 
     public RemoteCommandResult claimControllerLease(String clientId, boolean force) {
+        boolean ordinaryClaim = false;
         synchronized (lock) {
             if (clientId == null || clientId.isBlank()) {
                 return RemoteCommandResult.error("missing_client", "Нужно указать идентификатор клиента"); //$NON-NLS-1$ //$NON-NLS-2$
             }
             if (controllerClientId == null || controllerClientId.equals(clientId)) {
                 controllerClientId = clientId;
-                emitRemote("lease_changed", payload("controllerClientId", clientId, "mode", "claimed")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                return RemoteCommandResult.ok("Управление закреплено за клиентом", payload("controllerClientId", clientId)); //$NON-NLS-1$ //$NON-NLS-2$
-            }
-            if (!force) {
+                ordinaryClaim = true;
+            } else if (!force) {
                 return leaseConflict();
+            } else {
+                controllerClientId = clientId;
             }
-            controllerClientId = clientId;
         }
-        emitRemote("lease_changed", payload("controllerClientId", clientId, "mode", "force_takeover")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-        return RemoteCommandResult.ok("Управление принудительно передано другому клиенту", payload("controllerClientId", clientId)); //$NON-NLS-1$ //$NON-NLS-2$
+        String mode = ordinaryClaim ? "claimed" : "force_takeover"; //$NON-NLS-1$ //$NON-NLS-2$
+        emitRemote("lease_changed", payload("controllerClientId", clientId, "mode", mode)); //$NON-NLS-1$ //$NON-NLS-2$
+        return RemoteCommandResult.ok(
+                ordinaryClaim ? "Управление закреплено за клиентом" //$NON-NLS-1$
+                        : "Управление принудительно передано другому клиенту", //$NON-NLS-1$
+                payload("controllerClientId", clientId)); //$NON-NLS-1$
     }
 
     public RemoteCommandResult releaseControllerLease(String clientId) {
@@ -315,13 +346,19 @@ public class AgentSessionController {
 
     public CompletableFuture<AgentResult> submitFromDesktop(String prompt, String profileId) {
         Objects.requireNonNull(prompt, "prompt"); //$NON-NLS-1$
+        String currentProfile;
+        synchronized (lock) {
+            currentProfile = currentProfileId;
+        }
+        String normalizedProfile = normalizeProfile(
+                profileId != null && !profileId.isBlank() ? profileId : currentProfile);
         synchronized (lock) {
             if (isRunning()) {
                 return CompletableFuture.failedFuture(new IllegalStateException("Agent session is already running")); //$NON-NLS-1$
             }
-            currentProfileId = normalizeProfile(profileId != null && !profileId.isBlank() ? profileId : currentProfileId);
+            currentProfileId = normalizedProfile;
         }
-        PromptSubmission submission = submitPrompt(prompt, currentProfileId, false, null, null);
+        PromptSubmission submission = submitPrompt(prompt, normalizedProfile, false, null, null);
         if (!submission.commandResult.isOk()) {
             return CompletableFuture.failedFuture(
                     new IllegalStateException(submission.commandResult.getMessage()));
@@ -336,6 +373,12 @@ public class AgentSessionController {
     private CompletableFuture<AgentResult> submitFromDesktopFresh(
             String prompt, String profileId, String projectPath, String owningSessionId) {
         Objects.requireNonNull(prompt, "prompt"); //$NON-NLS-1$
+        String currentProfile;
+        synchronized (lock) {
+            currentProfile = currentProfileId;
+        }
+        String normalizedProfile = normalizeProfile(
+                profileId != null && !profileId.isBlank() ? profileId : currentProfile);
         String profileToUse;
         synchronized (lock) {
             if (isRunning()) {
@@ -349,7 +392,7 @@ public class AgentSessionController {
             activeTask = null;
             currentState = AgentState.IDLE;
             lastErrorMessage = null;
-            profileToUse = normalizeProfile(profileId != null && !profileId.isBlank() ? profileId : currentProfileId);
+            profileToUse = normalizedProfile;
             currentProfileId = profileToUse;
         }
         emitRemote("session_reset", payload("reason", "desktop_fresh")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -388,18 +431,22 @@ public class AgentSessionController {
     }
 
     public void stopFromDesktop() {
+        IAgentRunner runner;
         synchronized (lock) {
-            if (activeRunner != null) {
-                activeRunner.cancel();
-            }
+            runner = activeRunner;
+        }
+        if (runner != null) {
+            runner.cancel();
         }
     }
 
     private void stopFromDesktop(CompletableFuture<AgentResult> expectedTask) {
+        IAgentRunner runner;
         synchronized (lock) {
-            if (activeTask == expectedTask && activeRunner != null) {
-                activeRunner.cancel();
-            }
+            runner = activeTask == expectedTask ? activeRunner : null;
+        }
+        if (runner != null) {
+            runner.cancel();
         }
     }
 
@@ -443,10 +490,14 @@ public class AgentSessionController {
     }
 
     public void resetSession(String reason) {
+        IAgentRunner runner;
         synchronized (lock) {
-            if (activeRunner != null) {
-                activeRunner.cancel();
-            }
+            runner = activeRunner;
+        }
+        if (runner != null) {
+            runner.cancel();
+        }
+        synchronized (lock) {
             conversationHistory = new ArrayList<>();
             pendingAgentConfirmation = null;
             pendingRemoteAction = null;
@@ -482,21 +533,32 @@ public class AgentSessionController {
     }
 
     public Map<String, Object> currentPendingConfirmation() {
+        PendingRemoteAction remoteAction;
+        ConfirmationRequiredEvent agentConfirmation;
         synchronized (lock) {
-            if (pendingRemoteAction != null) {
-                return pendingRemoteAction.toPayload();
-            }
-            if (pendingAgentConfirmation == null) {
-                return Map.of();
-            }
-            return payload(
-                    "scope", "agent_tool", //$NON-NLS-1$ //$NON-NLS-2$
-                    "confirmationId", confirmationId(pendingAgentConfirmation), //$NON-NLS-1$
-                    "toolName", pendingAgentConfirmation.getToolName(), //$NON-NLS-1$
-                    "description", pendingAgentConfirmation.getToolDescription(), //$NON-NLS-1$
-                    "arguments", pendingAgentConfirmation.getArguments() != null ? pendingAgentConfirmation.getArguments() : Map.of(), //$NON-NLS-1$
-                    "destructive", Boolean.valueOf(pendingAgentConfirmation.isDestructive())); //$NON-NLS-1$
+            remoteAction = pendingRemoteAction;
+            agentConfirmation = pendingAgentConfirmation;
         }
+        return pendingConfirmationPayload(remoteAction, agentConfirmation);
+    }
+
+    private Map<String, Object> pendingConfirmationPayload(
+            PendingRemoteAction remoteAction,
+            ConfirmationRequiredEvent agentConfirmation) {
+        if (remoteAction != null) {
+            return remoteAction.toPayload();
+        }
+        if (agentConfirmation == null) {
+            return Map.of();
+        }
+        return payload(
+                "scope", "agent_tool", //$NON-NLS-1$ //$NON-NLS-2$
+                "confirmationId", confirmationId(agentConfirmation), //$NON-NLS-1$
+                "toolName", agentConfirmation.getToolName(), //$NON-NLS-1$
+                "description", agentConfirmation.getToolDescription(), //$NON-NLS-1$
+                "arguments", agentConfirmation.getArguments() != null //$NON-NLS-1$
+                        ? agentConfirmation.getArguments() : Map.of(),
+                "destructive", Boolean.valueOf(agentConfirmation.isDestructive())); //$NON-NLS-1$
     }
 
     public IdeSnapshot captureIdeSnapshot() {
@@ -593,19 +655,41 @@ public class AgentSessionController {
                         .executionIdentity(projectPath, owningSessionId)
                         .build()
                 : baseConfig;
-        List<LlmMessage> historySnapshot;
-        IAgentRunner submittedRunner;
-        synchronized (lock) {
-            if (activeRunner != null || activeTask != null) {
-                return PromptSubmission.rejected(RemoteCommandResult.error(
-                        "agent_busy", "Сессия агента уже выполняется")); //$NON-NLS-1$ //$NON-NLS-2$
+        IAgentRunner createdRunner = null;
+        try {
+            ToolRegistry registry = toolRegistrySupplier.get();
+            createdRunner = runnerFactory.create(
+                    provider, registry, baseConfig.getSystemPromptAddition());
+            createdRunner.addListener(forwardingListener);
+        } catch (RuntimeException e) {
+            if (createdRunner != null) {
+                try {
+                    cleanupRunner(createdRunner);
+                } catch (RuntimeException cleanupFailure) {
+                    e.addSuppressed(cleanupFailure);
+                }
             }
-            historySnapshot = new ArrayList<>(conversationHistory);
-            submittedRunner = runnerFactory.create(
-                    provider, toolRegistrySupplier.get(), baseConfig.getSystemPromptAddition());
-            submittedRunner.addListener(forwardingListener);
-            activeRunner = submittedRunner;
-            currentState = AgentState.RUNNING;
+            return PromptSubmission.rejected(
+                    RemoteCommandResult.error("agent_start_failed", e.getMessage())); //$NON-NLS-1$
+        }
+        IAgentRunner submittedRunner = createdRunner;
+
+        List<LlmMessage> historySnapshot;
+        boolean accepted;
+        synchronized (lock) {
+            accepted = activeRunner == null && activeTask == null;
+            if (accepted) {
+                historySnapshot = new ArrayList<>(conversationHistory);
+                activeRunner = submittedRunner;
+                currentState = AgentState.RUNNING;
+            } else {
+                historySnapshot = List.of();
+            }
+        }
+        if (!accepted) {
+            cleanupRunner(submittedRunner);
+            return PromptSubmission.rejected(RemoteCommandResult.error(
+                    "agent_busy", "Сессия агента уже выполняется")); //$NON-NLS-1$ //$NON-NLS-2$
         }
 
         CompletableFuture<AgentResult> submittedTask;
@@ -614,19 +698,12 @@ public class AgentSessionController {
                     ? submittedRunner.run(prompt, config)
                     : submittedRunner.run(prompt, historySnapshot, config);
         } catch (RuntimeException e) {
-            try {
-                submittedRunner.removeListener(forwardingListener);
-            } finally {
-                try {
-                    submittedRunner.dispose();
-                } finally {
-                    synchronized (lock) {
-                        if (activeRunner == submittedRunner && activeTask == null) {
-                            activeRunner = null;
-                            currentState = AgentState.ERROR;
-                            lastErrorMessage = e.getMessage();
-                        }
-                    }
+            cleanupRunner(submittedRunner);
+            synchronized (lock) {
+                if (activeRunner == submittedRunner && activeTask == null) {
+                    activeRunner = null;
+                    currentState = AgentState.ERROR;
+                    lastErrorMessage = e.getMessage();
                 }
             }
             return PromptSubmission.rejected(
@@ -639,24 +716,20 @@ public class AgentSessionController {
 
         submittedTask.whenComplete((result, error) -> {
             try {
-                submittedRunner.removeListener(forwardingListener);
+                cleanupRunner(submittedRunner);
             } finally {
-                try {
-                    submittedRunner.dispose();
-                } finally {
-                    synchronized (lock) {
-                        if (activeRunner == submittedRunner && activeTask == submittedTask) {
-                            if (result != null) {
-                                conversationHistory = new ArrayList<>(result.getConversationHistory());
-                                currentState = result.getFinalState();
-                                lastErrorMessage = result.getErrorMessage();
-                            } else if (error != null) {
-                                currentState = AgentState.ERROR;
-                                lastErrorMessage = error.getMessage();
-                            }
-                            activeRunner = null;
-                            activeTask = null;
+                synchronized (lock) {
+                    if (activeRunner == submittedRunner && activeTask == submittedTask) {
+                        if (result != null) {
+                            conversationHistory = new ArrayList<>(result.getConversationHistory());
+                            currentState = result.getFinalState();
+                            lastErrorMessage = result.getErrorMessage();
+                        } else if (error != null) {
+                            currentState = AgentState.ERROR;
+                            lastErrorMessage = error.getMessage();
                         }
+                        activeRunner = null;
+                        activeTask = null;
                     }
                 }
             }
@@ -671,6 +744,14 @@ public class AgentSessionController {
                         "sessionId", getSessionId(), //$NON-NLS-1$
                         "profileId", profile.getId())), //$NON-NLS-1$
                 submittedTask);
+    }
+
+    private void cleanupRunner(IAgentRunner runner) {
+        try {
+            runner.removeListener(forwardingListener);
+        } finally {
+            runner.dispose();
+        }
     }
 
     private void handleAgentEvent(AgentEvent event) {

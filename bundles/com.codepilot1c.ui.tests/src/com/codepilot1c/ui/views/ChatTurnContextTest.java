@@ -13,16 +13,18 @@ import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.junit.Test;
 
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
 import com.codepilot1c.core.agent.prompts.SystemPromptAssembler;
 import com.codepilot1c.core.session.Session;
 import com.codepilot1c.core.model.ToolCall;
+import com.codepilot1c.core.tools.ToolRegistry.ToolResolution;
 import com.codepilot1c.core.ui.ChatToolGate;
 
 /** Focused tests for per-view profile selection and turn capture. */
@@ -55,7 +57,7 @@ public class ChatTurnContextTest {
         session.setProjectPath("/workspace/project-a"); //$NON-NLS-1$
         ChatTurnContext context = ChatTurnContext.resolve(session, "build"); //$NON-NLS-1$
         ChatToolGate gate = new ChatToolGate(
-                context.profile(), List::of, ignored -> Map.of(), Set::of,
+                context.profile(), List::of, ignored -> Map.of(),
                 () -> true, () -> false, context.toolExecutionContext());
 
         SystemPromptAssembler.AssemblyInput input = context.promptInput(
@@ -69,7 +71,8 @@ public class ChatTurnContextTest {
         assertEquals(session.getProjectPath(), input.projectPath());
         assertEquals(session.getId(), input.sessionId());
         assertEquals(session.getProjectPath(),
-                gate.decide(new ToolCall("c1", "dynamic", "{}"), null) //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                gate.decide(new ToolCall("c1", "dynamic", "{}"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                        unknownResolution("dynamic")) //$NON-NLS-1$
                         .context().projectPath());
     }
 
@@ -108,12 +111,32 @@ public class ChatTurnContextTest {
         assertEquals("chat-b", decision(secondGate).context().sessionId()); //$NON-NLS-1$
     }
 
+    @Test
+    public void relativeSessionProjectIsNormalizedForPromptAndToolIdentity() {
+        Session session = new Session("chat-relative"); //$NON-NLS-1$
+        session.setProjectPath("workspace/../workspace/project"); //$NON-NLS-1$
+
+        ChatTurnContext context = ChatTurnContext.resolve(session, "build"); //$NON-NLS-1$
+        String expected = Path.of(session.getProjectPath())
+                .toAbsolutePath().normalize().toString();
+
+        assertEquals(expected, context.toolExecutionContext().projectPath());
+        assertEquals(expected, context.promptInput("base", List.of()).projectPath()); //$NON-NLS-1$
+        assertTrue(Path.of(context.toolExecutionContext().projectPath()).isAbsolute());
+    }
+
     private ChatToolGate gate(ChatTurnContext context) {
-        return new ChatToolGate(context.profile(), List::of, ignored -> Map.of(), Set::of,
+        return new ChatToolGate(context.profile(), List::of, ignored -> Map.of(),
                 () -> true, () -> false, context.toolExecutionContext());
     }
 
     private ChatToolGate.Decision decision(ChatToolGate gate) {
-        return gate.decide(new ToolCall("call", "dynamic", "{}"), null); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        return gate.decide(new ToolCall("call", "dynamic", "{}"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                unknownResolution("dynamic")); //$NON-NLS-1$
+    }
+
+    private ToolResolution unknownResolution(String name) {
+        return new ToolResolution(
+                name, null, DynamicToolCapability.NONE, false, null);
     }
 }

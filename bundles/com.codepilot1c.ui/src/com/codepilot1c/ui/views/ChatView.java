@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -88,7 +89,7 @@ import com.codepilot1c.core.provider.LlmProviderRegistry;
 import com.codepilot1c.core.provider.ProviderCapabilities;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.codepilot1c.core.permissions.PermissionManager;
-import com.codepilot1c.core.tools.ITool;
+import com.codepilot1c.core.tools.ToolExecutionService;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.ui.ChatSystemPromptToolsSection;
@@ -1873,16 +1874,14 @@ public class ChatView extends ViewPart {
         ChatToolGate gate = turn.gate();
         ToolRegistry registry = ToolRegistry.getInstance();
         Map<String, ChatToolGate.Decision> decisions = new LinkedHashMap<>();
-        Map<String, ITool> resolvedTools = new HashMap<>();
         List<ToolCall> deniedCalls = new ArrayList<>();
         List<ToolCall> editCalls = new ArrayList<>();
         List<ToolCall> otherCalls = new ArrayList<>();
 
         boolean decisionsCaptured = turnFence.runIfCurrent(turnGeneration, () -> {
             for (ToolCall call : toolCalls) {
-                ITool resolved = registry.getTool(call.getName());
-                resolvedTools.put(call.getId(), resolved);
-                ChatToolGate.Decision decision = gate.decide(call, resolved);
+                ChatToolGate.Decision decision = gate.decide(
+                        call, registry.resolveTool(call.getName()));
                 decisions.put(call.getId(), decision);
                 if (decision.action() == ChatToolGate.Action.DENY) {
                     deniedCalls.add(call);
@@ -1991,8 +1990,8 @@ public class ChatView extends ViewPart {
         }
 
         for (ToolCall call : otherCalls) {
-            ITool tool = resolvedTools.get(call.getId());
             ChatToolGate.Decision decision = decisions.get(call.getId());
+            var tool = decision.resolution().tool();
             executedCalls.add(call);
 
             if (decision.action() == ChatToolGate.Action.CONFIRM) {
@@ -2023,15 +2022,15 @@ public class ChatView extends ViewPart {
                                     getShell(),
                                     call,
                                     tool.getDescription(),
-                                    tool.isDestructive(),
+                                    decision.destructive(),
                                     decision.arguments()
                             );
 
                             if (dialog.openAndConfirm()) {
                                 AtomicReference<CompletableFuture<ToolResult>> dispatched = new AtomicReference<>();
                                 boolean dispatchAccepted = turnFence.runIfCurrent(turnGeneration, () -> {
-                                    dispatched.set(registry.execute(
-                                            call, decision.arguments(), null, null, decision.context()));
+                                    dispatched.set(executeAuthorized(
+                                            registry, call, decision));
                                     actuallyExecutedCallIds.add(call.getId());
                                 });
                                 if (!dispatchAccepted) {
@@ -2067,8 +2066,7 @@ public class ChatView extends ViewPart {
             } else {
                 AtomicReference<CompletableFuture<ToolResult>> dispatched = new AtomicReference<>();
                 boolean dispatchAccepted = turnFence.runIfCurrent(turnGeneration, () -> {
-                    dispatched.set(registry.execute(
-                            call, decision.arguments(), null, null, decision.context()));
+                    dispatched.set(executeAuthorized(registry, call, decision));
                     actuallyExecutedCallIds.add(call.getId());
                 });
                 futures.add(dispatchAccepted
@@ -2129,7 +2127,9 @@ public class ChatView extends ViewPart {
 
                                 try {
                                     Map<String, ToolResult> diffResults =
-                                            showDiffReviewAndApply(capturedProposedChanges);
+                                            showDiffReviewAndApply(
+                                                    capturedProposedChanges, decisions,
+                                                    registry, turnGeneration);
                                     diffFuture.complete(diffResults);
                                 } catch (Exception e) {
                                     LOG.error("Error showing diff review: %s", e.getMessage()); //$NON-NLS-1$
@@ -2158,6 +2158,19 @@ public class ChatView extends ViewPart {
                 });
     }
 
+    private CompletableFuture<ToolResult> executeAuthorized(
+            ToolRegistry registry, ToolCall call, ChatToolGate.Decision decision) {
+        if (decision.resolution().tool() == null) {
+            return CompletableFuture.completedFuture(
+                    ToolResult.failure("Unknown tool: " + call.getName())); //$NON-NLS-1$
+        }
+        return registry.getExecutionService().executeIfCurrent(
+                call, decision.arguments(), null, null,
+                decision.context(), decision.resolution())
+                .orElseGet(() -> CompletableFuture.completedFuture(
+                        ToolExecutionService.staleResolutionResult(call.getName())));
+    }
+
     private boolean shouldSkipToolConfirmations() {
         IEclipsePreferences prefs = InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID);
         return prefs.getBoolean(VibePreferenceConstants.PREF_AGENT_SKIP_TOOL_CONFIRMATIONS, false);
@@ -2175,7 +2188,6 @@ public class ChatView extends ViewPart {
                 context.profile(),
                 () -> PermissionManager.getInstance().getAllRules(),
                 registry.getExecutionService()::parseArguments,
-                registry::getDynamicToolNames,
                 () -> display != null && !display.isDisposed() && !isDisposed(),
                 this::shouldSkipToolConfirmations,
                 context.toolExecutionContext());
@@ -2580,19 +2592,46 @@ public class ChatView extends ViewPart {
      * Shows the diff review dialog and applies accepted changes.
      * Returns tool results for the LLM.
      */
-    private Map<String, ToolResult> showDiffReviewAndApply(ProposedChangeSet changeSet) {
+    private Map<String, ToolResult> showDiffReviewAndApply(
+            ProposedChangeSet changeSet,
+            Map<String, ChatToolGate.Decision> decisions,
+            ToolRegistry registry,
+            long turnGeneration) {
         Map<String, ToolResult> results = new HashMap<>();
+        Set<String> staleCallIds = new HashSet<>();
 
         if (changeSet == null || changeSet.isEmpty()) {
             return results;
         }
 
-        DiffReviewDialog dialog = new DiffReviewDialog(getShell(), changeSet);
-        boolean applied = dialog.openAndApply();
+        DiffReviewDialog dialog = new DiffReviewDialog(getShell(), changeSet, () -> {
+            if (!isCurrentTurn(turnGeneration)) {
+                return false;
+            }
+            boolean allCurrent = true;
+            for (ProposedChange change : changeSet.getAcceptedChanges()) {
+                String callId = change.getToolCallId();
+                ChatToolGate.Decision decision = decisions.get(callId);
+                if (decision == null || registry.getExecutionService()
+                        .claimIfCurrent(decision.resolution()).isEmpty()) {
+                    if (callId != null) {
+                        staleCallIds.add(callId);
+                    }
+                    allCurrent = false;
+                }
+            }
+            return allCurrent;
+        });
+        dialog.openAndApply();
 
         // Create results for each proposed change
         for (ProposedChange change : changeSet.getChanges()) {
             ToolResult result;
+            if (staleCallIds.contains(change.getToolCallId())) {
+                result = ToolExecutionService.staleResolutionResult("edit_file"); //$NON-NLS-1$
+                results.put(change.getToolCallId(), result);
+                continue;
+            }
             switch (change.getStatus()) {
                 case APPLIED:
                     result = ToolResult.success(

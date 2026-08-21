@@ -7,6 +7,7 @@
  */
 package com.codepilot1c.ui.views;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 
@@ -58,8 +59,19 @@ public final class ChatTurnContext {
         return new ChatTurnContext(
                 profile,
                 addition,
-                session != null ? session.getProjectPath() : null,
+                normalizeProjectPath(session != null ? session.getProjectPath() : null),
                 session != null ? session.getId() : null);
+    }
+
+    private static String normalizeProjectPath(String projectPath) {
+        if (projectPath == null || projectPath.isBlank()) {
+            return projectPath;
+        }
+        try {
+            return Path.of(projectPath).toAbsolutePath().normalize().toString();
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /**

@@ -19,6 +19,7 @@ import com.codepilot1c.core.evaluation.trace.TraceEventType;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.tools.ToolRegistry.ToolResolution;
+import com.google.gson.JsonObject;
 
 /**
  * Executes tool calls with argument parsing, logging, and tracing.
@@ -33,6 +34,8 @@ import com.codepilot1c.core.tools.ToolRegistry.ToolResolution;
  * </pre>
  */
 public class ToolExecutionService {
+
+    public static final String STALE_RESOLUTION_ERROR = "stale_tool_resolution"; //$NON-NLS-1$
 
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(ToolExecutionService.class);
 
@@ -191,7 +194,7 @@ public class ToolExecutionService {
         Map<String, Object> approvedParameters = parameters != null
                 ? parameters
                 : Collections.emptyMap();
-        Optional<ToolResolution> claimed = registry.dispatchIfCurrent(resolution);
+        Optional<ToolResolution> claimed = claimIfCurrent(resolution);
         if (claimed.isEmpty()) {
             return Optional.empty();
         }
@@ -200,6 +203,25 @@ public class ToolExecutionService {
         return Optional.of(executeResolved(
                 toolCall, approvedParameters, traceSession, parentEventId,
                 context, exact.tool()));
+    }
+
+    /**
+     * Claims an authorized registry slot without invoking it. This supports
+     * UI-owned execution substitutes such as accepted diff application.
+     */
+    public Optional<ToolResolution> claimIfCurrent(ToolResolution resolution) {
+        return registry.dispatchIfCurrent(resolution);
+    }
+
+    /** Deterministic fail-closed result for an authorization slot that changed before dispatch. */
+    public static ToolResult staleResolutionResult(String toolName) {
+        JsonObject data = new JsonObject();
+        data.addProperty("error", STALE_RESOLUTION_ERROR); //$NON-NLS-1$
+        data.addProperty("tool", toolName != null ? toolName : ""); //$NON-NLS-1$ //$NON-NLS-2$
+        data.addProperty("reason", STALE_RESOLUTION_ERROR); //$NON-NLS-1$
+        data.addProperty("reason_code", STALE_RESOLUTION_ERROR); //$NON-NLS-1$
+        return ToolResult.failure(
+                "Tool authorization became stale before dispatch", data); //$NON-NLS-1$
     }
 
     private CompletableFuture<ToolResult> executeResolved(
