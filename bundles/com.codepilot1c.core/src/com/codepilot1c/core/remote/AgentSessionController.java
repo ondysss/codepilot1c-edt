@@ -48,6 +48,11 @@ public class AgentSessionController {
         void onRemoteEvent(RemoteEvent event);
     }
 
+    @FunctionalInterface
+    interface RunnerFactory {
+        IAgentRunner create(ILlmProvider provider, ToolRegistry registry, String systemPromptAddition);
+    }
+
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(AgentSessionController.class);
     private static final int MAX_EVENTS = 2_000;
 
@@ -69,6 +74,8 @@ public class AgentSessionController {
     private PendingRemoteAction pendingRemoteAction;
     private AgentState currentState = AgentState.IDLE;
     private String lastErrorMessage;
+    private RunnerFactory runnerFactory = LangGraphAgentRunner::new;
+    private Supplier<ToolRegistry> toolRegistrySupplier = ToolRegistry::getInstance;
 
     private final IAgentEventListener forwardingListener = new IAgentEventListener() {
         @Override
@@ -160,7 +167,7 @@ public class AgentSessionController {
             currentProfileId = normalizeProfile(profileId);
         }
         emitRemote("session_reset", payload("reason", "start")); //$NON-NLS-1$ //$NON-NLS-2$
-        return submitPrompt(prompt, currentProfileId, true);
+        return submitPrompt(prompt, currentProfileId, true, null, null);
     }
 
     public RemoteCommandResult continueSession(String prompt, String profileId, String clientId) {
@@ -174,7 +181,7 @@ public class AgentSessionController {
             }
             currentProfileId = normalizeProfile(profileId != null && !profileId.isBlank() ? profileId : currentProfileId);
         }
-        return submitPrompt(prompt, currentProfileId, false);
+        return submitPrompt(prompt, currentProfileId, false, null, null);
     }
 
     public RemoteCommandResult stop(String clientId) {
@@ -309,7 +316,7 @@ public class AgentSessionController {
             }
             currentProfileId = normalizeProfile(profileId != null && !profileId.isBlank() ? profileId : currentProfileId);
         }
-        RemoteCommandResult result = submitPrompt(prompt, currentProfileId, false);
+        RemoteCommandResult result = submitPrompt(prompt, currentProfileId, false, null, null);
         if (!result.isOk()) {
             return CompletableFuture.failedFuture(new IllegalStateException(result.getMessage()));
         }
@@ -319,6 +326,11 @@ public class AgentSessionController {
     }
 
     public CompletableFuture<AgentResult> submitFromDesktopFresh(String prompt, String profileId) {
+        return submitFromDesktopFresh(prompt, profileId, null, null);
+    }
+
+    private CompletableFuture<AgentResult> submitFromDesktopFresh(
+            String prompt, String profileId, String projectPath, String owningSessionId) {
         Objects.requireNonNull(prompt, "prompt"); //$NON-NLS-1$
         String profileToUse;
         synchronized (lock) {
@@ -337,7 +349,8 @@ public class AgentSessionController {
             currentProfileId = profileToUse;
         }
         emitRemote("session_reset", payload("reason", "desktop_fresh")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-        RemoteCommandResult result = submitPrompt(prompt, profileToUse, true);
+        RemoteCommandResult result = submitPrompt(
+                prompt, profileToUse, true, projectPath, owningSessionId);
         if (!result.isOk()) {
             return CompletableFuture.failedFuture(
                     new IllegalStateException(result.getCode() + ": " + result.getMessage())); //$NON-NLS-1$
@@ -353,7 +366,13 @@ public class AgentSessionController {
      * clients from cancelling whichever desktop run happens to be global now.
      */
     public CompletableFuture<AgentResult> submitFromDesktopFreshScoped(String prompt, String profileId) {
-        CompletableFuture<AgentResult> task = submitFromDesktopFresh(prompt, profileId);
+        return submitFromDesktopFreshScoped(prompt, profileId, null, null);
+    }
+
+    public CompletableFuture<AgentResult> submitFromDesktopFreshScoped(
+            String prompt, String profileId, String projectPath, String owningSessionId) {
+        CompletableFuture<AgentResult> task = submitFromDesktopFresh(
+                prompt, profileId, projectPath, owningSessionId);
         ScopedTaskFuture<AgentResult> scoped = new ScopedTaskFuture<>(() -> stopFromDesktop(task));
         task.whenComplete((result, error) -> {
             if (error != null) {
@@ -433,7 +452,9 @@ public class AgentSessionController {
     }
 
     public boolean isRunning() {
-        return activeRunner != null && activeRunner.isRunning();
+        synchronized (lock) {
+            return activeRunner != null || activeTask != null;
+        }
     }
 
     public Map<String, Object> currentPendingConfirmation() {
@@ -524,7 +545,8 @@ public class AgentSessionController {
                 "Выполнить команду Eclipse " + commandId, () -> bridge().executeCommand(commandId, parameters)); //$NON-NLS-1$
     }
 
-    private RemoteCommandResult submitPrompt(String prompt, String profileId, boolean startingFreshSession) {
+    private RemoteCommandResult submitPrompt(String prompt, String profileId, boolean startingFreshSession,
+            String projectPath, String owningSessionId) {
         ILlmProvider provider = LlmProviderRegistry.getInstance().getActiveProvider();
         if (provider == null || !provider.isConfigured()) {
             return RemoteCommandResult.error("provider_unavailable", "LLM-провайдер не настроен"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -533,39 +555,82 @@ public class AgentSessionController {
         AgentProfile profile = AgentProfileRegistry.getInstance()
                 .getProfile(profileId)
                 .orElse(AgentProfileRegistry.getInstance().getDefaultProfile());
-        AgentConfig config = AgentProfileRegistry.getInstance().createConfig(profile);
+        AgentConfig baseConfig = AgentProfileRegistry.getInstance().createConfig(profile);
+        boolean hasProjectPath = projectPath != null && !projectPath.isBlank();
+        boolean hasOwningSession = owningSessionId != null && !owningSessionId.isBlank();
+        if (hasProjectPath != hasOwningSession) {
+            return RemoteCommandResult.error(
+                    "invalid_execution_identity", "Project and session identity must be supplied together"); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        AgentConfig config = hasProjectPath
+                ? AgentConfig.builder().from(baseConfig)
+                        .executionIdentity(projectPath, owningSessionId)
+                        .build()
+                : baseConfig;
         List<LlmMessage> historySnapshot;
+        IAgentRunner submittedRunner;
         synchronized (lock) {
+            if (activeRunner != null || activeTask != null) {
+                return RemoteCommandResult.error("agent_busy", "Сессия агента уже выполняется"); //$NON-NLS-1$ //$NON-NLS-2$
+            }
             historySnapshot = new ArrayList<>(conversationHistory);
-            activeRunner = new LangGraphAgentRunner(provider, ToolRegistry.getInstance(), profile.getSystemPromptAddition());
-            activeRunner.addListener(forwardingListener);
+            submittedRunner = runnerFactory.create(
+                    provider, toolRegistrySupplier.get(), profile.getSystemPromptAddition());
+            submittedRunner.addListener(forwardingListener);
+            activeRunner = submittedRunner;
             currentState = AgentState.RUNNING;
         }
 
-        CompletableFuture<AgentResult> future = startingFreshSession
-                ? activeRunner.run(prompt, config)
-                : activeRunner.run(prompt, historySnapshot, config);
-
-        synchronized (lock) {
-            activeTask = future;
+        CompletableFuture<AgentResult> submittedTask;
+        try {
+            submittedTask = startingFreshSession
+                    ? submittedRunner.run(prompt, config)
+                    : submittedRunner.run(prompt, historySnapshot, config);
+        } catch (RuntimeException e) {
+            try {
+                submittedRunner.removeListener(forwardingListener);
+            } finally {
+                try {
+                    submittedRunner.dispose();
+                } finally {
+                    synchronized (lock) {
+                        if (activeRunner == submittedRunner && activeTask == null) {
+                            activeRunner = null;
+                            currentState = AgentState.ERROR;
+                            lastErrorMessage = e.getMessage();
+                        }
+                    }
+                }
+            }
+            return RemoteCommandResult.error("agent_start_failed", e.getMessage()); //$NON-NLS-1$
         }
 
-        future.whenComplete((result, error) -> {
-            synchronized (lock) {
-                if (result != null) {
-                    conversationHistory = new ArrayList<>(result.getConversationHistory());
-                    currentState = result.getFinalState();
-                    lastErrorMessage = result.getErrorMessage();
-                } else if (error != null) {
-                    currentState = AgentState.ERROR;
-                    lastErrorMessage = error.getMessage();
+        synchronized (lock) {
+            activeTask = submittedTask;
+        }
+
+        submittedTask.whenComplete((result, error) -> {
+            try {
+                submittedRunner.removeListener(forwardingListener);
+            } finally {
+                try {
+                    submittedRunner.dispose();
+                } finally {
+                    synchronized (lock) {
+                        if (activeRunner == submittedRunner && activeTask == submittedTask) {
+                            if (result != null) {
+                                conversationHistory = new ArrayList<>(result.getConversationHistory());
+                                currentState = result.getFinalState();
+                                lastErrorMessage = result.getErrorMessage();
+                            } else if (error != null) {
+                                currentState = AgentState.ERROR;
+                                lastErrorMessage = error.getMessage();
+                            }
+                            activeRunner = null;
+                            activeTask = null;
+                        }
+                    }
                 }
-                if (activeRunner != null) {
-                    activeRunner.removeListener(forwardingListener);
-                    activeRunner.dispose();
-                }
-                activeRunner = null;
-                activeTask = null;
             }
         });
 

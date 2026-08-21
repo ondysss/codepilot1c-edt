@@ -40,15 +40,31 @@ public class ProjectMemoryInitializationService {
     @FunctionalInterface
     public interface AgentLauncher {
         CompletableFuture<AgentResult> launch(String prompt, String profileId);
+
+        default CompletableFuture<AgentResult> launch(String prompt, String profileId,
+                String projectPath, String sessionId) {
+            return launch(prompt, profileId);
+        }
     }
 
     private final ProjectMemoryContextService memoryContextService;
     private final AgentLauncher launcher;
 
     public ProjectMemoryInitializationService() {
-        this(new ProjectMemoryContextService(),
-                (prompt, profileId) -> AgentSessionController.getInstance()
-                        .submitFromDesktopFreshScoped(prompt, profileId));
+        this(new ProjectMemoryContextService(), new AgentLauncher() {
+            @Override
+            public CompletableFuture<AgentResult> launch(String prompt, String profileId) {
+                return CompletableFuture.failedFuture(
+                        new IllegalArgumentException("Execution identity is required")); //$NON-NLS-1$
+            }
+
+            @Override
+            public CompletableFuture<AgentResult> launch(String prompt, String profileId,
+                    String projectPath, String sessionId) {
+                return AgentSessionController.getInstance().submitFromDesktopFreshScoped(
+                        prompt, profileId, projectPath, sessionId);
+            }
+        });
     }
 
     public ProjectMemoryInitializationService(ProjectMemoryContextService memoryContextService, AgentLauncher launcher) {
@@ -58,11 +74,16 @@ public class ProjectMemoryInitializationService {
 
     public CompletableFuture<Result> initialize(Request request) {
         Objects.requireNonNull(request, "request"); //$NON-NLS-1$
+        if (!request.hasExecutionIdentity()) {
+            return CompletableFuture.completedFuture(failure(Status.AGENT_FAILED,
+                    "Explicit project and session identity are required", null)); //$NON-NLS-1$
+        }
         String prompt = buildPrompt(request);
         MemorySnapshot before = MemorySnapshot.capture(memoryContextService.readFull(request.getProjectRoot()));
         CompletableFuture<AgentResult> run;
         try {
-            run = launcher.launch(prompt, InitAgentProfile.ID);
+            run = launcher.launch(prompt, InitAgentProfile.ID,
+                    request.getProjectRoot().toString(), request.getSessionId());
         } catch (RuntimeException e) {
             return CompletableFuture.completedFuture(failure(mapLaunchFailure(e), e.getMessage(), null));
         }
@@ -222,12 +243,19 @@ public class ProjectMemoryInitializationService {
         private final Path projectRoot;
         private final String projectName;
         private final String toolPath;
+        private final String sessionId;
 
         public Request(Mode mode, Path projectRoot, String projectName, String toolPath) {
+            this(mode, projectRoot, projectName, toolPath, null);
+        }
+
+        public Request(Mode mode, Path projectRoot, String projectName,
+                String toolPath, String sessionId) {
             this.mode = mode != null ? mode : Mode.CREATE;
             this.projectRoot = Objects.requireNonNull(projectRoot, "projectRoot").toAbsolutePath().normalize(); //$NON-NLS-1$
             this.projectName = projectName;
             this.toolPath = Objects.requireNonNull(toolPath, "toolPath"); //$NON-NLS-1$
+            this.sessionId = sessionId;
         }
 
         public Mode getMode() {
@@ -244,6 +272,15 @@ public class ProjectMemoryInitializationService {
 
         public String getToolPath() {
             return toolPath;
+        }
+
+        public String getSessionId() {
+            return sessionId;
+        }
+
+        boolean hasExecutionIdentity() {
+            return !projectRoot.toString().isBlank()
+                    && sessionId != null && !sessionId.isBlank();
         }
     }
 

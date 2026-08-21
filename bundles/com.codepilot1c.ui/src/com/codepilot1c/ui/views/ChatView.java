@@ -1141,6 +1141,7 @@ public class ChatView extends ViewPart {
         }
         boolean updateExisting = hasCodeMd(project);
         bindCurrentSessionToProject(project);
+        Session initializationSession = viewSession();
         String codeMdToolPath = resolveCodeMdToolPath(project, updateExisting);
         if (!inputField.getText().trim().isEmpty() || !draftAttachments.isEmpty()) {
             boolean confirmed = MessageDialog.openConfirm(
@@ -1167,7 +1168,8 @@ public class ChatView extends ViewPart {
                         : ProjectMemoryInitializationService.Mode.CREATE,
                 Path.of(location.toOSString()),
                 project.getName(),
-                codeMdToolPath);
+                codeMdToolPath,
+                initializationSession.getId());
         final long operationGeneration = turnFence.beginTurn();
         currentRequestCancellation = null;
         String startedMessage = updateExisting

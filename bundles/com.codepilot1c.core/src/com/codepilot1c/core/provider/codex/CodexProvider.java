@@ -23,6 +23,7 @@ import com.codepilot1c.core.model.LlmStreamChunk;
 import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.provider.AbstractLlmProvider;
 import com.codepilot1c.core.provider.LlmProviderException;
+import com.codepilot1c.core.provider.LlmRequestCancellation;
 import com.codepilot1c.core.provider.ProviderCapabilities;
 import com.codepilot1c.core.provider.config.LlmProviderConfig;
 
@@ -86,23 +87,42 @@ public class CodexProvider extends AbstractLlmProvider {
 
     @Override
     public CompletableFuture<LlmResponse> complete(LlmRequest request) {
+        return complete(request, new LlmRequestCancellation());
+    }
+
+    @Override
+    public CompletableFuture<LlmResponse> complete(
+            LlmRequest request, LlmRequestCancellation cancellation) {
         if (!isConfigured()) {
             return CompletableFuture.failedFuture(new LlmProviderException(NOT_CONFIGURED));
         }
-        return CompletableFuture.supplyAsync(() -> collectResponse(request));
+        LlmRequestCancellation requestCancellation = beginRequest(cancellation);
+        CompletableFuture<LlmResponse> future = CompletableFuture.supplyAsync(
+                () -> collectResponse(request, requestCancellation));
+        requestCancellation.onCancel(() -> future.cancel(true));
+        return future.whenComplete((result, error) -> endRequest(requestCancellation));
     }
 
     @Override
     public void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer) {
-        resetCancelled();
+        streamComplete(request, consumer, new LlmRequestCancellation());
+    }
+
+    @Override
+    public void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer,
+            LlmRequestCancellation cancellation) {
         if (!isConfigured()) {
             throw new LlmProviderException(NOT_CONFIGURED);
         }
-        executeStream(request, consumer);
+        LlmRequestCancellation requestCancellation = beginRequest(cancellation);
+        try {
+            executeStream(request, consumer, requestCancellation);
+        } finally {
+            endRequest(requestCancellation);
+        }
     }
 
-    private LlmResponse collectResponse(LlmRequest request) {
-        resetCancelled();
+    private LlmResponse collectResponse(LlmRequest request, LlmRequestCancellation cancellation) {
         StringBuilder content = new StringBuilder();
         StringBuilder reasoning = new StringBuilder();
         List<ToolCall> toolCalls = new ArrayList<>();
@@ -135,7 +155,7 @@ public class CodexProvider extends AbstractLlmProvider {
             }
         };
 
-        executeStream(request, collector);
+        executeStream(request, collector, cancellation);
         if (error[0] != null) {
             throw error[0];
         }
@@ -149,7 +169,8 @@ public class CodexProvider extends AbstractLlmProvider {
             reasoning.length() > 0 ? reasoning.toString() : null);
     }
 
-    private void executeStream(LlmRequest request, Consumer<LlmStreamChunk> consumer) {
+    private void executeStream(LlmRequest request, Consumer<LlmStreamChunk> consumer,
+            LlmRequestCancellation cancellation) {
         String body = requestBuilder.build(request, config.getModel(), config.getMaxTokens(), true,
             config.getReasoningEffort());
         HttpRequest httpRequest = buildHttpRequest(body);
@@ -159,7 +180,7 @@ public class CodexProvider extends AbstractLlmProvider {
         sendAsyncStreaming(
             httpRequest,
             (line, complete) -> {
-                if (!isCancelled()) {
+                if (!cancellation.isCancelled()) {
                     parser.process(line, complete);
                 }
             },
@@ -168,10 +189,11 @@ public class CodexProvider extends AbstractLlmProvider {
                     ? (LlmProviderException) ex
                     : new LlmProviderException("Codex stream request failed: " + ex.getMessage(), ex); //$NON-NLS-1$
                 consumer.accept(LlmStreamChunk.error(error[0].getMessage()));
-            }
+            },
+            cancellation
         ).join();
 
-        if (error[0] != null && !isCancelled()) {
+        if (error[0] != null && !cancellation.isCancelled()) {
             throw error[0];
         }
     }
