@@ -23,6 +23,13 @@ public final class GsdShipProfile extends GsdPhaseProfile {
 
     public static final String ID = "gsd-ship"; //$NON-NLS-1$
 
+    private static final String RELEASE_ARTIFACT_PATH_REGEX =
+            "(?:\\./)?(?:CHANGELOG\\.md|RELEASE_NOTES\\.md|release-notes\\.md|" //$NON-NLS-1$
+                    + "(?:docs/release-notes|release-notes)/" //$NON-NLS-1$
+                    + "[A-Za-z0-9][A-Za-z0-9._-]*\\.(?:md|txt|json))"; //$NON-NLS-1$
+    private static final String NON_RELEASE_ARTIFACT_PATH_REGEX =
+            "(?!(?:" + RELEASE_ARTIFACT_PATH_REGEX + ")$).*"; //$NON-NLS-1$ //$NON-NLS-2$
+
     private static final Set<String> ALLOWED_TOOLS = extendTools(
             "gsd_get_state", //$NON-NLS-1$
             "gsd_transition", //$NON-NLS-1$
@@ -36,19 +43,20 @@ public final class GsdShipProfile extends GsdPhaseProfile {
             PermissionRule.allow("gsd_transition").forAllResources(), //$NON-NLS-1$
             PermissionRule.allow("remember_fact").forAllResources(), //$NON-NLS-1$
             PermissionRule.ask("git_mutate") //$NON-NLS-1$
-                    .withDescription("Мутирующие git-операции") //$NON-NLS-1$
+                    .withDescription("Ship git-операции add/commit/push") //$NON-NLS-1$
                     .forAllResources(),
-            PermissionRule.deny("write_file") //$NON-NLS-1$
-                    .withDescription("Прямая запись .mdo запрещена; используй EDT mutation tools") //$NON-NLS-1$
-                    .forResourcePattern("**/*.mdo") //$NON-NLS-1$
-                    .build(),
-            PermissionRule.deny("edit_file") //$NON-NLS-1$
-                    .withDescription("Прямое редактирование .mdo запрещено; используй EDT mutation tools") //$NON-NLS-1$
-                    .forResourcePattern("**/*.mdo") //$NON-NLS-1$
+            PermissionRule.deny("git_mutate") //$NON-NLS-1$
+                    .withDescription("Ship запрещает git-операции, меняющие рабочее дерево или настройки") //$NON-NLS-1$
+                    .forResourceRegex("operation:(?!(?:add|commit|push)$).*") //$NON-NLS-1$
                     .build(),
             PermissionRule.ask("write_file") //$NON-NLS-1$
-                    .withDescription("Создание release-артефактов") //$NON-NLS-1$
-                    .forAllResources()
+                    .withDescription("Создание явно разрешённого release-артефакта") //$NON-NLS-1$
+                    .forResourceRegex(RELEASE_ARTIFACT_PATH_REGEX)
+                    .build(),
+            PermissionRule.deny("write_file") //$NON-NLS-1$
+                    .withDescription("Ship может писать только в явные release-artifact paths") //$NON-NLS-1$
+                    .forResourceRegex(NON_RELEASE_ARTIFACT_PATH_REGEX)
+                    .build()
     );
 
     public GsdShipProfile() {

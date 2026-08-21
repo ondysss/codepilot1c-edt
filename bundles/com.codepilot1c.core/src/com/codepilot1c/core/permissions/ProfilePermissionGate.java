@@ -47,6 +47,8 @@ public final class ProfilePermissionGate {
     /**
      * Проверяет вызов по принципу самого строгого решения:
      * DENY &gt; ASK &gt; ALLOW, а отсутствие правила не влияет на второй слой.
+     * Для {@code git_mutate} дополнительно проверяется синтетический ресурс
+     * {@code operation:&lt;name&gt;}; raw path/resource в результате не меняется.
      *
      * @param profileRules правила активного профиля
      * @param globalRules глобальные правила
@@ -61,12 +63,11 @@ public final class ProfilePermissionGate {
             Map<String, Object> arguments) {
         String rawResource = PermissionEvaluator.gateResourceOf(arguments);
         String resource = PermissionEvaluator.normalizedResourceOf(arguments);
-        PermissionRule profileRule = PermissionEvaluator
-                .strictestMatch(profileRules, toolName, resource)
-                .orElse(null);
-        PermissionRule globalRule = PermissionEvaluator
-                .strictestMatch(globalRules, toolName, resource)
-                .orElse(null);
+        String operationResource = operationResource(toolName, arguments);
+        PermissionRule profileRule = strictestMatch(
+                profileRules, toolName, resource, operationResource);
+        PermissionRule globalRule = strictestMatch(
+                globalRules, toolName, resource, operationResource);
 
         if (profileRule == null && globalRule == null) {
             return new GateResult(GateDecision.NO_RULE, null, "none", rawResource);
@@ -90,5 +91,49 @@ public final class ProfilePermissionGate {
 
     private static boolean hasDecision(PermissionRule rule, PermissionDecision decision) {
         return rule != null && rule.getDecision() == decision;
+    }
+
+    private static PermissionRule strictestMatch(
+            List<PermissionRule> rules,
+            String toolName,
+            String resource,
+            String operationResource) {
+        PermissionRule resourceRule = PermissionEvaluator
+                .strictestMatch(rules, toolName, resource)
+                .orElse(null);
+        if (operationResource == null) {
+            return resourceRule;
+        }
+        PermissionRule operationRule = PermissionEvaluator
+                .strictestMatch(rules, toolName, operationResource)
+                .orElse(null);
+        if (resourceRule == null) {
+            return operationRule;
+        }
+        if (operationRule == null) {
+            return resourceRule;
+        }
+        return strictness(operationRule.getDecision()) > strictness(resourceRule.getDecision())
+                ? operationRule
+                : resourceRule;
+    }
+
+    private static String operationResource(String toolName, Map<String, Object> arguments) {
+        if (!"git_mutate".equals(toolName) || arguments == null) { //$NON-NLS-1$
+            return null;
+        }
+        Object operation = arguments.get("operation"); //$NON-NLS-1$
+        if (operation == null || String.valueOf(operation).isBlank()) {
+            return null;
+        }
+        return "operation:" + String.valueOf(operation).trim(); //$NON-NLS-1$
+    }
+
+    private static int strictness(PermissionDecision decision) {
+        return switch (decision) {
+            case DENY -> 3;
+            case ASK -> 2;
+            case ALLOW -> 1;
+        };
     }
 }

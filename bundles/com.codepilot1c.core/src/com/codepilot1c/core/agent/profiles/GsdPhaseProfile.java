@@ -198,7 +198,7 @@ abstract class GsdPhaseProfile implements AgentProfile {
 
     @Override
     public String getSystemPromptAddition() {
-        String defaultPrompt = AgentPromptTemplates.buildGsdPhasePrompt(id);
+        String defaultPrompt = AgentPromptTemplates.buildGsdPhasePrompt(id, allowedTools);
         return PromptProviderRegistry.getInstance().getSystemPromptAddition(id, defaultPrompt);
     }
 }

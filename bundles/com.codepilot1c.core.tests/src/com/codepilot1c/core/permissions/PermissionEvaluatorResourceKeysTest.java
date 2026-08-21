@@ -99,6 +99,20 @@ public class PermissionEvaluatorResourceKeysTest {
     }
 
     @Test
+    public void gitOperationSelectorDoesNotReplaceRawRepositoryResource() {
+        GateResult result = ProfilePermissionGate.evaluate(
+                List.of(PermissionRule.deny("git_mutate") //$NON-NLS-1$
+                        .forResourceRegex("operation:pull") //$NON-NLS-1$
+                        .build()),
+                List.of(), "git_mutate", Map.of( //$NON-NLS-1$
+                        "operation", "pull", //$NON-NLS-1$ //$NON-NLS-2$
+                        "repo_path", "/tmp/repo")); //$NON-NLS-1$ //$NON-NLS-2$
+
+        assertEquals(GateDecision.DENY, result.decision());
+        assertEquals("/tmp/repo", result.resource()); //$NON-NLS-1$
+    }
+
+    @Test
     public void createMetadataHasNoObjectScope() {
         GateResult result = evaluate("create_metadata", Map.of( //$NON-NLS-1$
                 "project", "P", //$NON-NLS-1$ //$NON-NLS-2$

@@ -25,13 +25,23 @@ public final class GsdVerifyProfile extends GsdPhaseProfile {
     private static final Set<String> ALLOWED_TOOLS = extendTools(
             "gsd_get_state", //$NON-NLS-1$
             "gsd_record_evidence", //$NON-NLS-1$
-            "gsd_transition" //$NON-NLS-1$
+            "gsd_transition", //$NON-NLS-1$
+            "inspect_role_rights", //$NON-NLS-1$
+            "inspect_template", //$NON-NLS-1$
+            "java_compile_probe", //$NON-NLS-1$
+            "qa_validate_feature", //$NON-NLS-1$
+            "validate_query" //$NON-NLS-1$
     );
 
     private static final List<PermissionRule> DEFAULT_PERMISSIONS = extendPermissions(
             PermissionRule.allow("gsd_get_state").forAllResources(), //$NON-NLS-1$
             PermissionRule.allow("gsd_record_evidence").forAllResources(), //$NON-NLS-1$
-            PermissionRule.allow("gsd_transition").forAllResources() //$NON-NLS-1$
+            PermissionRule.allow("gsd_transition").forAllResources(), //$NON-NLS-1$
+            PermissionRule.allow("inspect_role_rights").forAllResources(), //$NON-NLS-1$
+            PermissionRule.allow("inspect_template").forAllResources(), //$NON-NLS-1$
+            PermissionRule.allow("java_compile_probe").forAllResources(), //$NON-NLS-1$
+            PermissionRule.allow("qa_validate_feature").forAllResources(), //$NON-NLS-1$
+            PermissionRule.allow("validate_query").forAllResources() //$NON-NLS-1$
     );
 
     public GsdVerifyProfile() {

@@ -173,6 +173,25 @@ public class AgentRunnerPermissionGateTest {
     }
 
     @Test
+    public void arbitrarySourceWriteIsDeniedInGsdShipProfile() throws Exception {
+        CountingTool writeFile = new CountingTool("write_file"); //$NON-NLS-1$
+        AgentRunner runner = runnerWith(writeFile);
+        List<AgentEvent> events = captureEvents(runner);
+        autoConfirm(runner, null);
+        AgentConfig config = AgentConfig.builder()
+                .profileName("gsd-ship") //$NON-NLS-1$
+                .enableTool("write_file") //$NON-NLS-1$
+                .build();
+
+        invokeExecute(runner, new ToolCall("call-1", "write_file", //$NON-NLS-1$ //$NON-NLS-2$
+                "{\"path\":\"src/Main.java\"}"), config); //$NON-NLS-1$
+
+        assertEquals(0, writeFile.executions.get());
+        assertEquals("denied_by_profile_rule", //$NON-NLS-1$
+                onlyResult(events).getStructuredString("reason_code")); //$NON-NLS-1$
+    }
+
+    @Test
     public void mutatingToolIsDeniedForEveryReadOnlyProfileEvenWhenConfigIsPermissive()
             throws Exception {
         for (String profileId : List.of(

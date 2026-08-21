@@ -41,6 +41,7 @@ import com.codepilot1c.core.tools.ToolArgumentParser;
 import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
+import com.codepilot1c.core.tools.meta.ToolDescriptorRegistry;
 
 public class ChatViewPermissionGateTest {
 
@@ -268,7 +269,7 @@ public class ChatViewPermissionGateTest {
         CountingTool tool = new CountingTool(name, true, false);
         ToolRegistry registry = ToolRegistry.getInstance();
         registry.registerDynamicTool(tool);
-        AgentProfile profile = profile("vanished", Set.of(), List.of(), false); //$NON-NLS-1$
+        AgentProfile profile = profile("vanished", Set.of(name), List.of(), false); //$NON-NLS-1$
         try {
             ChatToolGate gate = gate(profile, List.of(), EMPTY_PARSER,
                     registry.getDynamicToolNames(), true, false);
@@ -338,26 +339,47 @@ public class ChatViewPermissionGateTest {
     }
 
     @Test
-    public void dynamicToolStaysVisibleAndIsGatedByRulesOnly() {
+    public void dynamicMutatorOutsideProfileIsHiddenAndDenied() {
         String name = "w6_dynamic_surface"; //$NON-NLS-1$
-        CountingTool tool = new CountingTool(name);
+        CountingTool tool = new CountingTool(name, false, true);
         ToolRegistry registry = ToolRegistry.getInstance();
         registry.registerDynamicTool(tool);
         AgentProfile profile = profile("limited", Set.of("read_file"), List.of(), false); //$NON-NLS-1$ //$NON-NLS-2$
-        PermissionRule deny = PermissionRule.deny(name)
-                .withDescription("dynamic deny") //$NON-NLS-1$
-                .forAllResources();
         try {
-            ChatToolGate gate = gate(profile, List.of(deny), EMPTY_PARSER,
+            ChatToolGate gate = gate(profile, List.of(), EMPTY_PARSER,
                     registry.getDynamicToolNames(), true, false);
 
-            assertTrue(gate.visibleToolDefinitions(registry).stream()
+            assertFalse(gate.visibleToolDefinitions(registry).stream()
                     .anyMatch(definition -> name.equals(definition.getName())));
             ChatToolGate.Decision decision = gate.decide(call(name, "{}"), tool); //$NON-NLS-1$
             assertEquals(ChatToolGate.Action.DENY, decision.action());
-            assertEquals("denied_by_global_rule", decision.reasonCode()); //$NON-NLS-1$
+            assertEquals("tool_not_in_profile", decision.reasonCode()); //$NON-NLS-1$
         } finally {
             registry.unregisterDynamicTool(name);
+        }
+    }
+
+    @Test
+    public void builtInToolWinsOverDynamicToolWithSameAllowedName() {
+        String name = "read_file"; //$NON-NLS-1$
+        CountingTool dynamic = new CountingTool(name, false, true);
+        ToolRegistry registry = ToolRegistry.getInstance();
+        ITool builtIn = registry.getTool(name);
+        registry.registerDynamicTool(dynamic);
+        AgentProfile profile = profile("builtin-precedence", Set.of(name), List.of(), true); //$NON-NLS-1$
+        try {
+            ChatToolGate gate = gate(profile, List.of(), EMPTY_PARSER,
+                    registry.getDynamicToolNames(), true, false);
+
+            assertSame(builtIn, registry.getTool(name));
+            assertTrue(gate.visibleToolDefinitions(registry).stream()
+                    .anyMatch(definition -> name.equals(definition.getName())));
+            assertEquals(ChatToolGate.Action.EXECUTE,
+                    gate.decide(call(name, "{}"), registry.getTool(name)).action()); //$NON-NLS-1$
+            assertEquals(0, dynamic.executions.get());
+        } finally {
+            registry.unregisterDynamicTool(name);
+            ToolDescriptorRegistry.getInstance().registerTool(builtIn);
         }
     }
 

@@ -78,7 +78,6 @@ public final class ChatToolGate {
     private final AgentProfile profile;
     private final Supplier<List<PermissionRule>> globalRules;
     private final Function<String, Map<String, Object>> argumentParser;
-    private final Supplier<Set<String>> dynamicToolNames;
     private final BooleanSupplier confirmationSinkAvailable;
     private final BooleanSupplier skipConfirmations;
 
@@ -88,7 +87,8 @@ public final class ChatToolGate {
      * @param profile selected chat profile
      * @param globalRules supplier of global permission rules
      * @param argumentParser parser shared with tool execution
-     * @param dynamicToolNames supplier of dynamic tool names retained outside profile allowlists
+     * @param dynamicToolNames supplier of dynamically registered tool names. Registration
+     *        records runtime lifecycle/provenance only and never grants profile capability.
      * @param confirmationSinkAvailable whether the UI can currently request confirmation
      * @param skipConfirmations whether confirmation is auto-approved by preference
      */
@@ -102,7 +102,7 @@ public final class ChatToolGate {
         this.profile = Objects.requireNonNull(profile, "profile"); //$NON-NLS-1$
         this.globalRules = Objects.requireNonNull(globalRules, "globalRules"); //$NON-NLS-1$
         this.argumentParser = Objects.requireNonNull(argumentParser, "argumentParser"); //$NON-NLS-1$
-        this.dynamicToolNames = Objects.requireNonNull(dynamicToolNames, "dynamicToolNames"); //$NON-NLS-1$
+        Objects.requireNonNull(dynamicToolNames, "dynamicToolNames"); //$NON-NLS-1$
         this.confirmationSinkAvailable = Objects.requireNonNull(
                 confirmationSinkAvailable, "confirmationSinkAvailable"); //$NON-NLS-1$
         this.skipConfirmations = Objects.requireNonNull(skipConfirmations, "skipConfirmations"); //$NON-NLS-1$
@@ -138,7 +138,8 @@ public final class ChatToolGate {
 
     /**
      * Builds the model-facing tool surface from the selected profile.
-     * Dynamic tools remain visible and are still governed by permission rules.
+     * Dynamic registration never expands the profile allowlist. A dynamic tool is
+     * visible only when its name is explicitly allowed by the selected profile.
      *
      * @param registry tool registry
      * @return visible tool definitions
@@ -147,10 +148,9 @@ public final class ChatToolGate {
         Objects.requireNonNull(registry, "registry"); //$NON-NLS-1$
         ToolSurfaceContext context = registry.createRuntimeSurfaceContext(profile);
         Set<String> allowed = profile.getAllowedTools();
-        Set<String> dynamic = dynamicToolNamesSafe();
         List<ToolDefinition> result = new ArrayList<>();
         for (ITool tool : registry.getAllTools()) {
-            if (!isVisible(tool.getName(), allowed, dynamic)) {
+            if (!isVisible(tool.getName(), allowed)) {
                 continue;
             }
             result.add(registry.getToolDefinition(tool, context));
@@ -176,7 +176,7 @@ public final class ChatToolGate {
         }
 
         Set<String> allowed = profile.getAllowedTools();
-        if (!isVisible(toolName, allowed, dynamicToolNamesSafe())) {
+        if (!isVisible(toolName, allowed)) {
             String reasonCode = "tool_not_in_profile"; //$NON-NLS-1$
             return deny(arguments, context, PermissionDenialPayload.denied(
                     toolName, profile.getId(), null, reasonCode, LAYER_PROFILE, null),
@@ -248,9 +248,8 @@ public final class ChatToolGate {
                 && "edit_file".equals(call.getName()); //$NON-NLS-1$
     }
 
-    private boolean isVisible(String toolName, Set<String> allowed, Set<String> dynamic) {
-        return allowed == null || allowed.isEmpty()
-                || allowed.contains(toolName) || dynamic.contains(toolName);
+    private boolean isVisible(String toolName, Set<String> allowed) {
+        return allowed != null && allowed.contains(toolName);
     }
 
     private Map<String, Object> parseSafe(String arguments) {
@@ -268,15 +267,6 @@ public final class ChatToolGate {
             return rules != null ? rules : List.of();
         } catch (Throwable e) {
             return List.of();
-        }
-    }
-
-    private Set<String> dynamicToolNamesSafe() {
-        try {
-            Set<String> names = dynamicToolNames.get();
-            return names != null ? names : Set.of();
-        } catch (Throwable e) {
-            return Set.of();
         }
     }
 
