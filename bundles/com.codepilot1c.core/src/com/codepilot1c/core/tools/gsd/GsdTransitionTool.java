@@ -25,10 +25,13 @@ import com.google.gson.JsonObject;
 
 /**
  * Transitions the GSD phase. Forward transitions: DISCOVERY → PLANNING → EXECUTING →
- * VERIFYING → CLOSED. Single allowed rollback: VERIFYING → EXECUTING (requires {@code reason}).
+ * VERIFYING → SHIPPING → CLOSED. Allowed rollbacks are VERIFYING → EXECUTING and
+ * SHIPPING → VERIFYING/EXECUTING; every rollback requires {@code reason}.
  *
- * <p>Schema requires {@code project_path}, {@code expected_revision}, {@code target_phase}.
- * {@code reason} is optional except for VERIFYING→EXECUTING rollback where it is required.</p>
+ * <p>Schema requires {@code project_path}, the complete concurrency token
+ * ({@code expected_cycle_id}, {@code expected_generation}, and {@code expected_revision}),
+ * and {@code target_phase}. {@code reason} is optional for forward transitions and
+ * required for every rollback.</p>
  */
 @ToolMeta(
     name = "gsd_transition",

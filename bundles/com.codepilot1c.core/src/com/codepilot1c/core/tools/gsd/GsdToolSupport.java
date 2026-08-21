@@ -98,8 +98,23 @@ final class GsdToolSupport {
     static GsdConcurrencyToken requireToken(ToolParameters params) {
         return new GsdConcurrencyToken(
                 params.requireString("expected_cycle_id"), //$NON-NLS-1$
-                params.requireLong("expected_generation"), //$NON-NLS-1$
-                params.requireLong("expected_revision")); //$NON-NLS-1$
+                requireJsonInteger(params, "expected_generation"), //$NON-NLS-1$
+                requireJsonInteger(params, "expected_revision")); //$NON-NLS-1$
+    }
+
+    /**
+     * Reads an integer-schema value without accepting a numeric string. Tool schemas
+     * describe token numbers as JSON integers, so runtime parsing must preserve that
+     * type contract instead of applying compatibility coercion from {@link ToolParameters}.
+     */
+    private static long requireJsonInteger(ToolParameters params, String name) {
+        Object value = params.getRaw().get(name);
+        if (!(value instanceof Number)) {
+            String actual = value == null ? "missing" : value.getClass().getSimpleName(); //$NON-NLS-1$
+            throw new ToolParameterException(
+                    "Parameter '" + name + "' must be a JSON integer, got " + actual); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        return params.requireLong(name);
     }
 
     static JsonObject stateEnvelope(String operation, GsdState state) {

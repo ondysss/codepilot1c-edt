@@ -17,8 +17,8 @@ import org.junit.Test;
  * be rejected. The correct behaviour is to keep the task non-DONE, report
  * the blocker via evidence, and let the user decide.</p>
  *
- * <p>The only documented rollback is VERIFYING &rarr; EXECUTING via
- * gsd_transition with a reason.</p>
+ * <p>Documented rollbacks match the domain transition matrix, including
+ * reasoned recovery from a failed shipment.</p>
  */
 public class GsdExecutePromptTest {
 
@@ -70,12 +70,24 @@ public class GsdExecutePromptTest {
     }
 
     @Test
-    public void executePromptDocumentsOnlyRollbackIsVerifyingToExecuting() {
+    public void executePromptDocumentsCompleteRollbackMatrix() {
         String prompt = AgentPromptTemplates.buildGsdExecutePrompt();
 
-        assertTrue(
-                "Execute prompt must document that the only valid rollback is VERIFYING->EXECUTING", //$NON-NLS-1$
-                prompt.contains("VERIFYING->EXECUTING")); //$NON-NLS-1$
+        assertTrue(prompt.contains("VERIFYING->EXECUTING")); //$NON-NLS-1$
+        assertTrue(prompt.contains("SHIPPING->VERIFYING")); //$NON-NLS-1$
+        assertTrue(prompt.contains("SHIPPING->EXECUTING")); //$NON-NLS-1$
+        assertFalse(prompt.contains("Единственный допустимый rollback")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void shipPromptExplainsFailedShipmentRecovery() {
+        String prompt = AgentPromptTemplates.buildGsdShipPrompt();
+
+        assertTrue(prompt.contains("FAILED shipment")); //$NON-NLS-1$
+        assertTrue(prompt.contains("SHIPPING->VERIFYING")); //$NON-NLS-1$
+        assertTrue(prompt.contains("SHIPPING->EXECUTING")); //$NON-NLS-1$
+        assertTrue(prompt.contains("reason")); //$NON-NLS-1$
+        assertTrue(prompt.contains("model-facing инструмента замены цикла нет")); //$NON-NLS-1$
     }
 
     @Test

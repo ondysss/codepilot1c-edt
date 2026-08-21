@@ -473,7 +473,7 @@ public final class AgentPromptTemplates {
         sb.append("2. Запрещены любые мутации исходного проекта, EDT, Git и shell-команды.\n"); //$NON-NLS-1$
         sb.append("3. Используй gsd_get_state чтобы прочитать текущее состояние и решения.\n"); //$NON-NLS-1$
         sb.append("4. Создавай и уточняй план через gsd_create_plan: задачи, приоритеты, зависимости, проверки.\n"); //$NON-NLS-1$
-        sb.append("5. Каждая задача должна быть выполнима и иметь чёткий критерий завершения.\n"); //$NON-NLS-1$
+        sb.append("5. Каждая задача должна быть выполнима и иметь чёткий критерий завершения; план обязан содержать хотя бы один acceptance criterion с required=true.\n"); //$NON-NLS-1$
         sb.append("6. Переход к Execute возможен только через gsd_transition по guard state-machine.\n\n"); //$NON-NLS-1$
         appendGsdToolGuidance(sb, allowedTools);
         sb.append("## Формат результата\n"); //$NON-NLS-1$
@@ -500,7 +500,7 @@ public final class AgentPromptTemplates {
         sb.append("   оставь задачу в текущем статусе (не переводи в DONE), зафиксировав блок через gsd_record_evidence с описанием причины,\n"); //$NON-NLS-1$
         sb.append("   и запроси решение или новый цикл планирования у пользователя.\n"); //$NON-NLS-1$
         sb.append("   (EXECUTING->PLANNING запрещён state-machine; переход в VERIFYING требует all DONE — blocked-задача его не пройдёт.)\n"); //$NON-NLS-1$
-        sb.append("   Единственный допустимый rollback: VERIFYING->EXECUTING через gsd_transition с reason.\n"); //$NON-NLS-1$
+        sb.append("   Допустимые rollback-переходы: VERIFYING->EXECUTING, SHIPPING->VERIFYING и SHIPPING->EXECUTING; каждый выполняется через gsd_transition с reason.\n"); //$NON-NLS-1$
         sb.append("2. Для каждой задачи сначала собери контекст, затем примени подходящий инструмент.\n"); //$NON-NLS-1$
         sb.append("3. Flow EDT-мутаций: edt_validate_request -> передай полученный validation_token без изменений -> "); //$NON-NLS-1$
         sb.append("create_metadata/create_form/add_metadata_child/update_metadata/mutate_form_model/delete_metadata -> get_diagnostics.\n"); //$NON-NLS-1$
@@ -568,12 +568,13 @@ public final class AgentPromptTemplates {
         sb.append("## Операционный контракт\n"); //$NON-NLS-1$
         sb.append("1. Проверь через gsd_get_state, что текущая фаза SHIPPING и все обязательные criteria PASSED.\n"); //$NON-NLS-1$
         sb.append("2. Переход из CLOSED в любую другую фазу запрещён state-machine. Если нужны изменения,\n"); //$NON-NLS-1$
-        sb.append("   создай новую GSD-сессию.\n"); //$NON-NLS-1$
+        sb.append("   запроси создание нового цикла через host workflow: model-facing инструмента замены цикла нет.\n"); //$NON-NLS-1$
         sb.append("3. Запиши результат доставки через gsd_record_shipment; exact retry с актуальным token идемпотентен, другой shipment конфликтует.\n"); //$NON-NLS-1$
-        sb.append("4. write_file разрешён только для CHANGELOG.md, RELEASE_NOTES.md, release-notes.md и файлов "); //$NON-NLS-1$
+        sb.append("4. FAILED shipment нельзя заменить повторной записью: для восстановления выполни обоснованный rollback через gsd_transition с reason — SHIPPING->VERIFYING для повторной проверки или SHIPPING->EXECUTING для исправлений.\n"); //$NON-NLS-1$
+        sb.append("5. write_file разрешён только для CHANGELOG.md, RELEASE_NOTES.md, release-notes.md и файлов "); //$NON-NLS-1$
         sb.append("docs/release-notes/* или release-notes/* с расширением md/txt/json; не изменяй код, manifests, product/EDT metadata и формы EDT.\n"); //$NON-NLS-1$
-        sb.append("5. Используй git_inspect перед git_mutate; в Ship разрешены только операции add, commit и push.\n"); //$NON-NLS-1$
-        sb.append("6. Заверши фазу через gsd_transition (SHIPPING->CLOSED) только после COMPLETED shipment.\n\n"); //$NON-NLS-1$
+        sb.append("6. Используй git_inspect перед git_mutate; в Ship разрешены только операции add, commit и push.\n"); //$NON-NLS-1$
+        sb.append("7. Заверши фазу через gsd_transition (SHIPPING->CLOSED) только после COMPLETED shipment.\n\n"); //$NON-NLS-1$
         appendGsdToolGuidance(sb, allowedTools);
         sb.append("## Формат результата\n"); //$NON-NLS-1$
         sb.append("1. Список артефактов доставки и выполненных git-операций.\n"); //$NON-NLS-1$

@@ -432,9 +432,8 @@ public final class GsdWorkflowService {
     // ---- Create plan ------------------------------------------------------
 
     /**
-     * Creates a plan: sets the goal, tasks, and waves. Does <em>not</em> change the phase;
-     * phase transitions are performed exclusively by {@link #transitionPhase}.
-     * <strong>Phase guard:</strong> PLANNING only.
+     * Legacy revision-compatible overload without explicit acceptance criteria.
+     * The domain invariant requires a required criterion, so this overload is rejected.
      *
      * @param projectRoot       the project root path
      * @param expectedRevision  optimistic-concurrency revision
@@ -445,8 +444,7 @@ public final class GsdWorkflowService {
      * @throws IOException               on I/O error
      * @throws GsdGuardException         if invariants violated
      * @throws GsdStaleRevisionException if revision mismatches
-     * @throws IllegalStateException     if not in PLANNING phase
-     * @throws IllegalArgumentException  if goal/tasks/waves are empty
+     * @throws IllegalArgumentException  because no acceptance criteria were supplied
      */
     public static GsdState createPlan(String projectRoot, long expectedRevision,
             String goal, List<GsdTask> tasks, List<GsdWave> waves) throws IOException {
@@ -455,7 +453,10 @@ public final class GsdWorkflowService {
                         goal, List.of(), tasks, waves));
     }
 
-    /** Token-aware compatibility overload for a plan without explicit criteria. */
+    /**
+     * Legacy token-aware overload without explicit criteria. The domain invariant
+     * requires a required acceptance criterion, so this overload is rejected.
+     */
     public static GsdState createPlan(String projectRoot, GsdConcurrencyToken expectedToken,
             String goal, List<GsdTask> tasks, List<GsdWave> waves) throws IOException {
         return compatibilityState("createPlan", //$NON-NLS-1$
@@ -463,7 +464,24 @@ public final class GsdWorkflowService {
                         goal, List.of(), tasks, waves));
     }
 
-    /** Creates a plan with persisted acceptance criteria. */
+    /**
+     * Creates a plan with persisted acceptance criteria. Does <em>not</em> change the
+     * phase; phase transitions are performed exclusively by {@link #transitionPhase}.
+     * <strong>Phase guard:</strong> PLANNING only.
+     *
+     * @param projectRoot        the project root path
+     * @param expectedRevision   optimistic-concurrency revision
+     * @param goal               the project goal (non-blank)
+     * @param acceptanceCriteria acceptance criteria containing at least one required item
+     * @param tasks              list of tasks (non-empty)
+     * @param waves              list of waves (non-empty)
+     * @return the persisted state
+     * @throws IOException               on I/O error
+     * @throws GsdGuardException         if invariants are violated
+     * @throws GsdStaleRevisionException if revision mismatches
+     * @throws IllegalStateException     if not in PLANNING phase
+     * @throws IllegalArgumentException  if input is empty or no criterion is required
+     */
     public static GsdState createPlan(String projectRoot, long expectedRevision,
             String goal, List<GsdAcceptanceCriterion> acceptanceCriteria,
             List<GsdTask> tasks, List<GsdWave> waves) throws IOException {
@@ -472,7 +490,10 @@ public final class GsdWorkflowService {
                         goal, acceptanceCriteria, tasks, waves));
     }
 
-    /** Revision-compatible plan API that exposes projection warnings. */
+    /**
+     * Legacy revision-compatible plan API without explicit criteria. The domain
+     * invariant requires a required acceptance criterion, so this overload is rejected.
+     */
     public static GsdCommitOutcome createPlanWithOutcome(String projectRoot,
             long expectedRevision, String goal, List<GsdTask> tasks,
             List<GsdWave> waves) throws IOException {
@@ -497,7 +518,10 @@ public final class GsdWorkflowService {
                         goal, acceptanceCriteria, tasks, waves));
     }
 
-    /** Token-aware plan API that exposes projection warnings. */
+    /**
+     * Legacy token-aware plan API without explicit criteria. The domain invariant
+     * requires a required acceptance criterion, so this overload is rejected.
+     */
     public static GsdCommitOutcome createPlanWithOutcome(String projectRoot,
             GsdConcurrencyToken expectedToken, String goal, List<GsdTask> tasks,
             List<GsdWave> waves) throws IOException {
@@ -529,6 +553,10 @@ public final class GsdWorkflowService {
         }
         if (waves.isEmpty()) {
             throw new IllegalArgumentException("waves must not be empty"); //$NON-NLS-1$
+        }
+        if (acceptanceCriteria.stream().noneMatch(GsdAcceptanceCriterion::required)) {
+            throw new IllegalArgumentException(
+                    "acceptanceCriteria must contain at least one required criterion"); //$NON-NLS-1$
         }
         // Enforce new-plan contract: all tasks must be PENDING with empty evidenceIds.
         for (int i = 0; i < tasks.size(); i++) {
@@ -811,7 +839,7 @@ public final class GsdWorkflowService {
 
     // ---- Acceptance and shipment ----------------------------------------
 
-    /** Records an acceptance result while verifying or shipping. */
+    /** Records an acceptance result while VERIFYING. */
     public static GsdState updateAcceptanceCriterion(String projectRoot,
             long expectedRevision, String criterionId, GsdAcceptanceStatus status) throws IOException {
         return compatibilityState("updateAcceptanceCriterion", //$NON-NLS-1$
@@ -870,7 +898,10 @@ public final class GsdWorkflowService {
         return store.commit(current.withAcceptanceCriteria(criteria));
     }
 
-    /** Persists a shipment/delivery record in the SHIPPING phase. */
+    /**
+     * Persists a shipment/delivery record in the SHIPPING phase. Requests are
+     * sanitized before idempotency and immutable-record conflict checks.
+     */
     public static GsdState recordShipment(String projectRoot, long expectedRevision,
             GsdShipment shipment) throws IOException {
         return compatibilityState("recordShipment", //$NON-NLS-1$
@@ -883,10 +914,6 @@ public final class GsdWorkflowService {
         GsdStateStore store = new GsdStateStore(projectRoot);
         GsdState current = store.load();
         checkRevision(current, expectedRevision);
-        requirePhase("recordShipment", current.phase(), GsdPhase.SHIPPING); //$NON-NLS-1$
-        if (sameShipment(current.shipment(), shipment)) {
-            return new GsdCommitOutcome(current, false, List.of());
-        }
         return recordShipmentWithOutcome(store, current, shipment);
     }
 
@@ -903,32 +930,36 @@ public final class GsdWorkflowService {
         GsdStateStore store = new GsdStateStore(projectRoot);
         GsdState current = store.load();
         checkToken(current, expectedToken);
-        requirePhase("recordShipment", current.phase(), GsdPhase.SHIPPING); //$NON-NLS-1$
-        if (sameShipment(current.shipment(), shipment)) {
-            return new GsdCommitOutcome(current, false, List.of());
-        }
         return recordShipmentWithOutcome(store, current, shipment);
     }
 
     private static GsdCommitOutcome recordShipmentWithOutcome(GsdStateStore store, GsdState current,
             GsdShipment shipment) throws IOException {
         requirePhase("recordShipment", current.phase(), GsdPhase.SHIPPING); //$NON-NLS-1$
-        Objects.requireNonNull(shipment, "shipment"); //$NON-NLS-1$
-        if (shipment.status() == GsdShipmentStatus.LEGACY_MIGRATED) {
-            throw new IllegalArgumentException(
-                    "LEGACY_MIGRATED shipment is reserved for schema-v1 migration"); //$NON-NLS-1$
+        GsdShipment safeShipment = sanitizeShipment(shipment);
+        if (sameShipment(current.shipment(), safeShipment)) {
+            return new GsdCommitOutcome(current, false, List.of());
         }
-        GsdShipment safeShipment = new GsdShipment(
-                secureField(shipment.id(), "shipment.id", ContentKind.DECISION), //$NON-NLS-1$
-                secureField(shipment.deliveryReference(), "shipment.deliveryReference", //$NON-NLS-1$
-                        ContentKind.EVIDENCE),
-                shipment.status(), shipment.completedAt());
         if (!current.shipment().emptyRecord()
                 && !mayAdvanceShipment(current.shipment(), safeShipment)) {
             throw new GsdShipmentConflictException(
                     "shipment already recorded for cycle " + current.cycleId()); //$NON-NLS-1$
         }
         return store.commit(current.withShipment(safeShipment));
+    }
+
+    /** Sanitizes the complete shipment before idempotency or conflict comparison. */
+    private static GsdShipment sanitizeShipment(GsdShipment shipment) {
+        Objects.requireNonNull(shipment, "shipment"); //$NON-NLS-1$
+        if (shipment.status() == GsdShipmentStatus.LEGACY_MIGRATED) {
+            throw new IllegalArgumentException(
+                    "LEGACY_MIGRATED shipment is reserved for schema-v1 migration"); //$NON-NLS-1$
+        }
+        return new GsdShipment(
+                secureField(shipment.id(), "shipment.id", ContentKind.DECISION), //$NON-NLS-1$
+                secureField(shipment.deliveryReference(), "shipment.deliveryReference", //$NON-NLS-1$
+                        ContentKind.EVIDENCE),
+                shipment.status(), shipment.completedAt());
     }
 
     private static boolean sameShipment(GsdShipment current, GsdShipment requested) {

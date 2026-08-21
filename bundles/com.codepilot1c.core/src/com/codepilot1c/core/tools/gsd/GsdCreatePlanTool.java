@@ -69,6 +69,7 @@ public class GsdCreatePlanTool extends AbstractTool {
                 "acceptance_criteria": {
                   "type": "array",
                   "minItems": 1,
+                  "description": "Acceptance criteria; at least one item must have required=true.",
                   "items": {
                     "type": "object",
                     "properties": {
@@ -214,6 +215,10 @@ public class GsdCreatePlanTool extends AbstractTool {
         }
 
         List<GsdAcceptanceCriterion> criteria = parseCriteria(rawCriteria);
+        if (criteria.stream().noneMatch(GsdAcceptanceCriterion::required)) {
+            throw new IllegalArgumentException(
+                    "acceptance_criteria must contain at least one required criterion"); //$NON-NLS-1$
+        }
         List<GsdTask> tasks = parseTasks(rawTasks);
         List<GsdWave> waves = parseWaves(rawWaves);
 

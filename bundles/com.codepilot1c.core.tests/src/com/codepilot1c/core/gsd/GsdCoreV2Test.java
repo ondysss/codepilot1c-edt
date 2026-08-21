@@ -300,6 +300,26 @@ public class GsdCoreV2Test {
     }
 
     @Test
+    public void shipmentRetryComparesSanitizedValuesBeforeConflict() throws IOException {
+        Path root = tmp.newFolder("shipment-sanitized-idempotency").toPath(); //$NON-NLS-1$
+        GsdState shipping = workflowToShipping(root);
+        GsdShipment request = new GsdShipment(
+                "shipment\u200B-1", "release/\u200B42", //$NON-NLS-1$ //$NON-NLS-2$
+                GsdShipmentStatus.IN_PROGRESS, null);
+
+        GsdCommitOutcome first = GsdWorkflowService.recordShipmentWithOutcome(
+                root.toString(), shipping.token(), request);
+        assertTrue(first.committed());
+        assertEquals("shipment-1", first.state().shipment().id()); //$NON-NLS-1$
+        assertEquals("release/42", first.state().shipment().deliveryReference()); //$NON-NLS-1$
+
+        GsdCommitOutcome retry = GsdWorkflowService.recordShipmentWithOutcome(
+                root.toString(), first.state().token(), request);
+        assertFalse(retry.committed());
+        assertEquals(first.state().token(), retry.state().token());
+    }
+
+    @Test
     public void newCycleRejectsAnyCycleIdPresentInRealHistory() throws IOException {
         Path root = tmp.newFolder("cycle-reuse").toPath(); //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(root);
