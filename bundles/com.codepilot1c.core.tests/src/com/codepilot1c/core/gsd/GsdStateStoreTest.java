@@ -25,7 +25,12 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.Assume;
 import org.junit.rules.TemporaryFolder;
+
+import com.codepilot1c.core.filesystem.SecureDirectoryCapabilityException;
+import com.codepilot1c.core.filesystem.SecureDirectoryMutation;
+import com.codepilot1c.core.filesystem.SecureDirectoryMutation.CapabilityPolicy;
 
 /**
  * Unit tests for {@link GsdStateStore}: round-trip, confinement, stale revision,
@@ -38,7 +43,95 @@ public class GsdStateStoreTest {
     public TemporaryFolder tmp = new TemporaryFolder();
 
     private Path newProject() throws IOException {
-        return tmp.newFolder("project").toPath(); //$NON-NLS-1$
+        Path project = tmp.newFolder("project").toPath(); //$NON-NLS-1$
+        Assume.assumeTrue("mutation tests require a real SecureDirectoryStream provider", //$NON-NLS-1$
+                SecureDirectoryMutation.supportsSecureDirectoryStreams(project));
+        Files.createDirectories(project.resolve(GsdStateStore.GSD_DIR_NAME));
+        return project;
+    }
+
+    @Test
+    public void forcedNonSecureProviderFailsBeforeFirstMutation() throws IOException {
+        Path root = tmp.newFolder("forced-non-secure-project").toPath(); //$NON-NLS-1$
+        Path gsd = Files.createDirectories(root.resolve(GsdStateStore.GSD_DIR_NAME));
+        Path sentinel = Files.writeString(gsd.resolve("sentinel"), "unchanged", //$NON-NLS-1$ //$NON-NLS-2$
+                StandardCharsets.UTF_8);
+        GsdStateStore store = new GsdStateStore(root, null,
+                CapabilityPolicy.FORCE_NON_SECURE_FOR_TESTS);
+
+        try {
+            store.load();
+            fail("expected deterministic capability rejection"); //$NON-NLS-1$
+        } catch (SecureDirectoryCapabilityException e) {
+            assertTrue(e.getMessage().contains("SecureDirectoryStream")); //$NON-NLS-1$
+        }
+
+        assertEquals("unchanged", Files.readString(sentinel)); //$NON-NLS-1$
+        assertFalse(Files.exists(gsd.resolve(GsdStateStore.STATE_LOCK)));
+        assertFalse(Files.exists(gsd.resolve(GsdStateStore.STATE_JSON)));
+        assertFalse(Files.exists(gsd.resolve(GsdStateStore.STATE_BAK)));
+        assertFalse(Files.exists(gsd.resolve(GsdProjections.STATE_FILE)));
+        assertFalse(Files.exists(gsd.resolve(GsdProjections.PLAN_FILE)));
+        try (java.util.stream.Stream<Path> children = Files.list(gsd)) {
+            assertEquals(1L, children.count());
+        }
+    }
+
+    @Test
+    public void missingGsdBootstrapFailsBeforeDirectoryOrOutsideMutation() throws IOException {
+        Path root = tmp.newFolder("missing-gsd-project").toPath(); //$NON-NLS-1$
+        Path outside = tmp.newFolder("missing-gsd-outside").toPath(); //$NON-NLS-1$
+        Path sentinel = Files.writeString(outside.resolve("sentinel"), "unchanged", //$NON-NLS-1$ //$NON-NLS-2$
+                StandardCharsets.UTF_8);
+        AtomicReference<String> boundary = new AtomicReference<>();
+        GsdStateStore store = new GsdStateStore(root, boundary::set);
+
+        try {
+            store.load();
+            fail("expected secure-bootstrap rejection"); //$NON-NLS-1$
+        } catch (SecureDirectoryCapabilityException e) {
+            assertTrue(e.getMessage().contains("pre-create")); //$NON-NLS-1$
+        }
+
+        assertEquals("gsd-directory-create", boundary.get()); //$NON-NLS-1$
+        assertFalse(Files.exists(root.resolve(".codepilot1c"))); //$NON-NLS-1$
+        assertEquals("unchanged", Files.readString(sentinel)); //$NON-NLS-1$
+        try (java.util.stream.Stream<Path> children = Files.list(outside)) {
+            assertEquals(1L, children.count());
+        }
+    }
+
+    @Test
+    public void gsdDirectoryPreBindSwapCannotCreateOutsideLockOrState() throws IOException {
+        Path root = newProject();
+        Path outside = tmp.newFolder("gsd-bind-outside").toPath(); //$NON-NLS-1$
+        Path outsideGsd = Files.createDirectories(outside.resolve("gsd")); //$NON-NLS-1$
+        Path sentinel = Files.writeString(outsideGsd.resolve("sentinel"), "unchanged", //$NON-NLS-1$ //$NON-NLS-2$
+                StandardCharsets.UTF_8);
+        GsdStateStore store = new GsdStateStore(root, operation -> {
+            if ("gsd-directory-bind".equals(operation)) { //$NON-NLS-1$
+                Path codepilot = root.resolve(".codepilot1c"); //$NON-NLS-1$
+                Files.move(codepilot, root.resolve(".codepilot1c-original")); //$NON-NLS-1$
+                Files.createSymbolicLink(codepilot, outside);
+            }
+        });
+
+        try {
+            store.load();
+            fail("expected pre-bind ancestry rejection"); //$NON-NLS-1$
+        } catch (IOException expected) {
+            // The project-relative secure open rejects the replacement symlink.
+        }
+
+        assertEquals("unchanged", Files.readString(sentinel)); //$NON-NLS-1$
+        assertFalse(Files.exists(outsideGsd.resolve(GsdStateStore.STATE_LOCK)));
+        assertFalse(Files.exists(outsideGsd.resolve(GsdStateStore.STATE_JSON)));
+        assertFalse(Files.exists(outsideGsd.resolve(GsdStateStore.STATE_BAK)));
+        assertFalse(Files.exists(outsideGsd.resolve(GsdProjections.STATE_FILE)));
+        assertFalse(Files.exists(outsideGsd.resolve(GsdProjections.PLAN_FILE)));
+        try (java.util.stream.Stream<Path> children = Files.list(outsideGsd)) {
+            assertEquals(1L, children.count());
+        }
     }
 
     // ---- Round-trip ------------------------------------------------------
@@ -354,7 +447,7 @@ public class GsdStateStoreTest {
 
     @Test
     public void symlinkedCodePilotDirEscapingProjectIsRejected() throws IOException {
-        Path root = newProject();
+        Path root = tmp.newFolder("symlink-project").toPath(); //$NON-NLS-1$
         Path outside = tmp.newFolder("outside").toPath(); //$NON-NLS-1$
         // Pre-create .codepilot1c as a symlink pointing outside the project.
         Files.createSymbolicLink(root.resolve(".codepilot1c"), outside); //$NON-NLS-1$
@@ -495,7 +588,7 @@ public class GsdStateStoreTest {
 
     @Test
     public void loadReadOnlyFreshProjectReturnsFreshStateWithoutWriting() throws IOException {
-        Path root = newProject();
+        Path root = tmp.newFolder("read-only-fresh-project").toPath(); //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(root);
 
         GsdState loaded = store.loadReadOnly();
@@ -563,7 +656,7 @@ public class GsdStateStoreTest {
     @Test
     public void loadReadOnlySymlinkedDirEscapingProjectIsRejected() throws IOException {
         // Skip on platforms that do not support symlinks (Windows without admin).
-        Path root = newProject();
+        Path root = tmp.newFolder("read-only-symlink-project").toPath(); //$NON-NLS-1$
         Path outside = tmp.newFolder("outside-ro").toPath(); //$NON-NLS-1$
         try {
             Files.createSymbolicLink(root.resolve(".codepilot1c"), outside); //$NON-NLS-1$

@@ -14,6 +14,7 @@ import java.util.Deque;
 import org.eclipse.core.resources.IResource;
 
 import com.codepilot1c.core.filesystem.SecureDirectoryMutation;
+import com.codepilot1c.core.filesystem.SecureDirectoryMutation.CapabilityPolicy;
 
 /** Physical/canonical containment checks for workspace writes. */
 final class WorkspacePathContainment {
@@ -60,14 +61,30 @@ final class WorkspacePathContainment {
      */
     static void writeContained(Path workspace, Path project, Path target, byte[] bytes,
             SecureDirectoryMutation.MutationHook hook) throws IOException {
+        writeContained(workspace, project, target, bytes, hook,
+                CapabilityPolicy.REQUIRE_SECURE);
+    }
+
+    static void writeContained(Path workspace, Path project, Path target, byte[] bytes,
+            SecureDirectoryMutation.MutationHook hook, CapabilityPolicy policy)
+            throws IOException {
         if (!isContained(workspace, project, target) || target.getParent() == null) {
             throw new java.nio.file.AccessDeniedException(target.toString(), null,
                     "ship artifact target is not physically contained"); //$NON-NLS-1$
         }
         SecureDirectoryMutation.BoundRoot boundProject =
-                SecureDirectoryMutation.bindRoot(project);
+                SecureDirectoryMutation.bindRoot(workspace, project, hook, policy,
+                        "ship-project-bind"); //$NON-NLS-1$
+        if (!Files.isDirectory(target.getParent(), LinkOption.NOFOLLOW_LINKS)) {
+            if (hook != null) {
+                hook.beforeMutation("ship-parent-create"); //$NON-NLS-1$
+            }
+            throw new com.codepilot1c.core.filesystem.SecureDirectoryCapabilityException(
+                    target.getParent(),
+                    "secure parent-directory creation is unavailable on Java 17"); //$NON-NLS-1$
+        }
         try (SecureDirectoryMutation parent = SecureDirectoryMutation.open(
-                boundProject, target.getParent(), hook)) {
+                boundProject, target.getParent(), hook, "ship-parent-bind")) { //$NON-NLS-1$
             parent.atomicWrite(target.getFileName().toString(), bytes, "ship-artifact"); //$NON-NLS-1$
         }
     }

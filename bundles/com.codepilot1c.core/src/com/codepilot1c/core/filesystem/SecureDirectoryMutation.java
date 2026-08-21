@@ -10,7 +10,6 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.AccessDeniedException;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -18,30 +17,34 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.SecureDirectoryStream;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * Binds filesystem validation to an open directory handle and, when the provider supports it,
- * performs relative mutations through {@link SecureDirectoryStream}. The secure handle remains
- * attached to the validated directory when a pathname ancestor is concurrently renamed or
- * replaced with a symlink.
+ * Performs filesystem mutations exclusively through stable, relative directory handles.
  *
- * <p>Java 17 has no portable {@code mkdirat} API. Callers may create missing directories before
- * opening this guard. A provider without {@link SecureDirectoryStream} uses the narrow Java 17
- * fallback: stable ancestry identity is checked immediately at every pathname mutation boundary
- * and again before atomic publication. Stable file identity is mandatory in either mode.</p>
+ * <p>Java 17 exposes that primitive only through {@link SecureDirectoryStream}. Providers that do
+ * not implement it fail closed before the first mutation. There is deliberately no pathname
+ * fallback: validation followed by {@code FileChannel.open}, {@code Files.move}, or
+ * {@code Files.delete} cannot prevent an ancestry swap. Java 17 also has no portable
+ * {@code mkdirat}; every directory on the path to a mutation must therefore already exist.</p>
  */
 public final class SecureDirectoryMutation implements AutoCloseable {
 
-    /** Test seam invoked after initial validation and before boundary revalidation. */
+    /** Explicit capability policy, including a deterministic test-only fail-closed mode. */
+    public enum CapabilityPolicy {
+        REQUIRE_SECURE,
+        FORCE_NON_SECURE_FOR_TESTS
+    }
+
+    /** Test seam invoked immediately before named binding and mutation boundaries. */
     @FunctionalInterface
     public interface MutationHook {
         void beforeMutation(String operation) throws IOException;
@@ -53,57 +56,109 @@ public final class SecureDirectoryMutation implements AutoCloseable {
 
     private final BoundRoot root;
     private final Path logicalDirectory;
-    private final DirectoryStream<Path> openedDirectory;
+    private final List<DirectoryStream<Path>> openedDirectories;
     private final SecureDirectoryStream<Path> directory;
     private final List<PathIdentity> ancestry;
     private final Object directoryKey;
     private final MutationHook hook;
 
     private SecureDirectoryMutation(BoundRoot root, Path logicalDirectory,
-            DirectoryStream<Path> openedDirectory, SecureDirectoryStream<Path> directory,
-            List<PathIdentity> ancestry,
+            List<DirectoryStream<Path>> openedDirectories,
+            SecureDirectoryStream<Path> directory, List<PathIdentity> ancestry,
             Object directoryKey, MutationHook hook) {
         this.root = root;
         this.logicalDirectory = logicalDirectory;
-        this.openedDirectory = openedDirectory;
+        this.openedDirectories = openedDirectories;
         this.directory = directory;
         this.ancestry = ancestry;
         this.directoryKey = directoryKey;
         this.hook = hook == null ? NOOP_HOOK : hook;
     }
 
-    /** Captures the real path and stable identity of a containment root. */
+    /** Captures the stable identity of a mutation root without mutating it. */
     public static BoundRoot bindRoot(Path root) throws IOException {
-        return BoundRoot.capture(root);
+        return bindRoot(root, CapabilityPolicy.REQUIRE_SECURE);
     }
 
-    /** Opens and validates {@code directory} below an already-bound containment root. */
+    /** Captures a root with an explicit capability policy. Capability is checked on open. */
+    public static BoundRoot bindRoot(Path root, CapabilityPolicy policy) throws IOException {
+        return BoundRoot.capture(root, policy);
+    }
+
+    /**
+     * Binds {@code project} as a physical descendant of {@code workspace}. The workspace identity
+     * is retained in the result, so a later project-root bind cannot accept an escaped replacement.
+     */
+    public static BoundRoot bindRoot(Path workspace, Path project, MutationHook hook,
+            CapabilityPolicy policy, String operation) throws IOException {
+        return BoundRoot.captureWithin(workspace, project, hook, policy, operation);
+    }
+
+    /** Returns whether the provider currently exposes a real secure directory stream. */
+    public static boolean supportsSecureDirectoryStreams(Path directory) throws IOException {
+        try (DirectoryStream<Path> opened = Files.newDirectoryStream(
+                Objects.requireNonNull(directory, "directory"))) { //$NON-NLS-1$
+            return opened instanceof SecureDirectoryStream<?>;
+        }
+    }
+
+    /** Opens an existing directory below an already-bound root. */
     public static SecureDirectoryMutation open(BoundRoot root, Path directory,
             MutationHook hook) throws IOException {
+        return open(root, directory, hook, "directory-bind"); //$NON-NLS-1$
+    }
+
+    /** Opens an existing directory and exposes a deterministic pre-bind hook. */
+    public static SecureDirectoryMutation open(BoundRoot root, Path directory,
+            MutationHook hook, String bindOperation) throws IOException {
         Objects.requireNonNull(root, "root"); //$NON-NLS-1$
         Path logical = Objects.requireNonNull(directory, "directory") //$NON-NLS-1$
                 .toAbsolutePath().normalize();
-        root.verifyCurrent();
         if (!logical.startsWith(root.logicalRoot) || logical.equals(root.logicalRoot)) {
             throw denied(logical, "mutation directory is outside the bound root"); //$NON-NLS-1$
         }
 
-        DirectoryStream<Path> opened = Files.newDirectoryStream(logical);
-        @SuppressWarnings("unchecked")
-        SecureDirectoryStream<Path> secure = opened instanceof SecureDirectoryStream<?>
-                ? (SecureDirectoryStream<Path>) opened : null;
+        MutationHook effectiveHook = hook == null ? NOOP_HOOK : hook;
+        root.verifyCurrent();
+        effectiveHook.beforeMutation(bindOperation);
+
+        List<DirectoryStream<Path>> opened = new ArrayList<>();
         try {
-            BasicFileAttributes anchored = secure != null
-                    ? secure.getFileAttributeView(BasicFileAttributeView.class).readAttributes()
-                    : Files.readAttributes(logical, BasicFileAttributes.class);
-            Object key = requireFileKey(logical, anchored);
-            List<PathIdentity> identities = captureAncestry(root, logical);
-            SecureDirectoryMutation result = new SecureDirectoryMutation(
-                    root, logical, opened, secure, identities, key, hook);
+            SecureDirectoryStream<Path> current = openSecureRoot(root, opened);
+            List<PathIdentity> identities = new ArrayList<>();
+            Path currentLogical = root.logicalRoot;
+            for (Path segment : root.logicalRoot.relativize(logical)) {
+                requireSimpleName(segment.toString());
+                DirectoryStream<Path> child;
+                try {
+                    child = current.newDirectoryStream(segment, LinkOption.NOFOLLOW_LINKS);
+                } catch (NoSuchFileException e) {
+                    throw new SecureDirectoryCapabilityException(logical,
+                            "secure directory creation is unavailable on Java 17; " //$NON-NLS-1$
+                                    + "the mutation directory must already exist", e); //$NON-NLS-1$
+                }
+                opened.add(child);
+                current = requireSecure(child, currentLogical.resolve(segment), root.policy);
+                currentLogical = currentLogical.resolve(segment);
+                BasicFileAttributes anchored = anchoredAttributes(current);
+                requireDirectory(currentLogical, anchored);
+                Object anchoredKey = requireFileKey(currentLogical, anchored);
+                PathIdentity visible = PathIdentity.captureDirectory(currentLogical);
+                if (!Objects.equals(anchoredKey, visible.followedKey)) {
+                    throw denied(currentLogical, "path ancestry changed during anchored binding"); //$NON-NLS-1$
+                }
+                if (!visible.followedRealPath.startsWith(root.realRoot)) {
+                    throw denied(currentLogical, "mutation directory escaped the bound root"); //$NON-NLS-1$
+                }
+                identities.add(visible);
+            }
+            Object key = requireFileKey(logical, anchoredAttributes(current));
+            SecureDirectoryMutation result = new SecureDirectoryMutation(root, logical,
+                    List.copyOf(opened), current, List.copyOf(identities), key, effectiveHook);
             result.validateCurrent();
             return result;
         } catch (IOException | RuntimeException e) {
-            opened.close();
+            closeReverse(opened, e);
             throw e;
         }
     }
@@ -113,39 +168,39 @@ public final class SecureDirectoryMutation implements AutoCloseable {
         return directoryKey;
     }
 
-    /** Revalidates every lexical ancestor and the open directory's stable identity. */
+    /** Revalidates visible ancestry while retaining the open anchored target. */
     public void validateCurrent() throws IOException {
         root.verifyCurrent();
         for (PathIdentity identity : ancestry) {
             identity.verify();
         }
+        BasicFileAttributes anchored = anchoredAttributes(directory);
+        if (!Objects.equals(directoryKey, requireFileKey(logicalDirectory, anchored))) {
+            throw denied(logicalDirectory, "anchored mutation directory identity changed"); //$NON-NLS-1$
+        }
         Path real = logicalDirectory.toRealPath();
         if (!real.startsWith(root.realRoot)) {
             throw denied(logicalDirectory, "mutation directory escaped the bound root"); //$NON-NLS-1$
         }
-        BasicFileAttributes current = Files.readAttributes(
-                real, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-        if (!Objects.equals(directoryKey, requireFileKey(real, current))) {
-            throw denied(logicalDirectory, "mutation directory identity changed"); //$NON-NLS-1$
-        }
     }
 
-    /** Invokes the deterministic hook and revalidates at the mutation boundary. */
+    /** Invokes a deterministic hook and revalidates immediately before an operation. */
     public void beforeMutation(String operation) throws IOException {
         hook.beforeMutation(operation);
         validateCurrent();
     }
 
-    /** Opens a regular file relative to the bound directory without following a final symlink. */
+    /** Opens a file relative to the anchored directory without following a final symlink. */
     public FileChannel openFileChannel(String fileName, Set<? extends OpenOption> options,
             String operation) throws IOException {
         requireSimpleName(fileName);
         beforeMutation(operation);
+        hook.beforeMutation(operation + ":open"); //$NON-NLS-1$
+        validateCurrent();
         List<OpenOption> secureOptions = new ArrayList<>(options);
         secureOptions.add(LinkOption.NOFOLLOW_LINKS);
-        SeekableByteChannel channel = directory != null
-                ? directory.newByteChannel(Path.of(fileName), Set.copyOf(secureOptions))
-                : FileChannel.open(logicalDirectory.resolve(fileName), Set.copyOf(secureOptions));
+        SeekableByteChannel channel = directory.newByteChannel(
+                Path.of(fileName), Set.copyOf(secureOptions));
         if (channel instanceof FileChannel fileChannel) {
             return fileChannel;
         }
@@ -156,15 +211,11 @@ public final class SecureDirectoryMutation implements AutoCloseable {
 
     public boolean exists(String fileName) throws IOException {
         requireSimpleName(fileName);
+        validateCurrent();
         try {
-            if (directory != null) {
-                directory.getFileAttributeView(Path.of(fileName),
-                        BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS)
-                        .readAttributes();
-            } else {
-                Files.readAttributes(logicalDirectory.resolve(fileName),
-                        BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-            }
+            directory.getFileAttributeView(Path.of(fileName),
+                    BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS)
+                    .readAttributes();
             return true;
         } catch (NoSuchFileException e) {
             return false;
@@ -174,11 +225,8 @@ public final class SecureDirectoryMutation implements AutoCloseable {
     public byte[] readAllBytes(String fileName) throws IOException {
         requireSimpleName(fileName);
         validateCurrent();
-        try (SeekableByteChannel channel = directory != null
-                ? directory.newByteChannel(Path.of(fileName),
-                        Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS))
-                : FileChannel.open(logicalDirectory.resolve(fileName),
-                        Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS))) {
+        try (SeekableByteChannel channel = directory.newByteChannel(Path.of(fileName),
+                Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS))) {
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             ByteBuffer buffer = ByteBuffer.allocate(8192);
             while (channel.read(buffer) >= 0) {
@@ -190,22 +238,21 @@ public final class SecureDirectoryMutation implements AutoCloseable {
         }
     }
 
-    /** Writes and force-syncs a temp file, then publishes it with a handle-relative rename. */
+    /** Writes and force-syncs a temp file, then publishes it by an anchored relative rename. */
     public void atomicWrite(String fileName, byte[] bytes, String operation) throws IOException {
         requireSimpleName(fileName);
         Objects.requireNonNull(bytes, "bytes"); //$NON-NLS-1$
         beforeMutation(operation);
+        hook.beforeMutation(operation + ":temp-create"); //$NON-NLS-1$
+        validateCurrent();
         Path temp = Path.of("." + fileName + "-" + UUID.randomUUID() + ".tmp"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-        Path fallbackTemp = directory == null ? logicalDirectory.resolve(temp) : null;
+        boolean created = false;
         boolean moved = false;
         try {
-            try (SeekableByteChannel raw = directory != null
-                    ? directory.newByteChannel(temp,
-                            Set.of(StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW,
-                                    LinkOption.NOFOLLOW_LINKS))
-                    : FileChannel.open(fallbackTemp,
-                            Set.of(StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW,
-                                    LinkOption.NOFOLLOW_LINKS))) {
+            try (SeekableByteChannel raw = directory.newByteChannel(temp,
+                    Set.of(StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW,
+                            LinkOption.NOFOLLOW_LINKS))) {
+                created = true;
                 if (!(raw instanceof FileChannel channel)) {
                     throw denied(logicalDirectory.resolve(temp),
                             "filesystem provider did not expose a durable file channel"); //$NON-NLS-1$
@@ -213,28 +260,19 @@ public final class SecureDirectoryMutation implements AutoCloseable {
                 writeAll(channel, bytes);
                 channel.force(true);
             }
-            // Revalidate the visible ancestry immediately before publication. With a secure
-            // provider, move() still targets the already-open directory handle after this check.
+            hook.beforeMutation(operation + ":publish"); //$NON-NLS-1$
             validateCurrent();
-            if (directory != null) {
-                directory.move(temp, directory, Path.of(fileName));
-            } else {
-                moveFallback(fallbackTemp, logicalDirectory.resolve(fileName));
-            }
+            directory.move(temp, directory, Path.of(fileName));
             moved = true;
-            syncDirectoryBestEffort();
         } finally {
-            if (!moved) {
+            if (created && !moved) {
                 try {
-                    if (directory != null) {
-                        directory.deleteFile(temp);
-                    } else {
-                        // Never let best-effort cleanup follow ancestry that changed after the
-                        // guarded write. Leaving an unpublished temp in the original directory is
-                        // safer than deleting through an attacker-controlled replacement path.
-                        validateCurrent();
-                        Files.deleteIfExists(fallbackTemp);
-                    }
+                    hook.beforeMutation(operation + ":cleanup"); //$NON-NLS-1$
+                } catch (IOException ignored) {
+                    // Cleanup remains safe because it is relative to the already-open handle.
+                }
+                try {
+                    directory.deleteFile(temp);
                 } catch (IOException ignored) {
                     // best-effort cleanup in the already-bound directory
                 }
@@ -242,41 +280,85 @@ public final class SecureDirectoryMutation implements AutoCloseable {
         }
     }
 
-    /** Renames a file within the bound directory without following pathname ancestry. */
+    /** Renames a file within the anchored directory. */
     public void move(String source, String target, String operation) throws IOException {
         requireSimpleName(source);
         requireSimpleName(target);
         beforeMutation(operation);
-        if (directory != null) {
-            directory.move(Path.of(source), directory, Path.of(target));
-        } else {
-            moveFallback(logicalDirectory.resolve(source), logicalDirectory.resolve(target));
-        }
-        syncDirectoryBestEffort();
+        hook.beforeMutation(operation + ":move"); //$NON-NLS-1$
+        validateCurrent();
+        directory.move(Path.of(source), directory, Path.of(target));
     }
 
     @Override
     public void close() throws IOException {
-        openedDirectory.close();
-    }
-
-    private static void moveFallback(Path source, Path target) throws IOException {
-        try {
-            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+        IOException failure = null;
+        List<DirectoryStream<Path>> reverse = new ArrayList<>(openedDirectories);
+        Collections.reverse(reverse);
+        for (DirectoryStream<Path> opened : reverse) {
+            try {
+                opened.close();
+            } catch (IOException e) {
+                if (failure == null) {
+                    failure = e;
+                } else {
+                    failure.addSuppressed(e);
+                }
+            }
+        }
+        if (failure != null) {
+            throw failure;
         }
     }
 
-    private void syncDirectoryBestEffort() {
-        try {
-            validateCurrent();
-            try (FileChannel channel = FileChannel.open(logicalDirectory, StandardOpenOption.READ)) {
-                channel.force(true);
+    private static SecureDirectoryStream<Path> openSecureRoot(BoundRoot root,
+            List<DirectoryStream<Path>> opened) throws IOException {
+        DirectoryStream<Path> rootStream = Files.newDirectoryStream(root.logicalRoot);
+        opened.add(rootStream);
+        SecureDirectoryStream<Path> secure = requireSecure(
+                rootStream, root.logicalRoot, root.policy);
+        BasicFileAttributes anchored = anchoredAttributes(secure);
+        Object anchoredKey = requireFileKey(root.logicalRoot, anchored);
+        if (!Objects.equals(anchoredKey, root.identity.followedKey)) {
+            throw denied(root.logicalRoot, "containment root changed before anchored binding"); //$NON-NLS-1$
+        }
+        root.verifyCurrent();
+        return secure;
+    }
+
+    private static SecureDirectoryStream<Path> requireSecure(DirectoryStream<Path> opened,
+            Path path, CapabilityPolicy policy) throws IOException {
+        if (policy == CapabilityPolicy.FORCE_NON_SECURE_FOR_TESTS
+                || !(opened instanceof SecureDirectoryStream<?>)) {
+            throw new SecureDirectoryCapabilityException(path,
+                    "filesystem provider lacks SecureDirectoryStream; mutation is disabled"); //$NON-NLS-1$
+        }
+        @SuppressWarnings("unchecked")
+        SecureDirectoryStream<Path> secure = (SecureDirectoryStream<Path>) opened;
+        return secure;
+    }
+
+    private static BasicFileAttributes anchoredAttributes(SecureDirectoryStream<Path> directory)
+            throws IOException {
+        return directory.getFileAttributeView(BasicFileAttributeView.class).readAttributes();
+    }
+
+    private static void requireDirectory(Path path, BasicFileAttributes attributes)
+            throws IOException {
+        if (!attributes.isDirectory() || attributes.isSymbolicLink()) {
+            throw denied(path, "anchored path component is not a directory"); //$NON-NLS-1$
+        }
+    }
+
+    private static void closeReverse(List<DirectoryStream<Path>> opened, Throwable failure) {
+        List<DirectoryStream<Path>> reverse = new ArrayList<>(opened);
+        Collections.reverse(reverse);
+        for (DirectoryStream<Path> stream : reverse) {
+            try {
+                stream.close();
+            } catch (IOException e) {
+                failure.addSuppressed(e);
             }
-        } catch (IOException | UnsupportedOperationException ignored) {
-            // Rename durability is provider/filesystem dependent; publication remains atomic.
         }
     }
 
@@ -288,18 +370,6 @@ public final class SecureDirectoryMutation implements AutoCloseable {
                 throw new IOException("unexpected end of file channel"); //$NON-NLS-1$
             }
         }
-    }
-
-    private static List<PathIdentity> captureAncestry(BoundRoot root, Path directory)
-            throws IOException {
-        List<PathIdentity> result = new ArrayList<>();
-        Path relative = root.logicalRoot.relativize(directory);
-        Path current = root.logicalRoot;
-        for (Path segment : relative) {
-            current = current.resolve(segment);
-            result.add(PathIdentity.capture(current));
-        }
-        return List.copyOf(result);
     }
 
     private static void requireSimpleName(String fileName) {
@@ -323,34 +393,107 @@ public final class SecureDirectoryMutation implements AutoCloseable {
         return new AccessDeniedException(path.toString(), null, reason);
     }
 
-    /** Root identity captured before any mutable descendant is trusted. */
+    /** Root identity, including the expected workspace boundary when one was supplied. */
     public static final class BoundRoot {
         private final Path logicalRoot;
         private final Path realRoot;
         private final PathIdentity identity;
+        private final PathIdentity workspaceBoundary;
+        private final CapabilityPolicy policy;
 
-        private BoundRoot(Path logicalRoot, Path realRoot, PathIdentity identity) {
+        private BoundRoot(Path logicalRoot, Path realRoot, PathIdentity identity,
+                PathIdentity workspaceBoundary, CapabilityPolicy policy) {
             this.logicalRoot = logicalRoot;
             this.realRoot = realRoot;
             this.identity = identity;
+            this.workspaceBoundary = workspaceBoundary;
+            this.policy = policy;
         }
 
-        private static BoundRoot capture(Path root) throws IOException {
-            Path logical = Objects.requireNonNull(root, "root").toAbsolutePath().normalize(); //$NON-NLS-1$
-            Path real = logical.toRealPath();
-            PathIdentity identity = PathIdentity.capture(logical);
-            if (!identity.followedRealPath.equals(real)) {
-                throw denied(logical, "containment root identity is inconsistent"); //$NON-NLS-1$
+        private static BoundRoot capture(Path root, CapabilityPolicy policy) throws IOException {
+            Path logical = normalize(root, "root"); //$NON-NLS-1$
+            PathIdentity identity = PathIdentity.captureDirectory(logical);
+            identity.verify();
+            return new BoundRoot(logical, identity.followedRealPath, identity, null,
+                    Objects.requireNonNull(policy, "policy")); //$NON-NLS-1$
+        }
+
+        private static BoundRoot captureWithin(Path workspace, Path project,
+                MutationHook hook, CapabilityPolicy policy, String operation) throws IOException {
+            Path logicalWorkspace = normalize(workspace, "workspace"); //$NON-NLS-1$
+            Path logicalProject = normalize(project, "project"); //$NON-NLS-1$
+            if (logicalProject.equals(logicalWorkspace)
+                    || !logicalProject.startsWith(logicalWorkspace)) {
+                throw denied(logicalProject, "project is outside the workspace boundary"); //$NON-NLS-1$
             }
-            return new BoundRoot(logical, real, identity);
+            PathIdentity workspaceIdentity = PathIdentity.captureDirectory(logicalWorkspace);
+            MutationHook effectiveHook = hook == null ? NOOP_HOOK : hook;
+            effectiveHook.beforeMutation(operation);
+
+            BoundRoot workspaceRoot = new BoundRoot(logicalWorkspace,
+                    workspaceIdentity.followedRealPath, workspaceIdentity, null,
+                    Objects.requireNonNull(policy, "policy")); //$NON-NLS-1$
+            List<DirectoryStream<Path>> opened = new ArrayList<>();
+            IOException closeFailure = null;
+            try {
+                SecureDirectoryStream<Path> current = openSecureRoot(workspaceRoot, opened);
+                Path currentLogical = logicalWorkspace;
+                for (Path segment : logicalWorkspace.relativize(logicalProject)) {
+                    DirectoryStream<Path> child = current.newDirectoryStream(
+                            segment, LinkOption.NOFOLLOW_LINKS);
+                    opened.add(child);
+                    currentLogical = currentLogical.resolve(segment);
+                    current = requireSecure(child, currentLogical, policy);
+                }
+                BasicFileAttributes anchored = anchoredAttributes(current);
+                requireDirectory(logicalProject, anchored);
+                Object anchoredKey = requireFileKey(logicalProject, anchored);
+                PathIdentity projectIdentity = PathIdentity.captureDirectory(logicalProject);
+                if (!Objects.equals(anchoredKey, projectIdentity.followedKey)
+                        || !projectIdentity.followedRealPath.startsWith(
+                                workspaceIdentity.followedRealPath)) {
+                    throw denied(logicalProject,
+                            "project changed or escaped during workspace-bound binding"); //$NON-NLS-1$
+                }
+                return new BoundRoot(logicalProject, projectIdentity.followedRealPath,
+                        projectIdentity, workspaceIdentity, policy);
+            } finally {
+                List<DirectoryStream<Path>> reverse = new ArrayList<>(opened);
+                Collections.reverse(reverse);
+                for (DirectoryStream<Path> stream : reverse) {
+                    try {
+                        stream.close();
+                    } catch (IOException e) {
+                        if (closeFailure == null) {
+                            closeFailure = e;
+                        } else {
+                            closeFailure.addSuppressed(e);
+                        }
+                    }
+                }
+                if (closeFailure != null) {
+                    throw closeFailure;
+                }
+            }
         }
 
         public void verifyCurrent() throws IOException {
+            if (workspaceBoundary != null) {
+                workspaceBoundary.verify();
+            }
             identity.verify();
             if (!logicalRoot.toRealPath().equals(realRoot)) {
                 throw denied(logicalRoot, "containment root changed"); //$NON-NLS-1$
             }
+            if (workspaceBoundary != null
+                    && !realRoot.startsWith(workspaceBoundary.followedRealPath)) {
+                throw denied(logicalRoot, "containment root escaped its workspace boundary"); //$NON-NLS-1$
+            }
         }
+    }
+
+    private static Path normalize(Path path, String label) {
+        return Objects.requireNonNull(path, label).toAbsolutePath().normalize();
     }
 
     private static final class PathIdentity {
@@ -367,12 +510,21 @@ public final class SecureDirectoryMutation implements AutoCloseable {
             this.followedRealPath = followedRealPath;
         }
 
-        private static PathIdentity capture(Path path) throws IOException {
+        private static PathIdentity captureDirectory(Path path) throws IOException {
             BasicFileAttributes entry = Files.readAttributes(
                     path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            if (!entry.isDirectory() || entry.isSymbolicLink()) {
+                throw denied(path, "directory identity cannot be a symbolic link"); //$NON-NLS-1$
+            }
             BasicFileAttributes followed = Files.readAttributes(path, BasicFileAttributes.class);
-            return new PathIdentity(path, requireFileKey(path, entry),
-                    requireFileKey(path, followed), path.toRealPath());
+            if (!followed.isDirectory()) {
+                throw denied(path, "path is not a directory"); //$NON-NLS-1$
+            }
+            Path real = path.toRealPath();
+            PathIdentity result = new PathIdentity(path, requireFileKey(path, entry),
+                    requireFileKey(path, followed), real);
+            result.verify();
+            return result;
         }
 
         private void verify() throws IOException {
@@ -380,7 +532,8 @@ public final class SecureDirectoryMutation implements AutoCloseable {
                     logicalPath, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
             BasicFileAttributes followed = Files.readAttributes(
                     logicalPath, BasicFileAttributes.class);
-            if (!Objects.equals(entryKey, requireFileKey(logicalPath, entry))
+            if (entry.isSymbolicLink()
+                    || !Objects.equals(entryKey, requireFileKey(logicalPath, entry))
                     || !Objects.equals(followedKey, requireFileKey(logicalPath, followed))
                     || !followedRealPath.equals(logicalPath.toRealPath())) {
                 throw denied(logicalPath, "path ancestry changed before mutation"); //$NON-NLS-1$

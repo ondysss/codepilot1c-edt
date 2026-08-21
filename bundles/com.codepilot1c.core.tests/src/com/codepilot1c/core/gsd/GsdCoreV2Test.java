@@ -31,9 +31,13 @@ public class GsdCoreV2Test {
     @Rule
     public TemporaryFolder tmp = new TemporaryFolder();
 
+    private Path secureProject(String name) throws IOException {
+        return GsdTestSupport.secureProject(tmp.newFolder(name).toPath());
+    }
+
     @Test
     public void v1MigrationIsExplicitPersistedAndIdempotent() throws IOException {
-        Path root = tmp.newFolder("migration").toPath(); //$NON-NLS-1$
+        Path root = secureProject("migration"); //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(root);
         Path statePath = store.getGsdDirectory().resolve(GsdStateStore.STATE_JSON);
         Files.createDirectories(store.getGsdDirectory());
@@ -103,7 +107,7 @@ public class GsdCoreV2Test {
 
     @Test
     public void recoveryAdvancesGenerationAndRejectsAbaSnapshot() throws IOException {
-        Path root = tmp.newFolder("recovery").toPath(); //$NON-NLS-1$
+        Path root = secureProject("recovery"); //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(root);
         GsdState first = store.save(GsdState.fresh("cycle-a")); //$NON-NLS-1$
         GsdState second = store.save(first.withPhase(GsdPhase.PLANNING));
@@ -133,7 +137,7 @@ public class GsdCoreV2Test {
 
     @Test
     public void projectionFailureReturnsCommittedStateWithWarning() throws IOException {
-        Path root = tmp.newFolder("projection-warning").toPath(); //$NON-NLS-1$
+        Path root = secureProject("projection-warning"); //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(root);
         Files.createDirectories(store.getGsdDirectory().resolve(GsdProjections.STATE_FILE));
 
@@ -148,7 +152,7 @@ public class GsdCoreV2Test {
 
     @Test
     public void closedAggregateCanStartNewCycleWithoutTokenReuse() throws IOException {
-        Path root = tmp.newFolder("new-cycle").toPath(); //$NON-NLS-1$
+        Path root = secureProject("new-cycle"); //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(root);
         GsdState closed = store.save(closableState(
                 GsdAcceptanceStatus.PASSED,
@@ -170,7 +174,7 @@ public class GsdCoreV2Test {
 
     @Test
     public void tokenAwareWorkflowClosesOnlyAfterShipping() throws IOException {
-        Path root = tmp.newFolder("closure-workflow").toPath(); //$NON-NLS-1$
+        Path root = secureProject("closure-workflow"); //$NON-NLS-1$
         GsdState state = new GsdStateStore(root).load();
         state = GsdWorkflowService.transitionPhase(root.toString(), state.token(),
                 GsdPhase.PLANNING, null);
@@ -216,7 +220,7 @@ public class GsdCoreV2Test {
 
     @Test
     public void failedShipmentCanRollBackWithAuditAndReset() throws IOException {
-        Path root = tmp.newFolder("failed-shipment-rollback").toPath(); //$NON-NLS-1$
+        Path root = secureProject("failed-shipment-rollback"); //$NON-NLS-1$
         GsdState state = workflowToShipping(root);
         state = GsdWorkflowService.recordShipment(root.toString(), state.token(),
                 new GsdShipment("shipment-failed", "release/failed", //$NON-NLS-1$ //$NON-NLS-2$
@@ -260,7 +264,7 @@ public class GsdCoreV2Test {
 
     @Test
     public void shipmentLifecycleIsIdempotentAndConflictSafe() throws IOException {
-        Path root = tmp.newFolder("shipment-idempotency").toPath(); //$NON-NLS-1$
+        Path root = secureProject("shipment-idempotency"); //$NON-NLS-1$
         GsdState shipping = workflowToShipping(root);
         GsdShipment inProgress = new GsdShipment(
                 "shipment-1", "release/42", GsdShipmentStatus.IN_PROGRESS, null); //$NON-NLS-1$ //$NON-NLS-2$
@@ -301,7 +305,7 @@ public class GsdCoreV2Test {
 
     @Test
     public void shipmentRetryComparesSanitizedValuesBeforeConflict() throws IOException {
-        Path root = tmp.newFolder("shipment-sanitized-idempotency").toPath(); //$NON-NLS-1$
+        Path root = secureProject("shipment-sanitized-idempotency"); //$NON-NLS-1$
         GsdState shipping = workflowToShipping(root);
         GsdShipment request = new GsdShipment(
                 "shipment\u200B-1", "release/\u200B42", //$NON-NLS-1$ //$NON-NLS-2$
@@ -321,7 +325,7 @@ public class GsdCoreV2Test {
 
     @Test
     public void newCycleRejectsAnyCycleIdPresentInRealHistory() throws IOException {
-        Path root = tmp.newFolder("cycle-reuse").toPath(); //$NON-NLS-1$
+        Path root = secureProject("cycle-reuse"); //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(root);
         GsdState closed = store.save(historicalClosedState());
 
@@ -347,7 +351,7 @@ public class GsdCoreV2Test {
 
     @Test
     public void compatibilityConstructorPreservesMultiCycleFenceOrder() throws IOException {
-        Path root = tmp.newFolder("compatibility-cycle-order").toPath(); //$NON-NLS-1$
+        Path root = secureProject("compatibility-cycle-order"); //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(root);
         GsdState persisted = store.save(multiCycleClosedState());
 
@@ -383,7 +387,7 @@ public class GsdCoreV2Test {
 
     @Test
     public void commitNewCycleRejectsGenerationRegressionAndStaleAbaToken() throws IOException {
-        Path root = tmp.newFolder("cycle-generation").toPath(); //$NON-NLS-1$
+        Path root = secureProject("cycle-generation"); //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(root);
         GsdState closed = store.save(historicalClosedState());
         GsdTransition audit = new GsdTransition("cycle-c", closed.generation(), //$NON-NLS-1$
@@ -411,7 +415,7 @@ public class GsdCoreV2Test {
 
     @Test
     public void workflowOutcomePropagatesProjectionWarningsAfterCommit() throws IOException {
-        Path root = tmp.newFolder("workflow-projection-warning").toPath(); //$NON-NLS-1$
+        Path root = secureProject("workflow-projection-warning"); //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(root);
         GsdState initial = store.save(GsdState.fresh("cycle-warning")); //$NON-NLS-1$
         Path stateProjection = store.getGsdDirectory().resolve(GsdProjections.STATE_FILE);
@@ -460,7 +464,7 @@ public class GsdCoreV2Test {
     @Test
     public void migratedLegacyCycleIdentitySurvivesRealWorkflowAndCannotBeReused()
             throws IOException {
-        Path root = tmp.newFolder("legacy-cycle-fence").toPath(); //$NON-NLS-1$
+        Path root = secureProject("legacy-cycle-fence"); //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(root);
         Files.createDirectories(store.getGsdDirectory());
         Files.writeString(store.getGsdDirectory().resolve(GsdStateStore.STATE_JSON),
@@ -493,7 +497,7 @@ public class GsdCoreV2Test {
 
     @Test
     public void legacyMigratedShipmentCannotBeInjected() throws IOException {
-        Path root = tmp.newFolder("legacy-shipment-injection").toPath(); //$NON-NLS-1$
+        Path root = secureProject("legacy-shipment-injection"); //$NON-NLS-1$
         GsdState shipping = workflowToShipping(root);
         try {
             GsdWorkflowService.recordShipmentWithOutcome(
@@ -516,7 +520,7 @@ public class GsdCoreV2Test {
 
     @Test
     public void migratedClosedShipmentIsExplicitlyLegacyNotCompleted() throws IOException {
-        Path root = tmp.newFolder("legacy-closed-shipment").toPath(); //$NON-NLS-1$
+        Path root = secureProject("legacy-closed-shipment"); //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(root);
         Path statePath = store.getGsdDirectory().resolve(GsdStateStore.STATE_JSON);
         Files.createDirectories(store.getGsdDirectory());

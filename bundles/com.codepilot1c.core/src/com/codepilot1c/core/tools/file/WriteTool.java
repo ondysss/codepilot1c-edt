@@ -244,7 +244,6 @@ public class WriteTool extends AbstractTool {
             created = !file.exists();
             try {
                 ResourcesPlugin.getWorkspace().run(monitor -> {
-                    ensureParentFolderExists(file);
                     if (!isPhysicalShipTarget(root, currentProject, file)) {
                         throw new CoreException(new Status(IStatus.ERROR, PLUGIN_ID,
                                 "GSD Ship target ancestry changed before write")); //$NON-NLS-1$
