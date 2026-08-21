@@ -602,7 +602,7 @@ public class AgentSessionController {
             }
             historySnapshot = new ArrayList<>(conversationHistory);
             submittedRunner = runnerFactory.create(
-                    provider, toolRegistrySupplier.get(), profile.getSystemPromptAddition());
+                    provider, toolRegistrySupplier.get(), baseConfig.getSystemPromptAddition());
             submittedRunner.addListener(forwardingListener);
             activeRunner = submittedRunner;
             currentState = AgentState.RUNNING;

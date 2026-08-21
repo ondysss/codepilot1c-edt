@@ -47,6 +47,8 @@ import com.codepilot1c.core.provider.ILlmProvider;
 
 public class AgentSessionControllerTest {
 
+    private static final String TEST_PROMPT_ADDITION = "test prompt addition"; //$NON-NLS-1$
+
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
@@ -263,41 +265,49 @@ public class AgentSessionControllerTest {
         CompletedRunner memoryFreshRunner = new CompletedRunner("memory-fresh", true); //$NON-NLS-1$
         CompletedRunner legacyRunner = new CompletedRunner("legacy", false); //$NON-NLS-1$
         AtomicInteger created = new AtomicInteger();
+        List<String> runnerPrompts = new ArrayList<>();
         previousRunnerFactory = controllerField("runnerFactory"); //$NON-NLS-1$
         previousToolRegistrySupplier = controllerField("toolRegistrySupplier"); //$NON-NLS-1$
         setControllerField("toolRegistrySupplier", //$NON-NLS-1$
                 (java.util.function.Supplier<com.codepilot1c.core.tools.ToolRegistry>) () -> null);
         setControllerField("runnerFactory", (AgentSessionController.RunnerFactory) //$NON-NLS-1$
-                (provider, tools, prompt) -> switch (created.getAndIncrement()) {
-                    case 0 -> directFreshRunner;
-                    case 1 -> memoryFreshRunner;
-                    default -> legacyRunner;
+                (provider, tools, prompt) -> {
+                    runnerPrompts.add(prompt);
+                    return switch (created.getAndIncrement()) {
+                        case 0 -> directFreshRunner;
+                        case 1 -> memoryFreshRunner;
+                        default -> legacyRunner;
+                    };
                 });
 
         CompletableFuture<AgentResult> directFresh = controller.submitFromDesktopFresh(
                 "completed direct fresh", InitAgentProfile.ID); //$NON-NLS-1$
+        assertEquals(1, directFreshRunner.runInvocationCount.get());
+        assertEquals(TEST_PROMPT_ADDITION, runnerPrompts.get(0));
         assertSame(directFreshRunner.task, directFresh);
         assertEquals("direct-fresh", directFresh.join().getFinalResponse()); //$NON-NLS-1$
-        assertEquals(1, directFreshRunner.runInvocationCount.get());
         assertEquals(1, directFreshRunner.removeListenerCount.get());
         assertEquals(1, directFreshRunner.disposeCount.get());
 
         Path projectRoot = temporaryFolder.newFolder("completed-fresh").toPath(); //$NON-NLS-1$
-        ProjectMemoryInitializationService.Result initialization =
+        CompletableFuture<ProjectMemoryInitializationService.Result> initializationFuture =
                 new ProjectMemoryInitializationService().initialize(new Request(
                         Mode.CREATE, projectRoot, "CompletedFresh", //$NON-NLS-1$
-                        "CompletedFresh/Code.md", "view-fresh")).join(); //$NON-NLS-1$ //$NON-NLS-2$
-        assertEquals(Status.SUCCESS, initialization.getStatus());
+                        "CompletedFresh/Code.md", "view-fresh")); //$NON-NLS-1$ //$NON-NLS-2$
         assertEquals(1, memoryFreshRunner.runInvocationCount.get());
+        assertEquals(TEST_PROMPT_ADDITION, runnerPrompts.get(1));
+        ProjectMemoryInitializationService.Result initialization = initializationFuture.join();
+        assertEquals(Status.SUCCESS, initialization.getStatus());
         assertEquals(1, memoryFreshRunner.removeListenerCount.get());
         assertEquals(1, memoryFreshRunner.disposeCount.get());
 
         CompletableFuture<AgentResult> legacy = controller.submitFromDesktop(
                 "completed legacy", InitAgentProfile.ID); //$NON-NLS-1$
+        assertEquals(1, legacyRunner.runInvocationCount.get());
+        assertEquals(TEST_PROMPT_ADDITION, runnerPrompts.get(2));
         assertNotNull(legacy);
         assertSame(legacyRunner.task, legacy);
         assertEquals("legacy", legacy.join().getFinalResponse()); //$NON-NLS-1$
-        assertEquals(1, legacyRunner.runInvocationCount.get());
         assertEquals(1, legacyRunner.removeListenerCount.get());
         assertEquals(1, legacyRunner.disposeCount.get());
         assertEquals(AgentState.COMPLETED, controller.getCurrentState());
@@ -335,7 +345,7 @@ public class AgentSessionControllerTest {
                 .maxSteps(profile.getMaxSteps())
                 .timeoutMs(profile.getTimeoutMs())
                 .enabledTools(profile.getAllowedTools())
-                .systemPromptAddition(profile.getSystemPromptAddition())
+                .systemPromptAddition(TEST_PROMPT_ADDITION)
                 .profileName(profile.getId())
                 .build();
     }
