@@ -22,6 +22,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Test;
 
@@ -76,6 +77,8 @@ public class DynamicLlmProviderConcurrentRequestTest {
             assertTrue(secondChunks.stream().anyMatch(LlmStreamChunk::isComplete));
             assertFalse(secondCancellation.isCancelled());
             assertFalse(firstChunks.stream().anyMatch(LlmStreamChunk::hasToolCalls));
+            assertEquals(1, handler.firstRequests.get());
+            assertEquals(1, handler.secondRequests.get());
         } finally {
             handler.releaseFirst.countDown();
             handler.releaseSecond.countDown();
@@ -93,7 +96,7 @@ public class DynamicLlmProviderConcurrentRequestTest {
         config.setApiKey("test-key"); //$NON-NLS-1$
         config.setModel("test-model"); //$NON-NLS-1$
         config.setStreamingEnabled(true);
-        return new DynamicLlmProvider(config);
+        return new DynamicLlmProvider(config, ignored -> "test-key", () -> 10); //$NON-NLS-1$
     }
 
     private static LlmRequest request(String marker) {
@@ -114,11 +117,18 @@ public class DynamicLlmProviderConcurrentRequestTest {
         private final CountDownLatch releaseFirst = new CountDownLatch(1);
         private final CountDownLatch releaseSecond = new CountDownLatch(1);
         private final CountDownLatch firstDisconnected = new CountDownLatch(1);
+        private final AtomicInteger firstRequests = new AtomicInteger();
+        private final AtomicInteger secondRequests = new AtomicInteger();
 
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             String request = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             boolean first = request.contains("first-view"); //$NON-NLS-1$
+            if (first) {
+                firstRequests.incrementAndGet();
+            } else {
+                secondRequests.incrementAndGet();
+            }
             exchange.getResponseHeaders().add("Content-Type", "text/event-stream"); //$NON-NLS-1$ //$NON-NLS-2$
             exchange.sendResponseHeaders(200, 0);
             try (OutputStream output = exchange.getResponseBody()) {

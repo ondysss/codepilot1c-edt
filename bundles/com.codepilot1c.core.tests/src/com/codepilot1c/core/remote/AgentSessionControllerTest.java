@@ -4,9 +4,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -43,7 +43,6 @@ import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
 import com.codepilot1c.core.provider.ILlmProvider;
-import com.codepilot1c.core.provider.LlmProviderRegistry;
 
 public class AgentSessionControllerTest {
 
@@ -52,9 +51,9 @@ public class AgentSessionControllerTest {
 
     private AgentSessionController controller;
     private String cleanupClientId;
-    private LlmProviderRegistry previousRegistry;
     private Object previousRunnerFactory;
     private Object previousToolRegistrySupplier;
+    private Object previousProviderSupplier;
 
     @Before
     public void setUp() {
@@ -70,10 +69,6 @@ public class AgentSessionControllerTest {
         controller.claimControllerLease(cleanupClientId, true);
         controller.releaseControllerLease(cleanupClientId);
         controller.resetSession("test_teardown"); //$NON-NLS-1$
-        if (previousRegistry != null) {
-            installRegistry(previousRegistry);
-            previousRegistry = null;
-        }
         if (previousRunnerFactory != null) {
             setControllerField("runnerFactory", previousRunnerFactory); //$NON-NLS-1$
             previousRunnerFactory = null;
@@ -81,6 +76,10 @@ public class AgentSessionControllerTest {
         if (previousToolRegistrySupplier != null) {
             setControllerField("toolRegistrySupplier", previousToolRegistrySupplier); //$NON-NLS-1$
             previousToolRegistrySupplier = null;
+        }
+        if (previousProviderSupplier != null) {
+            setControllerField("providerSupplier", previousProviderSupplier); //$NON-NLS-1$
+            previousProviderSupplier = null;
         }
     }
 
@@ -179,7 +178,7 @@ public class AgentSessionControllerTest {
 
     @Test
     public void freshDesktopSubmitResetsHistoryAndStoresRequestedProfileBeforeLaunch() throws Exception {
-        previousRegistry = installRegistry(emptyInitializedRegistry());
+        installProvider(null);
         setControllerField("conversationHistory", new ArrayList<>(List.of(LlmMessage.user("old chat")))); //$NON-NLS-1$ //$NON-NLS-2$
         String beforeSessionId = controller.getSessionId();
         long baseline = controller.getEventsAfter(0).stream()
@@ -210,9 +209,7 @@ public class AgentSessionControllerTest {
 
     @Test
     public void cancelledRunKeepsSlotUntilCapturedRunnerCleanupAndPreservesNextRun() throws Exception {
-        LlmProviderRegistry registry = emptyInitializedRegistry();
-        legacyProviders(registry).put("test", new NoopProvider()); //$NON-NLS-1$
-        previousRegistry = installRegistry(registry);
+        installProvider(new NoopProvider());
 
         FakeRunner firstRunner = new FakeRunner(true);
         FakeRunner secondRunner = new FakeRunner(false);
@@ -228,6 +225,7 @@ public class AgentSessionControllerTest {
                 "init first", InitAgentProfile.ID, "/projects/first", "view-session-1"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         assertEquals("/projects/first", firstRunner.config.getProjectPath()); //$NON-NLS-1$
         assertEquals("view-session-1", firstRunner.config.getSessionId()); //$NON-NLS-1$
+        assertEquals(1, firstRunner.runInvocationCount.get());
         assertTrue(firstHandle.cancel(true));
         assertTrue(firstRunner.cancelled);
 
@@ -244,6 +242,7 @@ public class AgentSessionControllerTest {
                 "init second", InitAgentProfile.ID, "/projects/second", "view-session-2"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         assertEquals("/projects/second", secondRunner.config.getProjectPath()); //$NON-NLS-1$
         assertEquals("view-session-2", secondRunner.config.getSessionId()); //$NON-NLS-1$
+        assertEquals(1, secondRunner.runInvocationCount.get());
         secondRunner.finishSuccess();
         assertTrue(secondHandle.join().isSuccess());
         assertTrue(secondRunner.disposed);
@@ -252,11 +251,10 @@ public class AgentSessionControllerTest {
 
     @Test
     public void alreadyCompletedTaskSucceedsForProjectMemoryFreshAndLegacyDesktopSubmissions() throws Exception {
-        LlmProviderRegistry registry = emptyInitializedRegistry();
-        legacyProviders(registry).put("test", new NoopProvider()); //$NON-NLS-1$
-        previousRegistry = installRegistry(registry);
+        installProvider(new NoopProvider());
 
-        CompletedRunner freshRunner = new CompletedRunner("fresh", true); //$NON-NLS-1$
+        CompletedRunner directFreshRunner = new CompletedRunner("direct-fresh", false); //$NON-NLS-1$
+        CompletedRunner memoryFreshRunner = new CompletedRunner("memory-fresh", true); //$NON-NLS-1$
         CompletedRunner legacyRunner = new CompletedRunner("legacy", false); //$NON-NLS-1$
         AtomicInteger created = new AtomicInteger();
         previousRunnerFactory = controllerField("runnerFactory"); //$NON-NLS-1$
@@ -264,8 +262,19 @@ public class AgentSessionControllerTest {
         setControllerField("toolRegistrySupplier", //$NON-NLS-1$
                 (java.util.function.Supplier<com.codepilot1c.core.tools.ToolRegistry>) () -> null);
         setControllerField("runnerFactory", (AgentSessionController.RunnerFactory) //$NON-NLS-1$
-                (provider, tools, prompt) -> created.getAndIncrement() == 0
-                        ? freshRunner : legacyRunner);
+                (provider, tools, prompt) -> switch (created.getAndIncrement()) {
+                    case 0 -> directFreshRunner;
+                    case 1 -> memoryFreshRunner;
+                    default -> legacyRunner;
+                });
+
+        CompletableFuture<AgentResult> directFresh = controller.submitFromDesktopFresh(
+                "completed direct fresh", InitAgentProfile.ID); //$NON-NLS-1$
+        assertSame(directFreshRunner.task, directFresh);
+        assertEquals("direct-fresh", directFresh.join().getFinalResponse()); //$NON-NLS-1$
+        assertEquals(1, directFreshRunner.runInvocationCount.get());
+        assertEquals(1, directFreshRunner.removeListenerCount.get());
+        assertEquals(1, directFreshRunner.disposeCount.get());
 
         Path projectRoot = temporaryFolder.newFolder("completed-fresh").toPath(); //$NON-NLS-1$
         ProjectMemoryInitializationService.Result initialization =
@@ -273,17 +282,20 @@ public class AgentSessionControllerTest {
                         Mode.CREATE, projectRoot, "CompletedFresh", //$NON-NLS-1$
                         "CompletedFresh/Code.md", "view-fresh")).join(); //$NON-NLS-1$ //$NON-NLS-2$
         assertEquals(Status.SUCCESS, initialization.getStatus());
-        assertEquals(1, freshRunner.removeListenerCount.get());
-        assertEquals(1, freshRunner.disposeCount.get());
+        assertEquals(1, memoryFreshRunner.runInvocationCount.get());
+        assertEquals(1, memoryFreshRunner.removeListenerCount.get());
+        assertEquals(1, memoryFreshRunner.disposeCount.get());
 
         CompletableFuture<AgentResult> legacy = controller.submitFromDesktop(
                 "completed legacy", InitAgentProfile.ID); //$NON-NLS-1$
         assertNotNull(legacy);
+        assertSame(legacyRunner.task, legacy);
         assertEquals("legacy", legacy.join().getFinalResponse()); //$NON-NLS-1$
+        assertEquals(1, legacyRunner.runInvocationCount.get());
         assertEquals(1, legacyRunner.removeListenerCount.get());
         assertEquals(1, legacyRunner.disposeCount.get());
         assertEquals(AgentState.COMPLETED, controller.getCurrentState());
-        assertEquals(2, created.get());
+        assertEquals(3, created.get());
     }
 
     private void setControllerField(String name, Object value) throws Exception {
@@ -298,30 +310,12 @@ public class AgentSessionControllerTest {
         return field.get(controller);
     }
 
-    private static LlmProviderRegistry emptyInitializedRegistry() throws Exception {
-        Constructor<LlmProviderRegistry> constructor = LlmProviderRegistry.class.getDeclaredConstructor();
-        constructor.setAccessible(true);
-        LlmProviderRegistry registry = constructor.newInstance();
-
-        Field initializedField = LlmProviderRegistry.class.getDeclaredField("initialized"); //$NON-NLS-1$
-        initializedField.setAccessible(true);
-        initializedField.set(registry, true);
-        return registry;
-    }
-
-    private static LlmProviderRegistry installRegistry(LlmProviderRegistry registry) throws Exception {
-        Field instanceField = LlmProviderRegistry.class.getDeclaredField("instance"); //$NON-NLS-1$
-        instanceField.setAccessible(true);
-        LlmProviderRegistry previous = (LlmProviderRegistry) instanceField.get(null);
-        instanceField.set(null, registry);
-        return previous;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, ILlmProvider> legacyProviders(LlmProviderRegistry registry) throws Exception {
-        Field field = LlmProviderRegistry.class.getDeclaredField("legacyProviders"); //$NON-NLS-1$
-        field.setAccessible(true);
-        return (Map<String, ILlmProvider>) field.get(registry);
+    private void installProvider(ILlmProvider provider) throws Exception {
+        if (previousProviderSupplier == null) {
+            previousProviderSupplier = controllerField("providerSupplier"); //$NON-NLS-1$
+        }
+        setControllerField("providerSupplier", //$NON-NLS-1$
+                (java.util.function.Supplier<ILlmProvider>) () -> provider);
     }
 
     private static final class FakeRunner implements IAgentRunner {
@@ -329,6 +323,7 @@ public class AgentSessionControllerTest {
         private final boolean blockDispose;
         private final CountDownLatch disposeEntered = new CountDownLatch(1);
         private final CountDownLatch releaseDispose = new CountDownLatch(1);
+        private final AtomicInteger runInvocationCount = new AtomicInteger();
         private AgentConfig config;
         private volatile AgentState state = AgentState.IDLE;
         private volatile boolean cancelled;
@@ -340,6 +335,7 @@ public class AgentSessionControllerTest {
 
         @Override
         public CompletableFuture<AgentResult> run(String prompt, AgentConfig config) {
+            runInvocationCount.incrementAndGet();
             this.config = config;
             state = AgentState.WAITING_TOOL;
             return task;
@@ -400,6 +396,7 @@ public class AgentSessionControllerTest {
     private static final class CompletedRunner implements IAgentRunner {
         private final CompletableFuture<AgentResult> task;
         private final boolean writeCodeMd;
+        private final AtomicInteger runInvocationCount = new AtomicInteger();
         private final AtomicInteger removeListenerCount = new AtomicInteger();
         private final AtomicInteger disposeCount = new AtomicInteger();
 
@@ -411,6 +408,7 @@ public class AgentSessionControllerTest {
 
         @Override
         public CompletableFuture<AgentResult> run(String prompt, AgentConfig config) {
+            runInvocationCount.incrementAndGet();
             if (writeCodeMd) {
                 try {
                     Files.writeString(Path.of(config.getProjectPath()).resolve("Code.md"), //$NON-NLS-1$

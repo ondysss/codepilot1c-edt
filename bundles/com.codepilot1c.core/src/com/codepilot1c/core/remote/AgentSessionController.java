@@ -76,6 +76,8 @@ public class AgentSessionController {
     private String lastErrorMessage;
     private RunnerFactory runnerFactory = LangGraphAgentRunner::new;
     private Supplier<ToolRegistry> toolRegistrySupplier = ToolRegistry::getInstance;
+    private Supplier<ILlmProvider> providerSupplier =
+            () -> LlmProviderRegistry.getInstance().getActiveProvider();
 
     private final IAgentEventListener forwardingListener = new IAgentEventListener() {
         @Override
@@ -566,7 +568,7 @@ public class AgentSessionController {
 
     private PromptSubmission submitPrompt(String prompt, String profileId, boolean startingFreshSession,
             String projectPath, String owningSessionId) {
-        ILlmProvider provider = LlmProviderRegistry.getInstance().getActiveProvider();
+        ILlmProvider provider = providerSupplier.get();
         if (provider == null || !provider.isConfigured()) {
             return PromptSubmission.rejected(RemoteCommandResult.error(
                     "provider_unavailable", "LLM-провайдер не настроен")); //$NON-NLS-1$ //$NON-NLS-2$
