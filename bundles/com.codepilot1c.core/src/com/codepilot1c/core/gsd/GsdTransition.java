@@ -17,7 +17,7 @@ import java.time.Instant;
  * @param revision  committed revision containing the transition
  * @param fromPhase previous phase
  * @param toPhase   resulting phase
- * @param reason    supplied reason; mandatory for verification rollback
+ * @param reason    supplied reason; mandatory for every rollback
  * @param occurredAt transition time
  */
 public record GsdTransition(

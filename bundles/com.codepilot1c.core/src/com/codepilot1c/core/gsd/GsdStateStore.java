@@ -98,6 +98,9 @@ import com.google.gson.stream.JsonWriter;
  */
 public final class GsdStateStore {
 
+    private static final System.Logger LOGGER =
+            System.getLogger(GsdStateStore.class.getName());
+
     /** Directory under the project root where GSD state lives. */
     public static final String GSD_DIR_NAME = ".codepilot1c/gsd"; //$NON-NLS-1$
     /** Primary state file (source of truth). */
@@ -281,7 +284,9 @@ public final class GsdStateStore {
      * @throws IOException               on I/O failure or unrecoverable corruption (fail-closed)
      */
     public GsdState save(GsdState state) throws IOException {
-        return commit(state).state();
+        GsdCommitOutcome outcome = commit(state);
+        logProjectionWarnings("save", outcome); //$NON-NLS-1$
+        return outcome.state();
     }
 
     /**
@@ -318,11 +323,6 @@ public final class GsdStateStore {
             GsdState newCycle) throws IOException {
         Objects.requireNonNull(expectedToken, "expectedToken"); //$NON-NLS-1$
         GsdState validated = Objects.requireNonNull(newCycle, "newCycle"); //$NON-NLS-1$
-        GsdGuard.validate(validated);
-        if (validated.phase() != GsdPhase.DISCOVERY
-                || validated.revision() != GsdState.INITIAL_REVISION) {
-            throw new IllegalArgumentException("new cycle must start in DISCOVERY at revision 0"); //$NON-NLS-1$
-        }
         return withLock(() -> {
             ReadOutcome outcome = readOutcome(statePath, bakPath);
             if (outcome.state == null || outcome.recovered || outcome.migrated) {
@@ -332,15 +332,22 @@ public final class GsdStateStore {
             if (!expectedToken.equals(outcome.state.concurrencyToken())) {
                 throw new GsdStaleTokenException(expectedToken, outcome.state.concurrencyToken());
             }
-            if (outcome.state.phase() != GsdPhase.CLOSED) {
-                throw new IllegalStateException("new cycle requires current phase CLOSED"); //$NON-NLS-1$
-            }
-            if (expectedToken.cycleId().equals(validated.cycleId())) {
-                throw new IllegalArgumentException("new cycleId must differ from the closed cycle"); //$NON-NLS-1$
-            }
+            // Identity checks intentionally precede aggregate validation so cycle reuse
+            // and generation regression produce their explicit errors rather than an
+            // incidental transition-revision monotonicity violation.
+            GsdCycleRules.validateReplacement(outcome.state, validated);
+            GsdGuard.validate(validated);
             commitAuthoritative(validated);
             return projectionOutcome(validated);
         });
+    }
+
+    private static void logProjectionWarnings(String operation, GsdCommitOutcome outcome) {
+        for (String warning : outcome.projectionWarnings()) {
+            LOGGER.log(System.Logger.Level.WARNING,
+                    "GSD {0} committed {1} with projection warning: {2}", //$NON-NLS-1$
+                    operation, outcome.state().concurrencyToken(), warning);
+        }
     }
 
     private void commitAuthoritative(GsdState next) throws IOException {

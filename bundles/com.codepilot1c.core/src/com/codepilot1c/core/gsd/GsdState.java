@@ -7,7 +7,6 @@
  */
 package com.codepilot1c.core.gsd;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
@@ -58,9 +57,9 @@ public record GsdState(
     /**
      * Schema-v1-shaped compatibility constructor.
      *
-     * <p>A directly-constructed legacy CLOSED state receives a synthetic completed
-     * shipment so previously valid v1 callers remain valid. New code should use the
-     * canonical v2 constructor and provide the actual shipment record.</p>
+     * <p>A directly-constructed legacy CLOSED state receives an explicit migration
+     * marker so previously valid v1 callers remain valid without fabricating a
+     * completed delivery record.</p>
      */
     public GsdState(int schemaVersion, long revision, GsdPhase phase, String goal,
             List<GsdDecision> decisions, List<GsdTask> tasks, List<GsdWave> waves,
@@ -93,7 +92,7 @@ public record GsdState(
 
     private static GsdShipment legacyShipment(GsdPhase phase) {
         if (phase == GsdPhase.CLOSED) {
-            return GsdShipment.completed("legacy-shipment", "migrated-v1", Instant.EPOCH); //$NON-NLS-1$ //$NON-NLS-2$
+            return GsdShipment.legacyMigrated();
         }
         return GsdShipment.empty();
     }

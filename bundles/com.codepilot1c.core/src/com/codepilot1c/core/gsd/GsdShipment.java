@@ -39,9 +39,23 @@ public record GsdShipment(
         return new GsdShipment(id, deliveryReference, GsdShipmentStatus.COMPLETED, completedAt);
     }
 
+    /** Creates the explicit compatibility marker used only for migrated v1 CLOSED state. */
+    public static GsdShipment legacyMigrated() {
+        return new GsdShipment("legacy-migrated", "schema-v1-closed-state", //$NON-NLS-1$ //$NON-NLS-2$
+                GsdShipmentStatus.LEGACY_MIGRATED, null);
+    }
+
     /** @return whether the record represents a completed, timestamped shipment */
     public boolean completed() {
         return status == GsdShipmentStatus.COMPLETED && completedAt != null;
+    }
+
+    /**
+     * @return whether closure is valid for this record, including explicit v1 migration
+     *         compatibility that does not claim a genuine completed delivery
+     */
+    public boolean satisfiesClosure() {
+        return completed() || status == GsdShipmentStatus.LEGACY_MIGRATED;
     }
 
     /** @return whether no shipment has been recorded yet */

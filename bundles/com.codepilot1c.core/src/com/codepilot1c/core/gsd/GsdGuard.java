@@ -425,9 +425,14 @@ public final class GsdGuard {
                             + " has not passed"); //$NON-NLS-1$
                 }
             }
-            if (!shipment.completed()) {
+            if (!shipment.satisfiesClosure()) {
                 violations.add("phase is CLOSED but shipment is not completed"); //$NON-NLS-1$
             }
+        }
+        if (shipment.status() == GsdShipmentStatus.LEGACY_MIGRATED
+                && (!GsdState.LEGACY_CYCLE_ID.equals(state.cycleId())
+                        || !state.transitionHistory().isEmpty())) {
+            violations.add("LEGACY_MIGRATED shipment is valid only for an unmoved migrated v1 cycle"); //$NON-NLS-1$
         }
     }
 
@@ -456,13 +461,17 @@ public final class GsdGuard {
                             && transition.toPhase() == GsdPhase.SHIPPING)
                     || (transition.fromPhase() == GsdPhase.SHIPPING
                             && transition.toPhase() == GsdPhase.CLOSED);
-            boolean rollback = transition.fromPhase() == GsdPhase.VERIFYING
+            boolean verificationRollback = transition.fromPhase() == GsdPhase.VERIFYING
                     && transition.toPhase() == GsdPhase.EXECUTING
+                    && !transition.reason().isBlank();
+            boolean shippingRollback = transition.fromPhase() == GsdPhase.SHIPPING
+                    && (transition.toPhase() == GsdPhase.VERIFYING
+                            || transition.toPhase() == GsdPhase.EXECUTING)
                     && !transition.reason().isBlank();
             boolean newCycle = transition.fromPhase() == GsdPhase.CLOSED
                     && transition.toPhase() == GsdPhase.DISCOVERY
                     && !transition.reason().isBlank();
-            if (!forward && !rollback && !newCycle) {
+            if (!forward && !verificationRollback && !shippingRollback && !newCycle) {
                 violations.add("illegal transition history entry: " + transition.fromPhase() //$NON-NLS-1$
                         + " -> " + transition.toPhase()); //$NON-NLS-1$
             }

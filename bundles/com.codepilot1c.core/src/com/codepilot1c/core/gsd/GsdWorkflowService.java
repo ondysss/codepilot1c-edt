@@ -39,11 +39,14 @@ import com.google.gson.JsonObject;
  * <p>The state machine is {@link GsdPhase#DISCOVERY} &rarr; {@link GsdPhase#PLANNING} &rarr;
  * {@link GsdPhase#EXECUTING} &rarr; {@link GsdPhase#VERIFYING} &rarr;
  * {@link GsdPhase#SHIPPING} &rarr; {@link GsdPhase#CLOSED}
- * with a single allowed rollback: {@link GsdPhase#VERIFYING} &rarr; {@link GsdPhase#EXECUTING}
- * (requires a non-blank reason, which is recorded as an audit decision). Phase changes are
+ * with audited, reason-required rollbacks from VERIFYING to EXECUTING and from SHIPPING
+ * to VERIFYING or EXECUTING. Phase changes are
  * performed exclusively by {@link #transitionPhase}; {@link #createPlan} never changes the phase.</p>
  */
 public final class GsdWorkflowService {
+
+    private static final System.Logger LOGGER =
+            System.getLogger(GsdWorkflowService.class.getName());
 
     private GsdWorkflowService() {
     }
@@ -84,14 +87,14 @@ public final class GsdWorkflowService {
      *   <li>CLOSED: all tasks DONE + non-INFERRED evidence (enforced by {@link GsdGuard})</li>
      * </ul>
      *
-     * <p>A VERIFYING&rarr;EXECUTING rollback records an audit decision with a deterministic
-     * id {@code rollback-r<revision>}, summary "Verification rollback", and the caller's
-     * reason as rationale.</p>
+     * <p>Rollbacks record both a typed transition and a compatibility audit decision.
+     * SHIPPING rollback clears the failed shipment; rollback to EXECUTING also resets
+     * acceptance results to PENDING.</p>
      *
      * @param projectRoot       the project root path
      * @param expectedRevision  optimistic-concurrency revision
      * @param targetPhase       the phase to transition to
-     * @param reason            required only for VERIFYING&rarr;EXECUTING rollback; may be blank otherwise
+     * @param reason            required for every rollback; may be blank for forward transitions
      * @return the persisted state after transition
      * @throws IOException               on I/O error
      * @throws GsdGuardException         if the target state violates invariants
@@ -100,16 +103,30 @@ public final class GsdWorkflowService {
      */
     public static GsdState transitionPhase(String projectRoot, long expectedRevision,
             GsdPhase targetPhase, String reason) throws IOException {
-        return transitionPhaseInternal(projectRoot, expectedRevision, null, targetPhase, reason);
+        return compatibilityState("transitionPhase", //$NON-NLS-1$
+                transitionPhaseInternal(projectRoot, expectedRevision, null, targetPhase, reason));
     }
 
     /** Token-aware transition API that prevents ABA across recovery and cycle changes. */
     public static GsdState transitionPhase(String projectRoot, GsdConcurrencyToken expectedToken,
             GsdPhase targetPhase, String reason) throws IOException {
+        return compatibilityState("transitionPhase", //$NON-NLS-1$
+                transitionPhaseInternal(projectRoot, null, expectedToken, targetPhase, reason));
+    }
+
+    /** Revision-compatible transition that exposes authoritative commit warnings. */
+    public static GsdCommitOutcome transitionPhaseWithOutcome(String projectRoot,
+            long expectedRevision, GsdPhase targetPhase, String reason) throws IOException {
+        return transitionPhaseInternal(projectRoot, expectedRevision, null, targetPhase, reason);
+    }
+
+    /** Token-aware transition that exposes authoritative commit warnings. */
+    public static GsdCommitOutcome transitionPhaseWithOutcome(String projectRoot,
+            GsdConcurrencyToken expectedToken, GsdPhase targetPhase, String reason) throws IOException {
         return transitionPhaseInternal(projectRoot, null, expectedToken, targetPhase, reason);
     }
 
-    private static GsdState transitionPhaseInternal(String projectRoot, Long expectedRevision,
+    private static GsdCommitOutcome transitionPhaseInternal(String projectRoot, Long expectedRevision,
             GsdConcurrencyToken expectedToken, GsdPhase targetPhase, String reason) throws IOException {
         Objects.requireNonNull(targetPhase, "targetPhase"); //$NON-NLS-1$
         // Sanitize rollback reason before any state store access.
@@ -134,18 +151,29 @@ public final class GsdWorkflowService {
         }
 
         GsdState next = current.withPhase(targetPhase);
-        if (current.phase() == GsdPhase.VERIFYING && targetPhase == GsdPhase.EXECUTING) {
+        boolean verificationRollback = current.phase() == GsdPhase.VERIFYING
+                && targetPhase == GsdPhase.EXECUTING;
+        boolean shippingRollback = current.phase() == GsdPhase.SHIPPING
+                && (targetPhase == GsdPhase.VERIFYING || targetPhase == GsdPhase.EXECUTING);
+        if (verificationRollback || shippingRollback) {
             // Rollback: record both the compatibility audit decision and the typed
-            // transition event. Acceptance results are invalidated for re-verification.
-            String auditId = "rollback-r" + current.revision(); //$NON-NLS-1$
+            // transition event. Shipping state is always cleared; execution rollback
+            // also invalidates acceptance results for re-verification.
+            String auditId = shippingRollback
+                    ? "shipping-rollback-r" + current.revision() //$NON-NLS-1$
+                    : "rollback-r" + current.revision(); //$NON-NLS-1$
+            String summary = shippingRollback ? "Shipping rollback" : "Verification rollback"; //$NON-NLS-1$ //$NON-NLS-2$
             List<GsdDecision> decisions = new ArrayList<>(current.decisions());
-            decisions.add(new GsdDecision(auditId, "Verification rollback", safeReason, List.of())); //$NON-NLS-1$
+            decisions.add(new GsdDecision(auditId, summary, safeReason, List.of()));
             next = next.withDecisions(decisions);
-            List<GsdAcceptanceCriterion> resetCriteria = new ArrayList<>();
-            for (GsdAcceptanceCriterion criterion : current.acceptanceCriteria()) {
-                resetCriteria.add(criterion.withStatus(GsdAcceptanceStatus.PENDING));
+            if (targetPhase == GsdPhase.EXECUTING) {
+                List<GsdAcceptanceCriterion> resetCriteria = new ArrayList<>();
+                for (GsdAcceptanceCriterion criterion : current.acceptanceCriteria()) {
+                    resetCriteria.add(criterion.withStatus(GsdAcceptanceStatus.PENDING));
+                }
+                next = next.withAcceptanceCriteria(resetCriteria);
             }
-            next = next.withAcceptanceCriteria(resetCriteria).withShipment(GsdShipment.empty());
+            next = next.withShipment(GsdShipment.empty());
         }
 
         List<GsdTransition> history = new ArrayList<>(current.transitionHistory());
@@ -154,7 +182,7 @@ public final class GsdWorkflowService {
                 safeReason, Instant.now()));
         next = next.withTransitionHistory(history);
 
-        return store.save(next);
+        return store.commit(next);
     }
 
     /**
@@ -162,18 +190,20 @@ public final class GsdWorkflowService {
      *
      * @param from   current phase
      * @param to     target phase
-     * @param reason rollback reason (required for VERIFYING&rarr;EXECUTING)
+     * @param reason rollback reason (required for every backward transition)
      * @throws IllegalArgumentException if the transition is illegal
      */
     public static void validateTransition(GsdPhase from, GsdPhase to, String reason) {
         if (from == to) {
             throw new IllegalArgumentException("already in phase " + to); //$NON-NLS-1$
         }
-        // Allowed rollback: VERIFYING -> EXECUTING only with a required reason.
-        if (from == GsdPhase.VERIFYING && to == GsdPhase.EXECUTING) {
+        boolean rollback = (from == GsdPhase.VERIFYING && to == GsdPhase.EXECUTING)
+                || (from == GsdPhase.SHIPPING
+                        && (to == GsdPhase.VERIFYING || to == GsdPhase.EXECUTING));
+        if (rollback) {
             if (reason == null || reason.isBlank()) {
                 throw new IllegalArgumentException(
-                        "rollback VERIFYING->EXECUTING requires a non-blank reason"); //$NON-NLS-1$
+                        "rollback " + from + "->" + to + " requires a non-blank reason"); //$NON-NLS-1$ //$NON-NLS-2$
             }
             return;
         }
@@ -757,6 +787,13 @@ public final class GsdWorkflowService {
      */
     public static GsdState startNewCycle(String projectRoot,
             GsdConcurrencyToken expectedToken, String newCycleId, String reason) throws IOException {
+        return compatibilityState("startNewCycle", //$NON-NLS-1$
+                startNewCycleWithOutcome(projectRoot, expectedToken, newCycleId, reason));
+    }
+
+    /** Token-aware new-cycle operation that exposes projection warnings. */
+    public static GsdCommitOutcome startNewCycleWithOutcome(String projectRoot,
+            GsdConcurrencyToken expectedToken, String newCycleId, String reason) throws IOException {
         String safeCycleId = secureField(newCycleId, "cycleId", ContentKind.DECISION); //$NON-NLS-1$
         String safeReason = secureField(reason, "reason", ContentKind.DECISION); //$NON-NLS-1$
         if (safeCycleId.isBlank()) {
@@ -769,19 +806,37 @@ public final class GsdWorkflowService {
         GsdState current = store.load();
         checkToken(current, expectedToken);
         requirePhase("startNewCycle", current.phase(), GsdPhase.CLOSED); //$NON-NLS-1$
+        GsdCycleRules.validateRequestedIdentity(current, safeCycleId, current.generation());
         GsdTransition transition = new GsdTransition(safeCycleId, current.generation(),
                 GsdState.INITIAL_REVISION, GsdPhase.CLOSED, GsdPhase.DISCOVERY,
                 safeReason, Instant.now());
         GsdState next = current.startCycle(safeCycleId, transition);
-        return store.commitNewCycle(expectedToken, next).state();
+        return store.commitNewCycle(expectedToken, next);
     }
 
     /** Revision-compatible new-cycle API; token-aware callers should use the overload. */
     public static GsdState startNewCycle(String projectRoot, long expectedRevision,
             String newCycleId, String reason) throws IOException {
+        return compatibilityState("startNewCycle", //$NON-NLS-1$
+                startNewCycleWithOutcome(projectRoot, expectedRevision, newCycleId, reason));
+    }
+
+    /** Revision-compatible new-cycle operation that exposes projection warnings. */
+    public static GsdCommitOutcome startNewCycleWithOutcome(String projectRoot,
+            long expectedRevision, String newCycleId, String reason) throws IOException {
         GsdState current = new GsdStateStore(projectRoot).load();
         checkRevision(current, expectedRevision);
-        return startNewCycle(projectRoot, current.concurrencyToken(), newCycleId, reason);
+        return startNewCycleWithOutcome(
+                projectRoot, current.concurrencyToken(), newCycleId, reason);
+    }
+
+    private static GsdState compatibilityState(String operation, GsdCommitOutcome outcome) {
+        for (String warning : outcome.projectionWarnings()) {
+            LOGGER.log(System.Logger.Level.WARNING,
+                    "GSD workflow {0} committed {1} with projection warning: {2}", //$NON-NLS-1$
+                    operation, outcome.state().concurrencyToken(), warning);
+        }
+        return outcome.state();
     }
 
     // ---- Structured result builder ----------------------------------------

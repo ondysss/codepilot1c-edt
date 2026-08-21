@@ -16,5 +16,10 @@ public enum GsdShipmentStatus {
     /** Delivery completed successfully. */
     COMPLETED,
     /** Delivery was attempted but failed. */
-    FAILED
+    FAILED,
+    /**
+     * Schema-v1 state was already CLOSED before delivery records existed. This is a
+     * migration compatibility marker, not evidence of a completed shipment.
+     */
+    LEGACY_MIGRATED
 }
