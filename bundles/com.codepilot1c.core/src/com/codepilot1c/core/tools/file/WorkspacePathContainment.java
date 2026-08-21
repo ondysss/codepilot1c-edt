@@ -75,13 +75,17 @@ final class WorkspacePathContainment {
         SecureDirectoryMutation.BoundRoot boundProject =
                 SecureDirectoryMutation.bindRoot(workspace, project, hook, policy,
                         "ship-project-bind"); //$NON-NLS-1$
+        // Capability comes first: a non-secure provider cannot be repaired by
+        // precreating the requested parent directory.
+        SecureDirectoryMutation.requireSecureDirectoryStreams(boundProject);
         if (!Files.isDirectory(target.getParent(), LinkOption.NOFOLLOW_LINKS)) {
             if (hook != null) {
                 hook.beforeMutation("ship-parent-create"); //$NON-NLS-1$
             }
             throw new com.codepilot1c.core.filesystem.SecureDirectoryCapabilityException(
                     target.getParent(),
-                    "secure parent-directory creation is unavailable on Java 17"); //$NON-NLS-1$
+                    "secure parent-directory creation is unavailable on Java 17; " //$NON-NLS-1$
+                            + "pre-create this exact directory inside the project"); //$NON-NLS-1$
         }
         try (SecureDirectoryMutation parent = SecureDirectoryMutation.open(
                 boundProject, target.getParent(), hook, "ship-parent-bind")) { //$NON-NLS-1$

@@ -129,7 +129,7 @@ public final class GsdRecordShipmentTool extends AbstractTool {
         } catch (com.codepilot1c.core.gsd.GsdCorruptException e) {
             return failure(operation, GsdWorkflowService.ERR_CORRUPT, e.getMessage());
         } catch (IOException e) {
-            return failure(operation, GsdWorkflowService.ERR_IO, e.getMessage());
+            return GsdToolSupport.ioFailure(operation, "", e); //$NON-NLS-1$
         } catch (RuntimeException e) {
             return failure(operation, GsdWorkflowService.ERR_INVALID,
                     "Unexpected runtime failure while recording shipment"); //$NON-NLS-1$
@@ -137,7 +137,6 @@ public final class GsdRecordShipmentTool extends AbstractTool {
     }
 
     private ToolResult failure(String operation, String code, String message) {
-        return ToolResult.failure(message, GsdWorkflowService.buildResult(
-                false, operation, 0, null, code));
+        return GsdToolSupport.failure(operation, code, message);
     }
 }

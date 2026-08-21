@@ -18,8 +18,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -48,6 +52,65 @@ public class GsdStateStoreTest {
                 SecureDirectoryMutation.supportsSecureDirectoryStreams(project));
         Files.createDirectories(project.resolve(GsdStateStore.GSD_DIR_NAME));
         return project;
+    }
+
+    private static String portablePopulatedStateJson() {
+        return """
+                {
+                  "schemaVersion": 2,
+                  "cycleId": "portable-cycle",
+                  "generation": 3,
+                  "revision": 7,
+                  "phase": "DISCOVERY",
+                  "goal": "portable inspection",
+                  "acceptanceCriteria": [],
+                  "decisions": [
+                    {
+                      "id": "decision-1",
+                      "summary": "inspect safely",
+                      "rationale": "read-only access remains useful",
+                      "alternatives": []
+                    }
+                  ],
+                  "tasks": [],
+                  "waves": [],
+                  "evidence": [],
+                  "shipment": {
+                    "id": "",
+                    "deliveryReference": "",
+                    "status": "PENDING"
+                  },
+                  "transitionHistory": [],
+                  "usedCycleIds": ["portable-cycle"],
+                  "sessionPointer": {
+                    "sessionId": "portable-session",
+                    "workstreamId": "portable-workstream"
+                  }
+                }
+                """;
+    }
+
+    private static Map<String, String> snapshot(Path root) throws IOException {
+        Map<String, String> result = new TreeMap<>();
+        try (java.util.stream.Stream<Path> paths = Files.walk(root)) {
+            for (Path path : paths.sorted().toList()) {
+                if (path.equals(root)) {
+                    continue;
+                }
+                String relative = root.relativize(path).toString().replace('\\', '/');
+                long modified = Files.getLastModifiedTime(
+                        path, java.nio.file.LinkOption.NOFOLLOW_LINKS).toMillis();
+                if (Files.isSymbolicLink(path)) {
+                    result.put(relative, "link:" + Files.readSymbolicLink(path) + ":" + modified); //$NON-NLS-1$ //$NON-NLS-2$
+                } else if (Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                    result.put(relative, "dir:" + modified); //$NON-NLS-1$
+                } else {
+                    result.put(relative, "file:" + modified + ":" //$NON-NLS-1$ //$NON-NLS-2$
+                            + Base64.getEncoder().encodeToString(Files.readAllBytes(path)));
+                }
+            }
+        }
+        return result;
     }
 
     @Test
@@ -80,6 +143,8 @@ public class GsdStateStoreTest {
     @Test
     public void missingGsdBootstrapFailsBeforeDirectoryOrOutsideMutation() throws IOException {
         Path root = tmp.newFolder("missing-gsd-project").toPath(); //$NON-NLS-1$
+        Assume.assumeTrue("bootstrap guidance requires a real SecureDirectoryStream provider", //$NON-NLS-1$
+                SecureDirectoryMutation.supportsSecureDirectoryStreams(root));
         Path outside = tmp.newFolder("missing-gsd-outside").toPath(); //$NON-NLS-1$
         Path sentinel = Files.writeString(outside.resolve("sentinel"), "unchanged", //$NON-NLS-1$ //$NON-NLS-2$
                 StandardCharsets.UTF_8);
@@ -99,6 +164,27 @@ public class GsdStateStoreTest {
         try (java.util.stream.Stream<Path> children = Files.list(outside)) {
             assertEquals(1L, children.count());
         }
+    }
+
+    @Test
+    public void forcedNonSecureMissingGsdReportsUnsupportedWithoutPrecreateGuidance()
+            throws IOException {
+        Path root = tmp.newFolder("forced-missing-gsd-project").toPath(); //$NON-NLS-1$
+        Map<String, String> before = snapshot(root);
+        AtomicReference<String> boundary = new AtomicReference<>();
+        GsdStateStore store = new GsdStateStore(root, boundary::set,
+                CapabilityPolicy.FORCE_NON_SECURE_FOR_TESTS);
+
+        try {
+            store.load();
+            fail("expected provider capability rejection"); //$NON-NLS-1$
+        } catch (SecureDirectoryCapabilityException e) {
+            assertTrue(e.getMessage().contains("filesystem provider lacks SecureDirectoryStream")); //$NON-NLS-1$
+            assertFalse(e.getMessage().contains("pre-create")); //$NON-NLS-1$
+        }
+
+        assertEquals(null, boundary.get());
+        assertEquals(before, snapshot(root));
     }
 
     @Test
@@ -606,44 +692,60 @@ public class GsdStateStoreTest {
 
     @Test
     public void loadReadOnlyParsesExistingState() throws IOException {
-        Path root = newProject();
+        Path root = tmp.newFolder("read-only-existing-state").toPath(); //$NON-NLS-1$
+        Path gsd = Files.createDirectories(root.resolve(GsdStateStore.GSD_DIR_NAME));
+        Files.writeString(gsd.resolve(GsdStateStore.STATE_JSON), portablePopulatedStateJson(),
+                StandardCharsets.UTF_8);
         GsdStateStore store = new GsdStateStore(root);
-
-        // Write state via the normal (writing) path first.
-        GsdState populated = new GsdState(
-                GsdState.CURRENT_SCHEMA_VERSION, 0L, GsdPhase.PLANNING,
-                "read-only goal", //$NON-NLS-1$
-                List.of(), List.of(new GsdTask("t1", "task", GsdTaskStatus.PENDING, "w1", //$NON-NLS-1$ //$NON-NLS-2$
-                        List.of(), List.of())),
-                List.of(new GsdWave("w1", "wave", "", List.of("t1"))), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
-                List.of(), GsdSessionPointer.of("sess-ro", "ws-ro")); //$NON-NLS-1$ //$NON-NLS-2$
-        GsdState saved = store.save(populated);
-
-        // Now read-only should return the same state without modifying anything.
         Path stateFile = store.getGsdDirectory().resolve(GsdStateStore.STATE_JSON);
-        long lastModifiedBefore = Files.getLastModifiedTime(stateFile).toMillis();
+        Map<String, String> before = snapshot(root);
 
         GsdState loaded = store.loadReadOnly();
 
-        assertEquals(saved.revision(), loaded.revision());
-        assertEquals(GsdPhase.PLANNING, loaded.phase());
-        assertEquals("read-only goal", loaded.goal()); //$NON-NLS-1$
-        assertEquals("sess-ro", loaded.sessionPointer().sessionId()); //$NON-NLS-1$
-        // No writes: mtime unchanged.
-        long lastModifiedAfter = Files.getLastModifiedTime(stateFile).toMillis();
-        assertEquals(lastModifiedBefore, lastModifiedAfter);
-        // No backup created by read-only.
+        assertEquals(7L, loaded.revision());
+        assertEquals(GsdPhase.DISCOVERY, loaded.phase());
+        assertEquals("portable inspection", loaded.goal()); //$NON-NLS-1$
+        assertEquals("portable-session", loaded.sessionPointer().sessionId()); //$NON-NLS-1$
+        assertEquals(before, snapshot(root));
+        assertTrue(Files.exists(stateFile));
         assertFalse(Files.exists(store.getGsdDirectory().resolve(GsdStateStore.STATE_BAK)));
     }
 
     @Test
+    public void forcedNonSecureLoadReadOnlyParsesPopulatedStateWithoutMutation()
+            throws IOException {
+        Path root = tmp.newFolder("forced-read-only-populated").toPath(); //$NON-NLS-1$
+        Path gsd = Files.createDirectories(root.resolve(GsdStateStore.GSD_DIR_NAME));
+        Files.writeString(gsd.resolve(GsdStateStore.STATE_JSON), portablePopulatedStateJson(),
+                StandardCharsets.UTF_8);
+        Map<String, String> before = snapshot(root);
+        GsdStateStore store = new GsdStateStore(root, null,
+                CapabilityPolicy.FORCE_NON_SECURE_FOR_TESTS);
+
+        GsdState loaded = store.loadReadOnly();
+
+        assertEquals("portable-cycle", loaded.cycleId()); //$NON-NLS-1$
+        assertEquals(3L, loaded.generation());
+        assertEquals(7L, loaded.revision());
+        assertEquals("portable inspection", loaded.goal()); //$NON-NLS-1$
+        assertEquals(1, loaded.decisions().size());
+        assertEquals(before, snapshot(root));
+        assertFalse(Files.exists(gsd.resolve(GsdStateStore.STATE_LOCK)));
+        assertFalse(Files.exists(gsd.resolve(GsdStateStore.STATE_BAK)));
+        assertFalse(Files.exists(gsd.resolve(GsdProjections.STATE_FILE)));
+        assertFalse(Files.exists(gsd.resolve(GsdProjections.PLAN_FILE)));
+    }
+
+    @Test
     public void loadReadOnlyCorruptPrimaryThrows() throws IOException {
-        Path root = newProject();
-        GsdStateStore store = new GsdStateStore(root);
+        Path root = tmp.newFolder("forced-read-only-corrupt").toPath(); //$NON-NLS-1$
+        GsdStateStore store = new GsdStateStore(root, null,
+                CapabilityPolicy.FORCE_NON_SECURE_FOR_TESTS);
         Files.createDirectories(store.getGsdDirectory());
         Files.writeString(store.getGsdDirectory().resolve(GsdStateStore.STATE_JSON),
                 "not valid json {{{", //$NON-NLS-1$
                 StandardCharsets.UTF_8);
+        Map<String, String> before = snapshot(root);
 
         try {
             store.loadReadOnly();
@@ -651,6 +753,7 @@ public class GsdStateStoreTest {
         } catch (GsdCorruptException e) {
             assertTrue(e.getMessage().contains("invalid JSON")); //$NON-NLS-1$
         }
+        assertEquals(before, snapshot(root));
     }
 
     @Test
@@ -670,10 +773,108 @@ public class GsdStateStoreTest {
             store.loadReadOnly();
             fail("expected confinement rejection on read-only path"); //$NON-NLS-1$
         } catch (AccessDeniedException e) {
-            assertTrue(e.getMessage().contains("outside the project root")); //$NON-NLS-1$
+            assertTrue(e.getMessage().contains("symbolic links are not allowed")); //$NON-NLS-1$
         }
         // No files written in the outside target.
         assertFalse(Files.exists(outside.resolve("gsd").resolve(GsdStateStore.STATE_JSON))); //$NON-NLS-1$
+    }
+
+    @Test
+    public void forcedNonSecureLoadReadOnlyRejectsStateSymlinkEscapeWithoutMutation()
+            throws IOException {
+        Path root = tmp.newFolder("forced-read-only-state-link").toPath(); //$NON-NLS-1$
+        Path gsd = Files.createDirectories(root.resolve(GsdStateStore.GSD_DIR_NAME));
+        Path outside = tmp.newFolder("forced-read-only-state-link-outside").toPath(); //$NON-NLS-1$
+        Path outsideState = Files.writeString(outside.resolve(GsdStateStore.STATE_JSON),
+                portablePopulatedStateJson(), StandardCharsets.UTF_8);
+        try {
+            Files.createSymbolicLink(gsd.resolve(GsdStateStore.STATE_JSON), outsideState);
+        } catch (UnsupportedOperationException e) {
+            Assume.assumeNoException("symbolic links are required", e); //$NON-NLS-1$
+        }
+        Map<String, String> projectBefore = snapshot(root);
+        Map<String, String> outsideBefore = snapshot(outside);
+        GsdStateStore store = new GsdStateStore(root, null,
+                CapabilityPolicy.FORCE_NON_SECURE_FOR_TESTS);
+
+        try {
+            store.loadReadOnly();
+            fail("expected state symlink rejection"); //$NON-NLS-1$
+        } catch (AccessDeniedException e) {
+            assertTrue(e.getMessage().contains("symbolic links are not allowed")); //$NON-NLS-1$
+        }
+
+        assertEquals(projectBefore, snapshot(root));
+        assertEquals(outsideBefore, snapshot(outside));
+        assertEquals(portablePopulatedStateJson(),
+                Files.readString(outsideState, StandardCharsets.UTF_8));
+        assertFalse(Files.exists(gsd.resolve(GsdStateStore.STATE_LOCK)));
+        assertFalse(Files.exists(gsd.resolve(GsdStateStore.STATE_BAK)));
+    }
+
+    @Test
+    public void forcedNonSecureLoadReadOnlyRejectsSwapBeforePostReadValidation()
+            throws IOException {
+        Path root = tmp.newFolder("forced-read-only-swap").toPath(); //$NON-NLS-1$
+        Path gsd = Files.createDirectories(root.resolve(GsdStateStore.GSD_DIR_NAME));
+        Path state = Files.writeString(gsd.resolve(GsdStateStore.STATE_JSON),
+                portablePopulatedStateJson(), StandardCharsets.UTF_8);
+        Path outside = tmp.newFolder("forced-read-only-swap-outside").toPath(); //$NON-NLS-1$
+        Path outsideState = Files.writeString(outside.resolve(GsdStateStore.STATE_JSON),
+                portablePopulatedStateJson().replace("portable inspection", "outside state"), //$NON-NLS-1$ //$NON-NLS-2$
+                StandardCharsets.UTF_8);
+        Path probe = gsd.resolve("symlink-probe"); //$NON-NLS-1$
+        try {
+            Files.createSymbolicLink(probe, outsideState);
+            Files.delete(probe);
+        } catch (UnsupportedOperationException e) {
+            Assume.assumeNoException("symbolic links are required", e); //$NON-NLS-1$
+        }
+        Map<String, String> outsideBefore = snapshot(outside);
+        GsdStateStore store = new GsdStateStore(root, operation -> {
+            if ("gsd-read-before-revalidation".equals(operation)) { //$NON-NLS-1$
+                Files.move(state, gsd.resolve("state-before-swap.json")); //$NON-NLS-1$
+                Files.createSymbolicLink(state, outsideState);
+            }
+        }, CapabilityPolicy.FORCE_NON_SECURE_FOR_TESTS);
+
+        try {
+            store.loadReadOnly();
+            fail("expected post-read identity rejection"); //$NON-NLS-1$
+        } catch (AccessDeniedException e) {
+            assertTrue(e.getMessage().contains("changed during read")); //$NON-NLS-1$
+        }
+
+        assertEquals(outsideBefore, snapshot(outside));
+        assertFalse(Files.exists(gsd.resolve(GsdStateStore.STATE_LOCK)));
+        assertFalse(Files.exists(gsd.resolve(GsdStateStore.STATE_BAK)));
+    }
+
+    @Test
+    public void forcedNonSecureLoadReadOnlyRejectsOversizedStateWithoutReadingIt()
+            throws IOException {
+        Path root = tmp.newFolder("forced-read-only-oversized").toPath(); //$NON-NLS-1$
+        Path gsd = Files.createDirectories(root.resolve(GsdStateStore.GSD_DIR_NAME));
+        Path state = gsd.resolve(GsdStateStore.STATE_JSON);
+        try (java.nio.channels.SeekableByteChannel channel = Files.newByteChannel(state,
+                StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+            channel.position(GsdStateStore.MAX_READ_ONLY_STATE_BYTES);
+            channel.write(java.nio.ByteBuffer.wrap(new byte[] {0}));
+        }
+        long size = Files.size(state);
+        GsdStateStore store = new GsdStateStore(root, null,
+                CapabilityPolicy.FORCE_NON_SECURE_FOR_TESTS);
+
+        try {
+            store.loadReadOnly();
+            fail("expected bounded read rejection"); //$NON-NLS-1$
+        } catch (GsdCorruptException e) {
+            assertTrue(e.getMessage().contains("portable read-only limit")); //$NON-NLS-1$
+        }
+
+        assertEquals(size, Files.size(state));
+        assertFalse(Files.exists(gsd.resolve(GsdStateStore.STATE_LOCK)));
+        assertFalse(Files.exists(gsd.resolve(GsdStateStore.STATE_BAK)));
     }
 
     // ---- Deterministic projections --------------------------------------

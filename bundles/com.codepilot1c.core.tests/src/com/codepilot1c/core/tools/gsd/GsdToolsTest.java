@@ -16,9 +16,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
@@ -26,9 +28,12 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.junit.rules.TestName;
 
 import com.codepilot1c.core.agent.profiles.AgentCapability;
+import com.codepilot1c.core.filesystem.SecureDirectoryMutation;
 import com.codepilot1c.core.gsd.GsdTestSupport;
+import com.codepilot1c.core.gsd.RequiresSecureMutation;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolMeta;
@@ -45,11 +50,14 @@ public class GsdToolsTest {
     @Rule
     public TemporaryFolder tmp = new TemporaryFolder();
 
+    @Rule
+    public TestName testName = new TestName();
+
     private String projectPath;
 
     @Before
     public void setUp() throws IOException {
-        projectPath = GsdTestSupport.secureProject(
+        projectPath = GsdTestSupport.projectForTest(getClass(), testName.getMethodName(),
                 tmp.newFolder("project").toPath()).toString(); //$NON-NLS-1$
     }
 
@@ -69,6 +77,27 @@ public class GsdToolsTest {
         ToolExecutionContext context = new ToolExecutionContext(
                 "gsd-test", AgentCapability.MUTATING, 0, projectPath, "session-test"); //$NON-NLS-1$ //$NON-NLS-2$
         return tool.execute(effective, context);
+    }
+
+    private static Map<String, String> treeSnapshot(Path root) throws IOException {
+        Map<String, String> result = new TreeMap<>();
+        try (java.util.stream.Stream<Path> paths = Files.walk(root)) {
+            for (Path path : paths.sorted().toList()) {
+                if (path.equals(root)) {
+                    continue;
+                }
+                String relative = root.relativize(path).toString().replace('\\', '/');
+                if (Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                    result.put(relative, "directory"); //$NON-NLS-1$
+                } else if (Files.isSymbolicLink(path)) {
+                    result.put(relative, "link:" + Files.readSymbolicLink(path)); //$NON-NLS-1$
+                } else {
+                    result.put(relative, Base64.getEncoder().encodeToString(
+                            Files.readAllBytes(path)));
+                }
+            }
+        }
+        return result;
     }
 
     // ---- Registry registration -------------------------------------------
@@ -310,6 +339,59 @@ public class GsdToolsTest {
     }
 
     @Test
+    public void getStateReadsPopulatedPortableStateWithoutMutation()
+            throws IOException, ExecutionException, InterruptedException {
+        Path project = Path.of(projectPath);
+        GsdTestSupport.seedPortablePopulatedState(project);
+        Map<String, String> before = treeSnapshot(project);
+
+        ToolResult result = execute(new GsdGetStateTool(),
+                Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
+
+        assertTrue(result.isSuccess());
+        assertEquals("success", result.getStructuredString("status")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals("gsd_get_state", result.getStructuredString("operation")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals("portable-cycle", result.getStructuredString("cycle_id")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals("portable inspection", result.getStructuredString("goal")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals(7, result.getStructuredInt("revision", -1)); //$NON-NLS-1$
+        assertEquals(1, result.getStructuredData().getAsJsonArray("decisions").size()); //$NON-NLS-1$
+        assertEquals(before, treeSnapshot(project));
+    }
+
+    @Test
+    public void recordDecisionUsesRealProviderCapabilityAndDeterministicEnvelope()
+            throws IOException, ExecutionException, InterruptedException {
+        Path project = Path.of(projectPath);
+        Files.createDirectories(project.resolve(".codepilot1c/gsd")); //$NON-NLS-1$
+        boolean secure = SecureDirectoryMutation.supportsSecureDirectoryStreams(project);
+        Map<String, String> before = treeSnapshot(project);
+
+        ToolResult result = execute(new GsdRecordDecisionTool(), Map.of(
+                "project_path", projectPath, //$NON-NLS-1$
+                "expected_revision", 0L, //$NON-NLS-1$
+                "id", "portable-decision", //$NON-NLS-1$ //$NON-NLS-2$
+                "summary", "real tool path", //$NON-NLS-1$ //$NON-NLS-2$
+                "rationale", "exercise provider capability")) //$NON-NLS-1$ //$NON-NLS-2$
+                .get();
+
+        if (secure) {
+            assertTrue(result.getErrorMessage(), result.isSuccess());
+            assertEquals(1, result.getStructuredInt("revision", -1)); //$NON-NLS-1$
+            assertTrue(Files.exists(project.resolve(".codepilot1c/gsd/state.json"))); //$NON-NLS-1$
+        } else {
+            assertFalse(result.isSuccess());
+            assertTrue(result.hasStructuredData());
+            assertEquals("error", result.getStructuredString("status")); //$NON-NLS-1$ //$NON-NLS-2$
+            assertEquals("gsd_record_decision", result.getStructuredString("operation")); //$NON-NLS-1$ //$NON-NLS-2$
+            assertEquals("unsupported", result.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
+            assertEquals(0, result.getStructuredInt("revision", -1)); //$NON-NLS-1$
+            assertEquals("", result.getStructuredString("phase")); //$NON-NLS-1$ //$NON-NLS-2$
+            assertFalse(result.getErrorMessage().contains("pre-create")); //$NON-NLS-1$
+            assertEquals(before, treeSnapshot(project));
+        }
+    }
+
+    @Test
     public void getStateWithDifferentProjectFailsClosed() throws ExecutionException, InterruptedException {
         GsdGetStateTool tool = new GsdGetStateTool();
         ToolResult result = execute(tool, Map.of("project_path", "/nonexistent/path/xyz")).get(); //$NON-NLS-1$
@@ -320,8 +402,7 @@ public class GsdToolsTest {
     @Test
     public void mutationCannotCrossCapturedProjectBoundary()
             throws IOException, ExecutionException, InterruptedException {
-        Path otherProject = GsdTestSupport.secureProject(
-                tmp.newFolder("other-project").toPath()); //$NON-NLS-1$
+        Path otherProject = tmp.newFolder("other-project").toPath(); //$NON-NLS-1$
         ToolResult result = execute(new GsdRecordDecisionTool(), Map.of(
                 "project_path", otherProject.toString(), //$NON-NLS-1$
                 "expected_revision", 0L, //$NON-NLS-1$
@@ -453,6 +534,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void getStateReturnsFullStructuredPayloadAfterPopulate() throws ExecutionException, InterruptedException {
         // Transition DISCOVERY -> PLANNING, then create a plan.
         GsdTransitionTool tt = new GsdTransitionTool();
@@ -480,6 +562,7 @@ public class GsdToolsTest {
     // ---- gsd_record_decision execution -----------------------------------
 
     @Test
+    @RequiresSecureMutation
     public void recordDecisionSuccess() throws ExecutionException, InterruptedException {
         GsdRecordDecisionTool tool = new GsdRecordDecisionTool();
         ToolResult result = execute(tool, Map.of(
@@ -496,6 +579,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void recordDecisionStaleRevision() throws ExecutionException, InterruptedException {
         GsdRecordDecisionTool tool = new GsdRecordDecisionTool();
         execute(tool, Map.of(
@@ -526,6 +610,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void recordDecisionFromWrongPhaseReturnsInvalid() throws ExecutionException, InterruptedException {
         // recordDecision requires DISCOVERY; transition to PLANNING first.
         transitionToPlanning();
@@ -557,6 +642,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void createPlanSuccess() throws ExecutionException, InterruptedException {
         long rev = transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
@@ -574,11 +660,10 @@ public class GsdToolsTest {
 
     @Test
     public void createPlanEmptyTasksFails() throws ExecutionException, InterruptedException {
-        transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
         ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
-                "expected_revision", 1, //$NON-NLS-1$
+                "expected_revision", 0, //$NON-NLS-1$
                 "goal", "Ship it", //$NON-NLS-1$
                 "tasks", List.of(),
                 "waves", List.of(Map.of("id", "w1", "name", "w")))).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -588,7 +673,7 @@ public class GsdToolsTest {
     @Test
     public void createPlanAllOptionalAcceptanceCriteriaReturnsInvalid()
             throws ExecutionException, InterruptedException {
-        long rev = transitionToPlanning();
+        long rev = 0L;
         ToolResult result = execute(new GsdCreatePlanTool(), Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", rev, //$NON-NLS-1$
@@ -614,12 +699,11 @@ public class GsdToolsTest {
 
     @Test
     public void createPlanMalformedTaskFails() throws ExecutionException, InterruptedException {
-        transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
         // tasks[0] missing id
         ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
-                "expected_revision", 1, //$NON-NLS-1$
+                "expected_revision", 0, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
                 "tasks", List.of(Map.of("title", "no-id")), //$NON-NLS-1$ //$NON-NLS-2$
                 "waves", List.of(Map.of("id", "w1", "name", "w")))).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -629,11 +713,10 @@ public class GsdToolsTest {
 
     @Test
     public void createPlanNonArrayTasksFails() throws ExecutionException, InterruptedException {
-        transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
         ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
-                "expected_revision", 1, //$NON-NLS-1$
+                "expected_revision", 0, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
                 "tasks", "not an array", //$NON-NLS-1$
                 "waves", List.of(Map.of("id", "w1", "name", "w")))).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -643,11 +726,10 @@ public class GsdToolsTest {
 
     @Test
     public void createPlanMissingExecutionKindFails() throws ExecutionException, InterruptedException {
-        transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
         ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
-                "expected_revision", 1, //$NON-NLS-1$
+                "expected_revision", 0, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
                 "tasks", List.of(Map.of("id", "t1", "title", "t")), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                 "waves", List.of(Map.of("id", "w1", "name", "w")))).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -657,11 +739,10 @@ public class GsdToolsTest {
 
     @Test
     public void createPlanUnknownExecutionKindFails() throws ExecutionException, InterruptedException {
-        transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
         ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
-                "expected_revision", 1, //$NON-NLS-1$
+                "expected_revision", 0, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
                 "tasks", List.of(Map.of("id", "t1", "title", "t", "execution_kind", "BOGUS")), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                 "waves", List.of(Map.of("id", "w1", "name", "w")))).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -671,11 +752,10 @@ public class GsdToolsTest {
 
     @Test
     public void createPlanMalformedWaveFails() throws ExecutionException, InterruptedException {
-        transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
         ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
-                "expected_revision", 1, //$NON-NLS-1$
+                "expected_revision", 0, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
                 "tasks", List.of(Map.of("id", "t1", "title", "t", "execution_kind", "READ_ONLY")), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                 "waves", List.of(Map.of("name", "no-id")))).get(); //$NON-NLS-1$ //$NON-NLS-2$
@@ -685,11 +765,10 @@ public class GsdToolsTest {
 
     @Test
     public void createPlanTaskDependsOnNonStringElementFails() throws ExecutionException, InterruptedException {
-        transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
         ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
-                "expected_revision", 1, //$NON-NLS-1$
+                "expected_revision", 0, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
                 "tasks", List.of(Map.of("id", "t1", "title", "t", "execution_kind", "READ_ONLY", "depends_on", List.of(42))), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                 "waves", List.of(Map.of("id", "w1", "name", "w")))).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -698,6 +777,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void createPlanDoesNotChangePhase() throws ExecutionException, InterruptedException {
         long rev = transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
@@ -714,7 +794,7 @@ public class GsdToolsTest {
 
     @Test
     public void createPlanNestedExtraTaskKeyReturnsInvalid() throws ExecutionException, InterruptedException {
-        long rev = transitionToPlanning();
+        long rev = 0L;
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
         ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
@@ -728,7 +808,7 @@ public class GsdToolsTest {
 
     @Test
     public void createPlanNestedExtraWaveKeyReturnsInvalid() throws ExecutionException, InterruptedException {
-        long rev = transitionToPlanning();
+        long rev = 0L;
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
         ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
@@ -741,6 +821,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void createPlanFromInvalidPhaseFails() throws ExecutionException, InterruptedException {
         // In DISCOVERY (rev 0), createPlan must be rejected.
         GsdCreatePlanTool cpt = new GsdCreatePlanTool();
@@ -755,6 +836,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void createPlanInExecutingPhaseFails() throws ExecutionException, InterruptedException {
         // DISCOVERY -> PLANNING -> create plan -> EXECUTING -> try createPlan (must fail).
         transitionToPlanning();
@@ -781,6 +863,7 @@ public class GsdToolsTest {
     // ---- gsd_update_task execution ---------------------------------------
 
     @Test
+    @RequiresSecureMutation
     public void updateTaskSuccess() throws ExecutionException, InterruptedException {
         // DISCOVERY -> PLANNING -> create plan -> EXECUTING
         transitionToPlanning();
@@ -805,6 +888,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void updateTaskNotFoundFails() throws ExecutionException, InterruptedException {
         GsdUpdateTaskTool tool = new GsdUpdateTaskTool();
         ToolResult result = execute(tool, Map.of(
@@ -870,6 +954,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void recordEvidenceSuccess() throws ExecutionException, InterruptedException {
         long rev = setUpExecutingPhase();
         GsdRecordEvidenceTool tool = new GsdRecordEvidenceTool();
@@ -886,7 +971,7 @@ public class GsdToolsTest {
 
     @Test
     public void recordEvidenceInvalidProvenanceFails() throws ExecutionException, InterruptedException {
-        long rev = setUpExecutingPhase();
+        long rev = 0L;
         GsdRecordEvidenceTool tool = new GsdRecordEvidenceTool();
         ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
@@ -901,6 +986,7 @@ public class GsdToolsTest {
     // ---- gsd_transition execution ----------------------------------------
 
     @Test
+    @RequiresSecureMutation
     public void transitionSuccess() throws ExecutionException, InterruptedException {
         GsdTransitionTool tool = new GsdTransitionTool();
         ToolResult result = execute(tool, Map.of(
@@ -912,6 +998,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void transitionIllegalFails() throws ExecutionException, InterruptedException {
         GsdTransitionTool tool = new GsdTransitionTool();
         ToolResult result = execute(tool, Map.of(
@@ -933,6 +1020,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void transitionRollbackWithReasonSucceeds() throws ExecutionException, InterruptedException {
         // Set up: PLANNING -> create plan -> EXECUTING -> VERIFYING -> rollback
         transitionToPlanning();
@@ -980,6 +1068,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void transitionRollbackWithoutReasonFails() throws ExecutionException, InterruptedException {
         // Set up same as above to reach VERIFYING.
         transitionToPlanning();
@@ -1021,6 +1110,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void staleCycleTokenFailsBeforeMutation()
             throws ExecutionException, InterruptedException {
         GsdRecordDecisionTool tool = new GsdRecordDecisionTool();
@@ -1035,6 +1125,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void verificationOutcomeFromWrongPhaseReturnsStructuredInvalid()
             throws ExecutionException, InterruptedException {
         ToolResult result = execute(new GsdRecordVerificationOutcomeTool(), Map.of(
@@ -1053,6 +1144,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void shipmentFromWrongPhaseReturnsStructuredInvalid()
             throws ExecutionException, InterruptedException {
         ToolResult result = execute(new GsdRecordShipmentTool(), Map.of(
@@ -1071,6 +1163,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void failedVerificationCannotEnterShipping()
             throws ExecutionException, InterruptedException {
         long verifyingRevision = reachVerifying();
@@ -1092,6 +1185,7 @@ public class GsdToolsTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void shipmentExactRetryIsIdempotentAndReplacementConflicts()
             throws ExecutionException, InterruptedException {
         long verifyingRevision = reachVerifying();

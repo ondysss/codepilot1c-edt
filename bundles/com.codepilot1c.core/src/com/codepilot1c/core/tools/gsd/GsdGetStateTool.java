@@ -90,8 +90,8 @@ public class GsdGetStateTool extends AbstractTool {
                 return ToolResult.failure("GSD state is corrupt: " + e.getMessage(), //$NON-NLS-1$
                         GsdWorkflowService.buildResult(false, "gsd_get_state", 0, null, GsdWorkflowService.ERR_CORRUPT)); //$NON-NLS-1$
             } catch (IOException e) {
-                return ToolResult.failure("I/O error reading GSD state: " + e.getMessage(), //$NON-NLS-1$
-                        GsdWorkflowService.buildResult(false, "gsd_get_state", 0, null, GsdWorkflowService.ERR_IO)); //$NON-NLS-1$
+                return GsdToolSupport.ioFailure("gsd_get_state", //$NON-NLS-1$
+                        "I/O error reading GSD state: ", e); //$NON-NLS-1$
             }
         });
     }

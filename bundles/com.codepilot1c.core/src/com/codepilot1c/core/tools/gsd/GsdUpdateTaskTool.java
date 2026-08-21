@@ -115,8 +115,7 @@ public class GsdUpdateTaskTool extends AbstractTool {
                 return ToolResult.failure("GSD state is corrupt: " + e.getMessage(), //$NON-NLS-1$
                         GsdWorkflowService.buildResult(false, "gsd_update_task", 0, null, GsdWorkflowService.ERR_CORRUPT)); //$NON-NLS-1$
             } catch (IOException e) {
-                return ToolResult.failure("I/O error: " + e.getMessage(), //$NON-NLS-1$
-                        GsdWorkflowService.buildResult(false, "gsd_update_task", 0, null, GsdWorkflowService.ERR_IO)); //$NON-NLS-1$
+                return GsdToolSupport.ioFailure("gsd_update_task", "I/O error: ", e); //$NON-NLS-1$ //$NON-NLS-2$
             } catch (RuntimeException e) {
                 return ToolResult.failure("Internal error: " + e.getMessage(), //$NON-NLS-1$
                         GsdWorkflowService.buildResult(false, "gsd_update_task", 0, null, GsdWorkflowService.ERR_INVALID)); //$NON-NLS-1$

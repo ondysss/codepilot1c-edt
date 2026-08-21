@@ -444,9 +444,18 @@ mvn "-Dedt.home=C:\Program Files\1C\EDT\Eclipse" -DskipTests package
 ```
 
 `edt.home` не имеет machine-specific default и должен указывать именно на
-каталог `Eclipse`, содержащий плагины EDT. Текущий target platform относится к
-EDT `2025.2.3+30`; Docker baseline отдельно заявлен как `2025.1.5`, поэтому
-версию для локальной сборки выбирайте явно и проверяйте совместимость.
+каталог `Eclipse`, содержащий плагины EDT. Зафиксированная acceptance-версия —
+EDT `2025.1.5+34`; локальную и Docker-проверку следует выполнять против одной
+и той же инсталляции этой версии.
+
+На Java 17 GSD-инспекция (`gsd_get_state` и status UI) остаётся доступной на
+провайдерах без `SecureDirectoryStream`, включая стандартный macOS provider:
+`state.json` читается без lock/recovery/projection и без каких-либо записей,
+с запретом symlink traversal и проверкой физической идентичности пути до и после
+чтения. Все GSD-мутации и GSD Ship publication на таких провайдерах отключены
+fail-closed и возвращают `error_code=unsupported`. Предварительное создание
+`.codepilot1c/gsd` или каталога release artifact помогает только провайдеру с
+реальным `SecureDirectoryStream`; на macOS Java 17 это не обход ограничения.
 
 ## Публикация update site
 

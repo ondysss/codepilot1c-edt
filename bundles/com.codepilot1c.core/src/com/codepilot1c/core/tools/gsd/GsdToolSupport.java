@@ -4,6 +4,7 @@
  */
 package com.codepilot1c.core.tools.gsd;
 
+import java.io.IOException;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -13,6 +14,7 @@ import java.util.Set;
 import com.codepilot1c.core.gsd.GsdConcurrencyToken;
 import com.codepilot1c.core.gsd.GsdState;
 import com.codepilot1c.core.gsd.GsdWorkflowService;
+import com.codepilot1c.core.filesystem.SecureDirectoryCapabilityException;
 import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolParameters;
 import com.codepilot1c.core.tools.ToolParameters.ToolParameterException;
@@ -128,6 +130,29 @@ final class GsdToolSupport {
     static ToolResult identityFailure(String operation, GsdToolIdentityException e) {
         return ToolResult.failure(e.getMessage(), GsdWorkflowService.buildResult(
                 false, operation, 0, null, GsdWorkflowService.ERR_IDENTITY));
+    }
+
+    static ToolResult failure(String operation, String code, String message) {
+        return ToolResult.failure(message, GsdWorkflowService.buildResult(
+                false, operation, 0, null, code));
+    }
+
+    static ToolResult ioFailure(String operation, String prefix, IOException failure) {
+        String code = hasCapabilityCause(failure)
+                ? GsdWorkflowService.ERR_UNSUPPORTED : GsdWorkflowService.ERR_IO;
+        String message = (prefix == null ? "" : prefix) + failure.getMessage(); //$NON-NLS-1$
+        return failure(operation, code, message);
+    }
+
+    private static boolean hasCapabilityCause(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof SecureDirectoryCapabilityException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     static void addWarnings(JsonObject payload, java.util.List<String> warnings) {

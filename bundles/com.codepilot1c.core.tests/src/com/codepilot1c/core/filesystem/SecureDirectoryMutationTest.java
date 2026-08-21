@@ -51,20 +51,27 @@ public class SecureDirectoryMutationTest {
     }
 
     @Test
-    public void actualNonSecureProviderFailsBeforeAnyMutation() throws Exception {
-        Path root = tmp.newFolder("actual-non-secure-root").toPath(); //$NON-NLS-1$
-        Assume.assumeFalse("test requires an actual non-secure provider", //$NON-NLS-1$
-                SecureDirectoryMutation.supportsSecureDirectoryStreams(root));
+    public void actualProviderEitherBindsSecurelyOrFailsBeforeAnyMutation() throws Exception {
+        Path root = tmp.newFolder("actual-provider-root").toPath(); //$NON-NLS-1$
+        boolean secure = SecureDirectoryMutation.supportsSecureDirectoryStreams(root);
         Path guarded = Files.createDirectories(root.resolve("guarded")); //$NON-NLS-1$
-        Files.writeString(guarded.resolve("sentinel"), "unchanged", StandardCharsets.UTF_8); //$NON-NLS-1$ //$NON-NLS-2$
+        Files.writeString(guarded.resolve("sentinel"), "unchanged", //$NON-NLS-1$ //$NON-NLS-2$
+                StandardCharsets.UTF_8);
         Map<String, byte[]> before = snapshot(root);
         BoundRoot bound = SecureDirectoryMutation.bindRoot(root);
 
-        try {
-            SecureDirectoryMutation.open(bound, guarded, null, "native-bind"); //$NON-NLS-1$
-            fail("expected native provider capability error"); //$NON-NLS-1$
-        } catch (SecureDirectoryCapabilityException e) {
-            assertTrue(e.getMessage().contains("mutation is disabled")); //$NON-NLS-1$
+        if (secure) {
+            try (SecureDirectoryMutation opened = SecureDirectoryMutation.open(
+                    bound, guarded, null, "native-bind")) { //$NON-NLS-1$
+                assertTrue(opened.exists("sentinel")); //$NON-NLS-1$
+            }
+        } else {
+            try {
+                SecureDirectoryMutation.open(bound, guarded, null, "native-bind"); //$NON-NLS-1$
+                fail("expected native provider capability error"); //$NON-NLS-1$
+            } catch (SecureDirectoryCapabilityException e) {
+                assertTrue(e.getMessage().contains("mutation is disabled")); //$NON-NLS-1$
+            }
         }
 
         assertSnapshotsEqual(before, snapshot(root));
