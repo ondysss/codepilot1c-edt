@@ -14,6 +14,7 @@ import com.codepilot1c.core.model.LlmStreamChunk;
 import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.ILlmProvider;
+import com.codepilot1c.core.provider.LlmRequestCancellation;
 
 /**
  * Decorates an LLM provider with structured trace capture.
@@ -50,10 +51,16 @@ public class TracingLlmProvider implements ILlmProvider {
 
     @Override
     public CompletableFuture<LlmResponse> complete(LlmRequest request) {
+        return complete(request, new LlmRequestCancellation());
+    }
+
+    @Override
+    public CompletableFuture<LlmResponse> complete(
+            LlmRequest request, LlmRequestCancellation cancellation) {
         String requestEventId = traceSession != null
                 ? traceSession.writeLlmEvent(TraceEventType.LLM_REQUEST, null, serializeRequest(request))
                 : null;
-        return delegate.complete(request).whenComplete((response, error) -> {
+        return delegate.complete(request, cancellation).whenComplete((response, error) -> {
             if (traceSession == null) {
                 return;
             }
@@ -68,6 +75,12 @@ public class TracingLlmProvider implements ILlmProvider {
 
     @Override
     public void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer) {
+        streamComplete(request, consumer, new LlmRequestCancellation());
+    }
+
+    @Override
+    public void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer,
+            LlmRequestCancellation cancellation) {
         String requestEventId = traceSession != null
                 ? traceSession.writeLlmEvent(TraceEventType.LLM_REQUEST, null, serializeRequest(request))
                 : null;
@@ -110,7 +123,7 @@ public class TracingLlmProvider implements ILlmProvider {
         };
 
         try {
-            delegate.streamComplete(request, tracingConsumer);
+            delegate.streamComplete(request, tracingConsumer, cancellation);
         } catch (RuntimeException e) {
             if (traceSession != null) {
                 traceSession.writeLlmEvent(TraceEventType.LLM_RESPONSE, requestEventId,

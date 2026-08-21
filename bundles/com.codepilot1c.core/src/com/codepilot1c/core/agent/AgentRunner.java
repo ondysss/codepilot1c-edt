@@ -63,6 +63,7 @@ import com.codepilot1c.core.permissions.PermissionManager;
 import com.codepilot1c.core.permissions.PermissionRule;
 import com.codepilot1c.core.permissions.ProfilePermissionGate;
 import com.codepilot1c.core.provider.ILlmProvider;
+import com.codepilot1c.core.provider.LlmRequestCancellation;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolContextGate;
 import com.codepilot1c.core.tools.ToolLogger;
@@ -122,6 +123,7 @@ public class AgentRunner implements IAgentRunner {
     // For proper cancellation handling
     private final AtomicReference<CompletableFuture<LlmResponse>> currentStreamingFuture =
             new AtomicReference<>();
+    private volatile LlmRequestCancellation requestCancellation = new LlmRequestCancellation();
     private final AtomicReference<ConfirmationRequiredEvent> pendingConfirmation =
             new AtomicReference<>();
 
@@ -263,6 +265,7 @@ public class AgentRunner implements IAgentRunner {
      */
     private void resetState() {
         cancelRequested.set(false);
+        requestCancellation = new LlmRequestCancellation();
         currentStep.set(0);
         toolCallsCount.set(0);
         startTimeMs.set(System.currentTimeMillis());
@@ -343,7 +346,7 @@ public class AgentRunner implements IAgentRunner {
             if (config.isStreamingEnabled() && executionProvider.supportsStreaming()) {
                 responseFuture = executeStreaming(request, step);
             } else {
-                responseFuture = executionProvider.complete(request);
+                responseFuture = executionProvider.complete(request, requestCancellation);
             }
         } catch (Exception e) {
             // Handle synchronous provider exceptions
@@ -422,7 +425,7 @@ public class AgentRunner implements IAgentRunner {
         };
 
         try {
-            executionProvider.streamComplete(request, chunkHandler);
+            executionProvider.streamComplete(request, chunkHandler, requestCancellation);
         } catch (Exception e) {
             future.completeExceptionally(e);
         }
@@ -525,7 +528,8 @@ public class AgentRunner implements IAgentRunner {
         }
 
         ToolExecutionContext executionContext =
-                ToolExecutionContext.of(profile, config.getDelegationDepth());
+                ToolExecutionContext.of(profile, config.getDelegationDepth(),
+                        config.getProjectPath(), config.getSessionId());
         if (!ProfileToolAccess.allows(profile, toolName, toolRegistry)) {
             ToolResult deniedResult = permissionDenied(
                     toolName, profile.getId(), null, "tool_not_in_profile", //$NON-NLS-1$
@@ -847,13 +851,20 @@ public class AgentRunner implements IAgentRunner {
      * Строит системный промпт.
      */
     private String buildSystemPrompt(String prompt, AgentConfig config) {
-        String addition = config.getSystemPromptAddition();
-        return SystemPromptAssembler.getInstance().assembleDetailedForCurrentSession(
+        return SystemPromptAssembler.getInstance().assembleDetailed(
+                buildPromptAssemblyInput(prompt, config))
+                .prompt();
+    }
+
+    SystemPromptAssembler.AssemblyInput buildPromptAssemblyInput(String prompt, AgentConfig config) {
+        return new SystemPromptAssembler.AssemblyInput(
                 systemPrompt,
-                addition,
+                config.getSystemPromptAddition(),
                 config.getProfileName(),
                 List.copyOf(config.getRequestedSkills()),
-                prompt).prompt();
+                config.getProjectPath(),
+                config.getSessionId(),
+                prompt);
     }
 
     /**
@@ -1094,12 +1105,7 @@ public class AgentRunner implements IAgentRunner {
         cancelRequested.set(true);
         state.set(AgentState.CANCELLED);
 
-        // Cancel provider
-        try {
-            executionProvider.cancel();
-        } catch (Exception e) {
-            logWarning("Ошибка при отмене провайдера", e);
-        }
+        requestCancellation.cancel();
 
         // Complete pending streaming future
         CompletableFuture<LlmResponse> streamFuture = currentStreamingFuture.getAndSet(null);

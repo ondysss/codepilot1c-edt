@@ -10,6 +10,7 @@ import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.tools.ToolParameters;
 import com.codepilot1c.core.tools.ToolMeta;
 import com.codepilot1c.core.tools.AbstractTool;
+import com.codepilot1c.core.tools.ActiveProjectSupport;
 import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.edt.ast.BmSyncHelper;
 import com.codepilot1c.core.agent.profiles.GsdShipPathPolicy;
@@ -33,8 +34,6 @@ import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.core.runtime.Status;
 
-import com.codepilot1c.core.session.Session;
-import com.codepilot1c.core.session.SessionManager;
 
 /**
  * Инструмент записи файлов workspace.
@@ -197,10 +196,10 @@ public class WriteTool extends AbstractTool {
         IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
 
         // Find file handle
-        IProject currentProject = resolveCurrentProject(root);
+        IProject currentProject = resolveCurrentProject(context);
         IFile file = shipScoped
                 ? findShipFile(currentProject, normalizedPath)
-                : findOrCreateFile(root, normalizedPath);
+                : findOrCreateFile(root, normalizedPath, context);
         if (file == null) {
             return ToolResult.failure("Не удалось получить файл: " + pathStr);
         }
@@ -302,7 +301,8 @@ public class WriteTool extends AbstractTool {
     /**
      * Находит или создает файл по пути.
      */
-    private IFile findOrCreateFile(IWorkspaceRoot root, String path) {
+    private IFile findOrCreateFile(IWorkspaceRoot root, String path,
+            ToolExecutionContext context) {
         if (path == null || path.isBlank()) {
             return null;
         }
@@ -310,7 +310,7 @@ public class WriteTool extends AbstractTool {
         try {
             IPath ipath = org.eclipse.core.runtime.Path.fromPortableString(path);
             if (ipath.segmentCount() == 1) {
-                IProject project = resolveCurrentProject(root);
+                IProject project = resolveCurrentProject(context);
                 return project != null ? project.getFile(ipath) : null;
             }
             return root.getFile(ipath);
@@ -349,25 +349,8 @@ public class WriteTool extends AbstractTool {
                 file.getLocation().toFile().toPath());
     }
 
-    private IProject resolveCurrentProject(IWorkspaceRoot root) {
-        try {
-            Session session = SessionManager.getInstance().getOrCreateCurrentSession();
-            if (session != null && session.getProjectPath() != null && !session.getProjectPath().isEmpty()) {
-                IProject project = SessionManager.getInstance().findProjectByPath(session.getProjectPath());
-                if (project != null && project.exists() && project.isOpen()) {
-                    return project;
-                }
-            }
-        } catch (Exception e) {
-            logWarning("Не удалось определить текущий проект из сессии: " + e.getMessage());
-        }
-
-        for (IProject project : root.getProjects()) {
-            if (project.exists() && project.isOpen()) {
-                return project;
-            }
-        }
-        return null;
+    private IProject resolveCurrentProject(ToolExecutionContext context) {
+        return ActiveProjectSupport.resolveActiveProject(context);
     }
 
     private boolean isProjectRootCodeMd(IFile file) {

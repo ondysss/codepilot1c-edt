@@ -82,6 +82,7 @@ public final class ChatToolGate {
     private final Function<String, Map<String, Object>> argumentParser;
     private final BooleanSupplier confirmationSinkAvailable;
     private final BooleanSupplier skipConfirmations;
+    private final ToolExecutionContext executionContext;
 
     /**
      * Creates a chat tool gate with all runtime dependencies supplied by the caller.
@@ -101,6 +102,20 @@ public final class ChatToolGate {
             Supplier<Set<String>> dynamicToolNames,
             BooleanSupplier confirmationSinkAvailable,
             BooleanSupplier skipConfirmations) {
+        this(profile, globalRules, argumentParser, dynamicToolNames,
+                confirmationSinkAvailable, skipConfirmations,
+                ToolExecutionContext.of(profile, 0));
+    }
+
+    /** Creates a gate bound to the immutable execution identity captured for the turn. */
+    public ChatToolGate(
+            AgentProfile profile,
+            Supplier<List<PermissionRule>> globalRules,
+            Function<String, Map<String, Object>> argumentParser,
+            Supplier<Set<String>> dynamicToolNames,
+            BooleanSupplier confirmationSinkAvailable,
+            BooleanSupplier skipConfirmations,
+            ToolExecutionContext executionContext) {
         this.profile = Objects.requireNonNull(profile, "profile"); //$NON-NLS-1$
         this.globalRules = Objects.requireNonNull(globalRules, "globalRules"); //$NON-NLS-1$
         this.argumentParser = Objects.requireNonNull(argumentParser, "argumentParser"); //$NON-NLS-1$
@@ -108,6 +123,10 @@ public final class ChatToolGate {
         this.confirmationSinkAvailable = Objects.requireNonNull(
                 confirmationSinkAvailable, "confirmationSinkAvailable"); //$NON-NLS-1$
         this.skipConfirmations = Objects.requireNonNull(skipConfirmations, "skipConfirmations"); //$NON-NLS-1$
+        this.executionContext = Objects.requireNonNull(executionContext, "executionContext"); //$NON-NLS-1$
+        if (!profile.getId().equals(executionContext.parentProfileId())) {
+            throw new IllegalArgumentException("execution context profile must match gate profile"); //$NON-NLS-1$
+        }
     }
 
     /**
@@ -169,7 +188,7 @@ public final class ChatToolGate {
     public Decision decide(ToolCall call, ITool tool) {
         Objects.requireNonNull(call, "call"); //$NON-NLS-1$
         Map<String, Object> arguments = parseSafe(call.getArguments());
-        ToolExecutionContext context = ToolExecutionContext.of(profile, 0);
+        ToolExecutionContext context = executionContext;
         String toolName = call.getName();
 
         if (tool == null) {

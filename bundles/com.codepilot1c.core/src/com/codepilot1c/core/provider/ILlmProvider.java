@@ -69,6 +69,24 @@ public interface ILlmProvider {
     CompletableFuture<LlmResponse> complete(LlmRequest request);
 
     /**
+     * Scoped compatibility overload. Legacy providers need no changes: their
+     * returned future is cancelled without invoking provider-wide cancellation.
+     */
+    default CompletableFuture<LlmResponse> complete(
+            LlmRequest request, LlmRequestCancellation cancellation) {
+        if (cancellation == null) {
+            return complete(request);
+        }
+        if (cancellation.isCancelled()) {
+            return CompletableFuture.failedFuture(
+                    new java.util.concurrent.CancellationException("Request cancelled")); //$NON-NLS-1$
+        }
+        CompletableFuture<LlmResponse> future = complete(request);
+        cancellation.onCancel(() -> future.cancel(true));
+        return future;
+    }
+
+    /**
      * Sends a request and streams the response in chunks.
      *
      * @param request  the request to send
@@ -76,6 +94,23 @@ public interface ILlmProvider {
      * @throws LlmProviderException if the request fails
      */
     void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer);
+
+    /** Scoped streaming compatibility overload that suppresses only this request's callbacks. */
+    default void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer,
+            LlmRequestCancellation cancellation) {
+        if (cancellation == null) {
+            streamComplete(request, consumer);
+            return;
+        }
+        if (cancellation.isCancelled()) {
+            return;
+        }
+        streamComplete(request, chunk -> {
+            if (!cancellation.isCancelled()) {
+                consumer.accept(chunk);
+            }
+        });
+    }
 
     /**
      * Cancels any ongoing requests.

@@ -14,9 +14,9 @@ import com.codepilot1c.core.memory.MemoryEntry;
 import com.codepilot1c.core.memory.MemoryService;
 import com.codepilot1c.core.memory.MemoryVisibility;
 import com.codepilot1c.core.memory.RetentionPolicy;
-import com.codepilot1c.core.session.Session;
-import com.codepilot1c.core.session.SessionManager;
 import com.codepilot1c.core.tools.AbstractTool;
+import com.codepilot1c.core.tools.ActiveProjectSupport;
+import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolMeta;
 import com.codepilot1c.core.tools.ToolParameters;
 import com.codepilot1c.core.tools.ToolResult;
@@ -74,6 +74,12 @@ public class RememberFactTool extends AbstractTool {
 
     @Override
     protected CompletableFuture<ToolResult> doExecute(ToolParameters params) {
+        return doExecute(params, ToolExecutionContext.unscoped());
+    }
+
+    @Override
+    protected CompletableFuture<ToolResult> doExecute(
+            ToolParameters params, ToolExecutionContext context) {
         return CompletableFuture.supplyAsync(() -> {
             String content;
             try {
@@ -107,7 +113,7 @@ public class RememberFactTool extends AbstractTool {
                     .build();
 
             // Resolve project path from tool context
-            String projectPath = resolveProjectPath();
+            String projectPath = resolveProjectPath(context);
             if (projectPath == null) {
                 return failure("NO_ACTIVE_PROJECT", "No active project found"); //$NON-NLS-1$ //$NON-NLS-2$
             }
@@ -144,27 +150,8 @@ public class RememberFactTool extends AbstractTool {
      * Resolves the active project path from the workspace.
      * Falls back to first open project if no specific context is available.
      */
-    private String resolveProjectPath() {
-        try {
-            Session session = SessionManager.getInstance().getOrCreateCurrentSession();
-            if (session != null && session.getProjectPath() != null && !session.getProjectPath().isBlank()) {
-                return session.getProjectPath();
-            }
-        } catch (Exception e) {
-            log.warn("RememberFactTool: could not resolve session project path", e); //$NON-NLS-1$
-        }
-        try {
-            var root = org.eclipse.core.resources.ResourcesPlugin.getWorkspace().getRoot();
-            var projects = root.getProjects();
-            for (var project : projects) {
-                if (project.isOpen() && project.getLocation() != null) {
-                    return project.getLocation().toOSString();
-                }
-            }
-        } catch (Exception e) {
-            log.warn("RememberFactTool: could not resolve project path", e); //$NON-NLS-1$
-        }
-        return null;
+    private String resolveProjectPath(ToolExecutionContext context) {
+        return ActiveProjectSupport.resolveProjectPath(context);
     }
 
     private static ToolResult failure(String code, String message) {

@@ -45,6 +45,8 @@ public final class GsdUiSnapshotMapper {
             GsdPhase.EXECUTING, "gsd-execute", //$NON-NLS-1$
             GsdPhase.VERIFYING, "gsd-verify", //$NON-NLS-1$
             GsdPhase.CLOSED, "gsd-ship"); //$NON-NLS-1$
+    // Integration follow-up: map the distinct SHIPPING phase only after the
+    // core-v2 GsdPhase contract lands. Do not infer it from CLOSED in this slice.
 
     private GsdUiSnapshotMapper() {
     }

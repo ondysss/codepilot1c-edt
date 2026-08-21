@@ -197,6 +197,50 @@ public class GsdRefreshCoordinatorTest {
         assertTrue("Token from project B must be fresh", c.shouldApply(tokenB));
     }
 
+    @Test
+    public void disposeInvalidatesInflightRefreshAndRejectsNewWork() {
+        GsdRefreshCoordinator c = new GsdRefreshCoordinator();
+        c.setProjectRoot(Path.of("/project/a"));
+        RefreshToken token = c.beginRefresh();
+
+        c.dispose();
+
+        assertTrue(c.isDisposed());
+        assertFalse(c.shouldApply(token));
+        assertNull(c.beginRefresh());
+        assertNull(c.currentProjectRoot());
+    }
+
+    @Test
+    public void repeatedDisposeIsSafeAndSetProjectRootCannotReviveCoordinator() {
+        GsdRefreshCoordinator c = new GsdRefreshCoordinator();
+        c.dispose();
+        long disposedGeneration = c.currentGeneration();
+
+        c.dispose();
+        c.setProjectRoot(Path.of("/project/revived"));
+
+        assertEquals(disposedGeneration, c.currentGeneration());
+        assertNull(c.currentProjectRoot());
+        assertNull(c.beginRefresh());
+    }
+
+    @Test
+    public void twoViewsHaveIndependentRefreshGenerationsAndRoots() {
+        GsdRefreshCoordinator first = new GsdRefreshCoordinator();
+        GsdRefreshCoordinator second = new GsdRefreshCoordinator();
+        first.setProjectRoot(Path.of("/project/a"));
+        second.setProjectRoot(Path.of("/project/b"));
+        RefreshToken firstToken = first.beginRefresh();
+        RefreshToken secondToken = second.beginRefresh();
+
+        first.setProjectRoot(null); // clear only the first ChatView
+
+        assertFalse(first.shouldApply(firstToken));
+        assertTrue(second.shouldApply(secondToken));
+        assertEquals(Path.of("/project/b"), second.currentProjectRoot());
+    }
+
     // ---- Race scenario: setProjectRoot between read and beginRefresh ------
 
     /**
