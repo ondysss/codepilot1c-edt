@@ -47,7 +47,8 @@ public class ProjectMemoryInitializationService {
 
     public ProjectMemoryInitializationService() {
         this(new ProjectMemoryContextService(),
-                (prompt, profileId) -> AgentSessionController.getInstance().submitFromDesktopFresh(prompt, profileId));
+                (prompt, profileId) -> AgentSessionController.getInstance()
+                        .submitFromDesktopFreshScoped(prompt, profileId));
     }
 
     public ProjectMemoryInitializationService(ProjectMemoryContextService memoryContextService, AgentLauncher launcher) {
@@ -69,7 +70,7 @@ public class ProjectMemoryInitializationService {
             return CompletableFuture.completedFuture(failure(Status.AGENT_FAILED,
                     "Agent launcher did not return a completion future", null)); //$NON-NLS-1$
         }
-        return run.handle((agentResult, error) -> {
+        CompletableFuture<Result> transformed = run.handle((agentResult, error) -> {
             if (error != null) {
                 Throwable cause = unwrap(error);
                 return failure(mapLaunchFailure(cause), cause.getMessage(), null);
@@ -92,6 +93,21 @@ public class ProjectMemoryInitializationService {
             return failure(Status.CODE_MD_NOT_WRITTEN,
                     "Agent completed but project memory file was not created", memory.getSourcePath()); //$NON-NLS-1$
         });
+        CompletableFuture<Result> result = new CompletableFuture<>();
+        transformed.whenComplete((value, error) -> {
+            if (error != null) {
+                result.completeExceptionally(error);
+            } else {
+                result.complete(value);
+            }
+        });
+        result.whenComplete((value, error) -> {
+            if (result.isCancelled()) {
+                transformed.cancel(true);
+                run.cancel(true);
+            }
+        });
+        return result;
     }
 
     String buildPrompt(Request request) {

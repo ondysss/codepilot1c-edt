@@ -152,6 +152,31 @@ public class ProjectMemoryInitializationServiceTest {
         assertEquals(Status.PROVIDER_UNAVAILABLE, providerService.initialize(request).join().getStatus());
     }
 
+    @Test
+    public void cancellingInitializationCancelsOnlyItsLauncherHandle() throws Exception {
+        Path root = temporaryFolder.newFolder("project").toPath(); //$NON-NLS-1$
+        CancelTrackingFuture launcherFuture = new CancelTrackingFuture();
+        ProjectMemoryInitializationService service = new ProjectMemoryInitializationService(
+                new ProjectMemoryContextService(), (prompt, profileId) -> launcherFuture);
+
+        CompletableFuture<ProjectMemoryInitializationService.Result> initialization = service.initialize(new Request(
+                Mode.CREATE, root, "DemoProject", "DemoProject/Code.md")); //$NON-NLS-1$ //$NON-NLS-2$
+
+        assertTrue(initialization.cancel(true));
+        assertTrue(initialization.isCancelled());
+        assertTrue(launcherFuture.cancelled);
+    }
+
+    private static final class CancelTrackingFuture extends CompletableFuture<AgentResult> {
+        private boolean cancelled;
+
+        @Override
+        public boolean cancel(boolean mayInterruptIfRunning) {
+            cancelled = true;
+            return super.cancel(mayInterruptIfRunning);
+        }
+    }
+
     private static class CapturingLauncher implements ProjectMemoryInitializationService.AgentLauncher {
 
         private final CompletableFuture<AgentResult> result;

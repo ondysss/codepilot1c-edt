@@ -11,6 +11,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.Test;
@@ -55,5 +57,68 @@ public class ChatTurnFenceTest {
 
         assertFalse(fence.runIfCurrent(oldTurn, () -> { }));
         assertTrue(fence.runIfCurrent(newTurn, () -> { }));
+    }
+
+    @Test
+    public void dispatchAndExecutedRegistrationLinearizeBeforeInvalidation() throws Exception {
+        ChatTurnFence fence = new ChatTurnFence();
+        long turn = fence.beginTurn();
+        CountDownLatch dispatchEntered = new CountDownLatch(1);
+        CountDownLatch releaseDispatch = new CountDownLatch(1);
+        CountDownLatch invalidationStarted = new CountDownLatch(1);
+        AtomicBoolean dispatched = new AtomicBoolean();
+        AtomicBoolean executedRegistered = new AtomicBoolean();
+        AtomicBoolean invalidationDone = new AtomicBoolean();
+
+        CompletableFuture<Void> dispatch = CompletableFuture.runAsync(() ->
+                fence.runIfCurrent(turn, () -> {
+                    dispatchEntered.countDown();
+                    await(releaseDispatch);
+                    dispatched.set(true);
+                    executedRegistered.set(true);
+                }));
+        assertTrue(dispatchEntered.await(2, TimeUnit.SECONDS));
+        CompletableFuture<Void> invalidate = CompletableFuture.runAsync(() -> {
+            invalidationStarted.countDown();
+            fence.invalidate();
+            invalidationDone.set(true);
+        });
+        assertTrue(invalidationStarted.await(2, TimeUnit.SECONDS));
+        assertFalse("invalidation must wait for atomic dispatch", invalidationDone.get()); //$NON-NLS-1$
+
+        releaseDispatch.countDown();
+        dispatch.get(2, TimeUnit.SECONDS);
+        invalidate.get(2, TimeUnit.SECONDS);
+
+        assertTrue(dispatched.get());
+        assertTrue(executedRegistered.get());
+        assertFalse(fence.runIfCurrent(turn, () -> dispatched.set(true)));
+    }
+
+    @Test
+    public void cancelledCodeMdInitializationCannotAppendIntoNewChat() {
+        ChatTurnFence fence = new ChatTurnFence();
+        long initialization = fence.beginTurn();
+        AtomicBoolean appended = new AtomicBoolean();
+        CompletableFuture<String> pendingInitialization = new CompletableFuture<>();
+        pendingInitialization.thenRun(() ->
+                fence.runIfCurrent(initialization, () -> appended.set(true)));
+
+        fence.invalidate();
+        fence.beginTurn();
+        pendingInitialization.complete("initialized"); //$NON-NLS-1$
+
+        assertFalse(appended.get());
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(2, TimeUnit.SECONDS)) {
+                throw new AssertionError("timed out waiting for test interleaving"); //$NON-NLS-1$
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
+        }
     }
 }

@@ -347,11 +347,55 @@ public class AgentSessionController {
         }
     }
 
+    /**
+     * Starts a desktop run whose returned cancellation handle owns only the
+     * exact runner created by this submission. This keeps independent UI
+     * clients from cancelling whichever desktop run happens to be global now.
+     */
+    public CompletableFuture<AgentResult> submitFromDesktopFreshScoped(String prompt, String profileId) {
+        CompletableFuture<AgentResult> task = submitFromDesktopFresh(prompt, profileId);
+        ScopedTaskFuture<AgentResult> scoped = new ScopedTaskFuture<>(() -> stopFromDesktop(task));
+        task.whenComplete((result, error) -> {
+            if (error != null) {
+                scoped.completeExceptionally(error);
+            } else {
+                scoped.complete(result);
+            }
+        });
+        return scoped;
+    }
+
     public void stopFromDesktop() {
         synchronized (lock) {
             if (activeRunner != null) {
                 activeRunner.cancel();
             }
+        }
+    }
+
+    private void stopFromDesktop(CompletableFuture<AgentResult> expectedTask) {
+        synchronized (lock) {
+            if (activeTask == expectedTask && activeRunner != null) {
+                activeRunner.cancel();
+            }
+        }
+    }
+
+    private static final class ScopedTaskFuture<T> extends CompletableFuture<T> {
+
+        private final Runnable cancelAction;
+
+        private ScopedTaskFuture(Runnable cancelAction) {
+            this.cancelAction = cancelAction;
+        }
+
+        @Override
+        public boolean cancel(boolean mayInterruptIfRunning) {
+            boolean cancelled = super.cancel(mayInterruptIfRunning);
+            if (cancelled) {
+                cancelAction.run();
+            }
+            return cancelled;
         }
     }
 

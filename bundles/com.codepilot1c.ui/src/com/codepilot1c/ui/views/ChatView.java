@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import org.eclipse.core.resources.IProject;
@@ -82,9 +83,9 @@ import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.memory.project.ProjectMemoryContextService;
 import com.codepilot1c.core.memory.project.ProjectMemoryInitializationService;
 import com.codepilot1c.core.provider.ILlmProvider;
+import com.codepilot1c.core.provider.LlmRequestCancellation;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
 import com.codepilot1c.core.provider.ProviderCapabilities;
-import com.codepilot1c.core.remote.AgentSessionController;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.codepilot1c.core.permissions.PermissionManager;
 import com.codepilot1c.core.tools.ITool;
@@ -120,6 +121,15 @@ import com.codepilot1c.ui.theme.VibeTheme;
  * <p>Features interactive code blocks with Copy/Insert/Replace buttons.</p>
  */
 public class ChatView extends ViewPart {
+
+    /** Immutable identity, gate and cancellation scope captured for one user turn. */
+    private record TurnRuntime(
+            long generation,
+            ChatTurnContext context,
+            ChatToolGate gate,
+            List<String> requestedSkills,
+            LlmRequestCancellation cancellation) {
+    }
 
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(ChatView.class);
 
@@ -194,7 +204,7 @@ public class ChatView extends ViewPart {
     private final com.codepilot1c.core.agent.ToolRepetitionDetector toolRepetitionDetector =
             new com.codepilot1c.core.agent.ToolRepetitionDetector();
     private CompletableFuture<?> currentRequest;
-    private boolean currentRequestUsesDesktopController;
+    private volatile LlmRequestCancellation currentRequestCancellation;
     private boolean isProcessing = false;
     /** Skill names extracted from the latest user input via $mention syntax. */
     private List<String> currentRequestedSkills = List.of();
@@ -247,10 +257,6 @@ public class ChatView extends ViewPart {
     private boolean previewModeEnabled = false;
     /** Current set of proposed changes awaiting review */
     private ProposedChangeSet currentProposedChanges;
-    /** Profile and permission policy fixed for the current chat turn. */
-    private volatile ChatToolGate toolGate;
-    /** Profile plus per-view prompt context fixed for the current chat turn. */
-    private volatile ChatTurnContext turnContext;
     /** Session lifecycle bridge used only to request a UI-owned GSD refresh. */
     private final ISessionChangeListener sessionChangeListener = new ISessionChangeListener() {
         @Override
@@ -1162,6 +1168,8 @@ public class ChatView extends ViewPart {
                 Path.of(location.toOSString()),
                 project.getName(),
                 codeMdToolPath);
+        final long operationGeneration = turnFence.beginTurn();
+        currentRequestCancellation = null;
         String startedMessage = updateExisting
                 ? Messages.ChatView_UpdateCodeMdStarted
                 : Messages.ChatView_CreateCodeMdStarted;
@@ -1169,24 +1177,19 @@ public class ChatView extends ViewPart {
         setProcessing(true, updateExisting
                 ? Messages.ChatView_UpdateCodeMdProcessingStage
                 : Messages.ChatView_CreateCodeMdProcessingStage);
-
         CompletableFuture<ProjectMemoryInitializationService.Result> initRequest =
                 PROJECT_MEMORY_INIT_SERVICE.initialize(request);
         currentRequest = initRequest;
-        currentRequestUsesDesktopController = true;
         Display display = getDisplay();
         initRequest.whenComplete((result, error) -> {
             if (display == null || display.isDisposed()) {
                 return;
             }
             display.asyncExec(() -> {
-                if (isDisposed()) {
+                if (!isCurrentTurn(operationGeneration) || currentRequest != initRequest) {
                     return;
                 }
-                if (currentRequest == initRequest) {
-                    currentRequest = null;
-                    currentRequestUsesDesktopController = false;
-                }
+                currentRequest = null;
                 setProcessing(false);
                 updateInitCodeMdButton();
                 appendSystemMessage(formatCodeMdInitializationResult(result, error));
@@ -1243,25 +1246,24 @@ public class ChatView extends ViewPart {
     }
 
     private IProject resolveCodeMdProject() {
+        // Resolution is a read-only UI operation (also called while controls are
+        // being created), so it must not manufacture a session before restore.
+        Session target = session;
+        String explicitProjectPath = target != null ? target.getProjectPath() : null;
         try {
-            Session session = SessionManager.getInstance().getOrCreateCurrentSession();
-            IProject project = SessionManager.getInstance().findProjectByPath(
-                    session != null ? session.getProjectPath() : null);
-            if (isOpenProject(project)) {
-                return project;
-            }
+            List<IProject> openProjects = java.util.Arrays.stream(
+                            ResourcesPlugin.getWorkspace().getRoot().getProjects())
+                    .filter(this::isOpenProject)
+                    .toList();
+            return CodeMdProjectResolver.resolve(
+                    explicitProjectPath,
+                    path -> {
+                        IProject project = SessionManager.getInstance().findProjectByPath(path);
+                        return isOpenProject(project) ? project : null;
+                    },
+                    openProjects);
         } catch (Exception e) {
-            LOG.debug("Failed to resolve Code.md project from session: %s", e.getMessage()); //$NON-NLS-1$
-        }
-
-        try {
-            for (IProject project : ResourcesPlugin.getWorkspace().getRoot().getProjects()) {
-                if (isOpenProject(project)) {
-                    return project;
-                }
-            }
-        } catch (Exception e) {
-            LOG.debug("Failed to resolve Code.md project from workspace: %s", e.getMessage()); //$NON-NLS-1$
+            LOG.debug("Failed to resolve Code.md project for this view: %s", e.getMessage()); //$NON-NLS-1$
         }
         return null;
     }
@@ -1274,8 +1276,6 @@ public class ChatView extends ViewPart {
         try {
             SessionManager manager = SessionManager.getInstance();
             manager.bindSessionToProject(viewSession(), project);
-            turnContext = null;
-            toolGate = null;
             requestGsdStatusRefresh();
         } catch (Exception e) {
             LOG.debug("Failed to bind Code.md session to project: %s", e.getMessage()); //$NON-NLS-1$
@@ -1357,12 +1357,17 @@ public class ChatView extends ViewPart {
         }
         final long turnGeneration = turnFence.beginTurn();
 
-        this.turnContext = ChatTurnContext.resolve(viewSession(), configuredChatProfileId());
-        this.toolGate = createToolGate(turnContext);
-        LOG.debug("chat tool gate: profile=%s", toolGate.profile().getId()); //$NON-NLS-1$
+        ChatTurnContext capturedContext = ChatTurnContext.resolve(viewSession(), configuredChatProfileId());
+        ChatToolGate capturedGate = createToolGate(capturedContext);
+        LlmRequestCancellation cancellation = new LlmRequestCancellation();
+        this.currentRequestCancellation = cancellation;
+        TurnRuntime turn = new TurnRuntime(
+                turnGeneration, capturedContext, capturedGate,
+                List.copyOf(currentRequestedSkills), cancellation);
+        LOG.debug("chat tool gate: profile=%s", capturedGate.profile().getId()); //$NON-NLS-1$
 
         // Build request with tools
-        LlmRequest request = buildRequestWithTools();
+        LlmRequest request = buildRequestWithTools(turn);
         LOG.debug("startConversationLoop: request built with %d messages, %d tools", //$NON-NLS-1$
                 request.getMessages().size(), request.hasTools() ? request.getTools().size() : 0);
 
@@ -1381,9 +1386,9 @@ public class ChatView extends ViewPart {
         // Use streaming if provider supports it
         // Tool calls are now properly accumulated in streaming mode via delta.tool_calls
         if (provider.supportsStreaming()) {
-            startStreamingRequest(provider, request, display, turnGeneration);
+            startStreamingRequest(provider, request, display, turn);
         } else {
-            startNonStreamingRequest(provider, request, display, turnGeneration);
+            startNonStreamingRequest(provider, request, display, turn);
         }
     }
 
@@ -1391,7 +1396,8 @@ public class ChatView extends ViewPart {
      * Starts a streaming request to the LLM provider.
      */
     private void startStreamingRequest(
-            ILlmProvider provider, LlmRequest request, Display display, long turnGeneration) {
+            ILlmProvider provider, LlmRequest request, Display display, TurnRuntime turn) {
+        long turnGeneration = turn.generation();
         LOG.debug("startStreamingRequest: using streaming mode"); //$NON-NLS-1$
 
         long rt = roundTripSeq.incrementAndGet();
@@ -1424,7 +1430,9 @@ public class ChatView extends ViewPart {
         // Run streaming in background thread
         CompletableFuture.runAsync(() -> {
             try {
-                provider.streamComplete(request, chunk -> handleStreamChunk(chunk, display, turnGeneration));
+                provider.streamComplete(request,
+                        chunk -> handleStreamChunk(chunk, provider, display, turn),
+                        turn.cancellation());
             } catch (Exception e) {
                 if (!turnFence.isCurrent(turnGeneration)) {
                     return;
@@ -1445,14 +1453,16 @@ public class ChatView extends ViewPart {
     /**
      * Handles a streaming chunk from the LLM.
      */
-    private void handleStreamChunk(LlmStreamChunk chunk, Display display, long turnGeneration) {
-        turnFence.runIfCurrent(turnGeneration,
-                () -> handleCurrentStreamChunk(chunk, display, turnGeneration));
+    private void handleStreamChunk(
+            LlmStreamChunk chunk, ILlmProvider provider, Display display, TurnRuntime turn) {
+        turnFence.runIfCurrent(turn.generation(),
+                () -> handleCurrentStreamChunk(chunk, provider, display, turn));
     }
 
     /** Handles one current-generation chunk while holding the turn boundary fence. */
     private void handleCurrentStreamChunk(
-            LlmStreamChunk chunk, Display display, long turnGeneration) {
+            LlmStreamChunk chunk, ILlmProvider provider, Display display, TurnRuntime turn) {
+        long turnGeneration = turn.generation();
         if (chunk.isError()) {
             LOG.error("Stream error: %s", chunk.getErrorMessage()); //$NON-NLS-1$
             inflight.set(false);
@@ -1561,9 +1571,8 @@ public class ChatView extends ViewPart {
                         }
 
                         // Handle tool calls (this will continue the conversation loop)
-                        ILlmProvider provider = LlmProviderRegistry.getInstance().getActiveProvider();
                         if (provider != null) {
-                            handleResponseWithTools(toolResponse, provider, 0, turnGeneration)
+                            handleResponseWithTools(toolResponse, provider, 0, turn)
                                     .thenAccept(finalContent -> {
                                         if (!turnFence.isCurrent(turnGeneration)) {
                                             return;
@@ -1655,7 +1664,8 @@ public class ChatView extends ViewPart {
      * Starts a non-streaming request to the LLM provider.
      */
     private void startNonStreamingRequest(
-            ILlmProvider provider, LlmRequest request, Display display, long turnGeneration) {
+            ILlmProvider provider, LlmRequest request, Display display, TurnRuntime turn) {
+        long turnGeneration = turn.generation();
         LOG.debug("startNonStreamingRequest: using non-streaming mode"); //$NON-NLS-1$
 
         long rt = roundTripSeq.incrementAndGet();
@@ -1670,8 +1680,7 @@ public class ChatView extends ViewPart {
         requestCount++;
 
         // Send request
-        currentRequestUsesDesktopController = false;
-        currentRequest = provider.complete(request)
+        currentRequest = provider.complete(request, turn.cancellation())
                 .thenCompose(response -> {
                     if (!turnFence.isCurrent(turnGeneration)) {
                         return CompletableFuture.completedFuture(""); //$NON-NLS-1$
@@ -1690,7 +1699,7 @@ public class ChatView extends ViewPart {
                             }
                         });
                     }
-                    return handleResponseWithTools(response, provider, 0, turnGeneration);
+                    return handleResponseWithTools(response, provider, 0, turn);
                 })
                 .thenAccept(finalContent -> {
                     if (!turnFence.isCurrent(turnGeneration)) {
@@ -1729,11 +1738,11 @@ public class ChatView extends ViewPart {
     /**
      * Builds an LLM request with the current conversation and available tools.
      */
-    private LlmRequest buildRequestWithTools() {
+    private LlmRequest buildRequestWithTools(TurnRuntime turn) {
         LlmRequest.Builder requestBuilder = LlmRequest.builder();
 
         // Add system prompt for 1C development
-        requestBuilder.systemMessage(getSystemPrompt());
+        requestBuilder.systemMessage(getSystemPrompt(turn));
 
         // Add conversation history
         for (LlmMessage msg : conversationHistory) {
@@ -1742,7 +1751,7 @@ public class ChatView extends ViewPart {
 
         // Add tools if enabled
         if (toolsEnabled) {
-            List<ToolDefinition> tools = activeToolGate()
+            List<ToolDefinition> tools = turn.gate()
                     .visibleToolDefinitions(ToolRegistry.getInstance());
             requestBuilder.tools(tools);
             requestBuilder.toolChoice(LlmRequest.ToolChoice.AUTO);
@@ -1762,7 +1771,8 @@ public class ChatView extends ViewPart {
      * and the final text response is available.
      */
     private CompletableFuture<String> handleResponseWithTools(
-            LlmResponse response, ILlmProvider provider, int iteration, long turnGeneration) {
+            LlmResponse response, ILlmProvider provider, int iteration, TurnRuntime turn) {
+        long turnGeneration = turn.generation();
         if (!turnFence.isCurrent(turnGeneration)) {
             return CompletableFuture.completedFuture(""); //$NON-NLS-1$
         }
@@ -1777,7 +1787,7 @@ public class ChatView extends ViewPart {
         if (response.hasToolCalls() && iteration < maxToolIterations) {
             LOG.debug("handleResponseWithTools: processing %d tool calls", response.getToolCalls().size()); //$NON-NLS-1$
             // Process tool calls
-            return processToolCalls(response, provider, iteration, display, turnGeneration);
+            return processToolCalls(response, provider, iteration, display, turn);
         }
 
         // Check if we hit max iterations limit
@@ -1838,7 +1848,9 @@ public class ChatView extends ViewPart {
      */
     private CompletableFuture<String> processToolCalls(
             LlmResponse response, ILlmProvider provider, int iteration, Display display,
-            long turnGeneration) {
+            TurnRuntime turn) {
+
+        long turnGeneration = turn.generation();
 
         if (!turnFence.isCurrent(turnGeneration)) {
             return CompletableFuture.completedFuture(""); //$NON-NLS-1$
@@ -1856,7 +1868,7 @@ public class ChatView extends ViewPart {
             return CompletableFuture.completedFuture(""); //$NON-NLS-1$
         }
 
-        ChatToolGate gate = activeToolGate();
+        ChatToolGate gate = turn.gate();
         ToolRegistry registry = ToolRegistry.getInstance();
         Map<String, ChatToolGate.Decision> decisions = new LinkedHashMap<>();
         Map<String, ITool> resolvedTools = new HashMap<>();
@@ -1864,25 +1876,30 @@ public class ChatView extends ViewPart {
         List<ToolCall> editCalls = new ArrayList<>();
         List<ToolCall> otherCalls = new ArrayList<>();
 
-        for (ToolCall call : toolCalls) {
-            ITool resolved = registry.getTool(call.getName());
-            resolvedTools.put(call.getId(), resolved);
-            ChatToolGate.Decision decision = gate.decide(call, resolved);
-            decisions.put(call.getId(), decision);
-            if (decision.action() == ChatToolGate.Action.DENY) {
-                deniedCalls.add(call);
-                LOG.warn("permission_denied tool=%s profile=%s layer=%s resource=%s", //$NON-NLS-1$
-                        call.getName(), gate.profile().getId(),
-                        decision.layer(), decision.resource());
-            } else if (gate.interceptForPreview(call, decision, previewModeEnabled)) {
-                editCalls.add(call);
-            } else {
-                otherCalls.add(call);
+        boolean decisionsCaptured = turnFence.runIfCurrent(turnGeneration, () -> {
+            for (ToolCall call : toolCalls) {
+                ITool resolved = registry.getTool(call.getName());
+                resolvedTools.put(call.getId(), resolved);
+                ChatToolGate.Decision decision = gate.decide(call, resolved);
+                decisions.put(call.getId(), decision);
+                if (decision.action() == ChatToolGate.Action.DENY) {
+                    deniedCalls.add(call);
+                    LOG.warn("permission_denied tool=%s profile=%s layer=%s resource=%s", //$NON-NLS-1$
+                            call.getName(), gate.profile().getId(),
+                            decision.layer(), decision.resource());
+                } else if (gate.interceptForPreview(call, decision, previewModeEnabled)) {
+                    editCalls.add(call);
+                } else {
+                    otherCalls.add(call);
+                }
+                if ("confirmation_skipped_by_preference".equals(decision.reasonCode())) { //$NON-NLS-1$
+                    LOG.debug("chat tool gate: tool=%s profile=%s reason_code=%s", //$NON-NLS-1$
+                            call.getName(), gate.profile().getId(), decision.reasonCode());
+                }
             }
-            if ("confirmation_skipped_by_preference".equals(decision.reasonCode())) { //$NON-NLS-1$
-                LOG.debug("chat tool gate: tool=%s profile=%s reason_code=%s", //$NON-NLS-1$
-                        call.getName(), gate.profile().getId(), decision.reasonCode());
-            }
+        });
+        if (!decisionsCaptured) {
+            return CompletableFuture.completedFuture(""); //$NON-NLS-1$
         }
 
         // Show rich tool call cards and update processing stage
@@ -1953,7 +1970,11 @@ public class ChatView extends ViewPart {
                     otherCalls.add(call);
                 }
             }
-            currentProposedChanges = proposedChanges;
+            ProposedChangeSet changesForTurn = proposedChanges;
+            if (!turnFence.runIfCurrent(turnGeneration,
+                    () -> currentProposedChanges = changesForTurn)) {
+                return CompletableFuture.completedFuture(""); //$NON-NLS-1$
+            }
         }
 
         // Execute non-edit tool calls after the profile and permission decision.
@@ -2005,13 +2026,17 @@ public class ChatView extends ViewPart {
                             );
 
                             if (dialog.openAndConfirm()) {
-                                if (!isCurrentTurn(turnGeneration)) {
+                                AtomicReference<CompletableFuture<ToolResult>> dispatched = new AtomicReference<>();
+                                boolean dispatchAccepted = turnFence.runIfCurrent(turnGeneration, () -> {
+                                    dispatched.set(registry.execute(
+                                            call, decision.arguments(), null, null, decision.context()));
+                                    actuallyExecutedCallIds.add(call.getId());
+                                });
+                                if (!dispatchAccepted) {
                                     confirmedFuture.complete(ToolResult.failure("Turn no longer active")); //$NON-NLS-1$
                                     return;
                                 }
-                                // User confirmed - execute the tool
-                                actuallyExecutedCallIds.add(call.getId());
-                                registry.execute(call, decision.arguments(), null, null, decision.context())
+                                dispatched.get()
                                         .thenAccept(confirmedFuture::complete)
                                         .exceptionally(e -> {
                                             confirmedFuture.complete(ToolResult.failure("Error: " + e.getMessage())); //$NON-NLS-1$
@@ -2038,10 +2063,16 @@ public class ChatView extends ViewPart {
 
                 futures.add(confirmedFuture);
             } else {
-                // No confirmation needed - execute directly
-                actuallyExecutedCallIds.add(call.getId());
-                futures.add(registry.execute(
-                        call, decision.arguments(), null, null, decision.context()));
+                AtomicReference<CompletableFuture<ToolResult>> dispatched = new AtomicReference<>();
+                boolean dispatchAccepted = turnFence.runIfCurrent(turnGeneration, () -> {
+                    dispatched.set(registry.execute(
+                            call, decision.arguments(), null, null, decision.context()));
+                    actuallyExecutedCallIds.add(call.getId());
+                });
+                futures.add(dispatchAccepted
+                        ? dispatched.get()
+                        : CompletableFuture.completedFuture(
+                                ToolResult.failure("Turn no longer active"))); //$NON-NLS-1$
             }
         }
 
@@ -2116,33 +2147,18 @@ public class ChatView extends ViewPart {
                             allResults.putAll(diffResults);
                             actuallyExecutedCallIds.addAll(diffResults.keySet());
                             return continueAfterToolCalls(toolCalls, allResults, actuallyExecutedCallIds,
-                                    provider, iteration, display, turnGeneration);
+                                    provider, iteration, display, turn);
                         });
                     }
 
                     return continueAfterToolCalls(toolCalls, allResults, actuallyExecutedCallIds,
-                            provider, iteration, display, turnGeneration);
+                            provider, iteration, display, turn);
                 });
     }
 
     private boolean shouldSkipToolConfirmations() {
         IEclipsePreferences prefs = InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID);
         return prefs.getBoolean(VibePreferenceConstants.PREF_AGENT_SKIP_TOOL_CONFIRMATIONS, false);
-    }
-
-    private synchronized ChatToolGate activeToolGate() {
-        if (toolGate == null) {
-            ChatTurnContext context = activeTurnContext();
-            toolGate = createToolGate(context);
-        }
-        return toolGate;
-    }
-
-    private synchronized ChatTurnContext activeTurnContext() {
-        if (turnContext == null) {
-            turnContext = ChatTurnContext.resolve(viewSession(), configuredChatProfileId());
-        }
-        return turnContext;
     }
 
     private String configuredChatProfileId() {
@@ -2220,7 +2236,9 @@ public class ChatView extends ViewPart {
             ILlmProvider provider,
             int iteration,
             Display display,
-            long turnGeneration) {
+            TurnRuntime turn) {
+
+        long turnGeneration = turn.generation();
 
         if (!turnFence.isCurrent(turnGeneration)) {
             return CompletableFuture.completedFuture(""); //$NON-NLS-1$
@@ -2284,10 +2302,10 @@ public class ChatView extends ViewPart {
         @SuppressWarnings("unchecked")
         CompletableFuture<LlmResponse>[] nextResponseHolder = new CompletableFuture[1];
         boolean followUpStarted = turnFence.runIfCurrent(turnGeneration, () -> {
-            LlmRequest nextRequest = buildRequestWithTools();
+            LlmRequest nextRequest = buildRequestWithTools(turn);
             nextResponseHolder[0] = provider.supportsStreaming()
-                    ? streamToResponse(provider, nextRequest, turnGeneration)
-                    : provider.complete(nextRequest);
+                    ? streamToResponse(provider, nextRequest, turn)
+                    : provider.complete(nextRequest, turn.cancellation());
         });
         if (!followUpStarted) {
             return CompletableFuture.completedFuture(""); //$NON-NLS-1$
@@ -2312,7 +2330,7 @@ public class ChatView extends ViewPart {
                             }
                         });
                     }
-                    return handleResponseWithTools(nextResponse, provider, iteration + 1, turnGeneration);
+                    return handleResponseWithTools(nextResponse, provider, iteration + 1, turn);
                 });
     }
 
@@ -2321,7 +2339,8 @@ public class ChatView extends ViewPart {
      * without forcing a non-streaming call (which may time out on slow/self-hosted providers).
      */
     private CompletableFuture<LlmResponse> streamToResponse(
-            ILlmProvider provider, LlmRequest request, long turnGeneration) {
+            ILlmProvider provider, LlmRequest request, TurnRuntime turn) {
+        long turnGeneration = turn.generation();
         CompletableFuture<LlmResponse> out = new CompletableFuture<>();
 
         CompletableFuture.runAsync(() -> {
@@ -2389,7 +2408,7 @@ public class ChatView extends ViewPart {
                                     .build());
                         }
                     }
-                });
+                }, turn.cancellation());
 
                 // Some providers may end the stream without an explicit complete chunk.
                 if (!turnFence.isCurrent(turnGeneration)) {
@@ -2646,7 +2665,7 @@ public class ChatView extends ViewPart {
         return Display.getDefault();
     }
 
-    private String getSystemPrompt() {
+    private String getSystemPrompt(TurnRuntime turn) {
         StringBuilder prompt = new StringBuilder();
 
         // Get workspace path early
@@ -2700,7 +2719,7 @@ public class ChatView extends ViewPart {
         // it in the system prompt burned ~1200 tokens of redundant input per request
         // (codex review of Phase 3 flagged this as the primary duplicated overhead).
         if (toolsEnabled) {
-            boolean hasTools = !activeToolGate()
+            boolean hasTools = !turn.gate()
                     .visibleToolDefinitions(ToolRegistry.getInstance()).isEmpty();
             ChatSystemPromptToolsSection.append(prompt, hasTools);
         }
@@ -2713,14 +2732,12 @@ public class ChatView extends ViewPart {
             это контекст из активного редактора. Учитывайте его при ответе.
             """); //$NON-NLS-1$
 
-        ChatTurnContext context = activeTurnContext();
-        // activeToolGate() and context.profile() are created together and stay
-        // fixed until the next top-level user turn.
-        if (activeToolGate().profile() != context.profile()) {
+        ChatTurnContext context = turn.context();
+        if (turn.gate().profile() != context.profile()) {
             throw new IllegalStateException("Chat turn profile mismatch"); //$NON-NLS-1$
         }
         return SystemPromptAssembler.getInstance()
-                .assembleDetailed(context.promptInput(prompt.toString(), currentRequestedSkills))
+                .assembleDetailed(context.promptInput(prompt.toString(), turn.requestedSkills()))
                 .prompt();
     }
 
@@ -2850,18 +2867,15 @@ public class ChatView extends ViewPart {
     /** Establishes an atomic boundary before any session/history reset. */
     private void invalidateActiveTurn() {
         turnFence.invalidate();
+        LlmRequestCancellation cancellation = currentRequestCancellation;
+        currentRequestCancellation = null;
+        if (cancellation != null) {
+            cancellation.cancel();
+        }
         if (currentRequest != null && !currentRequest.isDone()) {
             currentRequest.cancel(true);
         }
-        ILlmProvider provider = LlmProviderRegistry.getInstance().getActiveProvider();
-        if (provider != null && (inflight.get() || isStreaming)) {
-            provider.cancel();
-        }
-        if (currentRequestUsesDesktopController) {
-            AgentSessionController.getInstance().stopFromDesktop();
-        }
         currentRequest = null;
-        currentRequestUsesDesktopController = false;
         inflight.set(false);
         isStreaming = false;
         streamingHandledToolCalls.set(false);
@@ -2896,8 +2910,6 @@ public class ChatView extends ViewPart {
         if (session == null) {
             // Multi-view: each ChatView instance owns a distinct session (not the global current one).
             session = SessionManager.getInstance().createSessionForCurrentProject();
-            turnContext = null;
-            toolGate = null;
             requestGsdStatusRefresh();
         }
         return session;
@@ -2983,8 +2995,6 @@ public class ChatView extends ViewPart {
             // else: a window explicitly opened by the user (secondary id, no memento) → start fresh.
             if (restored != null) {
                 session = restored;
-                turnContext = null;
-                toolGate = null;
                 // Restore this window's per-view model choice.
                 overrideModelId = restored.getModelId();
                 if (restored.getMessages().isEmpty()) {
@@ -3067,13 +3077,9 @@ public class ChatView extends ViewPart {
             session = retainedProject != null
                     ? SessionManager.getInstance().createSessionForProject(retainedProject)
                     : SessionManager.getInstance().createSession();
-            turnContext = null;
-            toolGate = null;
         } catch (Exception e) {
             LOG.debug("clearChat: session management failed: " + e.getMessage()); //$NON-NLS-1$
             session = null;
-            turnContext = null;
-            toolGate = null;
         }
 
         if (USE_BROWSER_RENDERING) {
