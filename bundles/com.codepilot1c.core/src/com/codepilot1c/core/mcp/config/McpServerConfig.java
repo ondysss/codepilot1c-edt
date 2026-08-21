@@ -54,6 +54,7 @@ public class McpServerConfig {
     // Protocol
     private String preferredProtocolVersion;
     private List<String> supportedProtocolVersions;
+    private List<String> trustedReadOnlyTools;
 
     // Timeouts
     private int connectionTimeoutMs = 30000;
@@ -93,6 +94,7 @@ public class McpServerConfig {
         this.staticHeaders = new HashMap<>();
         this.preferredProtocolVersion = DEFAULT_PROTOCOL_VERSION;
         this.supportedProtocolVersions = new ArrayList<>(DEFAULT_SUPPORTED_PROTOCOLS);
+        this.trustedReadOnlyTools = new ArrayList<>();
     }
 
     public String getId() {
@@ -170,6 +172,21 @@ public class McpServerConfig {
         return Collections.unmodifiableList(supportedProtocolVersions);
     }
 
+    /**
+     * Locally trusted exact MCP tool names that may be classified read-only.
+     * Remote MCP annotations cannot add entries to this list.
+     */
+    public List<String> getTrustedReadOnlyTools() {
+        return trustedReadOnlyTools != null
+                ? Collections.unmodifiableList(trustedReadOnlyTools)
+                : Collections.emptyList();
+    }
+
+    /** Returns whether an exact server-advertised tool name is locally trusted read-only. */
+    public boolean isTrustedReadOnlyTool(String toolName) {
+        return toolName != null && getTrustedReadOnlyTools().contains(toolName);
+    }
+
     // Compatibility accessors for previous HTTP draft fields.
     public String getUrl() {
         return getRemoteUrl();
@@ -215,6 +232,7 @@ public class McpServerConfig {
         }
         json.addProperty("preferredProtocolVersion", getPreferredProtocolVersion()); //$NON-NLS-1$
         json.add("supportedProtocolVersions", new Gson().toJsonTree(getSupportedProtocolVersions())); //$NON-NLS-1$
+        json.add("trustedReadOnlyTools", new Gson().toJsonTree(getTrustedReadOnlyTools())); //$NON-NLS-1$
         json.addProperty("connectionTimeoutMs", connectionTimeoutMs); //$NON-NLS-1$
         json.addProperty("requestTimeoutMs", requestTimeoutMs); //$NON-NLS-1$
         return json;
@@ -287,6 +305,15 @@ public class McpServerConfig {
                 versions.add(elem.getAsString());
             }
             builder.supportedProtocolVersions(versions);
+        }
+        if (json.has("trustedReadOnlyTools") && json.get("trustedReadOnlyTools").isJsonArray()) { //$NON-NLS-1$ //$NON-NLS-2$
+            List<String> trustedTools = new ArrayList<>();
+            for (JsonElement elem : json.getAsJsonArray("trustedReadOnlyTools")) { //$NON-NLS-1$
+                if (elem.isJsonPrimitive() && elem.getAsJsonPrimitive().isString()) {
+                    trustedTools.add(elem.getAsString());
+                }
+            }
+            builder.trustedReadOnlyTools(trustedTools);
         }
 
         if (json.has("connectionTimeoutMs")) { //$NON-NLS-1$
@@ -448,6 +475,20 @@ public class McpServerConfig {
         public Builder supportedProtocolVersions(List<String> versions) {
             if (versions != null && !versions.isEmpty()) {
                 config.supportedProtocolVersions = new ArrayList<>(versions);
+            }
+            return this;
+        }
+
+        /** Sets exact locally reviewed MCP tool names that are safe for read-only profiles. */
+        public Builder trustedReadOnlyTools(List<String> toolNames) {
+            config.trustedReadOnlyTools = new ArrayList<>();
+            if (toolNames != null) {
+                toolNames.stream()
+                        .filter(Objects::nonNull)
+                        .map(String::trim)
+                        .filter(name -> !name.isEmpty())
+                        .distinct()
+                        .forEach(config.trustedReadOnlyTools::add);
             }
             return this;
         }

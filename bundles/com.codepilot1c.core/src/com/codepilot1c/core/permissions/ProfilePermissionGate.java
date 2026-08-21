@@ -8,18 +8,17 @@
 package com.codepilot1c.core.permissions;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
+
+import com.codepilot1c.core.git.GitOperation;
+import com.codepilot1c.core.git.GitToolException;
 
 /**
  * Объединяет профильный и глобальный слои permission-правил.
  */
 public final class ProfilePermissionGate {
 
-    private static final Set<String> VALID_GIT_MUTATE_OPERATIONS = Set.of(
-            "init", "create", "create_repo", "clone", "remote_add", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
-            "remote_set_url", "fetch", "pull", "push", "checkout", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
-            "create_branch", "add", "commit"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
     private static final PermissionRule INVALID_GIT_OPERATION_RULE =
             PermissionRule.deny("git_mutate") //$NON-NLS-1$
                     .withDescription("git_mutate requires a supported explicit operation") //$NON-NLS-1$
@@ -72,12 +71,14 @@ public final class ProfilePermissionGate {
             String toolName,
             Map<String, Object> arguments) {
         String rawResource = PermissionEvaluator.gateResourceOf(arguments);
-        if ("git_mutate".equals(toolName) && !hasValidGitOperation(arguments)) { //$NON-NLS-1$
+        GitOperation gitOperation = canonicalGitOperation(toolName, arguments);
+        if ("git_mutate".equals(toolName) //$NON-NLS-1$
+                && (gitOperation == null || !gitOperation.isMutating())) {
             return new GateResult(
                     GateDecision.DENY, INVALID_GIT_OPERATION_RULE, "boundary", rawResource); //$NON-NLS-1$
         }
         String resource = PermissionEvaluator.normalizedResourceOf(arguments);
-        String operationResource = operationResource(toolName, arguments);
+        String operationResource = operationResource(toolName, gitOperation);
         PermissionRule profileRule = strictestMatch(
                 profileRules, toolName, resource, operationResource);
         PermissionRule globalRule = strictestMatch(
@@ -132,22 +133,26 @@ public final class ProfilePermissionGate {
                 : resourceRule;
     }
 
-    private static String operationResource(String toolName, Map<String, Object> arguments) {
-        if (!"git_mutate".equals(toolName) || arguments == null) { //$NON-NLS-1$
+    private static String operationResource(String toolName, GitOperation operation) {
+        if (!"git_mutate".equals(toolName) || operation == null) { //$NON-NLS-1$
             return null;
         }
-        Object operation = arguments.get("operation"); //$NON-NLS-1$
-        if (operation == null || String.valueOf(operation).isBlank()) {
-            return null;
-        }
-        return "operation:" + String.valueOf(operation).trim(); //$NON-NLS-1$
+        return "operation:" + operation.name().toLowerCase(Locale.ROOT); //$NON-NLS-1$
     }
 
-    private static boolean hasValidGitOperation(Map<String, Object> arguments) {
-        if (arguments == null || !(arguments.get("operation") instanceof String operation)) { //$NON-NLS-1$
-            return false;
+    private static GitOperation canonicalGitOperation(
+            String toolName, Map<String, Object> arguments) {
+        if (!"git_mutate".equals(toolName)) { //$NON-NLS-1$
+            return null;
         }
-        return VALID_GIT_MUTATE_OPERATIONS.contains(operation.trim());
+        if (arguments == null || !(arguments.get("operation") instanceof String operation)) { //$NON-NLS-1$
+            return null;
+        }
+        try {
+            return GitOperation.from(operation);
+        } catch (GitToolException e) {
+            return null;
+        }
     }
 
     private static int strictness(PermissionDecision decision) {

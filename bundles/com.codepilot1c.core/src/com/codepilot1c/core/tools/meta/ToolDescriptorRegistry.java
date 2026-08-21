@@ -39,6 +39,13 @@ public final class ToolDescriptorRegistry {
         descriptors.put(descriptor.getName(), descriptor);
     }
 
+    /** Removes metadata for a tool that no longer has an effective implementation. */
+    public void unregister(String name) {
+        if (name != null) {
+            descriptors.remove(name);
+        }
+    }
+
     public void registerTool(ITool tool) {
         if (tool == null || tool.getName() == null || tool.getName().isBlank()) {
             return;

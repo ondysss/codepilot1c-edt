@@ -17,8 +17,9 @@ import org.eclipse.ui.plugin.AbstractUIPlugin;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceRegistration;
 
-import com.codepilot1c.core.tools.ToolRegistry;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
 import com.codepilot1c.core.remote.IRemoteWorkbenchBridge;
+import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.ui.theme.ThemeManager;
 import com.codepilot1c.ui.tools.GetDiagnosticsTool;
 import com.codepilot1c.ui.remote.RemoteWorkbenchBridge;
@@ -117,7 +118,8 @@ public class VibeUiPlugin extends AbstractUIPlugin {
         ToolRegistry registry = ToolRegistry.getInstance();
 
         // Register get_diagnostics tool for auto-fix workflow
-        registry.registerDynamicTool(new GetDiagnosticsTool());
+        registry.registerDynamicTool(
+                new GetDiagnosticsTool(), DynamicToolCapability.READ_ONLY);
     }
 
     private void registerRemoteWorkbenchBridge() {

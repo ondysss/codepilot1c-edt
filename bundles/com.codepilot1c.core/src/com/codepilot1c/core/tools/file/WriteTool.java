@@ -337,6 +337,7 @@ public class WriteTool extends AbstractTool {
             IWorkspaceRoot root, IProject currentProject, IFile file) {
         if (root == null || currentProject == null || file == null
                 || !currentProject.equals(file.getProject())
+                || WorkspacePathContainment.isLinkedResource(file)
                 || root.getLocation() == null
                 || currentProject.getLocation() == null
                 || file.getLocation() == null) {

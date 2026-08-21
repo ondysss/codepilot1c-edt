@@ -81,6 +81,17 @@ public class GsdProfilePermissionTest {
     }
 
     @Test
+    public void gitOperationAliasesAndCaseUseCanonicalPermissionResources() {
+        for (String operation : List.of("ADD", "Commit", "PuSh")) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            assertEquals(operation, GateDecision.ASK, evaluateShipGit(operation));
+        }
+        for (String operation : List.of(
+                "CREATE", "create-repo", "Remote-Add", "STATUS")) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            assertEquals(operation, GateDecision.DENY, evaluateShipGit(operation));
+        }
+    }
+
+    @Test
     public void gitMutateMissingOrInvalidOperationFailsAtPermissionBoundary() {
         for (Map<String, Object> arguments : List.<Map<String, Object>>of(
                 Map.of(),

@@ -44,6 +44,7 @@ import com.codepilot1c.core.agent.graph.ToolGraphRouter;
 import com.codepilot1c.core.agent.graph.ToolGraphToolFilter;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
 import com.codepilot1c.core.agent.profiles.ProfileToolAccess;
 import com.codepilot1c.core.agent.prompts.AgentPromptTemplates;
 import com.codepilot1c.core.agent.prompts.SystemPromptAssembler;
@@ -557,7 +558,12 @@ public class AgentRunner implements IAgentRunner {
         }
 
         boolean gateAsk = gate.decision() == ProfilePermissionGate.GateDecision.ASK;
-        boolean effectiveConfirmation = gateAsk || tool.requiresConfirmation();
+        boolean destructive = tool.isDestructive()
+                || toolRegistry.getDynamicToolCapability(toolName)
+                        == DynamicToolCapability.MUTATING;
+        boolean effectiveConfirmation = gateAsk
+                || tool.requiresConfirmation()
+                || destructive;
 
         // Emit tool call event
         emit(new ToolCallEvent(step, call, args, effectiveConfirmation));
@@ -565,7 +571,8 @@ public class AgentRunner implements IAgentRunner {
         // Check if confirmation is required
         if (effectiveConfirmation) {
             return requestConfirmation(
-                    call, tool, args, profile.getId(), executionContext, gate, gateAsk);
+                    call, tool, args, profile.getId(), executionContext,
+                    gate, gateAsk, destructive);
         }
 
         // Execute directly
@@ -597,7 +604,8 @@ public class AgentRunner implements IAgentRunner {
     private CompletableFuture<Void> requestConfirmation(
             ToolCall call, ITool tool, Map<String, Object> args, String profileId,
             ToolExecutionContext executionContext,
-            ProfilePermissionGate.GateResult gate, boolean gateAsk) {
+            ProfilePermissionGate.GateResult gate, boolean gateAsk,
+            boolean destructive) {
 
         int step = currentStep.get();
         if (!hasConfirmationSink()) {
@@ -625,7 +633,7 @@ public class AgentRunner implements IAgentRunner {
                 call,
                 tool.getDescription(),
                 args,
-                tool.isDestructive()
+                destructive
         );
         pendingConfirmation.set(event);
         emit(event);

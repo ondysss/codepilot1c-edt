@@ -31,6 +31,7 @@ public class McpToolAdapter implements ITool {
     private final McpClient client;
     private final McpTool mcpTool;
     private final String serverName;
+    private final DynamicToolCapability dynamicToolCapability;
 
     /**
      * Creates a new adapter.
@@ -39,9 +40,22 @@ public class McpToolAdapter implements ITool {
      * @param mcpTool the MCP tool definition
      */
     public McpToolAdapter(McpClient client, McpTool mcpTool) {
+        this(client, mcpTool, false);
+    }
+
+    /**
+     * Creates an adapter with local provenance for an exact reviewed tool.
+     * Remote annotations may raise this risk classification but never lower it.
+     *
+     * @param client connected MCP client
+     * @param mcpTool remote tool definition
+     * @param locallyTrustedReadOnly exact local per-server/tool trust decision
+     */
+    public McpToolAdapter(McpClient client, McpTool mcpTool, boolean locallyTrustedReadOnly) {
         this.client = client;
         this.mcpTool = mcpTool;
         this.serverName = client.getServerName();
+        this.dynamicToolCapability = dynamicToolCapabilityOf(mcpTool, locallyTrustedReadOnly);
     }
 
     @Override
@@ -168,13 +182,12 @@ public class McpToolAdapter implements ITool {
 
     @Override
     public boolean requiresConfirmation() {
-        return false;
+        return dynamicToolCapability == DynamicToolCapability.MUTATING;
     }
 
     @Override
     public boolean isDestructive() {
-        DynamicToolCapability capability = getDynamicToolCapability();
-        if (capability == DynamicToolCapability.MUTATING) {
+        if (dynamicToolCapability == DynamicToolCapability.MUTATING) {
             return true;
         }
         // Heuristic based on tool name
@@ -185,21 +198,33 @@ public class McpToolAdapter implements ITool {
     }
 
     /**
-     * Maps explicit MCP annotations to the runtime capability registry.
-     * Contradictory and absent annotations deliberately fail closed.
+     * Returns the local-provenance classification after applying remote hints
+     * as risk raisers only.
      */
     public DynamicToolCapability getDynamicToolCapability() {
-        return dynamicToolCapabilityOf(mcpTool);
+        return dynamicToolCapability;
     }
 
     /** Classifies a discovered MCP tool without requiring a connected client. */
     public static DynamicToolCapability dynamicToolCapabilityOf(McpTool tool) {
+        return dynamicToolCapabilityOf(tool, false);
+    }
+
+    /**
+     * Classifies a remote MCP tool. Untrusted tools are mutating regardless of
+     * read-only hints. A locally trusted exact tool remains read-only only when
+     * remote hints are absent or valid and non-risk-raising.
+     */
+    public static DynamicToolCapability dynamicToolCapabilityOf(
+            McpTool tool, boolean locallyTrustedReadOnly) {
         if (tool == null) {
-            return DynamicToolCapability.NONE;
+            return DynamicToolCapability.MUTATING;
         }
         var annotations = tool.getAnnotations();
         if (annotations == null) {
-            return DynamicToolCapability.NONE;
+            return locallyTrustedReadOnly
+                    ? DynamicToolCapability.READ_ONLY
+                    : DynamicToolCapability.MUTATING;
         }
         boolean hasReadOnly = annotations.has("readOnlyHint"); //$NON-NLS-1$
         boolean hasDestructive = annotations.has("destructiveHint"); //$NON-NLS-1$
@@ -207,22 +232,21 @@ public class McpToolAdapter implements ITool {
                 || !annotations.getAsJsonPrimitive("readOnlyHint").isBoolean())) //$NON-NLS-1$
                 || (hasDestructive && (!annotations.get("destructiveHint").isJsonPrimitive() //$NON-NLS-1$
                 || !annotations.getAsJsonPrimitive("destructiveHint").isBoolean()))) { //$NON-NLS-1$
-            return DynamicToolCapability.NONE;
+            return DynamicToolCapability.MUTATING;
         }
         boolean readOnly = hasReadOnly
                 && annotations.get("readOnlyHint").getAsBoolean(); //$NON-NLS-1$
         boolean destructive = hasDestructive
                 && annotations.get("destructiveHint").getAsBoolean(); //$NON-NLS-1$
         if (readOnly && destructive) {
-            return DynamicToolCapability.NONE;
-        }
-        if (readOnly) {
-            return DynamicToolCapability.READ_ONLY;
+            return DynamicToolCapability.MUTATING;
         }
         if (destructive || (hasReadOnly && !readOnly)) {
             return DynamicToolCapability.MUTATING;
         }
-        return DynamicToolCapability.NONE;
+        return locallyTrustedReadOnly
+                ? DynamicToolCapability.READ_ONLY
+                : DynamicToolCapability.MUTATING;
     }
 
     /**

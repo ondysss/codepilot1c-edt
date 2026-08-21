@@ -11,6 +11,8 @@ import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
+import org.eclipse.core.resources.IResource;
+
 /** Physical/canonical containment checks for workspace writes. */
 final class WorkspacePathContainment {
 
@@ -39,6 +41,14 @@ final class WorkspacePathContainment {
         } catch (IOException | RuntimeException e) {
             return false;
         }
+    }
+
+    /**
+     * Rejects both directly linked Eclipse resources and resources below a
+     * linked container. This is independent of filesystem canonicalization.
+     */
+    static boolean isLinkedResource(IResource resource) {
+        return resource == null || resource.isLinked(IResource.CHECK_ANCESTORS);
     }
 
     private static Path resolveRealPathIncludingMissingTail(Path target) throws IOException {

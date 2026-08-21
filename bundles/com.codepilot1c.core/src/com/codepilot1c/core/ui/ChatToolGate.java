@@ -18,6 +18,7 @@ import java.util.function.Supplier;
 
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
 import com.codepilot1c.core.agent.profiles.ProfileToolAccess;
 import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
@@ -194,9 +195,12 @@ public final class ChatToolGate {
         }
 
         boolean gateAsk = gate.decision() == GateDecision.ASK;
+        boolean destructive = tool.isDestructive()
+                || ToolRegistry.getInstance().getDynamicToolCapability(toolName)
+                        == DynamicToolCapability.MUTATING;
         boolean effectiveConfirmation = gateAsk
                 || tool.requiresConfirmation()
-                || tool.isDestructive();
+                || destructive;
         if (!effectiveConfirmation) {
             return execute(arguments, context, null, gate.layer(), gate.resource());
         }

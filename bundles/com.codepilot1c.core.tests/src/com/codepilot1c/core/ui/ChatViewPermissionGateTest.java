@@ -49,6 +49,7 @@ import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.tools.meta.ToolDescriptorRegistry;
+import com.codepilot1c.core.tools.meta.ToolDescriptor;
 import com.codepilot1c.core.tools.surface.ToolSurfaceAugmentor;
 import com.google.gson.Gson;
 
@@ -115,6 +116,28 @@ public class ChatViewPermissionGateTest {
             registry.unregisterDynamicTool(readName);
             registry.unregisterDynamicTool(mutateName);
             registry.unregisterDynamicTool(unknownName);
+        }
+    }
+
+    @Test
+    public void locallyTrustedDynamicUiDiagnosticsRemainsUsableByReadOnlyProfiles() {
+        String name = "get_diagnostics"; //$NON-NLS-1$
+        CountingTool uiDiagnostics = new CountingTool(name);
+        ToolRegistry registry = ToolRegistry.getInstance();
+        registry.registerDynamicTool(uiDiagnostics, DynamicToolCapability.READ_ONLY);
+        try {
+            ChatToolGate gate = gate(new GsdDiscussProfile(), List.of(), EMPTY_PARSER,
+                    registry.getDynamicToolNames(), true, false);
+
+            assertTrue(gate.visibleToolDefinitions(registry).stream()
+                    .anyMatch(tool -> name.equals(tool.getName())));
+            ChatToolGate.Decision decision = gate.decide(
+                    call(name, "{}"), uiDiagnostics); //$NON-NLS-1$
+            assertEquals(ChatToolGate.Action.EXECUTE, decision.action());
+            executeOnlyWhenApproved(decision, uiDiagnostics);
+            assertEquals(1, uiDiagnostics.executions.get());
+        } finally {
+            registry.unregisterDynamicTool(name);
         }
     }
 
@@ -462,6 +485,9 @@ public class ChatViewPermissionGateTest {
         CountingTool dynamic = new CountingTool(name, false, true);
         ToolRegistry registry = ToolRegistry.getInstance();
         ITool builtIn = registry.getTool(name);
+        ToolDescriptorRegistry descriptors = ToolDescriptorRegistry.getInstance();
+        descriptors.registerTool(builtIn);
+        ToolDescriptor before = descriptors.get(name);
         registry.registerDynamicTool(dynamic);
         AgentProfile profile = profile("builtin-precedence", Set.of(name), List.of(), true); //$NON-NLS-1$
         try {
@@ -469,6 +495,7 @@ public class ChatViewPermissionGateTest {
                     registry.getDynamicToolNames(), true, false);
 
             assertSame(builtIn, registry.getTool(name));
+            assertDescriptorEquals(before, descriptors.get(name));
             assertTrue(gate.visibleToolDefinitions(registry).stream()
                     .anyMatch(definition -> name.equals(definition.getName())));
             assertEquals(ChatToolGate.Action.EXECUTE,
@@ -476,8 +503,16 @@ public class ChatViewPermissionGateTest {
             assertEquals(0, dynamic.executions.get());
         } finally {
             registry.unregisterDynamicTool(name);
-            ToolDescriptorRegistry.getInstance().registerTool(builtIn);
         }
+        assertDescriptorEquals(before, descriptors.get(name));
+    }
+
+    private static void assertDescriptorEquals(
+            ToolDescriptor expected, ToolDescriptor actual) {
+        assertEquals(expected.getCategory(), actual.getCategory());
+        assertEquals(expected.isMutating(), actual.isMutating());
+        assertEquals(expected.requiresValidationToken(), actual.requiresValidationToken());
+        assertEquals(expected.getTags(), actual.getTags());
     }
 
     @Test

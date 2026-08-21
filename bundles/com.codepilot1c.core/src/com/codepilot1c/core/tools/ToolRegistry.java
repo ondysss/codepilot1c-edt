@@ -254,6 +254,12 @@ public class ToolRegistry {
      */
     public void unregister(String name) {
         tools.remove(name);
+        ITool dynamic = dynamicTools.get(name);
+        if (dynamic != null) {
+            ToolDescriptorRegistry.getInstance().registerTool(dynamic);
+        } else {
+            ToolDescriptorRegistry.getInstance().unregister(name);
+        }
     }
 
     /**
@@ -279,7 +285,9 @@ public class ToolRegistry {
         dynamicTools.put(tool.getName(), tool);
         dynamicCapabilities().put(tool.getName(), capability != null
                 ? capability : DynamicToolCapability.NONE);
-        ToolDescriptorRegistry.getInstance().registerTool(tool);
+        ITool builtIn = tools.get(tool.getName());
+        ToolDescriptorRegistry.getInstance().registerTool(
+                builtIn != null ? builtIn : tool);
         LOG.debug("Registered dynamic tool: %s (%s)", tool.getName(), //$NON-NLS-1$
                 dynamicCapabilities().get(tool.getName()));
     }
@@ -292,6 +300,7 @@ public class ToolRegistry {
     public void unregisterDynamicTool(String name) {
         dynamicTools.remove(name);
         dynamicCapabilities().remove(name);
+        restoreEffectiveDescriptor(name);
         LOG.debug("Unregistered dynamic tool: %s", name); //$NON-NLS-1$
     }
 
@@ -307,6 +316,7 @@ public class ToolRegistry {
         toRemove.forEach(name -> {
             dynamicTools.remove(name);
             dynamicCapabilities().remove(name);
+            restoreEffectiveDescriptor(name);
         });
         if (!toRemove.isEmpty()) {
             LOG.debug("Unregistered %d dynamic tools with prefix: %s", toRemove.size(), prefix); //$NON-NLS-1$
@@ -378,6 +388,15 @@ public class ToolRegistry {
             }
         }
         return dynamicToolCapabilities;
+    }
+
+    private void restoreEffectiveDescriptor(String name) {
+        ITool builtIn = tools.get(name);
+        if (builtIn != null) {
+            ToolDescriptorRegistry.getInstance().registerTool(builtIn);
+        } else {
+            ToolDescriptorRegistry.getInstance().unregister(name);
+        }
     }
 
     /**
