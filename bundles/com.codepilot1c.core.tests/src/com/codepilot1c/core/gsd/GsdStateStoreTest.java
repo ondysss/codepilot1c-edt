@@ -281,7 +281,7 @@ public class GsdStateStoreTest {
     }
 
     @Test
-    public void schemaMismatchIsCorruptionAndRecoversFromBackup() throws IOException {
+    public void futureSchemaIsRejectedWithoutRecoveringOlderBackup() throws IOException {
         Path root = newProject();
         GsdStateStore store = new GsdStateStore(root);
 
@@ -301,9 +301,13 @@ public class GsdStateStoreTest {
                         + "\"sessionPointer\":{\"sessionId\":\"\",\"workstreamId\":\"\"}}", //$NON-NLS-1$
                 StandardCharsets.UTF_8);
 
-        GsdState recovered = store.load();
-        assertEquals(GsdState.CURRENT_SCHEMA_VERSION, recovered.schemaVersion());
-        assertEquals(GsdPhase.PLANNING, recovered.phase());
+        try {
+            store.load();
+            fail("expected GsdUnsupportedSchemaException"); //$NON-NLS-1$
+        } catch (GsdUnsupportedSchemaException e) {
+            assertEquals(999, e.getSchemaVersion());
+            assertTrue(e.getMessage().contains("current schemaVersion is 2")); //$NON-NLS-1$
+        }
     }
 
     @Test
@@ -849,8 +853,8 @@ public class GsdStateStoreTest {
             store2.save(wantSave);
             fail("expected GsdCorruptException when saving with corrupt/recovered primary"); //$NON-NLS-1$
         } catch (GsdCorruptException e) {
-            assertTrue("error mentions recovery or corrupt", e.getMessage().contains("recovered")
-                    || e.getMessage().contains("corrupt")); //$NON-NLS-1$ //$NON-NLS-2$
+            assertTrue("error mentions recovery or migration", e.getMessage().contains("recovery")
+                    || e.getMessage().contains("migration")); //$NON-NLS-1$ //$NON-NLS-2$
         }
 
         // Backup is still intact — no data loss.

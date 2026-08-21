@@ -23,12 +23,17 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.TypeAdapter;
 import com.google.gson.stream.JsonReader;
@@ -48,7 +53,8 @@ import com.google.gson.stream.JsonWriter;
  * the GSD directory is best-effort {@link FileChannel#force force}d so the rename is
  * durable; filesystems without directory fsync are documented below and tolerated.</p>
  *
- * <p>Optimistic concurrency is enforced via {@code revision} <b>under a cross-process
+ * <p>Optimistic concurrency is enforced via the cycle/generation/revision
+ * {@link GsdConcurrencyToken} <b>under a cross-process
  * {@link FileLock}</b> on {@code .codepilot1c/gsd/state.lock}: {@link #save(GsdState)}
  * acquires the lock, checks that {@code state.revision()} equals the revision on disk,
  * backs up the previous {@code state.json} to {@code state.json.bak}, persists the new
@@ -59,7 +65,8 @@ import com.google.gson.stream.JsonWriter;
  * store additionally serializes threads with a per-real-path {@link
  * java.util.concurrent.locks.ReentrantLock}. Across processes, only the OS file lock
  * serializes writers. A revision mismatch raises {@link GsdStaleRevisionException}
- * (fail-closed) so the caller reloads and retries.</p>
+ * (fail-closed) so the caller reloads and retries. Backup recovery advances generation,
+ * and a new delivery cycle changes cycle id, so revision reuse cannot cause ABA.</p>
  *
  * <p>Backup/recovery: on {@link #load()}, a primary {@code state.json} that is
  * {@link GsdCorruptException corrupt} is recovered from {@code state.json.bak} (the
@@ -193,13 +200,24 @@ public final class GsdStateStore {
             ReadOutcome outcome = readOutcome(statePath, bakPath);
             if (outcome.state == null) {
                 // Fresh project: nothing on disk.
-                regenerateProjectionsIfMissing(GsdState.fresh());
-                return GsdState.fresh();
+                GsdState fresh = GsdState.fresh();
+                regenerateProjectionsIfMissing(fresh);
+                return fresh;
             }
             if (outcome.recovered) {
                 if (outcome.primaryWasCorrupt) {
                     quarantineCorruptPrimary(); // propagates IOException on failure
                 }
+                GsdState recovered = outcome.state.recovered();
+                atomicWrite(statePath, toBytes(recovered));
+                // Advance the recovery fence in both copies. Repeated recovery without
+                // an intervening save must still produce a new generation.
+                atomicWrite(bakPath, toBytes(recovered));
+                writeProjectionsUnlocked(recovered);
+                return recovered;
+            } else if (outcome.migrated) {
+                // Preserve the original v1 payload as the backup, then publish v2.
+                Files.copy(statePath, bakPath, StandardCopyOption.REPLACE_EXISTING);
                 atomicWrite(statePath, toBytes(outcome.state));
                 writeProjectionsUnlocked(outcome.state);
             } else {
@@ -246,41 +264,101 @@ public final class GsdStateStore {
         if (!Files.exists(statePath)) {
             return GsdState.fresh();
         }
-        return parseState(statePath);
+        return parseState(statePath).state;
     }
 
     /**
      * Persists the state atomically under the cross-process lock. Enforces
      * {@link GsdGuard} and optimistic revision before writing. Backs up the previous
      * {@code state.json} to {@code state.json.bak}, writes the new state with
-     * {@code revision + 1}, and regenerates {@code STATE.md}/{@code PLAN.md} — all as one
-     * critical section.
+     * {@code revision + 1}, and attempts to regenerate {@code STATE.md}/{@code PLAN.md}.
+     * Use {@link #commit(GsdState)} when projection warnings must be observed.
      *
-     * @param state the state to persist; its {@code revision} is the optimistic token
+     * @param state the state to persist; its full {@link GsdState#concurrencyToken()} is checked
      * @return the newly persisted state with incremented revision (never {@code null})
      * @throws GsdGuardException          if the state violates invariants
      * @throws GsdStaleRevisionException if {@code state.revision()} does not match disk
      * @throws IOException               on I/O failure or unrecoverable corruption (fail-closed)
      */
     public GsdState save(GsdState state) throws IOException {
+        return commit(state).state();
+    }
+
+    /**
+     * Atomically commits authoritative state and reports non-authoritative projection
+     * failures as warnings. If this method returns, {@code committed()} is true.
+     * Failures before the state rename still throw and commit nothing.
+     *
+     * @param state desired state carrying the expected concurrency token
+     * @return committed state plus projection warnings
+     * @throws IOException on authoritative persistence failure
+     */
+    public GsdCommitOutcome commit(GsdState state) throws IOException {
         GsdState validated = Objects.requireNonNull(state, "state"); //$NON-NLS-1$
         GsdGuard.validate(validated); // fail-closed before any write / before the lock
 
         return withLock(() -> {
             validateBeforeSave(validated);
             GsdState next = validated.withRevision(validated.revision() + 1L);
-            byte[] payload = toBytes(next);
-
-            // Backup the previous good state before overwriting. Only the primary is
-            // backed up; a corrupt primary is handled by the recovery path on load.
-            if (Files.exists(statePath)) {
-                Files.copy(statePath, bakPath, StandardCopyOption.REPLACE_EXISTING);
-            }
-
-            atomicWrite(statePath, payload);
-            writeProjectionsUnlocked(next);
-            return next;
+            commitAuthoritative(next);
+            return projectionOutcome(next);
         });
+    }
+
+    /** Compatibility alias emphasizing that projection warnings are returned. */
+    public GsdCommitOutcome saveWithOutcome(GsdState state) throws IOException {
+        return commit(state);
+    }
+
+    /**
+     * Commits a CLOSED-to-DISCOVERY cycle replacement against the old token. The new
+     * cycle starts at revision zero, so the explicit expected token is required.
+     */
+    public GsdCommitOutcome commitNewCycle(GsdConcurrencyToken expectedToken,
+            GsdState newCycle) throws IOException {
+        Objects.requireNonNull(expectedToken, "expectedToken"); //$NON-NLS-1$
+        GsdState validated = Objects.requireNonNull(newCycle, "newCycle"); //$NON-NLS-1$
+        GsdGuard.validate(validated);
+        if (validated.phase() != GsdPhase.DISCOVERY
+                || validated.revision() != GsdState.INITIAL_REVISION) {
+            throw new IllegalArgumentException("new cycle must start in DISCOVERY at revision 0"); //$NON-NLS-1$
+        }
+        return withLock(() -> {
+            ReadOutcome outcome = readOutcome(statePath, bakPath);
+            if (outcome.state == null || outcome.recovered || outcome.migrated) {
+                throw new GsdCorruptException(
+                        "cannot replace cycle until primary state is loaded and current"); //$NON-NLS-1$
+            }
+            if (!expectedToken.equals(outcome.state.concurrencyToken())) {
+                throw new GsdStaleTokenException(expectedToken, outcome.state.concurrencyToken());
+            }
+            if (outcome.state.phase() != GsdPhase.CLOSED) {
+                throw new IllegalStateException("new cycle requires current phase CLOSED"); //$NON-NLS-1$
+            }
+            if (expectedToken.cycleId().equals(validated.cycleId())) {
+                throw new IllegalArgumentException("new cycleId must differ from the closed cycle"); //$NON-NLS-1$
+            }
+            commitAuthoritative(validated);
+            return projectionOutcome(validated);
+        });
+    }
+
+    private void commitAuthoritative(GsdState next) throws IOException {
+        if (Files.exists(statePath)) {
+            Files.copy(statePath, bakPath, StandardCopyOption.REPLACE_EXISTING);
+        }
+        atomicWrite(statePath, toBytes(next));
+    }
+
+    private GsdCommitOutcome projectionOutcome(GsdState next) {
+        List<String> warnings = new ArrayList<>();
+        try {
+            writeProjectionsUnlocked(next);
+        } catch (IOException | RuntimeException e) {
+            warnings.add("state committed but projections were not fully regenerated: " //$NON-NLS-1$
+                    + e.getClass().getSimpleName() + ": " + e.getMessage()); //$NON-NLS-1$
+        }
+        return new GsdCommitOutcome(next, true, warnings);
     }
 
     /**
@@ -310,16 +388,16 @@ public final class GsdStateStore {
         // reject the save: only a validated primary may be backed up. A recovered state
         // is transient — the caller must reload via load() to obtain a clean snapshot
         // before attempting another save.
-        if (outcome.recovered) {
+        if (outcome.recovered || outcome.migrated) {
             throw new GsdCorruptException(
-                    "GSD primary was recovered from backup; save rejected until load/recover completes" //$NON-NLS-1$
-                            + " — reload via load() first; cannot back up corrupt/missing primary");
+                    "GSD primary requires recovery or migration; save rejected until load() completes"); //$NON-NLS-1$
         }
 
-        // Revision check against state actually on disk.
-        long diskRevision = validated.revision();
-        if (diskRevision != outcome.state.revision()) {
-            throw new GsdStaleRevisionException(diskRevision, outcome.state.revision());
+        // Compare the complete identity; revision-only comparison permits ABA after
+        // recovery or cycle replacement.
+        if (!validated.concurrencyToken().equals(outcome.state.concurrencyToken())) {
+            throw new GsdStaleTokenException(
+                    validated.concurrencyToken(), outcome.state.concurrencyToken());
         }
     }
 
@@ -410,16 +488,16 @@ public final class GsdStateStore {
         boolean primaryCorrupt = false;
         if (Files.exists(primary)) {
             try {
-                GsdState s = parseState(primary);
-                return new ReadOutcome(s, false, false);
+                ParsedState parsed = parseState(primary);
+                return new ReadOutcome(parsed.state, false, false, parsed.migrated);
             } catch (GsdCorruptException e) {
                 primaryCorrupt = true;
             }
         }
         if (Files.exists(backup)) {
             try {
-                GsdState s = parseState(backup);
-                return new ReadOutcome(s, primaryCorrupt, true);
+                ParsedState parsed = parseState(backup);
+                return new ReadOutcome(parsed.state, primaryCorrupt, true, parsed.migrated);
             } catch (GsdCorruptException e) {
                 // backup also corrupt
                 if (primaryCorrupt) {
@@ -436,7 +514,7 @@ public final class GsdStateStore {
                     + STATE_BAK + " is missing"); //$NON-NLS-1$
         }
         // primary simply missing and no backup to recover from (fresh project).
-        return new ReadOutcome(null, false, false);
+        return new ReadOutcome(null, false, false, false);
     }
 
     /**
@@ -464,10 +542,12 @@ public final class GsdStateStore {
     /**
      * Parses {@code path} as a {@link GsdState}. Raises {@link GsdCorruptException} for
      * unparseable JSON, a JSON {@code null} document, an empty document, a
-     * {@code schemaVersion} mismatch, or a {@link GsdGuard} invariant violation. All other
+     * unsupported historical schema, or a {@link GsdGuard} invariant violation. Schema v1
+     * is migrated explicitly; a future schema raises {@link GsdUnsupportedSchemaException}.
+     * All other
      * {@link IOException}s propagate.
      */
-    private GsdState parseState(Path path) throws IOException {
+    private ParsedState parseState(Path path) throws IOException {
         long size;
         try {
             size = Files.size(path);
@@ -477,20 +557,55 @@ public final class GsdStateStore {
         if (size == 0) {
             throw new GsdCorruptException("empty GSD state file: " + path); //$NON-NLS-1$
         }
-        GsdState state;
+        JsonObject document;
         try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-            state = gson.fromJson(reader, GsdState.class);
+            JsonElement parsed = JsonParser.parseReader(reader);
+            if (parsed == null || parsed.isJsonNull()) {
+                throw new GsdCorruptException("GSD state file is JSON null: " + path); //$NON-NLS-1$
+            }
+            if (!parsed.isJsonObject()) {
+                throw new GsdCorruptException("GSD state file is not a JSON object: " + path); //$NON-NLS-1$
+            }
+            document = parsed.getAsJsonObject();
         } catch (JsonSyntaxException e) {
             throw new GsdCorruptException("invalid JSON in " + path + ": " + e.getMessage(), e); //$NON-NLS-1$ //$NON-NLS-2$
         }
-        if (state == null) {
-            // gson returns null for a JSON null literal or an empty-after-trim document.
-            throw new GsdCorruptException("GSD state file is JSON null: " + path); //$NON-NLS-1$
+        JsonElement schemaElement = document.get("schemaVersion"); //$NON-NLS-1$
+        if (schemaElement == null || !schemaElement.isJsonPrimitive()
+                || !schemaElement.getAsJsonPrimitive().isNumber()) {
+            throw new GsdCorruptException("missing or invalid GSD schemaVersion in " + path); //$NON-NLS-1$
         }
-        if (state.schemaVersion() != GsdState.CURRENT_SCHEMA_VERSION) {
-            throw new GsdCorruptException("GSD schemaVersion " + state.schemaVersion() //$NON-NLS-1$
-                    + " in " + path + " does not match current " //$NON-NLS-1$ //$NON-NLS-2$
-                    + GsdState.CURRENT_SCHEMA_VERSION);
+        int schemaVersion;
+        try {
+            schemaVersion = Integer.parseInt(schemaElement.getAsString());
+        } catch (RuntimeException e) {
+            throw new GsdCorruptException("invalid GSD schemaVersion in " + path, e); //$NON-NLS-1$
+        }
+        if (schemaVersion > GsdState.CURRENT_SCHEMA_VERSION) {
+            // A future schema is not corruption and must never silently fall back to
+            // an older backup.
+            throw new GsdUnsupportedSchemaException(schemaVersion);
+        }
+
+        final GsdState state;
+        final boolean migrated;
+        try {
+            if (schemaVersion == GsdState.LEGACY_SCHEMA_VERSION) {
+                LegacyStateV1 legacy = gson.fromJson(document, LegacyStateV1.class);
+                state = GsdState.migratedFromV1(legacy.revision, legacy.phase, legacy.goal,
+                        legacy.decisions, legacy.tasks, legacy.waves, legacy.evidence,
+                        legacy.sessionPointer);
+                migrated = true;
+            } else if (schemaVersion == GsdState.CURRENT_SCHEMA_VERSION) {
+                state = gson.fromJson(document, GsdState.class);
+                migrated = false;
+            } else {
+                throw new GsdCorruptException("unsupported historical GSD schemaVersion " //$NON-NLS-1$
+                        + schemaVersion + " in " + path); //$NON-NLS-1$
+            }
+        } catch (RuntimeException e) {
+            throw new GsdCorruptException("invalid GSD state in " + path + ": " //$NON-NLS-1$ //$NON-NLS-2$
+                    + e.getMessage(), e);
         }
         // Guard validation: a deserialized state that violates invariants is treated as
         // corruption so that backup-recovery paths never republish invalid state.
@@ -500,7 +615,7 @@ public final class GsdStateStore {
             throw new GsdCorruptException("GSD state in " + path + " fails guard validation: " //$NON-NLS-1$ //$NON-NLS-2$
                     + e.getMessage(), e);
         }
-        return state;
+        return new ParsedState(state, migrated);
     }
 
     /**
@@ -678,6 +793,8 @@ public final class GsdStateStore {
                 .registerTypeAdapter(GsdTaskStatus.class, new EnumStrictAdapter<>(GsdTaskStatus.class, "task status"))
                 .registerTypeAdapter(GsdProvenance.class, new EnumStrictAdapter<>(GsdProvenance.class, "provenance"))
                 .registerTypeAdapter(GsdExecutionKind.class, new EnumStrictAdapter<>(GsdExecutionKind.class, "execution kind"))
+                .registerTypeAdapter(GsdAcceptanceStatus.class, new EnumStrictAdapter<>(GsdAcceptanceStatus.class, "acceptance status"))
+                .registerTypeAdapter(GsdShipmentStatus.class, new EnumStrictAdapter<>(GsdShipmentStatus.class, "shipment status"))
                 .create();
     }
 
@@ -686,12 +803,36 @@ public final class GsdStateStore {
         final GsdState state;
         final boolean primaryWasCorrupt;
         final boolean recovered;
+        final boolean migrated;
 
-        ReadOutcome(GsdState state, boolean primaryWasCorrupt, boolean recovered) {
+        ReadOutcome(GsdState state, boolean primaryWasCorrupt, boolean recovered, boolean migrated) {
             this.state = state;
             this.primaryWasCorrupt = primaryWasCorrupt;
             this.recovered = recovered;
+            this.migrated = migrated;
         }
+    }
+
+    private static final class ParsedState {
+        final GsdState state;
+        final boolean migrated;
+
+        ParsedState(GsdState state, boolean migrated) {
+            this.state = state;
+            this.migrated = migrated;
+        }
+    }
+
+    /** Exact schema-v1 shape used only by the explicit one-step migrator. */
+    private static final class LegacyStateV1 {
+        long revision;
+        GsdPhase phase;
+        String goal;
+        List<GsdDecision> decisions;
+        List<GsdTask> tasks;
+        List<GsdWave> waves;
+        List<GsdEvidence> evidence;
+        GsdSessionPointer sessionPointer;
     }
 
     /**

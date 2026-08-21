@@ -25,7 +25,10 @@ public enum GsdPhase {
     /** Verifying completed work against the goal and evidence. */
     VERIFYING,
 
-    /** Terminal state; requires non-{@link GsdProvenance#INFERRED} evidence. */
+    /** Delivering the verified work and recording the shipment result. */
+    SHIPPING,
+
+    /** Terminal state; requires passed criteria, verified evidence, and delivery. */
     CLOSED;
 
     /**

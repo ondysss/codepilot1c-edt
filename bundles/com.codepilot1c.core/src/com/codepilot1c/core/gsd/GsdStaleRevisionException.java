@@ -27,8 +27,14 @@ public class GsdStaleRevisionException extends RuntimeException {
      * @param actualRevision   the revision actually on disk
      */
     public GsdStaleRevisionException(long expectedRevision, long actualRevision) {
-        super("stale GSD revision: expected " + expectedRevision //$NON-NLS-1$
-                + " but disk has " + actualRevision); //$NON-NLS-1$
+        this(expectedRevision, actualRevision,
+                "stale GSD revision: expected " + expectedRevision //$NON-NLS-1$
+                        + " but disk has " + actualRevision); //$NON-NLS-1$
+    }
+
+    /** Constructor used by token-aware compatibility subclasses. */
+    protected GsdStaleRevisionException(long expectedRevision, long actualRevision, String message) {
+        super(message);
         this.expectedRevision = expectedRevision;
         this.actualRevision = actualRevision;
     }
