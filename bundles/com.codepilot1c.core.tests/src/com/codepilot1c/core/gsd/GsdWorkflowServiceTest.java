@@ -38,7 +38,8 @@ public class GsdWorkflowServiceTest {
 
     @Before
     public void setUp() throws IOException {
-        projectRoot = tmp.newFolder("project").toPath(); //$NON-NLS-1$
+        projectRoot = GsdTestSupport.secureProject(
+                tmp.newFolder("project").toPath()); //$NON-NLS-1$
     }
 
     private static List<GsdAcceptanceCriterion> requiredCriteria() {

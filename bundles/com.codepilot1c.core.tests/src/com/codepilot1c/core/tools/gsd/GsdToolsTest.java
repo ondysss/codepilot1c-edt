@@ -28,6 +28,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import com.codepilot1c.core.agent.profiles.AgentCapability;
+import com.codepilot1c.core.gsd.GsdTestSupport;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolMeta;
@@ -48,7 +49,8 @@ public class GsdToolsTest {
 
     @Before
     public void setUp() throws IOException {
-        projectPath = tmp.newFolder("project").getAbsolutePath(); //$NON-NLS-1$
+        projectPath = GsdTestSupport.secureProject(
+                tmp.newFolder("project").toPath()).toString(); //$NON-NLS-1$
     }
 
     /** Executes through the same request-local identity and full token used by AgentRunner. */
@@ -318,7 +320,8 @@ public class GsdToolsTest {
     @Test
     public void mutationCannotCrossCapturedProjectBoundary()
             throws IOException, ExecutionException, InterruptedException {
-        Path otherProject = tmp.newFolder("other-project").toPath(); //$NON-NLS-1$
+        Path otherProject = GsdTestSupport.secureProject(
+                tmp.newFolder("other-project").toPath()); //$NON-NLS-1$
         ToolResult result = execute(new GsdRecordDecisionTool(), Map.of(
                 "project_path", otherProject.toString(), //$NON-NLS-1$
                 "expected_revision", 0L, //$NON-NLS-1$
