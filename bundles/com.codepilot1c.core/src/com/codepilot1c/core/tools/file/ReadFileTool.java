@@ -10,6 +10,8 @@ import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.tools.ToolParameters;
 import com.codepilot1c.core.tools.ToolMeta;
 import com.codepilot1c.core.tools.AbstractTool;
+import com.codepilot1c.core.tools.ActiveProjectSupport;
+import com.codepilot1c.core.tools.ToolExecutionContext;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -31,8 +33,6 @@ import org.eclipse.core.runtime.IPath;
 
 import com.codepilot1c.core.logging.LogSanitizer;
 import com.codepilot1c.core.logging.VibeLogger;
-import com.codepilot1c.core.session.Session;
-import com.codepilot1c.core.session.SessionManager;
 import com.codepilot1c.core.tools.util.ToolResultTruncator;
 
 /**
@@ -101,6 +101,12 @@ public class ReadFileTool extends AbstractTool {
 
     @Override
     protected CompletableFuture<ToolResult> doExecute(ToolParameters params) {
+        return doExecute(params, ToolExecutionContext.unscoped());
+    }
+
+    @Override
+    protected CompletableFuture<ToolResult> doExecute(
+            ToolParameters params, ToolExecutionContext context) {
         return CompletableFuture.supplyAsync(() -> {
             long startTime = System.currentTimeMillis();
 
@@ -113,7 +119,7 @@ public class ReadFileTool extends AbstractTool {
                     LogSanitizer.truncatePath(pathStr), startLine, endLine);
 
             try {
-                String content = readFile(pathStr, startLine, endLine);
+                String content = readFile(pathStr, startLine, endLine, context);
                 String capped = ToolResultTruncator.truncateText(content, MAX_OUTPUT_CHARS);
                 long duration = System.currentTimeMillis() - startTime;
                 LOG.debug("read_file: успешно прочитан %s за %s (%d символов)", //$NON-NLS-1$
@@ -126,12 +132,13 @@ public class ReadFileTool extends AbstractTool {
         });
     }
 
-    private String readFile(String pathStr, Integer startLine, Integer endLine) throws IOException {
+    private String readFile(String pathStr, Integer startLine, Integer endLine,
+            ToolExecutionContext context) throws IOException {
         // Normalize path separators for cross-platform compatibility
         String normalizedPath = normalizePath(pathStr);
 
         // Find file in workspace only (security: don't allow reading arbitrary system files)
-        IFile file = findWorkspaceFile(normalizedPath);
+        IFile file = findWorkspaceFile(normalizedPath, context);
         if (file == null || !file.exists()) {
             throw new IOException("File not found in workspace: " + pathStr); //$NON-NLS-1$
         }
@@ -191,7 +198,7 @@ public class ReadFileTool extends AbstractTool {
      * Finds a file in the workspace by path.
      * Tries multiple strategies to locate the file.
      */
-    private IFile findWorkspaceFile(String path) {
+    private IFile findWorkspaceFile(String path, ToolExecutionContext context) {
         IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
 
         // Strategy 0: A bare file name, especially Code.md from the chat action,
@@ -199,7 +206,7 @@ public class ReadFileTool extends AbstractTool {
         try {
             IPath ipath = org.eclipse.core.runtime.Path.fromOSString(path);
             if (ipath.segmentCount() == 1) {
-                IProject project = resolveCurrentProject(root);
+                IProject project = resolveCurrentProject(context);
                 if (project != null) {
                     IFile file = project.getFile(ipath);
                     if (file.exists()) {
@@ -245,25 +252,8 @@ public class ReadFileTool extends AbstractTool {
         return null;
     }
 
-    private IProject resolveCurrentProject(IWorkspaceRoot root) {
-        try {
-            Session session = SessionManager.getInstance().getOrCreateCurrentSession();
-            if (session != null && session.getProjectPath() != null && !session.getProjectPath().isEmpty()) {
-                IProject project = SessionManager.getInstance().findProjectByPath(session.getProjectPath());
-                if (project != null && project.exists() && project.isOpen()) {
-                    return project;
-                }
-            }
-        } catch (Exception e) {
-            LOG.warn("read_file: could not resolve current project from session", e); //$NON-NLS-1$
-        }
-
-        for (IProject project : root.getProjects()) {
-            if (project.exists() && project.isOpen()) {
-                return project;
-            }
-        }
-        return null;
+    private IProject resolveCurrentProject(ToolExecutionContext context) {
+        return ActiveProjectSupport.resolveActiveProject(context);
     }
 
     /**

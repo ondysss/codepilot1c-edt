@@ -25,13 +25,30 @@ public final class ActiveProjectSupport {
      *     project cannot be determined unambiguously (zero or multiple open projects, no session).
      */
     public static IProject resolveActiveProject() {
+        return resolveActiveProject(ToolExecutionContext.unscoped());
+    }
+
+    /**
+     * Resolves the project for a tool execution. An explicit per-view identity
+     * is authoritative: if it cannot be resolved, this method returns null
+     * instead of falling through to another view's global current session.
+     */
+    public static IProject resolveActiveProject(ToolExecutionContext context) {
+        ToolExecutionContext effective = context != null ? context : ToolExecutionContext.unscoped();
+        if (effective.hasProjectIdentity()) {
+            String path = effective.projectPath();
+            if (path.isBlank() && !effective.sessionId().isBlank()) {
+                path = SessionManager.getInstance().loadSession(effective.sessionId())
+                        .map(Session::getProjectPath)
+                        .orElse(""); //$NON-NLS-1$
+            }
+            return resolveProjectByPath(path);
+        }
         try {
             Session session = SessionManager.getInstance().getOrCreateCurrentSession();
-            if (session != null && session.getProjectPath() != null && !session.getProjectPath().isEmpty()) {
-                IProject project = SessionManager.getInstance().findProjectByPath(session.getProjectPath());
-                if (project != null && project.exists() && project.isOpen()) {
-                    return project;
-                }
+            IProject project = session != null ? resolveProjectByPath(session.getProjectPath()) : null;
+            if (project != null) {
+                return project;
             }
         } catch (Exception e) {
             // Fall through to the single-open-project heuristic.
@@ -44,6 +61,40 @@ public final class ActiveProjectSupport {
     public static String resolveActiveProjectName() {
         IProject project = resolveActiveProject();
         return project != null ? project.getName() : null;
+    }
+
+    /** @return project name resolved from an explicit execution identity, or {@code null}. */
+    public static String resolveActiveProjectName(ToolExecutionContext context) {
+        IProject project = resolveActiveProject(context);
+        return project != null ? project.getName() : null;
+    }
+
+    /** Returns the captured/resolved project path without consulting another view's session. */
+    public static String resolveProjectPath(ToolExecutionContext context) {
+        ToolExecutionContext effective = context != null ? context : ToolExecutionContext.unscoped();
+        if (effective.hasProjectIdentity()) {
+            if (!effective.projectPath().isBlank()) {
+                return effective.projectPath();
+            }
+            return SessionManager.getInstance().loadSession(effective.sessionId())
+                    .map(Session::getProjectPath)
+                    .orElse(null);
+        }
+        IProject project = resolveActiveProject(effective);
+        return project != null && project.getLocation() != null
+                ? project.getLocation().toOSString() : null;
+    }
+
+    private static IProject resolveProjectByPath(String projectPath) {
+        if (projectPath == null || projectPath.isBlank()) {
+            return null;
+        }
+        try {
+            IProject project = SessionManager.getInstance().findProjectByPath(projectPath);
+            return project != null && project.exists() && project.isOpen() ? project : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** @return all open projects in the workspace (never {@code null}). */

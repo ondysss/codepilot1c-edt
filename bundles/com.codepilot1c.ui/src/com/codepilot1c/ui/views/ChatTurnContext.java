@@ -14,6 +14,7 @@ import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
 import com.codepilot1c.core.agent.prompts.SystemPromptAssembler;
 import com.codepilot1c.core.session.Session;
+import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.ui.ChatToolGate;
 
 /**
@@ -86,6 +87,11 @@ public final class ChatTurnContext {
 
     public String profileId() {
         return profile.getId();
+    }
+
+    /** Creates the tool identity from the same immutable turn capture as the prompt. */
+    public ToolExecutionContext toolExecutionContext() {
+        return ToolExecutionContext.of(profile, 0, projectPath, sessionId);
     }
 
     /**

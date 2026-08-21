@@ -19,19 +19,31 @@ import com.codepilot1c.core.agent.profiles.ProfileCapabilities;
  * @param parentProfileId profile of the agent invoking the tool
  * @param delegationCeiling strongest child capability the parent may create
  * @param delegationDepth current delegation depth
+ * @param projectPath project captured by the owning view for this turn
+ * @param sessionId session captured by the owning view for this turn
  */
 public record ToolExecutionContext(
         String parentProfileId,
         AgentCapability delegationCeiling,
-        int delegationDepth) {
+        int delegationDepth,
+        String projectPath,
+        String sessionId) {
 
     private static final String UNSCOPED_PROFILE = ""; //$NON-NLS-1$
     private static final ToolExecutionContext UNSCOPED =
-            new ToolExecutionContext(UNSCOPED_PROFILE, AgentCapability.MUTATING, 0);
+            new ToolExecutionContext(UNSCOPED_PROFILE, AgentCapability.MUTATING, 0, "", ""); //$NON-NLS-1$ //$NON-NLS-2$
+
+    /** Compatibility constructor for callers that do not own a view/session identity. */
+    public ToolExecutionContext(
+            String parentProfileId, AgentCapability delegationCeiling, int delegationDepth) {
+        this(parentProfileId, delegationCeiling, delegationDepth, "", ""); //$NON-NLS-1$ //$NON-NLS-2$
+    }
 
     public ToolExecutionContext {
         Objects.requireNonNull(parentProfileId, "parentProfileId"); //$NON-NLS-1$
         Objects.requireNonNull(delegationCeiling, "delegationCeiling"); //$NON-NLS-1$
+        projectPath = projectPath == null ? "" : projectPath; //$NON-NLS-1$
+        sessionId = sessionId == null ? "" : sessionId; //$NON-NLS-1$
         if (delegationDepth < 0) {
             throw new IllegalArgumentException("delegationDepth must not be negative"); //$NON-NLS-1$
         }
@@ -62,7 +74,22 @@ public record ToolExecutionContext(
         return new ToolExecutionContext(
                 parentProfileId,
                 ProfileCapabilities.delegationCeiling(parentProfile),
-                delegationDepth);
+                delegationDepth,
+                "", //$NON-NLS-1$
+                ""); //$NON-NLS-1$
+    }
+
+    /** Creates a scoped context with the per-view identity captured for one turn. */
+    public static ToolExecutionContext of(
+            AgentProfile parentProfile, int delegationDepth,
+            String projectPath, String sessionId) {
+        ToolExecutionContext profileContext = of(parentProfile, delegationDepth);
+        return new ToolExecutionContext(
+                profileContext.parentProfileId,
+                profileContext.delegationCeiling,
+                profileContext.delegationDepth,
+                projectPath,
+                sessionId);
     }
 
     /**
@@ -72,5 +99,10 @@ public record ToolExecutionContext(
      */
     public boolean isScoped() {
         return !UNSCOPED_PROFILE.equals(parentProfileId);
+    }
+
+    /** Returns whether a view explicitly bound this execution to a project or session. */
+    public boolean hasProjectIdentity() {
+        return !projectPath.isBlank() || !sessionId.isBlank();
     }
 }

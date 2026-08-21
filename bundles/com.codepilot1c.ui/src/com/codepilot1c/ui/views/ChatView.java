@@ -18,7 +18,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -61,7 +63,6 @@ import org.eclipse.ui.part.ViewPart;
 
 import com.codepilot1c.core.diff.CodeDiffUtils;
 import com.codepilot1c.core.logging.VibeLogger;
-import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.prompts.SystemPromptAssembler;
 import com.codepilot1c.core.skills.SkillMentionParser;
 import com.codepilot1c.core.model.LlmAttachment;
@@ -223,6 +224,8 @@ public class ChatView extends ViewPart {
      * are part of the same logical turn and re-enter the top-level chain.
      */
     private final AtomicBoolean inflight = new AtomicBoolean(false);
+    /** Rejects every asynchronous completion belonging to a cleared/stopped/disposed turn. */
+    private final ChatTurnFence turnFence = new ChatTurnFence();
 
     /** Monotonic round-trip id used in single-flight WARN logs and tracing. */
     private final java.util.concurrent.atomic.AtomicLong roundTripSeq = new java.util.concurrent.atomic.AtomicLong(0);
@@ -1348,9 +1351,14 @@ public class ChatView extends ViewPart {
      */
     private void startConversationLoop(ILlmProvider provider) {
         LOG.debug("startConversationLoop: beginning"); //$NON-NLS-1$
+        if (inflight.get()) {
+            LOG.warn("[single-flight] dropped duplicate turn before context capture"); //$NON-NLS-1$
+            return;
+        }
+        final long turnGeneration = turnFence.beginTurn();
 
         this.turnContext = ChatTurnContext.resolve(viewSession(), configuredChatProfileId());
-        this.toolGate = createToolGate(turnContext.profile());
+        this.toolGate = createToolGate(turnContext);
         LOG.debug("chat tool gate: profile=%s", toolGate.profile().getId()); //$NON-NLS-1$
 
         // Build request with tools
@@ -1364,7 +1372,7 @@ public class ChatView extends ViewPart {
         // Update stage to waiting for response
         if (!display.isDisposed()) {
             display.asyncExec(() -> {
-                if (!isDisposed()) {
+                if (isCurrentTurn(turnGeneration)) {
                     setProcessingStage("Ожидание ответа модели..."); //$NON-NLS-1$
                 }
             });
@@ -1373,16 +1381,17 @@ public class ChatView extends ViewPart {
         // Use streaming if provider supports it
         // Tool calls are now properly accumulated in streaming mode via delta.tool_calls
         if (provider.supportsStreaming()) {
-            startStreamingRequest(provider, request, display);
+            startStreamingRequest(provider, request, display, turnGeneration);
         } else {
-            startNonStreamingRequest(provider, request, display);
+            startNonStreamingRequest(provider, request, display, turnGeneration);
         }
     }
 
     /**
      * Starts a streaming request to the LLM provider.
      */
-    private void startStreamingRequest(ILlmProvider provider, LlmRequest request, Display display) {
+    private void startStreamingRequest(
+            ILlmProvider provider, LlmRequest request, Display display, long turnGeneration) {
         LOG.debug("startStreamingRequest: using streaming mode"); //$NON-NLS-1$
 
         long rt = roundTripSeq.incrementAndGet();
@@ -1405,7 +1414,7 @@ public class ChatView extends ViewPart {
         // Add empty AI message that will be updated with streaming content
         if (!display.isDisposed()) {
             display.asyncExec(() -> {
-                if (!isDisposed()) {
+                if (isCurrentTurn(turnGeneration)) {
                     setProcessingStage("Получение ответа..."); //$NON-NLS-1$
                     appendAssistantMessage(""); // Empty message to be updated //$NON-NLS-1$
                 }
@@ -1415,13 +1424,16 @@ public class ChatView extends ViewPart {
         // Run streaming in background thread
         CompletableFuture.runAsync(() -> {
             try {
-                provider.streamComplete(request, chunk -> handleStreamChunk(chunk, display));
+                provider.streamComplete(request, chunk -> handleStreamChunk(chunk, display, turnGeneration));
             } catch (Exception e) {
+                if (!turnFence.isCurrent(turnGeneration)) {
+                    return;
+                }
                 LOG.error("Streaming error: %s", e.getMessage()); //$NON-NLS-1$
                 inflight.set(false);
                 if (!display.isDisposed()) {
                     display.asyncExec(() -> {
-                        if (!isDisposed()) {
+                        if (isCurrentTurn(turnGeneration)) {
                             handleError(e);
                         }
                     });
@@ -1433,13 +1445,20 @@ public class ChatView extends ViewPart {
     /**
      * Handles a streaming chunk from the LLM.
      */
-    private void handleStreamChunk(LlmStreamChunk chunk, Display display) {
+    private void handleStreamChunk(LlmStreamChunk chunk, Display display, long turnGeneration) {
+        turnFence.runIfCurrent(turnGeneration,
+                () -> handleCurrentStreamChunk(chunk, display, turnGeneration));
+    }
+
+    /** Handles one current-generation chunk while holding the turn boundary fence. */
+    private void handleCurrentStreamChunk(
+            LlmStreamChunk chunk, Display display, long turnGeneration) {
         if (chunk.isError()) {
             LOG.error("Stream error: %s", chunk.getErrorMessage()); //$NON-NLS-1$
             inflight.set(false);
             if (!display.isDisposed()) {
                 display.asyncExec(() -> {
-                    if (!isDisposed()) {
+                    if (isCurrentTurn(turnGeneration)) {
                         isStreaming = false;
                         handleError(new RuntimeException(chunk.getErrorMessage()));
                     }
@@ -1467,7 +1486,7 @@ public class ChatView extends ViewPart {
 
             if (!display.isDisposed()) {
                 display.asyncExec(() -> {
-                    if (!isDisposed() && USE_BROWSER_RENDERING && browserChatPanel != null) {
+                    if (isCurrentTurn(turnGeneration) && USE_BROWSER_RENDERING && browserChatPanel != null) {
                         browserChatPanel.updateLastMessageWithReasoning(accumulatedContent, accumulatedReasoning);
                     }
                 });
@@ -1484,7 +1503,7 @@ public class ChatView extends ViewPart {
             final String accumulatedReasoning = streamingReasoning.toString();
             if (!display.isDisposed()) {
                 display.asyncExec(() -> {
-                    if (!isDisposed() && USE_BROWSER_RENDERING && browserChatPanel != null) {
+                    if (isCurrentTurn(turnGeneration) && USE_BROWSER_RENDERING && browserChatPanel != null) {
                         if (accumulatedReasoning.isEmpty()) {
                             browserChatPanel.updateLastMessage(accumulated);
                         } else {
@@ -1508,7 +1527,7 @@ public class ChatView extends ViewPart {
 
             if (!display.isDisposed()) {
                 display.asyncExec(() -> {
-                    if (!isDisposed()) {
+                    if (isCurrentTurn(turnGeneration)) {
                         isStreaming = false;
                         setProcessingStage("Обработка инструментов..."); //$NON-NLS-1$
 
@@ -1544,22 +1563,28 @@ public class ChatView extends ViewPart {
                         // Handle tool calls (this will continue the conversation loop)
                         ILlmProvider provider = LlmProviderRegistry.getInstance().getActiveProvider();
                         if (provider != null) {
-                            handleResponseWithTools(toolResponse, provider, 0)
+                            handleResponseWithTools(toolResponse, provider, 0, turnGeneration)
                                     .thenAccept(finalContent -> {
+                                        if (!turnFence.isCurrent(turnGeneration)) {
+                                            return;
+                                        }
                                         inflight.set(false);
                                         if (!display.isDisposed()) {
                                             display.asyncExec(() -> {
-                                                if (!isDisposed()) {
+                                                if (isCurrentTurn(turnGeneration)) {
                                                     setProcessing(false);
                                                 }
                                             });
                                         }
                                     })
                                     .exceptionally(error -> {
+                                        if (!turnFence.isCurrent(turnGeneration)) {
+                                            return null;
+                                        }
                                         inflight.set(false);
                                         if (!display.isDisposed()) {
                                             display.asyncExec(() -> {
-                                                if (!isDisposed()) {
+                                                if (isCurrentTurn(turnGeneration)) {
                                                     handleError(error);
                                                 }
                                             });
@@ -1585,10 +1610,10 @@ public class ChatView extends ViewPart {
             final boolean outputLimited = LlmResponse.FINISH_REASON_LENGTH.equals(finishReason);
             LOG.debug("Stream complete, content length: %d", finalContent.length()); //$NON-NLS-1$
 
-            inflight.set(false);
             if (!display.isDisposed()) {
                 display.asyncExec(() -> {
-                    if (!isDisposed()) {
+                    if (isCurrentTurn(turnGeneration)) {
+                        inflight.set(false);
                         isStreaming = false;
 
                         // Add to conversation history
@@ -1629,7 +1654,8 @@ public class ChatView extends ViewPart {
     /**
      * Starts a non-streaming request to the LLM provider.
      */
-    private void startNonStreamingRequest(ILlmProvider provider, LlmRequest request, Display display) {
+    private void startNonStreamingRequest(
+            ILlmProvider provider, LlmRequest request, Display display, long turnGeneration) {
         LOG.debug("startNonStreamingRequest: using non-streaming mode"); //$NON-NLS-1$
 
         long rt = roundTripSeq.incrementAndGet();
@@ -1647,12 +1673,15 @@ public class ChatView extends ViewPart {
         currentRequestUsesDesktopController = false;
         currentRequest = provider.complete(request)
                 .thenCompose(response -> {
+                    if (!turnFence.isCurrent(turnGeneration)) {
+                        return CompletableFuture.completedFuture(""); //$NON-NLS-1$
+                    }
                     registerUsage(response);
                     LOG.debug("startConversationLoop: response received, hasToolCalls=%b", response.hasToolCalls()); //$NON-NLS-1$
                     // Update stage
                     if (!display.isDisposed()) {
                         display.asyncExec(() -> {
-                            if (!isDisposed()) {
+                            if (isCurrentTurn(turnGeneration)) {
                                 if (response.hasToolCalls()) {
                                     setProcessingStage("Обработка инструментов..."); //$NON-NLS-1$
                                 } else {
@@ -1661,14 +1690,17 @@ public class ChatView extends ViewPart {
                             }
                         });
                     }
-                    return handleResponseWithTools(response, provider, 0);
+                    return handleResponseWithTools(response, provider, 0, turnGeneration);
                 })
                 .thenAccept(finalContent -> {
+                    if (!turnFence.isCurrent(turnGeneration)) {
+                        return;
+                    }
                     LOG.debug("startConversationLoop: chain completed successfully"); //$NON-NLS-1$
                     inflight.set(false);
                     if (!display.isDisposed()) {
                         display.asyncExec(() -> {
-                            if (!isDisposed()) {
+                            if (isCurrentTurn(turnGeneration)) {
                                 LOG.debug("startConversationLoop: calling setProcessing(false) from thenAccept"); //$NON-NLS-1$
                                 // Final response already appended in handleResponseWithTools
                                 setProcessing(false);
@@ -1677,11 +1709,14 @@ public class ChatView extends ViewPart {
                     }
                 })
                 .exceptionally(error -> {
+                    if (!turnFence.isCurrent(turnGeneration)) {
+                        return null;
+                    }
                     LOG.error("startConversationLoop: error in chain: %s", error.getMessage()); //$NON-NLS-1$
                     inflight.set(false);
                     if (!display.isDisposed()) {
                         display.asyncExec(() -> {
-                            if (!isDisposed()) {
+                            if (isCurrentTurn(turnGeneration)) {
                                 handleError(error);
                             }
                         });
@@ -1727,7 +1762,10 @@ public class ChatView extends ViewPart {
      * and the final text response is available.
      */
     private CompletableFuture<String> handleResponseWithTools(
-            LlmResponse response, ILlmProvider provider, int iteration) {
+            LlmResponse response, ILlmProvider provider, int iteration, long turnGeneration) {
+        if (!turnFence.isCurrent(turnGeneration)) {
+            return CompletableFuture.completedFuture(""); //$NON-NLS-1$
+        }
         final int maxToolIterations = getMaxToolIterations();
 
         LOG.debug("handleResponseWithTools: iteration=%d, hasToolCalls=%b, finishReason=%s", //$NON-NLS-1$
@@ -1739,7 +1777,7 @@ public class ChatView extends ViewPart {
         if (response.hasToolCalls() && iteration < maxToolIterations) {
             LOG.debug("handleResponseWithTools: processing %d tool calls", response.getToolCalls().size()); //$NON-NLS-1$
             // Process tool calls
-            return processToolCalls(response, provider, iteration, display);
+            return processToolCalls(response, provider, iteration, display, turnGeneration);
         }
 
         // Check if we hit max iterations limit
@@ -1748,7 +1786,7 @@ public class ChatView extends ViewPart {
             // Show warning to user
             if (!display.isDisposed()) {
                 display.asyncExec(() -> {
-                    if (!isDisposed()) {
+                    if (isCurrentTurn(turnGeneration)) {
                         appendSystemMessage(String.format(
                             "Исчерпан бюджет инструментов текущего ответа (%d шагов). " //$NON-NLS-1$
                                     + "Если задача еще не завершена, отправьте короткое продолжение: \"продолжай с текущего места\".", //$NON-NLS-1$
@@ -1769,7 +1807,10 @@ public class ChatView extends ViewPart {
             display.asyncExec(() -> {
                 LOG.debug("handleResponseWithTools asyncExec: isDisposed=%b, content empty=%b", //$NON-NLS-1$
                         isDisposed(), content == null || content.isEmpty());
-                if (!isDisposed()) {
+                turnFence.runIfCurrent(turnGeneration, () -> {
+                    if (isDisposed()) {
+                        return;
+                    }
                     if (content != null && !content.isEmpty()) {
                         LOG.debug("handleResponseWithTools: appending assistant message, length=%d", content.length()); //$NON-NLS-1$
                         appendAssistantMessage(content);
@@ -1784,7 +1825,7 @@ public class ChatView extends ViewPart {
                     if (outputLimited) {
                         appendSystemMessage(OUTPUT_LIMIT_WARNING);
                     }
-                }
+                });
             });
         }
 
@@ -1796,16 +1837,24 @@ public class ChatView extends ViewPart {
      * Intercepts edit_file calls for diff preview when preview mode is enabled.
      */
     private CompletableFuture<String> processToolCalls(
-            LlmResponse response, ILlmProvider provider, int iteration, Display display) {
+            LlmResponse response, ILlmProvider provider, int iteration, Display display,
+            long turnGeneration) {
+
+        if (!turnFence.isCurrent(turnGeneration)) {
+            return CompletableFuture.completedFuture(""); //$NON-NLS-1$
+        }
 
         LOG.debug("processToolCalls: starting with %d tool calls", response.getToolCalls().size()); //$NON-NLS-1$
 
         List<ToolCall> toolCalls = response.getToolCalls();
         String assistantContent = response.getContent();
 
-        // Add assistant message with tool calls to history
-        conversationHistory.add(LlmMessage.assistantWithToolCalls(
-                assistantContent, response.getReasoningContent(), toolCalls));
+        // Commit the assistant tool-call message atomically against clear/new-chat.
+        if (!turnFence.runIfCurrent(turnGeneration, () ->
+                conversationHistory.add(LlmMessage.assistantWithToolCalls(
+                        assistantContent, response.getReasoningContent(), toolCalls)))) {
+            return CompletableFuture.completedFuture(""); //$NON-NLS-1$
+        }
 
         ChatToolGate gate = activeToolGate();
         ToolRegistry registry = ToolRegistry.getInstance();
@@ -1845,7 +1894,7 @@ public class ChatView extends ViewPart {
 
         if (!display.isDisposed()) {
             display.asyncExec(() -> {
-                if (!isDisposed()) {
+                if (isCurrentTurn(turnGeneration)) {
                     // Build tool names for stage
                     StringBuilder toolNames = new StringBuilder();
                     for (int i = 0; i < toolCalls.size(); i++) {
@@ -1910,6 +1959,7 @@ public class ChatView extends ViewPart {
         // Execute non-edit tool calls after the profile and permission decision.
         List<CompletableFuture<ToolResult>> futures = new ArrayList<>();
         List<ToolCall> executedCalls = new ArrayList<>();
+        Set<String> actuallyExecutedCallIds = ConcurrentHashMap.newKeySet();
 
         for (ToolCall call : deniedCalls) {
             executedCalls.add(call);
@@ -1933,7 +1983,11 @@ public class ChatView extends ViewPart {
                 } else {
                     display.asyncExec(() -> {
                         try {
-                            if (isDisposed() || getShell() == null) {
+                            if (!isCurrentTurn(turnGeneration)) {
+                                confirmedFuture.complete(ToolResult.failure("Turn no longer active")); //$NON-NLS-1$
+                                return;
+                            }
+                            if (getShell() == null) {
                                 confirmedFuture.complete(decision.confirmationUnavailableDenial());
                                 return;
                             }
@@ -1951,7 +2005,12 @@ public class ChatView extends ViewPart {
                             );
 
                             if (dialog.openAndConfirm()) {
+                                if (!isCurrentTurn(turnGeneration)) {
+                                    confirmedFuture.complete(ToolResult.failure("Turn no longer active")); //$NON-NLS-1$
+                                    return;
+                                }
                                 // User confirmed - execute the tool
+                                actuallyExecutedCallIds.add(call.getId());
                                 registry.execute(call, decision.arguments(), null, null, decision.context())
                                         .thenAccept(confirmedFuture::complete)
                                         .exceptionally(e -> {
@@ -1980,6 +2039,7 @@ public class ChatView extends ViewPart {
                 futures.add(confirmedFuture);
             } else {
                 // No confirmation needed - execute directly
+                actuallyExecutedCallIds.add(call.getId());
                 futures.add(registry.execute(
                         call, decision.arguments(), null, null, decision.context()));
             }
@@ -1992,6 +2052,9 @@ public class ChatView extends ViewPart {
         // Wait for all non-edit tools to complete
         return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .thenCompose(v -> {
+                    if (!turnFence.isCurrent(turnGeneration)) {
+                        return CompletableFuture.completedFuture(""); //$NON-NLS-1$
+                    }
                     // Collect results from executed tools
                     Map<String, ToolResult> allResults = new HashMap<>();
 
@@ -2021,7 +2084,7 @@ public class ChatView extends ViewPart {
                             diffFuture.complete(skipped);
                         } else {
                             display.asyncExec(() -> {
-                                if (isDisposed()) {
+                                if (!isCurrentTurn(turnGeneration)) {
                                     // Return skipped results if view is disposed
                                     Map<String, ToolResult> skipped = new HashMap<>();
                                     for (ToolCall call : capturedEditCalls) {
@@ -2047,12 +2110,18 @@ public class ChatView extends ViewPart {
                         }
 
                         return diffFuture.thenCompose(diffResults -> {
+                            if (!turnFence.isCurrent(turnGeneration)) {
+                                return CompletableFuture.completedFuture(""); //$NON-NLS-1$
+                            }
                             allResults.putAll(diffResults);
-                            return continueAfterToolCalls(toolCalls, allResults, provider, iteration, display);
+                            actuallyExecutedCallIds.addAll(diffResults.keySet());
+                            return continueAfterToolCalls(toolCalls, allResults, actuallyExecutedCallIds,
+                                    provider, iteration, display, turnGeneration);
                         });
                     }
 
-                    return continueAfterToolCalls(toolCalls, allResults, provider, iteration, display);
+                    return continueAfterToolCalls(toolCalls, allResults, actuallyExecutedCallIds,
+                            provider, iteration, display, turnGeneration);
                 });
     }
 
@@ -2064,7 +2133,7 @@ public class ChatView extends ViewPart {
     private synchronized ChatToolGate activeToolGate() {
         if (toolGate == null) {
             ChatTurnContext context = activeTurnContext();
-            toolGate = createToolGate(context.profile());
+            toolGate = createToolGate(context);
         }
         return toolGate;
     }
@@ -2081,16 +2150,17 @@ public class ChatView extends ViewPart {
                 .get(PREF_CHAT_PROFILE_ID, ""); //$NON-NLS-1$
     }
 
-    private ChatToolGate createToolGate(AgentProfile profile) {
+    private ChatToolGate createToolGate(ChatTurnContext context) {
         Display display = getDisplay();
         ToolRegistry registry = ToolRegistry.getInstance();
         return new ChatToolGate(
-                profile,
+                context.profile(),
                 () -> PermissionManager.getInstance().getAllRules(),
                 registry.getExecutionService()::parseArguments,
                 registry::getDynamicToolNames,
                 () -> display != null && !display.isDisposed() && !isDisposed(),
-                this::shouldSkipToolConfirmations);
+                this::shouldSkipToolConfirmations,
+                context.toolExecutionContext());
     }
 
     /**
@@ -2146,40 +2216,49 @@ public class ChatView extends ViewPart {
     private CompletableFuture<String> continueAfterToolCalls(
             List<ToolCall> toolCalls,
             Map<String, ToolResult> allResults,
+            Set<String> actuallyExecutedCallIds,
             ILlmProvider provider,
             int iteration,
-            Display display) {
+            Display display,
+            long turnGeneration) {
+
+        if (!turnFence.isCurrent(turnGeneration)) {
+            return CompletableFuture.completedFuture(""); //$NON-NLS-1$
+        }
 
         LOG.debug("continueAfterToolCalls: %d tool calls, %d results, iteration=%d", //$NON-NLS-1$
                 toolCalls.size(), allResults.size(), iteration);
 
-        // Add tool results to conversation history
-        for (ToolCall call : toolCalls) {
-            ToolResult result = allResults.get(call.getId());
-            if (result == null) {
-                result = ToolResult.failure("Результат не найден"); //$NON-NLS-1$
+        boolean committed = turnFence.runIfCurrent(turnGeneration, () -> {
+            // Add tool results to conversation history.
+            for (ToolCall call : toolCalls) {
+                ToolResult result = allResults.get(call.getId());
+                if (result == null) {
+                    result = ToolResult.failure("Результат не найден"); //$NON-NLS-1$
+                }
+                conversationHistory.add(LlmMessage.toolResult(
+                        call.getId(),
+                        result.getContentForLlm(MAX_TOOL_RESULT_HISTORY_CHARS)));
             }
-            conversationHistory.add(LlmMessage.toolResult(
-                    call.getId(),
-                    result.getContentForLlm(MAX_TOOL_RESULT_HISTORY_CHARS)));
-        }
 
-        if (GsdToolMutationRefreshPolicy.shouldRefresh(toolCalls, allResults)) {
-            requestGsdStatusRefresh();
-        }
+            if (GsdToolMutationRefreshPolicy.shouldRefresh(
+                    toolCalls, allResults, actuallyExecutedCallIds)) {
+                requestGsdStatusRefresh();
+            }
 
-        // Plan 1.2: detect repetition loops only after all tool-result messages
-        // for the assistant tool_calls batch were appended. Inserting a USER nudge
-        // between assistant tool_calls and their tool results violates the OpenAI
-        // message protocol and causes follow-up requests to fail.
-        for (ToolCall call : toolCalls) {
-            observeAndInjectRepetitionNudge(call);
+            // Keep the protocol-valid tool result batch ahead of any repetition nudge.
+            for (ToolCall call : toolCalls) {
+                observeAndInjectRepetitionNudge(call);
+            }
+        });
+        if (!committed) {
+            return CompletableFuture.completedFuture(""); //$NON-NLS-1$
         }
 
         // Update tool call cards with results
         if (!display.isDisposed()) {
             display.asyncExec(() -> {
-                if (!isDisposed()) {
+                if (isCurrentTurn(turnGeneration)) {
                     for (ToolCall call : toolCalls) {
                         ToolResult result = allResults.get(call.getId());
                         if (result != null) {
@@ -2196,24 +2275,35 @@ public class ChatView extends ViewPart {
         // Update stage before sending next request
         if (!display.isDisposed()) {
             display.asyncExec(() -> {
-                if (!isDisposed()) {
+                if (isCurrentTurn(turnGeneration)) {
                     setProcessingStage("Ожидание ответа модели..."); //$NON-NLS-1$
                 }
             });
         }
 
-        LlmRequest nextRequest = buildRequestWithTools();
-        CompletableFuture<LlmResponse> nextResponseFuture = provider.supportsStreaming()
-                ? streamToResponse(provider, nextRequest)
-                : provider.complete(nextRequest);
+        @SuppressWarnings("unchecked")
+        CompletableFuture<LlmResponse>[] nextResponseHolder = new CompletableFuture[1];
+        boolean followUpStarted = turnFence.runIfCurrent(turnGeneration, () -> {
+            LlmRequest nextRequest = buildRequestWithTools();
+            nextResponseHolder[0] = provider.supportsStreaming()
+                    ? streamToResponse(provider, nextRequest, turnGeneration)
+                    : provider.complete(nextRequest);
+        });
+        if (!followUpStarted) {
+            return CompletableFuture.completedFuture(""); //$NON-NLS-1$
+        }
+        CompletableFuture<LlmResponse> nextResponseFuture = nextResponseHolder[0];
 
         return nextResponseFuture.thenCompose(nextResponse -> {
+                    if (!turnFence.isCurrent(turnGeneration)) {
+                        return CompletableFuture.completedFuture(""); //$NON-NLS-1$
+                    }
                     registerUsage(nextResponse);
                     LOG.debug("continueAfterToolCalls: got next response, hasToolCalls=%b", nextResponse.hasToolCalls()); //$NON-NLS-1$
                     // Update stage based on response
                     if (!display.isDisposed()) {
                         display.asyncExec(() -> {
-                            if (!isDisposed()) {
+                            if (isCurrentTurn(turnGeneration)) {
                                 if (nextResponse.hasToolCalls()) {
                                     setProcessingStage("Обработка инструментов..."); //$NON-NLS-1$
                                 } else {
@@ -2222,7 +2312,7 @@ public class ChatView extends ViewPart {
                             }
                         });
                     }
-                    return handleResponseWithTools(nextResponse, provider, iteration + 1);
+                    return handleResponseWithTools(nextResponse, provider, iteration + 1, turnGeneration);
                 });
     }
 
@@ -2230,7 +2320,8 @@ public class ChatView extends ViewPart {
      * Converts a streaming request into a single LlmResponse, so the tool loop can keep working
      * without forcing a non-streaming call (which may time out on slow/self-hosted providers).
      */
-    private CompletableFuture<LlmResponse> streamToResponse(ILlmProvider provider, LlmRequest request) {
+    private CompletableFuture<LlmResponse> streamToResponse(
+            ILlmProvider provider, LlmRequest request, long turnGeneration) {
         CompletableFuture<LlmResponse> out = new CompletableFuture<>();
 
         CompletableFuture.runAsync(() -> {
@@ -2245,7 +2336,10 @@ public class ChatView extends ViewPart {
 
             try {
                 provider.streamComplete(request, chunk -> {
-                    if (out.isDone()) {
+                    if (out.isDone() || !turnFence.isCurrent(turnGeneration)) {
+                        if (!out.isDone()) {
+                            out.cancel(false);
+                        }
                         return;
                     }
 
@@ -2298,6 +2392,10 @@ public class ChatView extends ViewPart {
                 });
 
                 // Some providers may end the stream without an explicit complete chunk.
+                if (!turnFence.isCurrent(turnGeneration)) {
+                    out.cancel(false);
+                    return;
+                }
                 if (!out.isDone()) {
                     if (!toolCalls.isEmpty()) {
                         out.complete(LlmResponse.builder()
@@ -2745,19 +2843,32 @@ public class ChatView extends ViewPart {
     }
 
     private void stopGeneration() {
+        invalidateActiveTurn();
+        setProcessing(false);
+    }
+
+    /** Establishes an atomic boundary before any session/history reset. */
+    private void invalidateActiveTurn() {
+        turnFence.invalidate();
         if (currentRequest != null && !currentRequest.isDone()) {
             currentRequest.cancel(true);
-            ILlmProvider provider = LlmProviderRegistry.getInstance().getActiveProvider();
-            if (provider != null) {
-                provider.cancel();
-            }
-            if (currentRequestUsesDesktopController) {
-                AgentSessionController.getInstance().stopFromDesktop();
-            }
         }
+        ILlmProvider provider = LlmProviderRegistry.getInstance().getActiveProvider();
+        if (provider != null && (inflight.get() || isStreaming)) {
+            provider.cancel();
+        }
+        if (currentRequestUsesDesktopController) {
+            AgentSessionController.getInstance().stopFromDesktop();
+        }
+        currentRequest = null;
         currentRequestUsesDesktopController = false;
         inflight.set(false);
-        setProcessing(false);
+        isStreaming = false;
+        streamingHandledToolCalls.set(false);
+    }
+
+    private boolean isCurrentTurn(long turnGeneration) {
+        return turnFence.isCurrent(turnGeneration) && !isDisposed();
     }
 
     /**
@@ -2876,7 +2987,6 @@ public class ChatView extends ViewPart {
                 toolGate = null;
                 // Restore this window's per-view model choice.
                 overrideModelId = restored.getModelId();
-                SessionManager.getInstance().setCurrentSession(restored);
                 if (restored.getMessages().isEmpty()) {
                     appendSystemMessage(Messages.ChatView_WelcomeMessage);
                 } else {
@@ -2933,8 +3043,15 @@ public class ChatView extends ViewPart {
     }
 
     private void clearChat() {
+        // Fence first: no old completion may append history, refresh GSD or
+        // dispatch a follow-up while the new session is being established.
+        invalidateActiveTurn();
+        if (!isDisposed()) {
+            setProcessing(false);
+        }
         // Sync UI conversation history into SessionManager and complete session.
         // This triggers memory extraction for facts like "Запомни что...".
+        String retainedProjectPath = session != null ? session.getProjectPath() : null;
         try {
             if (!conversationHistory.isEmpty()) {
                 Session target = viewSession();
@@ -2945,7 +3062,11 @@ public class ChatView extends ViewPart {
                         target.getId(), Integer.valueOf(conversationHistory.size()));
             }
             // Replace only this view's session; other ChatViews remain untouched.
-            session = SessionManager.getInstance().createSessionForCurrentProject();
+            IProject retainedProject = retainedProjectPath != null
+                    ? SessionManager.getInstance().findProjectByPath(retainedProjectPath) : null;
+            session = retainedProject != null
+                    ? SessionManager.getInstance().createSessionForProject(retainedProject)
+                    : SessionManager.getInstance().createSession();
             turnContext = null;
             toolGate = null;
         } catch (Exception e) {
@@ -3591,8 +3712,8 @@ public class ChatView extends ViewPart {
 
     @Override
     public void setFocus() {
-        // Multi-view: the focused chat becomes the global current session, so remote-trigger and
-        // Code.md resolution target this window.
+        // Keep the legacy global focus signal for non-chat integrations. Chat tool
+        // execution uses the explicit per-turn identity and never depends on it.
         if (session != null) {
             SessionManager.getInstance().setCurrentSession(session);
         }
@@ -3674,19 +3795,13 @@ public class ChatView extends ViewPart {
 
     @Override
     public void dispose() {
+        invalidateActiveTurn();
         // Phase 0: persist the conversation so it survives EDT close/restart.
         persistSession();
         if (sessionChangeListenerRegistered) {
             SessionManager.getInstance().removeListener(sessionChangeListener);
             sessionChangeListenerRegistered = false;
         }
-        if (currentRequest != null && !currentRequest.isDone()) {
-            currentRequest.cancel(true);
-            if (currentRequestUsesDesktopController) {
-                AgentSessionController.getInstance().stopFromDesktop();
-            }
-        }
-        currentRequestUsesDesktopController = false;
         conversationHistory.clear();
 
         // Dispose GSD status panel

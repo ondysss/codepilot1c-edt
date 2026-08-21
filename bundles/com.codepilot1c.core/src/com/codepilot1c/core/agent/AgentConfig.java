@@ -44,6 +44,8 @@ public class AgentConfig {
     private final String systemPromptAddition;
     private final String profileName;
     private final int delegationDepth;
+    private final String projectPath;
+    private final String sessionId;
     private final Set<String> requestedSkills;
     private final boolean toolGraphEnabled;
     private final com.codepilot1c.core.agent.graph.ToolGraphPolicy toolGraphPolicy;
@@ -58,6 +60,8 @@ public class AgentConfig {
         this.systemPromptAddition = builder.systemPromptAddition;
         this.profileName = builder.profileName;
         this.delegationDepth = builder.delegationDepth;
+        this.projectPath = builder.projectPath;
+        this.sessionId = builder.sessionId;
         this.requestedSkills = Collections.unmodifiableSet(new HashSet<>(builder.requestedSkills));
         this.toolGraphEnabled = builder.toolGraphEnabled;
         this.toolGraphPolicy = builder.toolGraphPolicy;
@@ -165,6 +169,16 @@ public class AgentConfig {
         return delegationDepth;
     }
 
+    /** Project identity inherited from the owning chat turn, if any. */
+    public String getProjectPath() {
+        return projectPath;
+    }
+
+    /** Session identity inherited from the owning chat turn, if any. */
+    public String getSessionId() {
+        return sessionId;
+    }
+
     /**
      * Skill names that should be loaded into assembled system prompt context.
      *
@@ -235,6 +249,8 @@ public class AgentConfig {
         private String systemPromptAddition;
         private String profileName;
         private int delegationDepth;
+        private String projectPath = ""; //$NON-NLS-1$
+        private String sessionId = ""; //$NON-NLS-1$
         private Set<String> requestedSkills = new HashSet<>();
         private boolean toolGraphEnabled = true;
         private com.codepilot1c.core.agent.graph.ToolGraphPolicy toolGraphPolicy =
@@ -260,6 +276,8 @@ public class AgentConfig {
                 this.systemPromptAddition = config.systemPromptAddition;
                 this.profileName = config.profileName;
                 this.delegationDepth = config.delegationDepth;
+                this.projectPath = config.projectPath;
+                this.sessionId = config.sessionId;
                 this.requestedSkills = new HashSet<>(config.requestedSkills);
                 this.toolGraphEnabled = config.toolGraphEnabled;
                 this.toolGraphPolicy = config.toolGraphPolicy;
@@ -432,6 +450,13 @@ public class AgentConfig {
                 throw new IllegalArgumentException("delegationDepth must not be negative"); //$NON-NLS-1$
             }
             this.delegationDepth = delegationDepth;
+            return this;
+        }
+
+        /** Inherits the immutable project/session identity of the parent turn. */
+        public Builder executionIdentity(String projectPath, String sessionId) {
+            this.projectPath = projectPath == null ? "" : projectPath; //$NON-NLS-1$
+            this.sessionId = sessionId == null ? "" : sessionId; //$NON-NLS-1$
             return this;
         }
 

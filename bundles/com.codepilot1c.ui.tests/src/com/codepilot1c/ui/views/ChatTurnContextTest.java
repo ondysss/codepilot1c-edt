@@ -22,6 +22,7 @@ import org.junit.Test;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
 import com.codepilot1c.core.agent.prompts.SystemPromptAssembler;
 import com.codepilot1c.core.session.Session;
+import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.ui.ChatToolGate;
 
 /** Focused tests for per-view profile selection and turn capture. */
@@ -55,7 +56,7 @@ public class ChatTurnContextTest {
         ChatTurnContext context = ChatTurnContext.resolve(session, "build"); //$NON-NLS-1$
         ChatToolGate gate = new ChatToolGate(
                 context.profile(), List::of, ignored -> Map.of(), Set::of,
-                () -> true, () -> false);
+                () -> true, () -> false, context.toolExecutionContext());
 
         SystemPromptAssembler.AssemblyInput input = context.promptInput(
                 "base", List.of("review")); //$NON-NLS-1$ //$NON-NLS-2$
@@ -67,6 +68,9 @@ public class ChatTurnContextTest {
                 .getSystemPromptAddition(), input.promptAddition());
         assertEquals(session.getProjectPath(), input.projectPath());
         assertEquals(session.getId(), input.sessionId());
+        assertEquals(session.getProjectPath(),
+                gate.decide(new ToolCall("c1", "dynamic", "{}"), null) //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                        .context().projectPath());
     }
 
     @Test
@@ -84,5 +88,32 @@ public class ChatTurnContextTest {
         assertNotSame(firstTurn, secondTurn);
         assertEquals("gsd-discuss", first.getAgentProfile()); //$NON-NLS-1$
         assertEquals("gsd-verify", second.getAgentProfile()); //$NON-NLS-1$
+    }
+
+    @Test
+    public void twoChatViewsBindIndependentProjectAndSessionExecutionIdentity() {
+        Session first = new Session("chat-a"); //$NON-NLS-1$
+        first.setProjectPath("/workspace/project-a"); //$NON-NLS-1$
+        Session second = new Session("chat-b"); //$NON-NLS-1$
+        second.setProjectPath("/workspace/project-b"); //$NON-NLS-1$
+
+        ChatTurnContext firstTurn = ChatTurnContext.resolve(first, "build"); //$NON-NLS-1$
+        ChatTurnContext secondTurn = ChatTurnContext.resolve(second, "build"); //$NON-NLS-1$
+        ChatToolGate firstGate = gate(firstTurn);
+        ChatToolGate secondGate = gate(secondTurn);
+
+        assertEquals("/workspace/project-a", decision(firstGate).context().projectPath()); //$NON-NLS-1$
+        assertEquals("chat-a", decision(firstGate).context().sessionId()); //$NON-NLS-1$
+        assertEquals("/workspace/project-b", decision(secondGate).context().projectPath()); //$NON-NLS-1$
+        assertEquals("chat-b", decision(secondGate).context().sessionId()); //$NON-NLS-1$
+    }
+
+    private ChatToolGate gate(ChatTurnContext context) {
+        return new ChatToolGate(context.profile(), List::of, ignored -> Map.of(), Set::of,
+                () -> true, () -> false, context.toolExecutionContext());
+    }
+
+    private ChatToolGate.Decision decision(ChatToolGate gate) {
+        return gate.decide(new ToolCall("call", "dynamic", "{}"), null); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
     }
 }

@@ -9,6 +9,7 @@ package com.codepilot1c.ui.gsd;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.tools.ToolResult;
@@ -27,8 +28,10 @@ public final class GsdToolMutationRefreshPolicy {
      * Failed/denied calls and the read-only state query do not trigger I/O.
      */
     public static boolean shouldRefresh(
-            List<ToolCall> calls, Map<String, ToolResult> resultsByCallId) {
-        if (calls == null || calls.isEmpty() || resultsByCallId == null) {
+            List<ToolCall> calls, Map<String, ToolResult> resultsByCallId,
+            Set<String> executedCallIds) {
+        if (calls == null || calls.isEmpty() || resultsByCallId == null
+                || executedCallIds == null || executedCallIds.isEmpty()) {
             return false;
         }
         for (ToolCall call : calls) {
@@ -36,7 +39,8 @@ public final class GsdToolMutationRefreshPolicy {
                 continue;
             }
             ToolResult result = resultsByCallId.get(call.getId());
-            if (result != null && result.isSuccess()) {
+            if (executedCallIds.contains(call.getId())
+                    && result != null && result.isSuccess()) {
                 return true;
             }
         }

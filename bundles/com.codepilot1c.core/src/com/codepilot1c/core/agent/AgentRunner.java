@@ -523,7 +523,8 @@ public class AgentRunner implements IAgentRunner {
 
         AgentProfile profile = resolveProfile(config);
         ToolExecutionContext executionContext =
-                ToolExecutionContext.of(profile, config.getDelegationDepth());
+                ToolExecutionContext.of(profile, config.getDelegationDepth(),
+                        config.getProjectPath(), config.getSessionId());
         Set<String> profileAllowed = profile.getAllowedTools();
         boolean deferredDiscovery = deferredToolSession.isDeferredLoadingActive()
                 && "discover_tools".equals(toolName); //$NON-NLS-1$

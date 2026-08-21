@@ -12,6 +12,7 @@ import static org.junit.Assert.assertTrue;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.Test;
 
@@ -25,28 +26,28 @@ public class GsdToolMutationRefreshPolicyTest {
     public void successfulGsdMutationRefreshes() {
         ToolCall call = call("c1", "gsd_update_task"); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue(GsdToolMutationRefreshPolicy.shouldRefresh(
-                List.of(call), Map.of("c1", ToolResult.success("ok")))); //$NON-NLS-1$ //$NON-NLS-2$
+                List.of(call), Map.of("c1", ToolResult.success("ok")), Set.of("c1"))); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
     }
 
     @Test
     public void failedOrDeniedMutationDoesNotRefresh() {
         ToolCall call = call("c1", "gsd_transition"); //$NON-NLS-1$ //$NON-NLS-2$
         assertFalse(GsdToolMutationRefreshPolicy.shouldRefresh(
-                List.of(call), Map.of("c1", ToolResult.failure("denied")))); //$NON-NLS-1$ //$NON-NLS-2$
+                List.of(call), Map.of("c1", ToolResult.failure("denied")), Set.of("c1"))); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
     }
 
     @Test
     public void successfulReadOnlyGsdCallDoesNotRefresh() {
         ToolCall call = call("c1", "gsd_get_state"); //$NON-NLS-1$ //$NON-NLS-2$
         assertFalse(GsdToolMutationRefreshPolicy.shouldRefresh(
-                List.of(call), Map.of("c1", ToolResult.success("state")))); //$NON-NLS-1$ //$NON-NLS-2$
+                List.of(call), Map.of("c1", ToolResult.success("state")), Set.of("c1"))); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
     }
 
     @Test
     public void successfulNonGsdToolDoesNotRefresh() {
         ToolCall call = call("c1", "write_file"); //$NON-NLS-1$ //$NON-NLS-2$
         assertFalse(GsdToolMutationRefreshPolicy.shouldRefresh(
-                List.of(call), Map.of("c1", ToolResult.success("ok")))); //$NON-NLS-1$ //$NON-NLS-2$
+                List.of(call), Map.of("c1", ToolResult.success("ok")), Set.of("c1"))); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
     }
 
     @Test
@@ -56,7 +57,18 @@ public class GsdToolMutationRefreshPolicyTest {
         assertTrue(GsdToolMutationRefreshPolicy.shouldRefresh(
                 List.of(read, mutate),
                 Map.of("c1", ToolResult.success("state"), //$NON-NLS-1$ //$NON-NLS-2$
-                        "c2", ToolResult.success("recorded")))); //$NON-NLS-1$ //$NON-NLS-2$
+                        "c2", ToolResult.success("recorded")), //$NON-NLS-1$ //$NON-NLS-2$
+                Set.of("c1", "c2"))); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void skippedConfirmationSuccessDoesNotRefreshWithoutExecution() {
+        ToolCall call = call("c1", "gsd_update_task"); //$NON-NLS-1$ //$NON-NLS-2$
+        ToolResult skipped = ToolResult.success(
+                "skipped", ToolResult.ToolResultType.CONFIRMATION); //$NON-NLS-1$
+
+        assertFalse(GsdToolMutationRefreshPolicy.shouldRefresh(
+                List.of(call), Map.of("c1", skipped), Set.of())); //$NON-NLS-1$
     }
 
     private ToolCall call(String id, String name) {
