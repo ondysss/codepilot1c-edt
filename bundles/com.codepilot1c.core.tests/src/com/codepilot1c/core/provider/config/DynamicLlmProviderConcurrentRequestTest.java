@@ -61,6 +61,8 @@ public class DynamicLlmProviderConcurrentRequestTest {
 
             firstCancellation.cancel();
             first.get(2, TimeUnit.SECONDS);
+            handler.releaseFirst.countDown();
+            assertTrue(handler.firstDisconnected.await(5, TimeUnit.SECONDS));
             handler.releaseSecond.countDown();
             second.get(2, TimeUnit.SECONDS);
 
@@ -111,6 +113,7 @@ public class DynamicLlmProviderConcurrentRequestTest {
         private final CountDownLatch secondFragment = new CountDownLatch(1);
         private final CountDownLatch releaseFirst = new CountDownLatch(1);
         private final CountDownLatch releaseSecond = new CountDownLatch(1);
+        private final CountDownLatch firstDisconnected = new CountDownLatch(1);
 
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -123,12 +126,18 @@ public class DynamicLlmProviderConcurrentRequestTest {
                     write(output, fragment("call-first", "inspect_first", "project", "fir")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                     firstFragment.countDown();
                     await(releaseFirst);
-                    write(output, finalFragment("st")); //$NON-NLS-1$
+                    writeUntilDisconnected(output);
                 } else {
                     write(output, fragment("call-second", "inspect_second", "project", "sec")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                     secondFragment.countDown();
                     await(releaseSecond);
                     write(output, finalFragment("ond")); //$NON-NLS-1$
+                }
+            } catch (IOException e) {
+                if (first) {
+                    firstDisconnected.countDown();
+                } else {
+                    throw e;
                 }
             } finally {
                 exchange.close();
@@ -151,6 +160,14 @@ public class DynamicLlmProviderConcurrentRequestTest {
         private static void write(OutputStream output, String value) throws IOException {
             output.write(value.getBytes(StandardCharsets.UTF_8));
             output.flush();
+        }
+
+        private static void writeUntilDisconnected(OutputStream output) throws IOException {
+            byte[] payload = new byte[64 * 1024];
+            for (int i = 0; i < 1024; i++) {
+                output.write(payload);
+                output.flush();
+            }
         }
 
         private static void await(CountDownLatch latch) {

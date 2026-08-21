@@ -3,10 +3,13 @@ package com.codepilot1c.core.remote;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -21,7 +24,9 @@ import java.util.function.Consumer;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 import com.codepilot1c.core.agent.profiles.InitAgentProfile;
 import com.codepilot1c.core.agent.AgentConfig;
@@ -29,6 +34,10 @@ import com.codepilot1c.core.agent.AgentResult;
 import com.codepilot1c.core.agent.AgentState;
 import com.codepilot1c.core.agent.IAgentRunner;
 import com.codepilot1c.core.agent.events.IAgentEventListener;
+import com.codepilot1c.core.memory.project.ProjectMemoryInitializationService;
+import com.codepilot1c.core.memory.project.ProjectMemoryInitializationService.Mode;
+import com.codepilot1c.core.memory.project.ProjectMemoryInitializationService.Request;
+import com.codepilot1c.core.memory.project.ProjectMemoryInitializationService.Status;
 import com.codepilot1c.core.model.LlmMessage;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
@@ -37,6 +46,9 @@ import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
 
 public class AgentSessionControllerTest {
+
+    @Rule
+    public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     private AgentSessionController controller;
     private String cleanupClientId;
@@ -238,6 +250,42 @@ public class AgentSessionControllerTest {
         assertEquals(2, created.get());
     }
 
+    @Test
+    public void alreadyCompletedTaskSucceedsForProjectMemoryFreshAndLegacyDesktopSubmissions() throws Exception {
+        LlmProviderRegistry registry = emptyInitializedRegistry();
+        legacyProviders(registry).put("test", new NoopProvider()); //$NON-NLS-1$
+        previousRegistry = installRegistry(registry);
+
+        CompletedRunner freshRunner = new CompletedRunner("fresh", true); //$NON-NLS-1$
+        CompletedRunner legacyRunner = new CompletedRunner("legacy", false); //$NON-NLS-1$
+        AtomicInteger created = new AtomicInteger();
+        previousRunnerFactory = controllerField("runnerFactory"); //$NON-NLS-1$
+        previousToolRegistrySupplier = controllerField("toolRegistrySupplier"); //$NON-NLS-1$
+        setControllerField("toolRegistrySupplier", //$NON-NLS-1$
+                (java.util.function.Supplier<com.codepilot1c.core.tools.ToolRegistry>) () -> null);
+        setControllerField("runnerFactory", (AgentSessionController.RunnerFactory) //$NON-NLS-1$
+                (provider, tools, prompt) -> created.getAndIncrement() == 0
+                        ? freshRunner : legacyRunner);
+
+        Path projectRoot = temporaryFolder.newFolder("completed-fresh").toPath(); //$NON-NLS-1$
+        ProjectMemoryInitializationService.Result initialization =
+                new ProjectMemoryInitializationService().initialize(new Request(
+                        Mode.CREATE, projectRoot, "CompletedFresh", //$NON-NLS-1$
+                        "CompletedFresh/Code.md", "view-fresh")).join(); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals(Status.SUCCESS, initialization.getStatus());
+        assertEquals(1, freshRunner.removeListenerCount.get());
+        assertEquals(1, freshRunner.disposeCount.get());
+
+        CompletableFuture<AgentResult> legacy = controller.submitFromDesktop(
+                "completed legacy", InitAgentProfile.ID); //$NON-NLS-1$
+        assertNotNull(legacy);
+        assertEquals("legacy", legacy.join().getFinalResponse()); //$NON-NLS-1$
+        assertEquals(1, legacyRunner.removeListenerCount.get());
+        assertEquals(1, legacyRunner.disposeCount.get());
+        assertEquals(AgentState.COMPLETED, controller.getCurrentState());
+        assertEquals(2, created.get());
+    }
+
     private void setControllerField(String name, Object value) throws Exception {
         Field field = AgentSessionController.class.getDeclaredField(name);
         field.setAccessible(true);
@@ -347,5 +395,40 @@ public class AgentSessionControllerTest {
         @Override public void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer) { }
         @Override public void cancel() { }
         @Override public void dispose() { }
+    }
+
+    private static final class CompletedRunner implements IAgentRunner {
+        private final CompletableFuture<AgentResult> task;
+        private final boolean writeCodeMd;
+        private final AtomicInteger removeListenerCount = new AtomicInteger();
+        private final AtomicInteger disposeCount = new AtomicInteger();
+
+        private CompletedRunner(String response, boolean writeCodeMd) {
+            task = CompletableFuture.completedFuture(
+                    AgentResult.success(response, Collections.emptyList(), 1, 1, 1));
+            this.writeCodeMd = writeCodeMd;
+        }
+
+        @Override
+        public CompletableFuture<AgentResult> run(String prompt, AgentConfig config) {
+            if (writeCodeMd) {
+                try {
+                    Files.writeString(Path.of(config.getProjectPath()).resolve("Code.md"), //$NON-NLS-1$
+                            "# Completed synchronously\n"); //$NON-NLS-1$
+                } catch (java.io.IOException e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+            return task;
+        }
+        @Override public CompletableFuture<AgentResult> run(
+                String prompt, List<LlmMessage> history, AgentConfig config) { return run(prompt, config); }
+        @Override public void cancel() { }
+        @Override public AgentState getState() { return AgentState.COMPLETED; }
+        @Override public void addListener(IAgentEventListener listener) { }
+        @Override public void removeListener(IAgentEventListener listener) { removeListenerCount.incrementAndGet(); }
+        @Override public int getCurrentStep() { return 1; }
+        @Override public List<LlmMessage> getConversationHistory() { return Collections.emptyList(); }
+        @Override public void dispose() { disposeCount.incrementAndGet(); }
     }
 }

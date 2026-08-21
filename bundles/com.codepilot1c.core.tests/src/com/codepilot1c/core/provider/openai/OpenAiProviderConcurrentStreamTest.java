@@ -44,11 +44,14 @@ public class OpenAiProviderConcurrentStreamTest {
         OpenAiProvider.StreamState secondState = new OpenAiProvider.StreamState();
         List<LlmStreamChunk> firstChunks = new CopyOnWriteArrayList<>();
         List<LlmStreamChunk> secondChunks = new CopyOnWriteArrayList<>();
+        CountDownLatch fragmentedSessionsReady = new CountDownLatch(2);
 
         CompletableFuture<Void> first = CompletableFuture.runAsync(() -> feed(
-                provider, firstState, firstChunks, "call-a", "tool_a", "alpha", "1")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                provider, firstState, firstChunks, fragmentedSessionsReady,
+                "call-a", "tool_a", "alpha", "1")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
         CompletableFuture<Void> second = CompletableFuture.runAsync(() -> feed(
-                provider, secondState, secondChunks, "call-b", "tool_b", "beta", "2")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                provider, secondState, secondChunks, fragmentedSessionsReady,
+                "call-b", "tool_b", "beta", "2")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
 
         CompletableFuture.allOf(first, second).join();
 
@@ -81,6 +84,8 @@ public class OpenAiProviderConcurrentStreamTest {
 
             firstCancellation.cancel();
             first.handle((ignored, error) -> null).get(2, TimeUnit.SECONDS);
+            handler.releaseFirst.countDown();
+            assertTrue(handler.firstDisconnected.await(5, TimeUnit.SECONDS));
             handler.releaseSecond.countDown();
             second.get(2, TimeUnit.SECONDS);
 
@@ -110,13 +115,15 @@ public class OpenAiProviderConcurrentStreamTest {
     }
 
     private static void feed(OpenAiProvider provider, OpenAiProvider.StreamState state,
-            List<LlmStreamChunk> chunks, String id, String name, String key, String value) {
+            List<LlmStreamChunk> chunks, CountDownLatch fragmentedSessionsReady,
+            String id, String name, String key, String value) {
         provider.processStreamLine(state,
                 "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\""
                         + id + "\",\"function\":{\"name\":\"" + name
                         + "\",\"arguments\":\"{\\\"" + key + "\\\":\"}}]},\"finish_reason\":null}]}", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                 chunks::add, () -> { });
-        Thread.yield();
+        fragmentedSessionsReady.countDown();
+        await(fragmentedSessionsReady);
         provider.processStreamLine(state,
                 "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\""
                         + value + "}\"}}]},\"finish_reason\":\"tool_calls\"}]}", //$NON-NLS-1$ //$NON-NLS-2$
@@ -157,6 +164,7 @@ public class OpenAiProviderConcurrentStreamTest {
         private final CountDownLatch secondFragment = new CountDownLatch(1);
         private final CountDownLatch releaseFirst = new CountDownLatch(1);
         private final CountDownLatch releaseSecond = new CountDownLatch(1);
+        private final CountDownLatch firstDisconnected = new CountDownLatch(1);
 
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -169,12 +177,18 @@ public class OpenAiProviderConcurrentStreamTest {
                     write(output, fragment("call-first", "inspect_first", "fir")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                     firstFragment.countDown();
                     await(releaseFirst);
-                    write(output, finalFragment("st")); //$NON-NLS-1$
+                    writeUntilDisconnected(output);
                 } else {
                     write(output, fragment("call-second", "inspect_second", "sec")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                     secondFragment.countDown();
                     await(releaseSecond);
                     write(output, finalFragment("ond")); //$NON-NLS-1$
+                }
+            } catch (IOException e) {
+                if (first) {
+                    firstDisconnected.countDown();
+                } else {
+                    throw e;
                 }
             } finally {
                 exchange.close();
@@ -199,6 +213,14 @@ public class OpenAiProviderConcurrentStreamTest {
             output.flush();
         }
 
+        private static void writeUntilDisconnected(OutputStream output) throws IOException {
+            byte[] payload = new byte[64 * 1024];
+            for (int i = 0; i < 1024; i++) {
+                output.write(payload);
+                output.flush();
+            }
+        }
+
         private static void await(CountDownLatch latch) {
             try {
                 if (!latch.await(5, TimeUnit.SECONDS)) {
@@ -208,6 +230,17 @@ public class OpenAiProviderConcurrentStreamTest {
                 Thread.currentThread().interrupt();
                 throw new AssertionError(e);
             }
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("timed out waiting for parser interleaving"); //$NON-NLS-1$
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
         }
     }
 }
