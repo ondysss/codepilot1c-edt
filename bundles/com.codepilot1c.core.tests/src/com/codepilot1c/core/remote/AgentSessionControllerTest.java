@@ -35,6 +35,7 @@ import com.codepilot1c.core.agent.AgentConfig;
 import com.codepilot1c.core.agent.AgentResult;
 import com.codepilot1c.core.agent.AgentState;
 import com.codepilot1c.core.agent.IAgentRunner;
+import com.codepilot1c.core.agent.events.AgentCompletedEvent;
 import com.codepilot1c.core.agent.events.AgentStepEvent;
 import com.codepilot1c.core.agent.events.IAgentEventListener;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
@@ -211,11 +212,18 @@ public class AgentSessionControllerTest {
 
     @Test
     public void forwardingListenerHandlesConfirmations() throws Exception {
-        Field field = AgentSessionController.class.getDeclaredField("forwardingListener"); //$NON-NLS-1$
-        field.setAccessible(true);
-        IAgentEventListener listener = (IAgentEventListener) field.get(controller);
+        installProvider(new NoopProvider());
+        CompletedRunner runner = new CompletedRunner("confirmation-listener", false); //$NON-NLS-1$
+        previousRunnerFactory = controllerField("runnerFactory"); //$NON-NLS-1$
+        previousToolRegistrySupplier = controllerField("toolRegistrySupplier"); //$NON-NLS-1$
+        setControllerField("toolRegistrySupplier", //$NON-NLS-1$
+                (java.util.function.Supplier<com.codepilot1c.core.tools.ToolRegistry>) () -> null);
+        setControllerField("runnerFactory", (AgentSessionController.RunnerFactory) //$NON-NLS-1$
+                (provider, tools, prompt) -> runner);
 
-        assertTrue(listener.handlesConfirmations());
+        assertTrue(controller.submitFromDesktopFresh(
+                "confirmation listener", InitAgentProfile.ID).join().isSuccess()); //$NON-NLS-1$
+        assertTrue(runner.listenerHandlesConfirmations);
     }
 
     @Test
@@ -257,6 +265,148 @@ public class AgentSessionControllerTest {
         secondRunner.finishSuccess();
         assertTrue(secondHandle.join().isSuccess());
         assertTrue(secondRunner.disposed);
+        assertEquals(2, created.get());
+    }
+
+    @Test
+    public void resetExcludesAdmissionAfterSynchronousCancelCompletionAndPreservesNextRun() throws Exception {
+        installProvider(new NoopProvider());
+        Object controllerLock = controllerField("lock"); //$NON-NLS-1$
+        SynchronousCancelRunner firstRunner = new SynchronousCancelRunner(controller, controllerLock);
+        FakeRunner secondRunner = new FakeRunner(false);
+        AtomicInteger created = new AtomicInteger();
+        previousRunnerFactory = controllerField("runnerFactory"); //$NON-NLS-1$
+        previousToolRegistrySupplier = controllerField("toolRegistrySupplier"); //$NON-NLS-1$
+        setControllerField("toolRegistrySupplier", //$NON-NLS-1$
+                (java.util.function.Supplier<com.codepilot1c.core.tools.ToolRegistry>) () -> null);
+        setControllerField("runnerFactory", (AgentSessionController.RunnerFactory) //$NON-NLS-1$
+                (provider, tools, prompt) -> created.getAndIncrement() == 0 ? firstRunner : secondRunner);
+
+        String clientId = "reset-admission-" + UUID.randomUUID(); //$NON-NLS-1$
+        assertTrue(controller.claimControllerLease(clientId, true).isOk());
+        CompletableFuture<AgentResult> firstHandle = controller.submitFromDesktopFreshScoped(
+                "first run", InitAgentProfile.ID, "/projects/old", "view-old"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        String sessionBeforeReset = controller.getSessionId();
+        AtomicBoolean resetListenerReentered = new AtomicBoolean();
+        AgentSessionController.RemoteEventListener resetListener = event -> {
+            if ("session_reset".equals(event.getType()) //$NON-NLS-1$
+                    && "synchronous_cancel".equals(event.getPayload().get("reason"))) { //$NON-NLS-1$ //$NON-NLS-2$
+                controller.stopFromDesktop();
+                resetListenerReentered.set(controller.getCurrentState() == AgentState.IDLE);
+            }
+        };
+        controller.addRemoteEventListener(resetListener, Long.MAX_VALUE);
+        try {
+            CompletableFuture<Void> reset = CompletableFuture.runAsync(
+                    () -> controller.resetSession("synchronous_cancel")); //$NON-NLS-1$
+            assertTrue(firstRunner.cancelCompletionReturned.await(2, TimeUnit.SECONDS));
+            assertTrue(firstHandle.isDone());
+            assertFalse(controller.isRunning());
+            assertEquals(sessionBeforeReset, controller.getSessionId());
+
+            RemoteCommandResult rejectedRemote = controller.continueSession(
+                    "must wait", InitAgentProfile.ID, clientId); //$NON-NLS-1$
+            assertFalse(rejectedRemote.isOk());
+            assertEquals("session_reset_in_progress", rejectedRemote.getCode()); //$NON-NLS-1$
+            CompletableFuture<AgentResult> rejectedDesktop = controller.submitFromDesktopFreshScoped(
+                    "also must wait", InitAgentProfile.ID, "/projects/racing", "view-racing"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            assertTrue(rejectedDesktop.isCompletedExceptionally());
+            assertEquals(1, created.get());
+            assertEquals("no_active_run", controller.stop(clientId).getCode()); //$NON-NLS-1$
+
+            firstRunner.allowCancelReturn.countDown();
+            reset.get(2, TimeUnit.SECONDS);
+            assertTrue(firstRunner.disposed);
+            assertFalse(firstRunner.disposeHeldLock.get());
+            assertTrue(firstRunner.disposeReentered.get());
+            assertTrue(resetListenerReentered.get());
+        } finally {
+            firstRunner.allowCancelReturn.countDown();
+            controller.removeRemoteEventListener(resetListener);
+        }
+
+        String resetSessionId = controller.getSessionId();
+        assertNotEquals(sessionBeforeReset, resetSessionId);
+        RemoteBootstrapResponse afterReset = controller.buildBootstrap(
+                "after-reset", IdeSnapshot.unavailable("test")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals(AgentState.IDLE.name(), afterReset.getAgent().get("state")); //$NON-NLS-1$
+        assertEquals(Boolean.FALSE, afterReset.getAgent().get("running")); //$NON-NLS-1$
+        assertEquals(Integer.valueOf(0), afterReset.getAgent().get("historySize")); //$NON-NLS-1$
+        assertEquals(InitAgentProfile.ID, afterReset.getAgent().get("profileId")); //$NON-NLS-1$
+
+        CompletableFuture<AgentResult> secondHandle = controller.submitFromDesktopFreshScoped(
+                "second run", InitAgentProfile.ID, "/projects/new", "view-new"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        String secondSessionId = controller.getSessionId();
+        assertNotEquals(resetSessionId, secondSessionId);
+        assertEquals("/projects/new", secondRunner.config.getProjectPath()); //$NON-NLS-1$
+        assertEquals("view-new", secondRunner.config.getSessionId()); //$NON-NLS-1$
+        List<LlmMessage> nextHistory = List.of(
+                LlmMessage.user("second run"), LlmMessage.assistant("done")); //$NON-NLS-1$ //$NON-NLS-2$
+        secondRunner.finishSuccess(nextHistory);
+        assertTrue(secondHandle.get(2, TimeUnit.SECONDS).isSuccess());
+
+        RemoteBootstrapResponse afterNextRun = controller.buildBootstrap(
+                "after-next", IdeSnapshot.unavailable("test")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals(secondSessionId, afterNextRun.getSessionId());
+        assertEquals(AgentState.COMPLETED.name(), afterNextRun.getAgent().get("state")); //$NON-NLS-1$
+        assertEquals(Boolean.FALSE, afterNextRun.getAgent().get("running")); //$NON-NLS-1$
+        assertEquals(Integer.valueOf(2), afterNextRun.getAgent().get("historySize")); //$NON-NLS-1$
+        assertEquals(2, created.get());
+    }
+
+    @Test
+    public void completionOfResetRunCannotClearNewerAdmittedRun() throws Exception {
+        installProvider(new NoopProvider());
+        DelayedRunReturnRunner resetRunner = new DelayedRunReturnRunner();
+        FakeRunner nextRunner = new FakeRunner(false);
+        AtomicInteger created = new AtomicInteger();
+        previousRunnerFactory = controllerField("runnerFactory"); //$NON-NLS-1$
+        previousToolRegistrySupplier = controllerField("toolRegistrySupplier"); //$NON-NLS-1$
+        setControllerField("toolRegistrySupplier", //$NON-NLS-1$
+                (java.util.function.Supplier<com.codepilot1c.core.tools.ToolRegistry>) () -> null);
+        setControllerField("runnerFactory", (AgentSessionController.RunnerFactory) //$NON-NLS-1$
+                (provider, tools, prompt) -> created.getAndIncrement() == 0 ? resetRunner : nextRunner);
+
+        CompletableFuture<CompletableFuture<AgentResult>> resetSubmission = CompletableFuture.supplyAsync(
+                () -> controller.submitFromDesktopFreshScoped(
+                        "old run", InitAgentProfile.ID, "/projects/old", "session-old")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        assertTrue(resetRunner.runEntered.await(2, TimeUnit.SECONDS));
+        controller.resetSession("admit_next_before_old_completion"); //$NON-NLS-1$
+        assertTrue(resetRunner.cancelled);
+        assertFalse(controller.isRunning());
+        assertEquals(AgentState.IDLE, controller.getCurrentState());
+
+        CompletableFuture<AgentResult> nextHandle = controller.submitFromDesktopFreshScoped(
+                "new run", InitAgentProfile.ID, "/projects/new", "session-new"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        String nextSessionId = controller.getSessionId();
+        assertTrue(controller.isRunning());
+        assertEquals("/projects/new", nextRunner.config.getProjectPath()); //$NON-NLS-1$
+        assertEquals("session-new", nextRunner.config.getSessionId()); //$NON-NLS-1$
+
+        resetRunner.emitCompleted(AgentResult.success(
+                "stale event", List.of(LlmMessage.user("stale event history")), 1, 1, 1)); //$NON-NLS-1$ //$NON-NLS-2$
+        RemoteBootstrapResponse afterStaleEvent = controller.buildBootstrap(
+                "during-new-run", IdeSnapshot.unavailable("test")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals(nextSessionId, afterStaleEvent.getSessionId());
+        assertEquals(AgentState.RUNNING.name(), afterStaleEvent.getAgent().get("state")); //$NON-NLS-1$
+        assertEquals(Boolean.TRUE, afterStaleEvent.getAgent().get("running")); //$NON-NLS-1$
+        assertEquals(Integer.valueOf(0), afterStaleEvent.getAgent().get("historySize")); //$NON-NLS-1$
+
+        resetRunner.allowRunReturn.countDown();
+        CompletableFuture<AgentResult> resetHandle = resetSubmission.get(2, TimeUnit.SECONDS);
+        assertFalse(resetHandle.isDone());
+        resetRunner.finishCancelled();
+        assertEquals(AgentState.CANCELLED, resetHandle.get(2, TimeUnit.SECONDS).getFinalState());
+        assertTrue(resetRunner.disposed);
+        assertTrue(controller.isRunning());
+        assertEquals(AgentState.RUNNING, controller.getCurrentState());
+        assertFalse(nextRunner.disposed);
+
+        nextRunner.finishSuccess(List.of(
+                LlmMessage.user("new run"), LlmMessage.assistant("new result"))); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(nextHandle.get(2, TimeUnit.SECONDS).isSuccess());
+        assertFalse(controller.isRunning());
+        assertEquals(AgentState.COMPLETED, controller.getCurrentState());
         assertEquals(2, created.get());
     }
 
@@ -490,8 +640,110 @@ public class AgentSessionControllerTest {
         }
 
         private void finishSuccess() {
+            finishSuccess(Collections.emptyList());
+        }
+
+        private void finishSuccess(List<LlmMessage> history) {
             state = AgentState.COMPLETED;
-            task.complete(AgentResult.success("ok", Collections.emptyList(), 1, 1, 1)); //$NON-NLS-1$
+            task.complete(AgentResult.success("ok", history, 1, 1, 1)); //$NON-NLS-1$
+        }
+    }
+
+    private static final class SynchronousCancelRunner implements IAgentRunner {
+        private final AgentSessionController controller;
+        private final Object controllerLock;
+        private final CompletableFuture<AgentResult> task = new CompletableFuture<>();
+        private final CountDownLatch cancelCompletionReturned = new CountDownLatch(1);
+        private final CountDownLatch allowCancelReturn = new CountDownLatch(1);
+        private final AtomicBoolean disposeHeldLock = new AtomicBoolean();
+        private final AtomicBoolean disposeReentered = new AtomicBoolean();
+        private volatile boolean disposed;
+
+        private SynchronousCancelRunner(AgentSessionController controller, Object controllerLock) {
+            this.controller = controller;
+            this.controllerLock = controllerLock;
+        }
+
+        @Override public CompletableFuture<AgentResult> run(String prompt, AgentConfig config) { return task; }
+        @Override public CompletableFuture<AgentResult> run(
+                String prompt, List<LlmMessage> history, AgentConfig config) { return task; }
+
+        @Override
+        public void cancel() {
+            task.complete(AgentResult.cancelled(
+                    List.of(LlmMessage.user("stale cancellation history")), 1, 1)); //$NON-NLS-1$
+            cancelCompletionReturned.countDown();
+            try {
+                if (!allowCancelReturn.await(2, TimeUnit.SECONDS)) {
+                    throw new AssertionError("timed out waiting to commit reset"); //$NON-NLS-1$
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+        }
+
+        @Override public AgentState getState() { return AgentState.RUNNING; }
+        @Override public void addListener(IAgentEventListener listener) { }
+        @Override public void removeListener(IAgentEventListener listener) { }
+        @Override public int getCurrentStep() { return 1; }
+        @Override public List<LlmMessage> getConversationHistory() { return List.of(); }
+
+        @Override
+        public void dispose() {
+            disposeHeldLock.set(Thread.holdsLock(controllerLock));
+            controller.stopFromDesktop();
+            disposeReentered.set(controller.getSessionId() != null);
+            disposed = true;
+        }
+    }
+
+    private static final class DelayedRunReturnRunner implements IAgentRunner {
+        private final CompletableFuture<AgentResult> task = new CompletableFuture<>();
+        private final CountDownLatch runEntered = new CountDownLatch(1);
+        private final CountDownLatch allowRunReturn = new CountDownLatch(1);
+        private volatile boolean cancelled;
+        private volatile boolean disposed;
+        private volatile IAgentEventListener listener;
+
+        @Override
+        public CompletableFuture<AgentResult> run(String prompt, AgentConfig config) {
+            runEntered.countDown();
+            try {
+                if (!allowRunReturn.await(2, TimeUnit.SECONDS)) {
+                    throw new AssertionError("timed out waiting to return old task"); //$NON-NLS-1$
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+            return task;
+        }
+
+        @Override public CompletableFuture<AgentResult> run(
+                String prompt, List<LlmMessage> history, AgentConfig config) { return run(prompt, config); }
+        @Override public void cancel() { cancelled = true; }
+        @Override public AgentState getState() { return AgentState.RUNNING; }
+        @Override public void addListener(IAgentEventListener listener) { this.listener = listener; }
+        @Override public void removeListener(IAgentEventListener listener) {
+            if (this.listener == listener) {
+                this.listener = null;
+            }
+        }
+        @Override public int getCurrentStep() { return 1; }
+        @Override public List<LlmMessage> getConversationHistory() { return List.of(); }
+        @Override public void dispose() { disposed = true; }
+
+        private void finishCancelled() {
+            task.complete(AgentResult.cancelled(
+                    List.of(LlmMessage.user("old task history")), 1, 1)); //$NON-NLS-1$
+        }
+
+        private void emitCompleted(AgentResult result) {
+            IAgentEventListener captured = listener;
+            if (captured != null) {
+                captured.onEvent(new AgentCompletedEvent(result));
+            }
         }
     }
 
@@ -546,6 +798,7 @@ public class AgentSessionControllerTest {
         private final AtomicInteger runInvocationCount = new AtomicInteger();
         private final AtomicInteger removeListenerCount = new AtomicInteger();
         private final AtomicInteger disposeCount = new AtomicInteger();
+        private volatile boolean listenerHandlesConfirmations;
 
         private CompletedRunner(String response, boolean writeCodeMd) {
             task = CompletableFuture.completedFuture(
@@ -570,7 +823,9 @@ public class AgentSessionControllerTest {
                 String prompt, List<LlmMessage> history, AgentConfig config) { return run(prompt, config); }
         @Override public void cancel() { }
         @Override public AgentState getState() { return AgentState.COMPLETED; }
-        @Override public void addListener(IAgentEventListener listener) { }
+        @Override public void addListener(IAgentEventListener listener) {
+            listenerHandlesConfirmations = listener.handlesConfirmations();
+        }
         @Override public void removeListener(IAgentEventListener listener) { removeListenerCount.incrementAndGet(); }
         @Override public int getCurrentStep() { return 1; }
         @Override public List<LlmMessage> getConversationHistory() { return Collections.emptyList(); }
