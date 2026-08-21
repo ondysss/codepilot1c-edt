@@ -12,7 +12,8 @@ import java.io.IOException;
 /**
  * Raised when the GSD {@code state.json} (or its backup) is structurally corrupt:
  * unparseable JSON, a JSON {@code null} document, an empty document, or a
- * {@code schemaVersion} that does not match {@link GsdState#CURRENT_SCHEMA_VERSION}.
+ * unsupported historical {@code schemaVersion}, or a state that violates invariants.
+ * Future schemas use {@link GsdUnsupportedSchemaException} and never trigger recovery.
  *
  * <p>This is distinct from ordinary access/I/O failures (e.g.
  * {@link java.nio.file.AccessDeniedException}, {@link java.nio.file.NoSuchFileException}):

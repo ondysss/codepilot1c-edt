@@ -44,12 +44,39 @@ public final class GsdProjections {
         sb.append("| Field | Value |\n"); //$NON-NLS-1$
         sb.append("|---|---|\n"); //$NON-NLS-1$
         sb.append("| schemaVersion | ").append(s.schemaVersion()).append(" |\n"); //$NON-NLS-1$ //$NON-NLS-2$
+        sb.append("| cycleId | ").append(escape(s.cycleId())).append(" |\n"); //$NON-NLS-1$ //$NON-NLS-2$
+        sb.append("| generation | ").append(s.generation()).append(" |\n"); //$NON-NLS-1$ //$NON-NLS-2$
         sb.append("| revision | ").append(s.revision()).append(" |\n"); //$NON-NLS-1$ //$NON-NLS-2$
         sb.append("| phase | ").append(s.phase() == null ? "" : s.phase().name()).append(" |\n"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         sb.append("| goal | ").append(escape(s.goal())).append(" |\n"); //$NON-NLS-1$ //$NON-NLS-2$
         GsdSessionPointer p = s.sessionPointer();
         sb.append("| session | ").append(escape(p.sessionId())).append(" |\n"); //$NON-NLS-1$ //$NON-NLS-2$
         sb.append("| workstream | ").append(escape(p.workstreamId())).append(" |\n\n"); //$NON-NLS-1$ //$NON-NLS-2$
+
+        sb.append("## Acceptance criteria\n\n"); //$NON-NLS-1$
+        List<GsdAcceptanceCriterion> criteria = sortedById(
+                s.acceptanceCriteria(), GsdAcceptanceCriterion::id);
+        if (criteria.isEmpty()) {
+            sb.append("_None._\n\n"); //$NON-NLS-1$
+        } else {
+            sb.append("| id | required | status | description |\n"); //$NON-NLS-1$
+            sb.append("|---|---|---|---|\n"); //$NON-NLS-1$
+            for (GsdAcceptanceCriterion criterion : criteria) {
+                sb.append("| ").append(escape(criterion.id())).append(" | ") //$NON-NLS-1$ //$NON-NLS-2$
+                        .append(criterion.required()).append(" | ") //$NON-NLS-1$
+                        .append(criterion.status()).append(" | ") //$NON-NLS-1$
+                        .append(escape(criterion.description())).append(" |\n"); //$NON-NLS-1$
+            }
+            sb.append("\n"); //$NON-NLS-1$
+        }
+
+        GsdShipment shipment = s.shipment();
+        sb.append("## Shipment\n\n"); //$NON-NLS-1$
+        sb.append("- Id: ").append(escape(shipment.id())).append("\n"); //$NON-NLS-1$ //$NON-NLS-2$
+        sb.append("- Delivery reference: ").append(escape(shipment.deliveryReference())).append("\n"); //$NON-NLS-1$ //$NON-NLS-2$
+        sb.append("- Status: ").append(shipment.status()).append("\n"); //$NON-NLS-1$ //$NON-NLS-2$
+        sb.append("- Completed at: ").append(shipment.completedAt() == null
+                ? "" : shipment.completedAt()).append("\n\n"); //$NON-NLS-1$ //$NON-NLS-2$
 
         sb.append("## Decisions\n\n"); //$NON-NLS-1$
         List<GsdDecision> decisions = sortedById(s.decisions(), GsdDecision::id);
@@ -85,6 +112,24 @@ public final class GsdProjections {
             }
             sb.append("\n"); //$NON-NLS-1$
         }
+
+        sb.append("## Transition history\n\n"); //$NON-NLS-1$
+        if (s.transitionHistory().isEmpty()) {
+            sb.append("_None._\n\n"); //$NON-NLS-1$
+        } else {
+            sb.append("| cycle | generation | revision | from | to | reason | occurredAt |\n"); //$NON-NLS-1$
+            sb.append("|---|---:|---:|---|---|---|---|\n"); //$NON-NLS-1$
+            for (GsdTransition transition : s.transitionHistory()) {
+                sb.append("| ").append(escape(transition.cycleId())).append(" | ") //$NON-NLS-1$ //$NON-NLS-2$
+                        .append(transition.generation()).append(" | ") //$NON-NLS-1$
+                        .append(transition.revision()).append(" | ") //$NON-NLS-1$
+                        .append(transition.fromPhase()).append(" | ") //$NON-NLS-1$
+                        .append(transition.toPhase()).append(" | ") //$NON-NLS-1$
+                        .append(escape(transition.reason())).append(" | ") //$NON-NLS-1$
+                        .append(transition.occurredAt()).append(" |\n"); //$NON-NLS-1$
+            }
+            sb.append("\n"); //$NON-NLS-1$
+        }
         return sb.toString();
     }
 
@@ -101,6 +146,21 @@ public final class GsdProjections {
         sb.append("<!-- AUTO-GENERATED from state.json. Do not edit; re-run to regenerate. -->\n\n"); //$NON-NLS-1$
         sb.append("- Goal: ").append(escape(s.goal())).append("\n"); //$NON-NLS-1$ //$NON-NLS-2$
         sb.append("- Phase: ").append(s.phase() == null ? "" : s.phase().name()).append("\n\n"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+
+        if (!s.acceptanceCriteria().isEmpty()) {
+            sb.append("## Acceptance criteria\n\n"); //$NON-NLS-1$
+            for (GsdAcceptanceCriterion criterion : sortedById(
+                    s.acceptanceCriteria(), GsdAcceptanceCriterion::id)) {
+                sb.append("- [").append(criterion.passed() ? "x" : " ").append("] ") //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                        .append(criterion.id()).append(" — ") //$NON-NLS-1$
+                        .append(escape(criterion.description()));
+                if (criterion.required()) {
+                    sb.append(" (required)"); //$NON-NLS-1$
+                }
+                sb.append("\n"); //$NON-NLS-1$
+            }
+            sb.append("\n"); //$NON-NLS-1$
+        }
 
         List<GsdWave> waves = sortedById(s.waves(), GsdWave::id);
         if (waves.isEmpty()) {

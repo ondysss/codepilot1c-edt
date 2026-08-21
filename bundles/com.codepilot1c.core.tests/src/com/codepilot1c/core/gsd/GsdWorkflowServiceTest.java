@@ -48,7 +48,8 @@ public class GsdWorkflowServiceTest {
         GsdWorkflowService.validateTransition(GsdPhase.DISCOVERY, GsdPhase.PLANNING, null);
         GsdWorkflowService.validateTransition(GsdPhase.PLANNING, GsdPhase.EXECUTING, null);
         GsdWorkflowService.validateTransition(GsdPhase.EXECUTING, GsdPhase.VERIFYING, null);
-        GsdWorkflowService.validateTransition(GsdPhase.VERIFYING, GsdPhase.CLOSED, null);
+        GsdWorkflowService.validateTransition(GsdPhase.VERIFYING, GsdPhase.SHIPPING, null);
+        GsdWorkflowService.validateTransition(GsdPhase.SHIPPING, GsdPhase.CLOSED, null);
     }
 
     @Test
@@ -272,6 +273,11 @@ public class GsdWorkflowServiceTest {
         assertEquals("rollback-r" + rev, d.id()); //$NON-NLS-1$
         assertEquals("Verification rollback", d.summary()); //$NON-NLS-1$
         assertEquals("tests failed", d.rationale()); //$NON-NLS-1$
+        GsdTransition audit = rolledBack.transitionHistory()
+                .get(rolledBack.transitionHistory().size() - 1);
+        assertEquals(GsdPhase.VERIFYING, audit.fromPhase());
+        assertEquals(GsdPhase.EXECUTING, audit.toPhase());
+        assertEquals("tests failed", audit.reason()); //$NON-NLS-1$
     }
 
     @Test

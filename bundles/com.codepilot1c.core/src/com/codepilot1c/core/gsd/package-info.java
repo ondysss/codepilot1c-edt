@@ -11,10 +11,10 @@
  * <p>The first independent slice of GSD: a typed model of project-level state persisted
  * under {@code <project>/.codepilot1c/gsd}. {@code state.json} is the single source of
  * truth; {@code STATE.md} and {@code PLAN.md} are deterministic projections regenerated
- * from JSON. The store provides optimistic revision control, atomic writes
+ * from JSON. The store provides cycle/generation/revision concurrency tokens, atomic writes
  * (temp + {@link java.nio.channels.FileChannel#force} + {@link java.nio.file.StandardCopyOption#ATOMIC_MOVE}),
- * backup/recovery, filesystem confinement, and a provenance guard that rejects closure
- * of tasks or phases backed only by {@link GsdProvenance#INFERRED} evidence.</p>
+ * schema migration, generation-fenced backup recovery, filesystem confinement, and
+ * closure guards for verified evidence, acceptance criteria, and completed shipment.</p>
  *
  * <p>This package is pure core, provider-neutral, and has no UI dependencies.</p>
  */
