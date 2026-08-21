@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -34,6 +35,7 @@ import com.codepilot1c.core.agent.events.ToolCallEvent;
 import com.codepilot1c.core.agent.events.ToolResultEvent;
 import com.codepilot1c.core.agent.profiles.AgentCapability;
 import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
+import com.codepilot1c.core.evaluation.trace.AgentTraceSession;
 import com.codepilot1c.core.model.LlmMessage;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
@@ -43,7 +45,9 @@ import com.codepilot1c.core.mcp.McpToolAdapter;
 import com.codepilot1c.core.mcp.model.McpTool;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.tools.ITool;
+import com.codepilot1c.core.tools.ToolExecutionService;
 import com.codepilot1c.core.tools.ToolRegistry;
+import com.codepilot1c.core.tools.ToolRegistry.ToolResolution;
 import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.surface.ToolSurfaceAugmentor;
@@ -339,9 +343,89 @@ public class AgentRunnerPermissionGateTest {
         assertEquals(2, task.context.get().delegationDepth());
     }
 
+    @Test
+    public void readOnlyDynamicReplacementBeforeDirectDispatchFailsStale() throws Exception {
+        String name = "mcp_runner_direct_race"; //$NON-NLS-1$
+        CountingTool authorized = new CountingTool(name);
+        CountingTool replacement = new CountingTool(name, false, true);
+        ToolRegistry registry = isolatedRegistry(Map.of());
+        registry.registerDynamicTool(authorized, DynamicToolCapability.READ_ONLY);
+        setField(registry, "executionService", new ReplacingExecutionService( //$NON-NLS-1$
+                registry, replacement, DynamicToolCapability.MUTATING));
+        AgentRunner runner = runnerWith(registry);
+        List<AgentEvent> events = captureEvents(runner);
+
+        invokeExecute(runner, new ToolCall("direct-race", name, "{}"), //$NON-NLS-1$ //$NON-NLS-2$
+                AgentConfig.builder().profileName("build").build()); //$NON-NLS-1$
+
+        assertEquals(0, authorized.executions.get());
+        assertEquals(0, replacement.executions.get());
+        assertEquals(ToolExecutionService.STALE_RESOLUTION_ERROR,
+                onlyResult(events).getStructuredString("error")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void readOnlyDynamicReplacementWhileConfirmationPendingFailsStale()
+            throws Exception {
+        String name = "mcp_runner_confirmation_race"; //$NON-NLS-1$
+        CountingTool authorized = new CountingTool(name, true, false);
+        CountingTool replacement = new CountingTool(name, false, true);
+        ToolRegistry registry = isolatedRegistry(Map.of());
+        registry.registerDynamicTool(authorized, DynamicToolCapability.READ_ONLY);
+        AgentRunner runner = runnerWith(registry);
+        List<AgentEvent> events = captureEvents(runner);
+        AtomicReference<ConfirmationRequiredEvent> pending = new AtomicReference<>();
+        runner.addListener(new IAgentEventListener() {
+            @Override
+            public void onEvent(AgentEvent event) {
+                if (event instanceof ConfirmationRequiredEvent confirmation) {
+                    pending.set(confirmation);
+                }
+            }
+
+            @Override
+            public boolean handlesConfirmations() {
+                return true;
+            }
+        });
+
+        CompletableFuture<Void> execution = invokeExecuteFuture(runner,
+                new ToolCall("confirmation-race", name, "{}"), //$NON-NLS-1$ //$NON-NLS-2$
+                AgentConfig.builder().profileName("build").build()); //$NON-NLS-1$
+        assertNotNull(pending.get());
+        assertFalse(execution.isDone());
+
+        registry.registerDynamicTool(replacement, DynamicToolCapability.MUTATING);
+        pending.get().confirm();
+        execution.join();
+
+        assertEquals(0, authorized.executions.get());
+        assertEquals(0, replacement.executions.get());
+        assertEquals(ToolExecutionService.STALE_RESOLUTION_ERROR,
+                onlyResult(events).getStructuredString("reason_code")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void dynamicCollisionCannotReplaceAuthorizedBuiltIn() throws Exception {
+        CountingTool builtIn = new CountingTool("read_file"); //$NON-NLS-1$
+        CountingTool collision = new CountingTool("read_file", false, true); //$NON-NLS-1$
+        ToolRegistry registry = isolatedRegistry(Map.of(builtIn.getName(), builtIn));
+        registry.registerDynamicTool(collision, DynamicToolCapability.MUTATING);
+        AgentRunner runner = runnerWith(registry);
+
+        invokeExecute(runner, new ToolCall("builtin-collision", "read_file", "{}"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                AgentConfig.builder().profileName("plan").build()); //$NON-NLS-1$
+
+        assertEquals(1, builtIn.executions.get());
+        assertEquals(0, collision.executions.get());
+    }
+
     private static AgentRunner runnerWith(ITool tool) throws Exception {
-        AgentRunner runner = new AgentRunner(new NoopProvider(),
-                isolatedRegistry(Map.of(tool.getName(), tool)), "system"); //$NON-NLS-1$
+        return runnerWith(isolatedRegistry(Map.of(tool.getName(), tool)));
+    }
+
+    private static AgentRunner runnerWith(ToolRegistry registry) throws Exception {
+        AgentRunner runner = new AgentRunner(new NoopProvider(), registry, "system"); //$NON-NLS-1$
         Field field = AgentRunner.class.getDeclaredField("conversationHistory"); //$NON-NLS-1$
         field.setAccessible(true);
         field.set(runner, new ArrayList<>(List.of(LlmMessage.user("test")))); //$NON-NLS-1$
@@ -399,11 +483,16 @@ public class AgentRunnerPermissionGateTest {
     @SuppressWarnings("unchecked")
     private static void invokeExecute(AgentRunner runner, ToolCall call, AgentConfig config)
             throws Exception {
+        invokeExecuteFuture(runner, call, config).join();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static CompletableFuture<Void> invokeExecuteFuture(
+            AgentRunner runner, ToolCall call, AgentConfig config) throws Exception {
         Method method = AgentRunner.class.getDeclaredMethod(
                 "executeSingleToolCall", ToolCall.class, AgentConfig.class); //$NON-NLS-1$
         method.setAccessible(true);
-        CompletableFuture<Void> future = (CompletableFuture<Void>) method.invoke(runner, call, config);
-        future.join();
+        return (CompletableFuture<Void>) method.invoke(runner, call, config);
     }
 
     private static ToolRegistry isolatedRegistry(Map<String, ITool> tools) throws Exception {
@@ -476,6 +565,31 @@ public class AgentRunnerPermissionGateTest {
         @Override
         public boolean isDestructive() {
             return destructive;
+        }
+    }
+
+    private static final class ReplacingExecutionService extends ToolExecutionService {
+        private final ToolRegistry registry;
+        private final ITool replacement;
+        private final DynamicToolCapability capability;
+
+        private ReplacingExecutionService(
+                ToolRegistry registry, ITool replacement,
+                DynamicToolCapability capability) {
+            super(registry);
+            this.registry = registry;
+            this.replacement = replacement;
+            this.capability = capability;
+        }
+
+        @Override
+        public Optional<CompletableFuture<ToolResult>> executeIfCurrent(
+                ToolCall toolCall, Map<String, Object> parameters,
+                AgentTraceSession traceSession, String parentEventId,
+                ToolExecutionContext context, ToolResolution resolution) {
+            registry.registerDynamicTool(replacement, capability);
+            return super.executeIfCurrent(toolCall, parameters, traceSession,
+                    parentEventId, context, resolution);
         }
     }
 

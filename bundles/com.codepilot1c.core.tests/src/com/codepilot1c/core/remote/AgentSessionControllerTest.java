@@ -8,6 +8,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -19,6 +20,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -33,6 +35,7 @@ import com.codepilot1c.core.agent.AgentConfig;
 import com.codepilot1c.core.agent.AgentResult;
 import com.codepilot1c.core.agent.AgentState;
 import com.codepilot1c.core.agent.IAgentRunner;
+import com.codepilot1c.core.agent.events.AgentStepEvent;
 import com.codepilot1c.core.agent.events.IAgentEventListener;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.memory.project.ProjectMemoryInitializationService;
@@ -314,6 +317,86 @@ public class AgentSessionControllerTest {
         assertEquals(3, created.get());
     }
 
+    @Test
+    public void runnerLifecycleCallbacksAlwaysObserveControllerLockUnheld() throws Exception {
+        installProvider(new NoopProvider());
+        Object controllerLock = controllerField("lock"); //$NON-NLS-1$
+        AtomicBoolean supplierHeldLock = new AtomicBoolean();
+        AtomicBoolean factoryHeldLock = new AtomicBoolean();
+        LockCheckingRunner runner = new LockCheckingRunner(controllerLock);
+        previousToolRegistrySupplier = controllerField("toolRegistrySupplier"); //$NON-NLS-1$
+        previousRunnerFactory = controllerField("runnerFactory"); //$NON-NLS-1$
+        setControllerField("toolRegistrySupplier", //$NON-NLS-1$
+                (java.util.function.Supplier<com.codepilot1c.core.tools.ToolRegistry>) () -> {
+                    supplierHeldLock.set(Thread.holdsLock(controllerLock));
+                    return null;
+                });
+        setControllerField("runnerFactory", (AgentSessionController.RunnerFactory) //$NON-NLS-1$
+                (provider, tools, prompt) -> {
+                    factoryHeldLock.set(Thread.holdsLock(controllerLock));
+                    return runner;
+                });
+
+        CompletableFuture<AgentResult> task = controller.submitFromDesktopFresh(
+                "lock discipline", InitAgentProfile.ID); //$NON-NLS-1$
+        assertFalse(supplierHeldLock.get());
+        assertFalse(factoryHeldLock.get());
+        assertFalse(runner.addListenerHeldLock.get());
+
+        controller.stopFromDesktop();
+        assertFalse(runner.cancelHeldLock.get());
+        runner.finishSuccess();
+        assertTrue(task.join().isSuccess());
+        assertFalse(runner.removeListenerHeldLock.get());
+        assertFalse(runner.disposeHeldLock.get());
+    }
+
+    @Test
+    public void blockingRemoteAndAgentListenersCanReenterWithoutDeadlock() throws Exception {
+        Object controllerLock = controllerField("lock"); //$NON-NLS-1$
+        AtomicBoolean remoteHeldLock = new AtomicBoolean();
+        AtomicBoolean agentHeldLock = new AtomicBoolean();
+        String clientId = "listener-lock-" + UUID.randomUUID(); //$NON-NLS-1$
+        AgentSessionController.RemoteEventListener remote = event -> {
+            if (!"lease_changed".equals(event.getType()) //$NON-NLS-1$
+                    || !clientId.equals(event.getPayload().get("controllerClientId"))) { //$NON-NLS-1$
+                return;
+            }
+            remoteHeldLock.set(Thread.holdsLock(controllerLock));
+            try {
+                assertNotNull(CompletableFuture.supplyAsync(controller::getSessionId)
+                        .get(1, TimeUnit.SECONDS));
+            } catch (Exception e) {
+                throw new AssertionError("remote listener reentry blocked", e); //$NON-NLS-1$
+            }
+        };
+        IAgentEventListener agent = event -> {
+            agentHeldLock.set(Thread.holdsLock(controllerLock));
+            try {
+                assertNotNull(CompletableFuture.supplyAsync(controller::getCurrentState)
+                        .get(1, TimeUnit.SECONDS));
+            } catch (Exception e) {
+                throw new AssertionError("agent listener reentry blocked", e); //$NON-NLS-1$
+            }
+        };
+        controller.addRemoteEventListener(remote, Long.MAX_VALUE);
+        controller.addAgentListener(agent);
+        try {
+            controller.claimControllerLease(clientId, true);
+            Method handler = AgentSessionController.class.getDeclaredMethod(
+                    "handleAgentEvent", com.codepilot1c.core.agent.events.AgentEvent.class); //$NON-NLS-1$
+            handler.setAccessible(true);
+            handler.invoke(controller, new AgentStepEvent(1, 2, "probe")); //$NON-NLS-1$
+
+            assertFalse(remoteHeldLock.get());
+            assertFalse(agentHeldLock.get());
+        } finally {
+            controller.removeRemoteEventListener(remote);
+            controller.removeAgentListener(agent);
+            controller.releaseControllerLease(clientId);
+        }
+    }
+
     private void setControllerField(String name, Object value) throws Exception {
         Field field = AgentSessionController.class.getDeclaredField(name);
         field.setAccessible(true);
@@ -423,6 +506,38 @@ public class AgentSessionControllerTest {
         @Override public void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer) { }
         @Override public void cancel() { }
         @Override public void dispose() { }
+    }
+
+    private static final class LockCheckingRunner implements IAgentRunner {
+        private final Object controllerLock;
+        private final CompletableFuture<AgentResult> task = new CompletableFuture<>();
+        private final AtomicBoolean addListenerHeldLock = new AtomicBoolean();
+        private final AtomicBoolean cancelHeldLock = new AtomicBoolean();
+        private final AtomicBoolean removeListenerHeldLock = new AtomicBoolean();
+        private final AtomicBoolean disposeHeldLock = new AtomicBoolean();
+
+        private LockCheckingRunner(Object controllerLock) {
+            this.controllerLock = controllerLock;
+        }
+
+        @Override public CompletableFuture<AgentResult> run(String prompt, AgentConfig config) { return task; }
+        @Override public CompletableFuture<AgentResult> run(
+                String prompt, List<LlmMessage> history, AgentConfig config) { return task; }
+        @Override public void cancel() { cancelHeldLock.set(Thread.holdsLock(controllerLock)); }
+        @Override public AgentState getState() { return AgentState.RUNNING; }
+        @Override public void addListener(IAgentEventListener listener) {
+            addListenerHeldLock.set(Thread.holdsLock(controllerLock));
+        }
+        @Override public void removeListener(IAgentEventListener listener) {
+            removeListenerHeldLock.set(Thread.holdsLock(controllerLock));
+        }
+        @Override public int getCurrentStep() { return 0; }
+        @Override public List<LlmMessage> getConversationHistory() { return List.of(); }
+        @Override public void dispose() { disposeHeldLock.set(Thread.holdsLock(controllerLock)); }
+
+        private void finishSuccess() {
+            task.complete(AgentResult.success("ok", List.of(), 1, 0, 1)); //$NON-NLS-1$
+        }
     }
 
     private static final class CompletedRunner implements IAgentRunner {
