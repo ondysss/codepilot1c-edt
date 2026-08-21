@@ -72,7 +72,7 @@ public class ToolDescriptorPublicationRaceTest {
         barrier.release();
         delayedRegistration.get(2, TimeUnit.SECONDS);
 
-        assertPublished(delayed);
+        assertPublished(replacement);
         assertFalse(delayed.registryMonitorHeldDuringMetadata);
     }
 
@@ -92,8 +92,8 @@ public class ToolDescriptorPublicationRaceTest {
         barrier.release();
         delayedRegistration.get(2, TimeUnit.SECONDS);
 
-        assertPublished(delayed);
-        assertEquals(DynamicToolCapability.MUTATING,
+        assertPublished(replacement);
+        assertEquals(DynamicToolCapability.READ_ONLY,
                 registry.resolveTool(delayed.getName()).dynamicCapability());
         assertFalse(delayed.registryMonitorHeldDuringMetadata);
     }
@@ -129,7 +129,8 @@ public class ToolDescriptorPublicationRaceTest {
         ToolDescriptor staleDescriptor = descriptors.describeTool(original);
 
         MetadataBarrier barrier = new MetadataBarrier();
-        MetadataTool replacement = tool(name, false, true, "replacement", barrier); //$NON-NLS-1$
+        MetadataTool replacement = tool(name, false, true, "replacement", null); //$NON-NLS-1$
+        replacement.pauseNameOn(barrier);
         Future<?> reregister = executor.submit(() -> registry.registerDynamicTool(
                 replacement, DynamicToolCapability.READ_ONLY));
         barrier.awaitEntered();
@@ -300,6 +301,7 @@ public class ToolDescriptorPublicationRaceTest {
         private final boolean validation;
         private final String tag;
         private volatile MetadataBarrier barrier;
+        private volatile MetadataBarrier nameBarrier;
         private volatile boolean registryMonitorHeldDuringMetadata;
 
         private MetadataTool(
@@ -321,8 +323,17 @@ public class ToolDescriptorPublicationRaceTest {
             barrier = newBarrier;
         }
 
+        private void pauseNameOn(MetadataBarrier newBarrier) {
+            nameBarrier = newBarrier;
+        }
+
         @Override
         public String getName() {
+            MetadataBarrier pending = nameBarrier;
+            if (pending != null) {
+                nameBarrier = null;
+                pending.pause();
+            }
             return name;
         }
 

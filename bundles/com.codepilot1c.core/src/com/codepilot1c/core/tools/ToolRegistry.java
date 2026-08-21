@@ -17,6 +17,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import org.eclipse.core.runtime.IConfigurationElement;
@@ -65,7 +67,9 @@ public class ToolRegistry {
     private static final String TOOL_PROVIDER_EXTENSION_POINT =
             "com.codepilot1c.core.toolProvider"; //$NON-NLS-1$
 
-    private static ToolRegistry instance;
+    private static final Object INSTANCE_LOCK = new Object();
+    private static volatile ToolRegistry instance;
+    private static volatile Consumer<ToolRegistry> initializationOverride;
 
     private final Map<String, ITool> tools = new HashMap<>();
     private final Map<String, ITool> dynamicTools = new ConcurrentHashMap<>();
@@ -75,17 +79,16 @@ public class ToolRegistry {
     private final Gson gson = new Gson();
     private volatile ToolDescriptorRegistry descriptorRegistry =
             ToolDescriptorRegistry.getInstance();
+    private final InitializationControl initialization =
+            new InitializationControl(Thread.currentThread());
     private ToolArgumentParser argumentParser;
     private ToolExecutionService executionService;
     private volatile ToolSurfaceAugmentor augmentor;
 
     private ToolRegistry() {
-        // Register default tools
-        registerDefaultTools();
-        augmentor = ToolSurfaceAugmentor.defaultAugmentor();
+        augmentor = ToolSurfaceAugmentor.passthrough();
         argumentParser = new ToolArgumentParser();
         executionService = new ToolExecutionService(this);
-        LOG.info("ToolRegistry initialized with %d tools", tools.size()); //$NON-NLS-1$
     }
 
     /**
@@ -93,11 +96,55 @@ public class ToolRegistry {
      *
      * @return the instance
      */
-    public static synchronized ToolRegistry getInstance() {
-        if (instance == null) {
-            instance = new ToolRegistry();
+    public static ToolRegistry getInstance() {
+        ToolRegistry current = instance;
+        boolean initialize = false;
+        if (current == null) {
+            synchronized (INSTANCE_LOCK) {
+                current = instance;
+                if (current == null) {
+                    current = new ToolRegistry();
+                    instance = current;
+                    initialize = true;
+                }
+            }
         }
-        return instance;
+        if (initialize) {
+            current.initializeSingleton();
+        }
+        return current.awaitInitialization();
+    }
+
+    private void initializeSingleton() {
+        ToolDescriptorRegistry.BootstrapLease descriptorBootstrap = null;
+        try {
+            descriptorBootstrap = descriptorRegistry().beginExternalBootstrap();
+            Consumer<ToolRegistry> override = initializationOverride;
+            if (override != null) {
+                override.accept(this);
+            } else {
+                registerDefaultTools();
+            }
+            augmentor = ToolSurfaceAugmentor.defaultAugmentor();
+            LOG.info("ToolRegistry initialized with %d tools", tools.size()); //$NON-NLS-1$
+            descriptorBootstrap.complete();
+            initialization.complete();
+        } catch (Throwable failure) {
+            if (descriptorBootstrap != null) {
+                descriptorBootstrap.fail(failure);
+            }
+            initialization.fail(failure);
+            throw propagateInitializationFailure(failure);
+        }
+    }
+
+    private ToolRegistry awaitInitialization() {
+        InitializationControl control = initialization;
+        if (control == null || control.isOwner(Thread.currentThread())) {
+            return this;
+        }
+        control.awaitCompletion();
+        return this;
     }
 
     private void registerDefaultTools() {
@@ -248,16 +295,18 @@ public class ToolRegistry {
      * @param tool the tool to register
      */
     public void register(ITool tool) {
-        String name = tool.getName();
+        String name = requireToolName(tool);
         ToolDescriptorRegistry descriptors = descriptorRegistry();
-        ToolDescriptor descriptor = requireDescriptor(descriptors.describeTool(tool), name);
+        ToolSlot slot;
         synchronized (this) {
             ToolSlot previous = currentSlot(name);
-            ToolSlot slot = ToolSlot.builtIn(tool);
-            publishDescriptor(descriptors, previous, slot, descriptor);
+            slot = ToolSlot.builtIn(tool);
+            publishDescriptor(descriptors, previous, slot,
+                    conservativeDescriptor(name));
             tools.put(name, tool);
             effectiveSlots().put(name, slot);
         }
+        refineDescriptor(descriptors, name, tool, slot);
     }
 
     /**
@@ -267,46 +316,33 @@ public class ToolRegistry {
      */
     public void unregister(String name) {
         ToolDescriptorRegistry descriptors = descriptorRegistry();
-        while (true) {
-            ITool dynamic;
-            DynamicToolCapability capability;
-            synchronized (this) {
-                dynamic = dynamicTools.get(name);
-                capability = dynamic != null
-                        ? dynamicCapabilities().getOrDefault(
-                                name, DynamicToolCapability.NONE)
-                        : DynamicToolCapability.NONE;
-            }
-            ToolDescriptor descriptor = dynamic != null
-                    ? requireDescriptor(descriptors.describeTool(dynamic), name)
-                    : null;
-            synchronized (this) {
-                DynamicToolCapability currentCapability = dynamic != null
-                        ? dynamicCapabilities().getOrDefault(
-                                name, DynamicToolCapability.NONE)
-                        : DynamicToolCapability.NONE;
-                if (dynamicTools.get(name) != dynamic
-                        || currentCapability != capability) {
-                    continue;
-                }
-                ToolSlot removed = currentSlot(name);
-                if (!tools.containsKey(name)) {
-                    return;
-                }
-                if (dynamic != null) {
-                    ToolSlot slot = ToolSlot.dynamic(dynamic, capability);
-                    publishDescriptor(descriptors, removed, slot, descriptor);
-                    tools.remove(name);
-                    effectiveSlots().put(name, slot);
-                } else {
-                    tools.remove(name);
-                    effectiveSlots().remove(name);
-                    if (removed != null) {
-                        descriptors.removeSlot(name, removed.identity());
-                    }
-                }
+        ITool revealed = null;
+        ToolSlot revealedSlot = null;
+        synchronized (this) {
+            ToolSlot removed = currentSlot(name);
+            if (!tools.containsKey(name)) {
                 return;
             }
+            ITool dynamic = dynamicTools.get(name);
+            if (dynamic != null) {
+                DynamicToolCapability capability = dynamicCapabilities()
+                        .getOrDefault(name, DynamicToolCapability.NONE);
+                revealedSlot = ToolSlot.dynamic(dynamic, capability);
+                publishDescriptor(descriptors, removed, revealedSlot,
+                        conservativeDescriptor(name));
+                tools.remove(name);
+                effectiveSlots().put(name, revealedSlot);
+                revealed = dynamic;
+            } else {
+                tools.remove(name);
+                effectiveSlots().remove(name);
+                if (removed != null) {
+                    descriptors.removeSlot(name, removed.identity());
+                }
+            }
+        }
+        if (revealed != null) {
+            refineDescriptor(descriptors, name, revealed, revealedSlot);
         }
     }
 
@@ -331,17 +367,18 @@ public class ToolRegistry {
      */
     public void registerDynamicTool(
             ITool tool, DynamicToolCapability capability) {
-        String name = tool.getName();
+        String name = requireToolName(tool);
         DynamicToolCapability trustedCapability = capability != null
                 ? capability : DynamicToolCapability.NONE;
         ToolDescriptorRegistry descriptors = descriptorRegistry();
-        ToolDescriptor descriptor = requireDescriptor(descriptors.describeTool(tool), name);
+        ToolSlot slot = null;
         synchronized (this) {
             ToolSlot previous = currentSlot(name);
             ITool builtIn = tools.get(name);
             if (builtIn == null) {
-                ToolSlot slot = ToolSlot.dynamic(tool, trustedCapability);
-                publishDescriptor(descriptors, previous, slot, descriptor);
+                slot = ToolSlot.dynamic(tool, trustedCapability);
+                publishDescriptor(descriptors, previous, slot,
+                        conservativeDescriptor(name));
                 dynamicTools.put(name, tool);
                 dynamicCapabilities().put(name, trustedCapability);
                 effectiveSlots().put(name, slot);
@@ -349,6 +386,9 @@ public class ToolRegistry {
                 dynamicTools.put(name, tool);
                 dynamicCapabilities().put(name, trustedCapability);
             }
+        }
+        if (slot != null) {
+            refineDescriptor(descriptors, name, tool, slot);
         }
         LOG.debug("Registered dynamic tool: %s (%s)", name, trustedCapability); //$NON-NLS-1$
     }
@@ -629,6 +669,38 @@ public class ToolRegistry {
         }
     }
 
+    private void refineDescriptor(
+            ToolDescriptorRegistry descriptors,
+            String name,
+            ITool tool,
+            ToolSlot slot) {
+        ToolDescriptor descriptor = requireDescriptor(
+                descriptors.describeTool(tool), name);
+        synchronized (this) {
+            ToolSlot current = currentSlot(name);
+            if (current != null && current.identity() == slot.identity()) {
+                publishDescriptor(descriptors, current, current, descriptor);
+            }
+        }
+    }
+
+    private ToolDescriptor conservativeDescriptor(String name) {
+        return ToolDescriptor.builder(name)
+                .category(com.codepilot1c.core.tools.meta.ToolCategory.OTHER)
+                .mutating(true)
+                .requiresValidationToken(true)
+                .build();
+    }
+
+    private String requireToolName(ITool tool) {
+        String name = tool != null ? tool.getName() : null;
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Tool must expose a non-blank stable name: " + name); //$NON-NLS-1$
+        }
+        return name;
+    }
+
     private ToolDescriptor requireDescriptor(
             ToolDescriptor descriptor, String toolName) {
         if (descriptor == null || toolName == null
@@ -648,6 +720,86 @@ public class ToolRegistry {
             }
         }
         return descriptorRegistry;
+    }
+
+    private static RuntimeException propagateInitializationFailure(
+            Throwable failure) {
+        if (failure instanceof RuntimeException runtime) {
+            return runtime;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        return new IllegalStateException("ToolRegistry initialization failed", failure); //$NON-NLS-1$
+    }
+
+    private enum InitializationState {
+        INITIALIZING,
+        READY,
+        FAILED
+    }
+
+    private static final class InitializationControl {
+        private final Object stateLock = new Object();
+        private final CountDownLatch completion = new CountDownLatch(1);
+        private volatile InitializationState state = InitializationState.INITIALIZING;
+        private volatile Thread owner;
+        private volatile Throwable failure;
+
+        private InitializationControl(Thread owner) {
+            this.owner = owner;
+        }
+
+        private boolean isOwner(Thread thread) {
+            InitializationState current = state;
+            if (current == InitializationState.FAILED) {
+                throw propagateInitializationFailure(failure);
+            }
+            return current == InitializationState.INITIALIZING
+                    && owner == thread;
+        }
+
+        private void complete() {
+            synchronized (stateLock) {
+                if (state != InitializationState.INITIALIZING) {
+                    return;
+                }
+                state = InitializationState.READY;
+                owner = null;
+            }
+            completion.countDown();
+        }
+
+        private void fail(Throwable cause) {
+            synchronized (stateLock) {
+                if (state != InitializationState.INITIALIZING) {
+                    return;
+                }
+                failure = cause;
+                state = InitializationState.FAILED;
+                owner = null;
+            }
+            completion.countDown();
+        }
+
+        private void awaitCompletion() {
+            if (state == InitializationState.READY) {
+                return;
+            }
+            if (state == InitializationState.FAILED) {
+                throw propagateInitializationFailure(failure);
+            }
+            try {
+                completion.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(
+                        "Interrupted waiting for ToolRegistry initialization", e); //$NON-NLS-1$
+            }
+            if (state == InitializationState.FAILED) {
+                throw propagateInitializationFailure(failure);
+            }
+        }
     }
 
     /**

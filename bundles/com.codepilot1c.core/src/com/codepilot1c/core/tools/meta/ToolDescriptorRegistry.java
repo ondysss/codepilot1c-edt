@@ -4,7 +4,9 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.tools.ITool;
@@ -18,23 +20,40 @@ public final class ToolDescriptorRegistry {
 
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(ToolDescriptorRegistry.class);
 
-    private static ToolDescriptorRegistry instance;
+    private static final Object INSTANCE_LOCK = new Object();
+    private static volatile ToolDescriptorRegistry instance;
 
     private static final Object UNVERSIONED = new Object();
 
     private final ConcurrentMap<String, DescriptorEntry> descriptors =
             new ConcurrentHashMap<>();
-    private final AtomicBoolean bootstrapStarted = new AtomicBoolean();
-    private volatile boolean bootstrapAttempted;
+    private final BootstrapControl bootstrap;
+    private final Consumer<ToolDescriptorRegistry> bootstrapAction;
 
     private ToolDescriptorRegistry() {
+        this(BootstrapState.NEW,
+                registry -> ToolRegistry.getInstance().refreshToolDescriptors());
     }
 
-    public static synchronized ToolDescriptorRegistry getInstance() {
-        if (instance == null) {
-            instance = new ToolDescriptorRegistry();
+    private ToolDescriptorRegistry(
+            BootstrapState initialState,
+            Consumer<ToolDescriptorRegistry> bootstrapAction) {
+        bootstrap = new BootstrapControl(initialState);
+        this.bootstrapAction = bootstrapAction;
+    }
+
+    public static ToolDescriptorRegistry getInstance() {
+        ToolDescriptorRegistry current = instance;
+        if (current == null) {
+            synchronized (INSTANCE_LOCK) {
+                current = instance;
+                if (current == null) {
+                    current = new ToolDescriptorRegistry();
+                    instance = current;
+                }
+            }
         }
-        return instance;
+        return current;
     }
 
     /**
@@ -42,10 +61,13 @@ public final class ToolDescriptorRegistry {
      * publish into the process-wide effective tool surface.
      */
     public static ToolDescriptorRegistry createDetached() {
-        ToolDescriptorRegistry detached = new ToolDescriptorRegistry();
-        detached.bootstrapStarted.set(true);
-        detached.bootstrapAttempted = true;
-        return detached;
+        return new ToolDescriptorRegistry(BootstrapState.READY, ignored -> {
+        });
+    }
+
+    static ToolDescriptorRegistry createForBootstrapTests(
+            Consumer<ToolDescriptorRegistry> bootstrapAction) {
+        return new ToolDescriptorRegistry(BootstrapState.NEW, bootstrapAction);
     }
 
     public void register(ToolDescriptor descriptor) {
@@ -150,9 +172,14 @@ public final class ToolDescriptorRegistry {
         if (name == null) {
             return null;
         }
-        ensureInitialized();
+        BootstrapAccess access = ensureInitialized();
         DescriptorEntry entry = descriptors.get(name);
-        return entry != null ? entry.descriptor() : null;
+        if (entry != null) {
+            return entry.descriptor();
+        }
+        return access == BootstrapAccess.OWNER_REENTRY
+                ? conservativeDescriptor(name)
+                : null;
     }
 
     public ToolDescriptor getOrDefault(String name) {
@@ -201,20 +228,188 @@ public final class ToolDescriptorRegistry {
         return runtimeCategory != null ? runtimeCategory : ToolCategory.OTHER;
     }
 
-    private void ensureInitialized() {
-        if (bootstrapAttempted
-                || !bootstrapStarted.compareAndSet(false, true)) {
-            return;
+    /**
+     * Lets ToolRegistry own descriptor completion when registry initialization
+     * starts first. The lease never waits and invokes no callbacks.
+     */
+    public BootstrapLease beginExternalBootstrap() {
+        return new BootstrapLease(bootstrap.tryStart());
+    }
+
+    private BootstrapAccess ensureInitialized() {
+        BootstrapAccess access = bootstrap.access();
+        if (access == BootstrapAccess.READY
+                || access == BootstrapAccess.OWNER_REENTRY) {
+            return access;
+        }
+        if (access == BootstrapAccess.WAIT) {
+            bootstrap.awaitCompletion();
+            return BootstrapAccess.READY;
         }
         try {
-            ToolRegistry registry = ToolRegistry.getInstance();
-            registry.refreshToolDescriptors();
+            bootstrapAction.accept(this);
             LOG.debug("ToolDescriptorRegistry bootstrapped from ToolRegistry with %d descriptors", //$NON-NLS-1$
                     Integer.valueOf(descriptors.size()));
-        } catch (RuntimeException e) {
-            LOG.warn("ToolDescriptorRegistry bootstrap from ToolRegistry failed: %s", e.getMessage()); //$NON-NLS-1$
-        } finally {
-            bootstrapAttempted = true;
+            bootstrap.complete();
+            return BootstrapAccess.READY;
+        } catch (Throwable failure) {
+            bootstrap.fail(failure);
+            throw propagate(failure);
+        }
+    }
+
+    private ToolDescriptor conservativeDescriptor(String name) {
+        return ToolDescriptor.builder(name)
+                .category(ToolCategory.OTHER)
+                .mutating(true)
+                .requiresValidationToken(true)
+                .build();
+    }
+
+    private static RuntimeException propagate(Throwable failure) {
+        if (failure instanceof RuntimeException runtime) {
+            return runtime;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        return new IllegalStateException("Tool descriptor bootstrap failed", failure); //$NON-NLS-1$
+    }
+
+    /** Ownership token for ToolRegistry-coordinated descriptor bootstrap. */
+    public final class BootstrapLease {
+        private final boolean owned;
+
+        private BootstrapLease(boolean owned) {
+            this.owned = owned;
+        }
+
+        public void complete() {
+            try {
+                if (owned) {
+                    bootstrap.complete();
+                }
+            } finally {
+                bootstrap.leaveExternalBootstrap();
+            }
+        }
+
+        public void fail(Throwable failure) {
+            try {
+                if (owned) {
+                    bootstrap.fail(failure);
+                }
+            } finally {
+                bootstrap.leaveExternalBootstrap();
+            }
+        }
+    }
+
+    private enum BootstrapState {
+        NEW,
+        INITIALIZING,
+        READY,
+        FAILED
+    }
+
+    private enum BootstrapAccess {
+        OWNER,
+        OWNER_REENTRY,
+        WAIT,
+        READY
+    }
+
+    private static final class BootstrapControl {
+        private final Object stateLock = new Object();
+        private final CountDownLatch completion = new CountDownLatch(1);
+        private final ThreadLocal<Boolean> externalParticipant =
+                ThreadLocal.withInitial(() -> Boolean.FALSE);
+        private BootstrapState state;
+        private Thread owner;
+        private volatile Throwable failure;
+
+        private BootstrapControl(BootstrapState initialState) {
+            state = initialState;
+            if (initialState == BootstrapState.READY) {
+                completion.countDown();
+            }
+        }
+
+        private boolean tryStart() {
+            synchronized (stateLock) {
+                if (state == BootstrapState.NEW) {
+                    state = BootstrapState.INITIALIZING;
+                    owner = Thread.currentThread();
+                    externalParticipant.set(Boolean.TRUE);
+                    return true;
+                }
+                if (state == BootstrapState.INITIALIZING) {
+                    externalParticipant.set(Boolean.TRUE);
+                }
+                if (state == BootstrapState.FAILED) {
+                    throw propagate(failure);
+                }
+                return false;
+            }
+        }
+
+        private BootstrapAccess access() {
+            synchronized (stateLock) {
+                return switch (state) {
+                    case NEW -> {
+                        state = BootstrapState.INITIALIZING;
+                        owner = Thread.currentThread();
+                        yield BootstrapAccess.OWNER;
+                    }
+                    case INITIALIZING -> owner == Thread.currentThread()
+                            || externalParticipant.get().booleanValue()
+                            ? BootstrapAccess.OWNER_REENTRY
+                            : BootstrapAccess.WAIT;
+                    case READY -> BootstrapAccess.READY;
+                    case FAILED -> throw propagate(failure);
+                };
+            }
+        }
+
+        private void complete() {
+            synchronized (stateLock) {
+                if (state != BootstrapState.INITIALIZING) {
+                    return;
+                }
+                state = BootstrapState.READY;
+                owner = null;
+            }
+            completion.countDown();
+        }
+
+        private void fail(Throwable cause) {
+            synchronized (stateLock) {
+                if (state != BootstrapState.INITIALIZING) {
+                    return;
+                }
+                failure = cause;
+                state = BootstrapState.FAILED;
+                owner = null;
+            }
+            completion.countDown();
+        }
+
+        private void awaitCompletion() {
+            try {
+                completion.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(
+                        "Interrupted waiting for tool descriptor bootstrap", e); //$NON-NLS-1$
+            }
+            Throwable completedFailure = failure;
+            if (completedFailure != null) {
+                throw propagate(completedFailure);
+            }
+        }
+
+        private void leaveExternalBootstrap() {
+            externalParticipant.remove();
         }
     }
 
