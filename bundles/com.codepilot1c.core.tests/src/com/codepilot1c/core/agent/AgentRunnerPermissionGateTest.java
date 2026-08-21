@@ -33,11 +33,14 @@ import com.codepilot1c.core.agent.events.IAgentEventListener;
 import com.codepilot1c.core.agent.events.ToolCallEvent;
 import com.codepilot1c.core.agent.events.ToolResultEvent;
 import com.codepilot1c.core.agent.profiles.AgentCapability;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
 import com.codepilot1c.core.model.LlmMessage;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
 import com.codepilot1c.core.model.ToolCall;
+import com.codepilot1c.core.mcp.McpToolAdapter;
+import com.codepilot1c.core.mcp.model.McpTool;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
@@ -45,6 +48,7 @@ import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.surface.ToolSurfaceAugmentor;
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 
 import sun.misc.Unsafe;
 
@@ -173,6 +177,25 @@ public class AgentRunnerPermissionGateTest {
     }
 
     @Test
+    public void arbitrarySourceWriteIsDeniedInGsdShipProfile() throws Exception {
+        CountingTool writeFile = new CountingTool("write_file"); //$NON-NLS-1$
+        AgentRunner runner = runnerWith(writeFile);
+        List<AgentEvent> events = captureEvents(runner);
+        autoConfirm(runner, null);
+        AgentConfig config = AgentConfig.builder()
+                .profileName("gsd-ship") //$NON-NLS-1$
+                .enableTool("write_file") //$NON-NLS-1$
+                .build();
+
+        invokeExecute(runner, new ToolCall("call-1", "write_file", //$NON-NLS-1$ //$NON-NLS-2$
+                "{\"path\":\"src/Main.java\"}"), config); //$NON-NLS-1$
+
+        assertEquals(0, writeFile.executions.get());
+        assertEquals("denied_by_profile_rule", //$NON-NLS-1$
+                onlyResult(events).getStructuredString("reason_code")); //$NON-NLS-1$
+    }
+
+    @Test
     public void mutatingToolIsDeniedForEveryReadOnlyProfileEvenWhenConfigIsPermissive()
             throws Exception {
         for (String profileId : List.of(
@@ -217,6 +240,69 @@ public class AgentRunnerPermissionGateTest {
     }
 
     @Test
+    public void gateAskRequiresConfirmationBeforeExecution() throws Exception {
+        CountingTool writeFile = new CountingTool("write_file"); //$NON-NLS-1$
+        AgentRunner runner = runnerWith(writeFile);
+        List<AgentEvent> events = captureEvents(runner);
+
+        invokeExecute(runner, new ToolCall("call-ask", "write_file", //$NON-NLS-1$ //$NON-NLS-2$
+                "{\"path\":\"src/Main.bsl\"}"), AgentConfig.builder() //$NON-NLS-1$
+                .profileName("gsd-execute").enableTool("write_file").build()); //$NON-NLS-1$ //$NON-NLS-2$
+
+        assertEquals(0, writeFile.executions.get());
+        assertEquals("confirmation_unavailable", //$NON-NLS-1$
+                onlyResult(events).getStructuredString("reason_code")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void toolConfirmationAndDestructiveSignalsBothRequireConfirmation() throws Exception {
+        for (CountingTool tool : List.of(
+                new CountingTool("read_file", true, false), //$NON-NLS-1$
+                new CountingTool("read_file", false, true))) { //$NON-NLS-1$
+            AgentRunner runner = runnerWith(tool);
+            List<AgentEvent> events = captureEvents(runner);
+
+            invokeExecute(runner, new ToolCall("call-policy", "read_file", "{}"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    AgentConfig.builder().profileName("plan").build()); //$NON-NLS-1$
+
+            assertEquals(0, tool.executions.get());
+            assertEquals("confirmation_unavailable_tool_policy", //$NON-NLS-1$
+                    onlyResult(events).getStructuredString("reason_code")); //$NON-NLS-1$
+            assertTrue(events.stream().anyMatch(event -> event instanceof ToolCallEvent call
+                    && call.isRequiresConfirmation()));
+        }
+    }
+
+    @Test
+    public void mutatingDynamicNoRuleCannotExecuteWithoutConfirmation() throws Exception {
+        String toolName = "mcp_remote_publish_release"; //$NON-NLS-1$
+        McpTool advertisedTool = new McpTool("publish_release", "Publish"); //$NON-NLS-1$ //$NON-NLS-2$
+        JsonObject untrustedHints = new JsonObject();
+        untrustedHints.addProperty("readOnlyHint", true); //$NON-NLS-1$
+        advertisedTool.setAnnotations(untrustedHints);
+        DynamicToolCapability remoteCapability =
+                McpToolAdapter.dynamicToolCapabilityOf(advertisedTool);
+        assertEquals(DynamicToolCapability.MUTATING, remoteCapability);
+        CountingTool tool = new CountingTool(toolName);
+        AgentRunner runner = runnerWithDynamic(tool, remoteCapability);
+        List<AgentEvent> events = captureEvents(runner);
+
+        invokeExecute(runner, new ToolCall("call-mcp", toolName, "{}"), //$NON-NLS-1$ //$NON-NLS-2$
+                AgentConfig.builder().profileName("build").build()); //$NON-NLS-1$
+
+        assertEquals(0, tool.executions.get());
+        assertEquals("confirmation_unavailable_tool_policy", //$NON-NLS-1$
+                onlyResult(events).getStructuredString("reason_code")); //$NON-NLS-1$
+
+        CountingTool confirmedTool = new CountingTool(toolName);
+        AgentRunner confirmedRunner = runnerWithDynamic(confirmedTool, remoteCapability);
+        autoConfirm(confirmedRunner, null);
+        invokeExecute(confirmedRunner, new ToolCall("call-mcp-confirmed", toolName, "{}"), //$NON-NLS-1$ //$NON-NLS-2$
+                AgentConfig.builder().profileName("build").build()); //$NON-NLS-1$
+        assertEquals(1, confirmedTool.executions.get());
+    }
+
+    @Test
     public void deniedResultIsDeterministic() throws Exception {
         CountingTool editFile = new CountingTool("edit_file"); //$NON-NLS-1$
         AgentRunner runner = runnerWith(editFile);
@@ -256,6 +342,17 @@ public class AgentRunnerPermissionGateTest {
     private static AgentRunner runnerWith(ITool tool) throws Exception {
         AgentRunner runner = new AgentRunner(new NoopProvider(),
                 isolatedRegistry(Map.of(tool.getName(), tool)), "system"); //$NON-NLS-1$
+        Field field = AgentRunner.class.getDeclaredField("conversationHistory"); //$NON-NLS-1$
+        field.setAccessible(true);
+        field.set(runner, new ArrayList<>(List.of(LlmMessage.user("test")))); //$NON-NLS-1$
+        return runner;
+    }
+
+    private static AgentRunner runnerWithDynamic(
+            ITool tool, DynamicToolCapability capability) throws Exception {
+        ToolRegistry registry = isolatedRegistry(Map.of());
+        registry.registerDynamicTool(tool, capability);
+        AgentRunner runner = new AgentRunner(new NoopProvider(), registry, "system"); //$NON-NLS-1$
         Field field = AgentRunner.class.getDeclaredField("conversationHistory"); //$NON-NLS-1$
         field.setAccessible(true);
         field.set(runner, new ArrayList<>(List.of(LlmMessage.user("test")))); //$NON-NLS-1$
@@ -313,6 +410,8 @@ public class AgentRunnerPermissionGateTest {
         ToolRegistry registry = (ToolRegistry) unsafe().allocateInstance(ToolRegistry.class);
         setField(registry, "tools", new HashMap<>(tools)); //$NON-NLS-1$
         setField(registry, "dynamicTools", new ConcurrentHashMap<String, ITool>()); //$NON-NLS-1$
+        setField(registry, "dynamicToolCapabilities", //$NON-NLS-1$
+                new ConcurrentHashMap<String, DynamicToolCapability>());
         setField(registry, "gson", new Gson()); //$NON-NLS-1$
         setField(registry, "augmentor", ToolSurfaceAugmentor.passthrough()); //$NON-NLS-1$
         return registry;
@@ -332,11 +431,19 @@ public class AgentRunnerPermissionGateTest {
 
     private static final class CountingTool implements ITool {
         private final String name;
+        private final boolean confirmation;
+        private final boolean destructive;
         private final AtomicInteger executions = new AtomicInteger();
         private final AtomicReference<Map<String, Object>> lastParameters = new AtomicReference<>();
 
         private CountingTool(String name) {
+            this(name, false, false);
+        }
+
+        private CountingTool(String name, boolean confirmation, boolean destructive) {
             this.name = name;
+            this.confirmation = confirmation;
+            this.destructive = destructive;
         }
 
         @Override
@@ -359,6 +466,16 @@ public class AgentRunnerPermissionGateTest {
             lastParameters.set(parameters);
             executions.incrementAndGet();
             return CompletableFuture.completedFuture(ToolResult.success("ok")); //$NON-NLS-1$
+        }
+
+        @Override
+        public boolean requiresConfirmation() {
+            return confirmation;
+        }
+
+        @Override
+        public boolean isDestructive() {
+            return destructive;
         }
     }
 

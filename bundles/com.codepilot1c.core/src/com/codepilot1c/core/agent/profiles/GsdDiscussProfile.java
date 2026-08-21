@@ -22,11 +22,7 @@ public final class GsdDiscussProfile extends GsdPhaseProfile {
 
     public static final String ID = "gsd-discuss"; //$NON-NLS-1$
 
-    private static final Set<String> ALLOWED_TOOLS = extendTools(
-            "gsd_get_state", //$NON-NLS-1$
-            "gsd_record_decision", //$NON-NLS-1$
-            "gsd_transition" //$NON-NLS-1$
-    );
+    private static final Set<String> ALLOWED_TOOLS = GsdProfileCapabilities.allowedTools(ID);
 
     private static final List<PermissionRule> DEFAULT_PERMISSIONS = extendPermissions(
             PermissionRule.allow("gsd_get_state").forAllResources(), //$NON-NLS-1$

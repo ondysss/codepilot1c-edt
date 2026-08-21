@@ -44,6 +44,8 @@ import com.codepilot1c.core.agent.graph.ToolGraphRouter;
 import com.codepilot1c.core.agent.graph.ToolGraphToolFilter;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
+import com.codepilot1c.core.agent.profiles.ProfileToolAccess;
 import com.codepilot1c.core.agent.prompts.AgentPromptTemplates;
 import com.codepilot1c.core.agent.prompts.SystemPromptAssembler;
 import com.codepilot1c.core.agent.prompts.ToolPromptRenderer;
@@ -514,21 +516,17 @@ public class AgentRunner implements IAgentRunner {
         }
 
         // Check if tool is allowed
-        if (!config.isToolAllowed(toolName)) {
+        AgentProfile profile = resolveProfile(config);
+        if (!isAllowedByConfig(config, profile, toolName)) {
             ToolResult disabledResult = ToolResult.failure("Инструмент отключен: " + toolName);
             addToolResult(call.getId(), disabledResult);
             emit(new ToolResultEvent(step, toolName, call.getId(), disabledResult, 0));
             return CompletableFuture.completedFuture(null);
         }
 
-        AgentProfile profile = resolveProfile(config);
         ToolExecutionContext executionContext =
                 ToolExecutionContext.of(profile, config.getDelegationDepth());
-        Set<String> profileAllowed = profile.getAllowedTools();
-        boolean deferredDiscovery = deferredToolSession.isDeferredLoadingActive()
-                && "discover_tools".equals(toolName); //$NON-NLS-1$
-        if (profileAllowed != null && !profileAllowed.isEmpty()
-                && !profileAllowed.contains(toolName) && !deferredDiscovery) {
+        if (!ProfileToolAccess.allows(profile, toolName, toolRegistry)) {
             ToolResult deniedResult = permissionDenied(
                     toolName, profile.getId(), null, "tool_not_in_profile", //$NON-NLS-1$
                     "profile", null); //$NON-NLS-1$
@@ -560,7 +558,12 @@ public class AgentRunner implements IAgentRunner {
         }
 
         boolean gateAsk = gate.decision() == ProfilePermissionGate.GateDecision.ASK;
-        boolean effectiveConfirmation = gateAsk || tool.requiresConfirmation();
+        boolean destructive = tool.isDestructive()
+                || toolRegistry.getDynamicToolCapability(toolName)
+                        == DynamicToolCapability.MUTATING;
+        boolean effectiveConfirmation = gateAsk
+                || tool.requiresConfirmation()
+                || destructive;
 
         // Emit tool call event
         emit(new ToolCallEvent(step, call, args, effectiveConfirmation));
@@ -568,7 +571,8 @@ public class AgentRunner implements IAgentRunner {
         // Check if confirmation is required
         if (effectiveConfirmation) {
             return requestConfirmation(
-                    call, tool, args, profile.getId(), executionContext, gate, gateAsk);
+                    call, tool, args, profile.getId(), executionContext,
+                    gate, gateAsk, destructive);
         }
 
         // Execute directly
@@ -600,7 +604,8 @@ public class AgentRunner implements IAgentRunner {
     private CompletableFuture<Void> requestConfirmation(
             ToolCall call, ITool tool, Map<String, Object> args, String profileId,
             ToolExecutionContext executionContext,
-            ProfilePermissionGate.GateResult gate, boolean gateAsk) {
+            ProfilePermissionGate.GateResult gate, boolean gateAsk,
+            boolean destructive) {
 
         int step = currentStep.get();
         if (!hasConfirmationSink()) {
@@ -628,7 +633,7 @@ public class AgentRunner implements IAgentRunner {
                 call,
                 tool.getDescription(),
                 args,
-                tool.isDestructive()
+                destructive
         );
         pendingConfirmation.set(event);
         emit(event);
@@ -731,6 +736,21 @@ public class AgentRunner implements IAgentRunner {
     /**
      * Создает LlmRequest с инструментами.
      */
+    private boolean isAllowedByConfig(
+            AgentConfig config, AgentProfile profile, String toolName) {
+        if (config.getDisabledTools().contains(toolName)) {
+            return false;
+        }
+        if (ProfileToolAccess.allows(profile, toolName, toolRegistry)
+                && toolRegistry.getDynamicToolCapability(toolName)
+                        != com.codepilot1c.core.agent.profiles.DynamicToolCapability.NONE) {
+            // Profile-created configs enumerate only static names. A trusted
+            // runtime grant remains live as MCP/UI tools are added or removed.
+            return true;
+        }
+        return config.isToolAllowed(toolName);
+    }
+
     private LlmRequest buildRequest(AgentConfig config) {
         List<ToolDefinition> tools = new ArrayList<>();
         ToolGraphToolFilter graphFilter = toolGraphRouter != null
@@ -738,7 +758,6 @@ public class AgentRunner implements IAgentRunner {
                 : ToolGraphToolFilter.allowAll();
         AgentProfile profile = resolveProfile(config);
         ToolSurfaceContext surfaceContext = toolRegistry.createRuntimeSurfaceContext(profile);
-        Set<String> profileAllowed = profile.getAllowedTools();
         Set<String> contextExcluded = contextGate.computeExcludedTools();
         int totalCount = 0;
         int deferredCount = 0;
@@ -748,17 +767,13 @@ public class AgentRunner implements IAgentRunner {
         for (ITool tool : toolRegistry.getAllTools()) {
             totalCount++;
             String name = tool.getName();
-            if (!profileAllowed.isEmpty() && !profileAllowed.contains(name)) {
-                // Always allow discover_tools when deferred loading is active
-                if (!(deferredToolSession.isDeferredLoadingActive()
-                        && "discover_tools".equals(name))) { //$NON-NLS-1$
-                    continue;
-                }
+            if (!ProfileToolAccess.allows(profile, name, toolRegistry)) {
+                continue;
             }
             if (contextExcluded.contains(name)) {
                 continue;
             }
-            if (!config.isToolAllowed(name)) {
+            if (!isAllowedByConfig(config, profile, name)) {
                 continue;
             }
             if (!graphFilter.allows(name)) {

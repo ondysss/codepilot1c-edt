@@ -18,6 +18,8 @@ import java.util.function.Supplier;
 
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
+import com.codepilot1c.core.agent.profiles.ProfileToolAccess;
 import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.permissions.PermissionDenialPayload;
@@ -78,7 +80,6 @@ public final class ChatToolGate {
     private final AgentProfile profile;
     private final Supplier<List<PermissionRule>> globalRules;
     private final Function<String, Map<String, Object>> argumentParser;
-    private final Supplier<Set<String>> dynamicToolNames;
     private final BooleanSupplier confirmationSinkAvailable;
     private final BooleanSupplier skipConfirmations;
 
@@ -88,7 +89,8 @@ public final class ChatToolGate {
      * @param profile selected chat profile
      * @param globalRules supplier of global permission rules
      * @param argumentParser parser shared with tool execution
-     * @param dynamicToolNames supplier of dynamic tool names retained outside profile allowlists
+     * @param dynamicToolNames supplier retained for runtime provenance/lifecycle validation;
+     *        registration by itself never grants profile capability
      * @param confirmationSinkAvailable whether the UI can currently request confirmation
      * @param skipConfirmations whether confirmation is auto-approved by preference
      */
@@ -102,7 +104,7 @@ public final class ChatToolGate {
         this.profile = Objects.requireNonNull(profile, "profile"); //$NON-NLS-1$
         this.globalRules = Objects.requireNonNull(globalRules, "globalRules"); //$NON-NLS-1$
         this.argumentParser = Objects.requireNonNull(argumentParser, "argumentParser"); //$NON-NLS-1$
-        this.dynamicToolNames = Objects.requireNonNull(dynamicToolNames, "dynamicToolNames"); //$NON-NLS-1$
+        Objects.requireNonNull(dynamicToolNames, "dynamicToolNames"); //$NON-NLS-1$
         this.confirmationSinkAvailable = Objects.requireNonNull(
                 confirmationSinkAvailable, "confirmationSinkAvailable"); //$NON-NLS-1$
         this.skipConfirmations = Objects.requireNonNull(skipConfirmations, "skipConfirmations"); //$NON-NLS-1$
@@ -138,7 +140,8 @@ public final class ChatToolGate {
 
     /**
      * Builds the model-facing tool surface from the selected profile.
-     * Dynamic tools remain visible and are still governed by permission rules.
+     * Runtime tools require both a trusted capability classification and the
+     * selected profile's explicit runtime grant.
      *
      * @param registry tool registry
      * @return visible tool definitions
@@ -146,11 +149,9 @@ public final class ChatToolGate {
     public List<ToolDefinition> visibleToolDefinitions(ToolRegistry registry) {
         Objects.requireNonNull(registry, "registry"); //$NON-NLS-1$
         ToolSurfaceContext context = registry.createRuntimeSurfaceContext(profile);
-        Set<String> allowed = profile.getAllowedTools();
-        Set<String> dynamic = dynamicToolNamesSafe();
         List<ToolDefinition> result = new ArrayList<>();
         for (ITool tool : registry.getAllTools()) {
-            if (!isVisible(tool.getName(), allowed, dynamic)) {
+            if (!ProfileToolAccess.allows(profile, tool.getName(), registry)) {
                 continue;
             }
             result.add(registry.getToolDefinition(tool, context));
@@ -175,8 +176,7 @@ public final class ChatToolGate {
             return execute(arguments, context, null, "none", null); //$NON-NLS-1$
         }
 
-        Set<String> allowed = profile.getAllowedTools();
-        if (!isVisible(toolName, allowed, dynamicToolNamesSafe())) {
+        if (!ProfileToolAccess.allows(profile, toolName, ToolRegistry.getInstance())) {
             String reasonCode = "tool_not_in_profile"; //$NON-NLS-1$
             return deny(arguments, context, PermissionDenialPayload.denied(
                     toolName, profile.getId(), null, reasonCode, LAYER_PROFILE, null),
@@ -195,9 +195,12 @@ public final class ChatToolGate {
         }
 
         boolean gateAsk = gate.decision() == GateDecision.ASK;
+        boolean destructive = tool.isDestructive()
+                || ToolRegistry.getInstance().getDynamicToolCapability(toolName)
+                        == DynamicToolCapability.MUTATING;
         boolean effectiveConfirmation = gateAsk
                 || tool.requiresConfirmation()
-                || tool.isDestructive();
+                || destructive;
         if (!effectiveConfirmation) {
             return execute(arguments, context, null, gate.layer(), gate.resource());
         }
@@ -248,11 +251,6 @@ public final class ChatToolGate {
                 && "edit_file".equals(call.getName()); //$NON-NLS-1$
     }
 
-    private boolean isVisible(String toolName, Set<String> allowed, Set<String> dynamic) {
-        return allowed == null || allowed.isEmpty()
-                || allowed.contains(toolName) || dynamic.contains(toolName);
-    }
-
     private Map<String, Object> parseSafe(String arguments) {
         try {
             Map<String, Object> parsed = argumentParser.apply(arguments);
@@ -268,15 +266,6 @@ public final class ChatToolGate {
             return rules != null ? rules : List.of();
         } catch (Throwable e) {
             return List.of();
-        }
-    }
-
-    private Set<String> dynamicToolNamesSafe() {
-        try {
-            Set<String> names = dynamicToolNames.get();
-            return names != null ? names : Set.of();
-        } catch (Throwable e) {
-            return Set.of();
         }
     }
 

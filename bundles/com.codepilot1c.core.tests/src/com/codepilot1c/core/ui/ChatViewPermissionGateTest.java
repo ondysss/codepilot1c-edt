@@ -15,23 +15,30 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 import com.codepilot1c.core.agent.profiles.AgentCapability;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.BuildAgentProfile;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
+import com.codepilot1c.core.agent.profiles.GsdDiscussProfile;
 import com.codepilot1c.core.agent.profiles.GsdExecuteProfile;
 import com.codepilot1c.core.agent.profiles.ProfileCapabilities;
 import com.codepilot1c.core.model.ToolCall;
@@ -41,10 +48,124 @@ import com.codepilot1c.core.tools.ToolArgumentParser;
 import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
+import com.codepilot1c.core.tools.meta.ToolDescriptorRegistry;
+import com.codepilot1c.core.tools.meta.ToolDescriptor;
+import com.codepilot1c.core.tools.surface.ToolSurfaceAugmentor;
+import com.google.gson.Gson;
+
+import sun.misc.Unsafe;
 
 public class ChatViewPermissionGateTest {
 
     private static final Function<String, Map<String, Object>> EMPTY_PARSER = ignored -> Map.of();
+    private ToolRegistry previousRegistry;
+
+    @Before
+    public void installIsolatedRegistry() throws Exception {
+        ToolRegistry registry = (ToolRegistry) unsafe().allocateInstance(ToolRegistry.class);
+        Map<String, ITool> builtins = new HashMap<>();
+        builtins.put("read_file", new CountingTool("read_file")); //$NON-NLS-1$ //$NON-NLS-2$
+        setField(registry, "tools", builtins); //$NON-NLS-1$
+        setField(registry, "dynamicTools", new ConcurrentHashMap<String, ITool>()); //$NON-NLS-1$
+        setField(registry, "dynamicToolCapabilities", //$NON-NLS-1$
+                new ConcurrentHashMap<String, DynamicToolCapability>());
+        setField(registry, "gson", new Gson()); //$NON-NLS-1$
+        setField(registry, "augmentor", ToolSurfaceAugmentor.passthrough()); //$NON-NLS-1$
+        previousRegistry = installRegistry(registry);
+    }
+
+    @After
+    public void restoreRegistry() throws Exception {
+        installRegistry(previousRegistry);
+    }
+
+    @Test
+    public void trustedMcpCapabilitiesAreProfileScopedAndUnknownFailsClosed() {
+        String readName = "mcp_review_search_issues"; //$NON-NLS-1$
+        String mutateName = "mcp_review_publish_release"; //$NON-NLS-1$
+        String unknownName = "mcp_review_unannotated"; //$NON-NLS-1$
+        CountingTool readTool = new CountingTool(readName);
+        CountingTool mutateTool = new CountingTool(mutateName, false, true);
+        CountingTool unknownTool = new CountingTool(unknownName);
+        ToolRegistry registry = ToolRegistry.getInstance();
+        registry.registerDynamicTool(readTool, DynamicToolCapability.READ_ONLY);
+        registry.registerDynamicTool(mutateTool, DynamicToolCapability.MUTATING);
+        registry.registerDynamicTool(unknownTool);
+        try {
+            ChatToolGate gsd = gate(new GsdDiscussProfile(), List.of(), EMPTY_PARSER,
+                    registry.getDynamicToolNames(), true, false);
+            assertTrue(gsd.visibleToolDefinitions(registry).stream()
+                    .anyMatch(tool -> readName.equals(tool.getName())));
+            assertFalse(gsd.visibleToolDefinitions(registry).stream()
+                    .anyMatch(tool -> mutateName.equals(tool.getName())));
+            assertEquals(ChatToolGate.Action.EXECUTE,
+                    gsd.decide(call(readName, "{}"), readTool).action()); //$NON-NLS-1$
+            assertEquals(ChatToolGate.Action.DENY,
+                    gsd.decide(call(mutateName, "{}"), mutateTool).action()); //$NON-NLS-1$
+            assertEquals(ChatToolGate.Action.DENY,
+                    gsd.decide(call(unknownName, "{}"), unknownTool).action()); //$NON-NLS-1$
+
+            ChatToolGate build = gate(new BuildAgentProfile(), List.of(), EMPTY_PARSER,
+                    registry.getDynamicToolNames(), true, false);
+            Set<String> buildNames = build.visibleToolDefinitions(registry).stream()
+                    .map(tool -> tool.getName()).collect(java.util.stream.Collectors.toSet());
+            assertTrue(buildNames.contains(readName));
+            assertTrue(buildNames.contains(mutateName));
+            assertFalse(buildNames.contains(unknownName));
+        } finally {
+            registry.unregisterDynamicTool(readName);
+            registry.unregisterDynamicTool(mutateName);
+            registry.unregisterDynamicTool(unknownName);
+        }
+    }
+
+    @Test
+    public void locallyTrustedDynamicUiDiagnosticsRemainsUsableByReadOnlyProfiles() {
+        String name = "get_diagnostics"; //$NON-NLS-1$
+        CountingTool uiDiagnostics = new CountingTool(name);
+        ToolRegistry registry = ToolRegistry.getInstance();
+        registry.registerDynamicTool(uiDiagnostics, DynamicToolCapability.READ_ONLY);
+        try {
+            ChatToolGate gate = gate(new GsdDiscussProfile(), List.of(), EMPTY_PARSER,
+                    registry.getDynamicToolNames(), true, false);
+
+            assertTrue(gate.visibleToolDefinitions(registry).stream()
+                    .anyMatch(tool -> name.equals(tool.getName())));
+            ChatToolGate.Decision decision = gate.decide(
+                    call(name, "{}"), uiDiagnostics); //$NON-NLS-1$
+            assertEquals(ChatToolGate.Action.EXECUTE, decision.action());
+            executeOnlyWhenApproved(decision, uiDiagnostics);
+            assertEquals(1, uiDiagnostics.executions.get());
+        } finally {
+            registry.unregisterDynamicTool(name);
+        }
+    }
+
+    @Test
+    public void emptyStaticAllowlistMeansNoStaticToolsButMayUseTrustedRuntimeGrant() {
+        String name = "mcp_empty_profile_lookup"; //$NON-NLS-1$
+        CountingTool tool = new CountingTool(name);
+        ToolRegistry registry = ToolRegistry.getInstance();
+        registry.registerDynamicTool(tool, DynamicToolCapability.READ_ONLY);
+        AgentProfile profile = new TestProfile(
+                "empty-runtime", Set.of(), List.of(), true) { //$NON-NLS-1$
+            @Override
+            public DynamicToolCapability getDynamicToolGrant() {
+                return DynamicToolCapability.READ_ONLY;
+            }
+        };
+        try {
+            ChatToolGate gate = gate(profile, List.of(), EMPTY_PARSER,
+                    registry.getDynamicToolNames(), true, false);
+            Set<String> names = gate.visibleToolDefinitions(registry).stream()
+                    .map(definition -> definition.getName())
+                    .collect(java.util.stream.Collectors.toSet());
+            assertFalse(names.contains("read_file")); //$NON-NLS-1$
+            assertTrue(names.contains(name));
+        } finally {
+            registry.unregisterDynamicTool(name);
+        }
+    }
 
     @Test
     public void deniedToolIsNotExecutedInChatViewLoop() {
@@ -69,7 +190,7 @@ public class ChatViewPermissionGateTest {
         String name = "w6_context_capture"; //$NON-NLS-1$
         ContextCapturingTool tool = new ContextCapturingTool(name);
         ToolRegistry registry = ToolRegistry.getInstance();
-        registry.registerDynamicTool(tool);
+        registry.registerDynamicTool(tool, DynamicToolCapability.READ_ONLY);
         AgentProfile profile = profile("context-profile", Set.of(name), List.of(), false); //$NON-NLS-1$
         try {
             ChatToolGate gate = gate(profile, List.of(), EMPTY_PARSER,
@@ -95,7 +216,7 @@ public class ChatViewPermissionGateTest {
         String name = "w6_one_parsed_map"; //$NON-NLS-1$
         CountingTool tool = new CountingTool(name);
         ToolRegistry registry = ToolRegistry.getInstance();
-        registry.registerDynamicTool(tool);
+        registry.registerDynamicTool(tool, DynamicToolCapability.READ_ONLY);
         AtomicInteger parses = new AtomicInteger();
         Map<String, Object> parsed = new LinkedHashMap<>();
         parsed.put("path", "src/Main.bsl"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -267,8 +388,8 @@ public class ChatViewPermissionGateTest {
         String name = "w6_vanished_confirmation_tool"; //$NON-NLS-1$
         CountingTool tool = new CountingTool(name, true, false);
         ToolRegistry registry = ToolRegistry.getInstance();
-        registry.registerDynamicTool(tool);
-        AgentProfile profile = profile("vanished", Set.of(), List.of(), false); //$NON-NLS-1$
+        registry.registerDynamicTool(tool, DynamicToolCapability.READ_ONLY);
+        AgentProfile profile = profile("vanished", Set.of(name), List.of(), false); //$NON-NLS-1$
         try {
             ChatToolGate gate = gate(profile, List.of(), EMPTY_PARSER,
                     registry.getDynamicToolNames(), true, false);
@@ -338,27 +459,60 @@ public class ChatViewPermissionGateTest {
     }
 
     @Test
-    public void dynamicToolStaysVisibleAndIsGatedByRulesOnly() {
+    public void dynamicMutatorOutsideProfileIsHiddenAndDenied() {
         String name = "w6_dynamic_surface"; //$NON-NLS-1$
-        CountingTool tool = new CountingTool(name);
+        CountingTool tool = new CountingTool(name, false, true);
         ToolRegistry registry = ToolRegistry.getInstance();
-        registry.registerDynamicTool(tool);
-        AgentProfile profile = profile("limited", Set.of("read_file"), List.of(), false); //$NON-NLS-1$ //$NON-NLS-2$
-        PermissionRule deny = PermissionRule.deny(name)
-                .withDescription("dynamic deny") //$NON-NLS-1$
-                .forAllResources();
+        registry.registerDynamicTool(tool, DynamicToolCapability.MUTATING);
+        AgentProfile profile = profile("limited", Set.of("read_file"), List.of(), true); //$NON-NLS-1$ //$NON-NLS-2$
         try {
-            ChatToolGate gate = gate(profile, List.of(deny), EMPTY_PARSER,
+            ChatToolGate gate = gate(profile, List.of(), EMPTY_PARSER,
                     registry.getDynamicToolNames(), true, false);
 
-            assertTrue(gate.visibleToolDefinitions(registry).stream()
+            assertFalse(gate.visibleToolDefinitions(registry).stream()
                     .anyMatch(definition -> name.equals(definition.getName())));
             ChatToolGate.Decision decision = gate.decide(call(name, "{}"), tool); //$NON-NLS-1$
             assertEquals(ChatToolGate.Action.DENY, decision.action());
-            assertEquals("denied_by_global_rule", decision.reasonCode()); //$NON-NLS-1$
+            assertEquals("tool_not_in_profile", decision.reasonCode()); //$NON-NLS-1$
         } finally {
             registry.unregisterDynamicTool(name);
         }
+    }
+
+    @Test
+    public void builtInToolWinsOverDynamicToolWithSameAllowedName() {
+        String name = "read_file"; //$NON-NLS-1$
+        CountingTool dynamic = new CountingTool(name, false, true);
+        ToolRegistry registry = ToolRegistry.getInstance();
+        ITool builtIn = registry.getTool(name);
+        ToolDescriptorRegistry descriptors = ToolDescriptorRegistry.getInstance();
+        descriptors.registerTool(builtIn);
+        ToolDescriptor before = descriptors.get(name);
+        registry.registerDynamicTool(dynamic);
+        AgentProfile profile = profile("builtin-precedence", Set.of(name), List.of(), true); //$NON-NLS-1$
+        try {
+            ChatToolGate gate = gate(profile, List.of(), EMPTY_PARSER,
+                    registry.getDynamicToolNames(), true, false);
+
+            assertSame(builtIn, registry.getTool(name));
+            assertDescriptorEquals(before, descriptors.get(name));
+            assertTrue(gate.visibleToolDefinitions(registry).stream()
+                    .anyMatch(definition -> name.equals(definition.getName())));
+            assertEquals(ChatToolGate.Action.EXECUTE,
+                    gate.decide(call(name, "{}"), registry.getTool(name)).action()); //$NON-NLS-1$
+            assertEquals(0, dynamic.executions.get());
+        } finally {
+            registry.unregisterDynamicTool(name);
+        }
+        assertDescriptorEquals(before, descriptors.get(name));
+    }
+
+    private static void assertDescriptorEquals(
+            ToolDescriptor expected, ToolDescriptor actual) {
+        assertEquals(expected.getCategory(), actual.getCategory());
+        assertEquals(expected.isMutating(), actual.isMutating());
+        assertEquals(expected.requiresValidationToken(), actual.requiresValidationToken());
+        assertEquals(expected.getTags(), actual.getTags());
     }
 
     @Test
@@ -414,7 +568,7 @@ public class ChatViewPermissionGateTest {
         String name = "w6_repaired_arguments"; //$NON-NLS-1$
         CountingTool tool = new CountingTool(name, true, false);
         ToolRegistry registry = ToolRegistry.getInstance();
-        registry.registerDynamicTool(tool);
+        registry.registerDynamicTool(tool, DynamicToolCapability.READ_ONLY);
         AgentProfile profile = profile("repair", Set.of(name), List.of(), false); //$NON-NLS-1$
         try {
             ChatToolGate gate = gate(profile, List.of(),
@@ -492,6 +646,26 @@ public class ChatViewPermissionGateTest {
 
     private static ToolCall call(String name, String arguments) {
         return new ToolCall("call-" + name, name, arguments); //$NON-NLS-1$
+    }
+
+    private static ToolRegistry installRegistry(ToolRegistry registry) throws Exception {
+        Field field = ToolRegistry.class.getDeclaredField("instance"); //$NON-NLS-1$
+        field.setAccessible(true);
+        ToolRegistry previous = (ToolRegistry) field.get(null);
+        field.set(null, registry);
+        return previous;
+    }
+
+    private static void setField(Object target, String name, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    private static Unsafe unsafe() throws Exception {
+        Field field = Unsafe.class.getDeclaredField("theUnsafe"); //$NON-NLS-1$
+        field.setAccessible(true);
+        return (Unsafe) field.get(null);
     }
 
     private static int occurrences(String text, String needle) {
@@ -591,7 +765,7 @@ public class ChatViewPermissionGateTest {
         return new TestProfile(id, allowedTools, permissions, readOnly);
     }
 
-    private static final class TestProfile implements AgentProfile {
+    private static class TestProfile implements AgentProfile {
         private final String id;
         private final Set<String> allowedTools;
         private final List<PermissionRule> permissions;
@@ -656,6 +830,13 @@ public class ChatViewPermissionGateTest {
         @Override
         public boolean canExecuteShell() {
             return !readOnly;
+        }
+
+        @Override
+        public DynamicToolCapability getDynamicToolGrant() {
+            return readOnly
+                    ? DynamicToolCapability.READ_ONLY
+                    : DynamicToolCapability.MUTATING;
         }
     }
 

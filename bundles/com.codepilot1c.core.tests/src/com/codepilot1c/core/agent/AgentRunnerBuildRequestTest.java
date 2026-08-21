@@ -19,6 +19,7 @@ import org.junit.Test;
 
 import com.codepilot1c.core.agent.events.ToolResultEvent;
 import com.codepilot1c.core.agent.profiles.ExploreAgentProfile;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
 import com.codepilot1c.core.model.LlmMessage;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
@@ -97,6 +98,33 @@ public class AgentRunnerBuildRequestTest {
         assertFalse("Profile gate must exclude mutating tool", toolNames.contains("edit_file")); //$NON-NLS-1$ //$NON-NLS-2$
         assertFalse("Context gate must exclude primed tool", toolNames.contains("bsl_list_methods")); //$NON-NLS-1$ //$NON-NLS-2$
         assertFalse("Config disable list must exclude tool", toolNames.contains("glob")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void buildRequestUsesTrustedRuntimeCapabilitiesAcrossProfiles() throws Exception {
+        ToolRegistry registry = isolatedRegistry(Map.of());
+        registry.registerDynamicTool(tool("mcp_runtime_lookup"), //$NON-NLS-1$
+                DynamicToolCapability.READ_ONLY);
+        registry.registerDynamicTool(tool("mcp_runtime_update"), //$NON-NLS-1$
+                DynamicToolCapability.MUTATING);
+        registry.registerDynamicTool(tool("mcp_runtime_unknown")); //$NON-NLS-1$
+        AgentRunner runner = new AgentRunner(new NoopProvider(), registry, "system"); //$NON-NLS-1$
+        primeHistory(runner);
+        primeContextGate(runner, Set.of());
+
+        Set<String> explore = invokeBuildRequest(runner, AgentConfig.builder()
+                .profileName("explore").build()).getTools().stream() //$NON-NLS-1$
+                .map(ToolDefinition::getName).collect(Collectors.toSet());
+        assertTrue(explore.contains("mcp_runtime_lookup")); //$NON-NLS-1$
+        assertFalse(explore.contains("mcp_runtime_update")); //$NON-NLS-1$
+        assertFalse(explore.contains("mcp_runtime_unknown")); //$NON-NLS-1$
+
+        Set<String> build = invokeBuildRequest(runner, AgentConfig.builder()
+                .profileName("build").build()).getTools().stream() //$NON-NLS-1$
+                .map(ToolDefinition::getName).collect(Collectors.toSet());
+        assertTrue(build.contains("mcp_runtime_lookup")); //$NON-NLS-1$
+        assertTrue(build.contains("mcp_runtime_update")); //$NON-NLS-1$
+        assertFalse(build.contains("mcp_runtime_unknown")); //$NON-NLS-1$
     }
 
     @Test
@@ -224,6 +252,8 @@ public class AgentRunnerBuildRequestTest {
         ToolRegistry registry = (ToolRegistry) unsafe().allocateInstance(ToolRegistry.class);
         setField(registry, "tools", new HashMap<>(tools)); //$NON-NLS-1$
         setField(registry, "dynamicTools", new ConcurrentHashMap<String, ITool>()); //$NON-NLS-1$
+        setField(registry, "dynamicToolCapabilities", //$NON-NLS-1$
+                new ConcurrentHashMap<String, DynamicToolCapability>());
         setField(registry, "gson", new Gson()); //$NON-NLS-1$
         setField(registry, "augmentor", ToolSurfaceAugmentor.passthrough()); //$NON-NLS-1$
         return registry;
