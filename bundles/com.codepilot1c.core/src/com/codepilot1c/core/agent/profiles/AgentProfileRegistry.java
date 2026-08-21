@@ -9,12 +9,16 @@ package com.codepilot1c.core.agent.profiles;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import com.codepilot1c.core.agent.AgentConfig;
 import com.codepilot1c.core.agent.prompts.AgentPromptTemplates;
+import com.codepilot1c.core.tools.ITool;
+import com.codepilot1c.core.tools.ToolRegistry;
 
 /**
  * Реестр профилей агентов.
@@ -143,6 +147,18 @@ public class AgentProfileRegistry {
                 && !override.additionalPrompt().isBlank()) {
             promptAddition = (promptAddition != null ? promptAddition + "\n" : "") //$NON-NLS-1$ //$NON-NLS-2$
                     + override.additionalPrompt();
+        }
+        if (profile.getId().startsWith("gsd-")) { //$NON-NLS-1$
+            ToolRegistry registry = ToolRegistry.getInstance();
+            var effectiveTools = new HashSet<>(
+                    ProfileToolAccess.effectiveToolNames(profile, registry));
+            if (override != null && override.disabledTools() != null) {
+                effectiveTools.removeAll(override.disabledTools());
+            }
+            promptAddition = AgentPromptTemplates.enforceGsdToolParity(
+                    promptAddition,
+                    Set.copyOf(effectiveTools),
+                    registry.getAllTools().stream().map(ITool::getName).toList());
         }
 
         AgentConfig.Builder builder = AgentConfig.builder()

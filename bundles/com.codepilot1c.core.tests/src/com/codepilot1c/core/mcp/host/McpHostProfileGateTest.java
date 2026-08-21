@@ -36,6 +36,7 @@ import org.junit.Test;
 import com.codepilot1c.core.agent.profiles.AgentCapability;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
 import com.codepilot1c.core.evaluation.trace.AgentTraceSession;
 import com.codepilot1c.core.evaluation.trace.ArtifactLayout;
 import com.codepilot1c.core.mcp.host.prompt.IMcpPromptProvider;
@@ -167,6 +168,32 @@ public class McpHostProfileGateTest {
     }
 
     @Test
+    public void mcpRuntimeCapabilitiesRemainUsableAndProfileScoped() {
+        CapturingTool read = new CapturingTool("mcp_tracker_search", false); //$NON-NLS-1$
+        CapturingTool mutate = new CapturingTool("mcp_tracker_update", true); //$NON-NLS-1$
+        CapturingTool unknown = new CapturingTool("mcp_tracker_unknown", false); //$NON-NLS-1$
+        registry.registerDynamicTool(read, DynamicToolCapability.READ_ONLY);
+        registry.registerDynamicTool(mutate, DynamicToolCapability.MUTATING);
+        registry.registerDynamicTool(unknown);
+        McpToolExposurePolicy exposure = new NamedExposurePolicy(Set.of(
+                read.getName(), mutate.getName(), unknown.getName()));
+
+        Set<String> gsdNames = listedNames(router(
+                exposure, McpHostConfig.MutationPolicy.ALLOW, "gsd-discuss") //$NON-NLS-1$
+                .route(request("tools/list", Map.of()), session())); //$NON-NLS-1$
+        assertTrue(gsdNames.contains(read.getName()));
+        assertFalse(gsdNames.contains(mutate.getName()));
+        assertFalse(gsdNames.contains(unknown.getName()));
+
+        Set<String> buildNames = listedNames(router(
+                exposure, McpHostConfig.MutationPolicy.ALLOW, "build") //$NON-NLS-1$
+                .route(request("tools/list", Map.of()), session())); //$NON-NLS-1$
+        assertTrue(buildNames.contains(read.getName()));
+        assertTrue(buildNames.contains(mutate.getName()));
+        assertFalse(buildNames.contains(unknown.getName()));
+    }
+
+    @Test
     public void configuredProfileNarrowsToolListWithoutWideningExposure() {
         register(new CapturingTool("profile_visible", false)); //$NON-NLS-1$
         register(new CapturingTool("profile_disallowed", false)); //$NON-NLS-1$
@@ -182,6 +209,21 @@ public class McpHostProfileGateTest {
                 .route(request("tools/list", Map.of()), session()); //$NON-NLS-1$
 
         assertEquals(Set.of("profile_visible"), listedNames(response)); //$NON-NLS-1$
+    }
+
+    @Test
+    public void emptyAllowlistExposesNoStaticTools() {
+        CapturingTool tool = register(new CapturingTool("empty_profile_static", false)); //$NON-NLS-1$
+        String profileId = registerProfile(Set.of(), List.of(), true);
+        McpToolExposurePolicy exposure = new NamedExposurePolicy(Set.of(tool.getName()));
+        McpHostRequestRouter router = router(
+                exposure, McpHostConfig.MutationPolicy.ALLOW, profileId);
+
+        assertFalse(listedNames(router.route(
+                request("tools/list", Map.of()), session())).contains(tool.getName())); //$NON-NLS-1$
+        McpMessage response = router.route(call(tool.getName(), Map.of()), session());
+        assertTrue(text(response).contains("reason_code=tool_not_in_profile")); //$NON-NLS-1$
+        assertEquals(0, tool.calls);
     }
 
     @Test
@@ -494,7 +536,7 @@ public class McpHostProfileGateTest {
     }
 
     private CapturingTool register(CapturingTool tool) {
-        registry.registerDynamicTool(tool);
+        registry.register(tool);
         return tool;
     }
 
@@ -566,6 +608,8 @@ public class McpHostProfileGateTest {
         ToolRegistry registry = (ToolRegistry) unsafe().allocateInstance(ToolRegistry.class);
         setField(registry, "tools", new HashMap<String, ITool>()); //$NON-NLS-1$
         setField(registry, "dynamicTools", new HashMap<String, ITool>()); //$NON-NLS-1$
+        setField(registry, "dynamicToolCapabilities", //$NON-NLS-1$
+                new HashMap<String, DynamicToolCapability>());
         setField(registry, "gson", new Gson()); //$NON-NLS-1$
         return registry;
     }
@@ -708,6 +752,7 @@ public class McpHostProfileGateTest {
         public boolean canExecuteShell() {
             return !readOnly;
         }
+
     }
 
     private static final class AllowAllExposurePolicy implements McpToolExposurePolicy {

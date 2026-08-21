@@ -9,11 +9,21 @@ package com.codepilot1c.core.permissions;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Объединяет профильный и глобальный слои permission-правил.
  */
 public final class ProfilePermissionGate {
+
+    private static final Set<String> VALID_GIT_MUTATE_OPERATIONS = Set.of(
+            "init", "create", "create_repo", "clone", "remote_add", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+            "remote_set_url", "fetch", "pull", "push", "checkout", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+            "create_branch", "add", "commit"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+    private static final PermissionRule INVALID_GIT_OPERATION_RULE =
+            PermissionRule.deny("git_mutate") //$NON-NLS-1$
+                    .withDescription("git_mutate requires a supported explicit operation") //$NON-NLS-1$
+                    .forAllResources();
 
     /** Итоговое решение runtime-гейта. */
     public enum GateDecision {
@@ -62,6 +72,10 @@ public final class ProfilePermissionGate {
             String toolName,
             Map<String, Object> arguments) {
         String rawResource = PermissionEvaluator.gateResourceOf(arguments);
+        if ("git_mutate".equals(toolName) && !hasValidGitOperation(arguments)) { //$NON-NLS-1$
+            return new GateResult(
+                    GateDecision.DENY, INVALID_GIT_OPERATION_RULE, "boundary", rawResource); //$NON-NLS-1$
+        }
         String resource = PermissionEvaluator.normalizedResourceOf(arguments);
         String operationResource = operationResource(toolName, arguments);
         PermissionRule profileRule = strictestMatch(
@@ -127,6 +141,13 @@ public final class ProfilePermissionGate {
             return null;
         }
         return "operation:" + String.valueOf(operation).trim(); //$NON-NLS-1$
+    }
+
+    private static boolean hasValidGitOperation(Map<String, Object> arguments) {
+        if (arguments == null || !(arguments.get("operation") instanceof String operation)) { //$NON-NLS-1$
+            return false;
+        }
+        return VALID_GIT_MUTATE_OPERATIONS.contains(operation.trim());
     }
 
     private static int strictness(PermissionDecision decision) {

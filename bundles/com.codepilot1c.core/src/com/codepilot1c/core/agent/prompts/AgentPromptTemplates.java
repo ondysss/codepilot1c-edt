@@ -1,15 +1,14 @@
 package com.codepilot1c.core.agent.prompts;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 
-import com.codepilot1c.core.agent.profiles.GsdDiscussProfile;
-import com.codepilot1c.core.agent.profiles.GsdExecuteProfile;
-import com.codepilot1c.core.agent.profiles.GsdPlanProfile;
-import com.codepilot1c.core.agent.profiles.GsdShipProfile;
-import com.codepilot1c.core.agent.profiles.GsdVerifyProfile;
+import com.codepilot1c.core.agent.profiles.GsdProfileCapabilities;
 
 /**
  * Centralized system prompt templates for agent profiles.
@@ -414,15 +413,7 @@ public final class AgentPromptTemplates {
      * Returns the default GSD phase prompt for a registered GSD profile id.
      */
     public static String buildGsdPhasePrompt(String phaseId) {
-        Set<String> allowedTools = switch (phaseId) {
-            case GsdDiscussProfile.ID -> new GsdDiscussProfile().getAllowedTools();
-            case GsdPlanProfile.ID -> new GsdPlanProfile().getAllowedTools();
-            case GsdExecuteProfile.ID -> new GsdExecuteProfile().getAllowedTools();
-            case GsdVerifyProfile.ID -> new GsdVerifyProfile().getAllowedTools();
-            case GsdShipProfile.ID -> new GsdShipProfile().getAllowedTools();
-            default -> throw new IllegalArgumentException("Unknown GSD phase: " + phaseId); //$NON-NLS-1$
-        };
-        return buildGsdPhasePrompt(phaseId, allowedTools);
+        return buildGsdPhasePrompt(phaseId, GsdProfileCapabilities.allowedTools(phaseId));
     }
 
     /**
@@ -431,17 +422,17 @@ public final class AgentPromptTemplates {
      */
     public static String buildGsdPhasePrompt(String phaseId, Set<String> allowedTools) {
         return switch (phaseId) {
-            case GsdDiscussProfile.ID -> buildGsdDiscussPrompt(allowedTools);
-            case GsdPlanProfile.ID -> buildGsdPlanPrompt(allowedTools);
-            case GsdExecuteProfile.ID -> buildGsdExecutePrompt(allowedTools);
-            case GsdVerifyProfile.ID -> buildGsdVerifyPrompt(allowedTools);
-            case GsdShipProfile.ID -> buildGsdShipPrompt(allowedTools);
+            case "gsd-discuss" -> buildGsdDiscussPrompt(allowedTools); //$NON-NLS-1$
+            case "gsd-plan" -> buildGsdPlanPrompt(allowedTools); //$NON-NLS-1$
+            case "gsd-execute" -> buildGsdExecutePrompt(allowedTools); //$NON-NLS-1$
+            case "gsd-verify" -> buildGsdVerifyPrompt(allowedTools); //$NON-NLS-1$
+            case "gsd-ship" -> buildGsdShipPrompt(allowedTools); //$NON-NLS-1$
             default -> throw new IllegalArgumentException("Unknown GSD phase: " + phaseId); //$NON-NLS-1$
         };
     }
 
     public static String buildGsdDiscussPrompt() {
-        return buildGsdPhasePrompt(GsdDiscussProfile.ID);
+        return buildGsdPhasePrompt("gsd-discuss"); //$NON-NLS-1$
     }
 
     private static String buildGsdDiscussPrompt(Set<String> allowedTools) {
@@ -469,7 +460,7 @@ public final class AgentPromptTemplates {
     }
 
     public static String buildGsdPlanPrompt() {
-        return buildGsdPhasePrompt(GsdPlanProfile.ID);
+        return buildGsdPhasePrompt("gsd-plan"); //$NON-NLS-1$
     }
 
     private static String buildGsdPlanPrompt(Set<String> allowedTools) {
@@ -496,7 +487,7 @@ public final class AgentPromptTemplates {
     }
 
     public static String buildGsdExecutePrompt() {
-        return buildGsdPhasePrompt(GsdExecuteProfile.ID);
+        return buildGsdPhasePrompt("gsd-execute"); //$NON-NLS-1$
     }
 
     private static String buildGsdExecutePrompt(Set<String> allowedTools) {
@@ -532,7 +523,7 @@ public final class AgentPromptTemplates {
     }
 
     public static String buildGsdVerifyPrompt() {
-        return buildGsdPhasePrompt(GsdVerifyProfile.ID);
+        return buildGsdPhasePrompt("gsd-verify"); //$NON-NLS-1$
     }
 
     private static String buildGsdVerifyPrompt(Set<String> allowedTools) {
@@ -563,7 +554,7 @@ public final class AgentPromptTemplates {
     }
 
     public static String buildGsdShipPrompt() {
-        return buildGsdPhasePrompt(GsdShipProfile.ID);
+        return buildGsdPhasePrompt("gsd-ship"); //$NON-NLS-1$
     }
 
     private static String buildGsdShipPrompt(Set<String> allowedTools) {
@@ -599,6 +590,64 @@ public final class AgentPromptTemplates {
         }
         sb.append("## Инструменты\n"); //$NON-NLS-1$
         sb.append(String.join(", ", new TreeSet<>(allowedTools))).append(".\n\n"); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    /**
+     * Re-applies the authoritative GSD tool section after provider/filesystem
+     * overrides and removes override lines that instruct use of a registered
+     * but unavailable tool.
+     *
+     * @param prompt effective overridden prompt
+     * @param effectiveTools currently visible static and trusted runtime tools
+     * @param registeredToolNames all registered names used to detect stale instructions
+     * @return prompt whose tool guidance matches the effective runtime surface
+     */
+    public static String enforceGsdToolParity(
+            String prompt,
+            Set<String> effectiveTools,
+            Collection<String> registeredToolNames) {
+        if (effectiveTools == null) {
+            throw new IllegalArgumentException("GSD effective tools must not be null"); //$NON-NLS-1$
+        }
+        String withoutSections = Pattern.compile(
+                "(?ms)^## Инструменты\\R.*?(?=^## |\\z)") //$NON-NLS-1$
+                .matcher(prompt != null ? prompt : "") //$NON-NLS-1$
+                .replaceAll(""); //$NON-NLS-1$
+
+        Set<String> unavailable = new HashSet<>();
+        if (registeredToolNames != null) {
+            unavailable.addAll(registeredToolNames);
+        }
+        unavailable.removeAll(effectiveTools);
+
+        StringBuilder sanitized = new StringBuilder();
+        for (String line : withoutSections.split("\\R", -1)) { //$NON-NLS-1$
+            boolean staleInstruction = false;
+            for (String toolName : unavailable) {
+                if (containsToolToken(line, toolName)) {
+                    staleInstruction = true;
+                    break;
+                }
+            }
+            if (!staleInstruction) {
+                sanitized.append(line).append('\n');
+            }
+        }
+        while (sanitized.length() > 0
+                && Character.isWhitespace(sanitized.charAt(sanitized.length() - 1))) {
+            sanitized.setLength(sanitized.length() - 1);
+        }
+        sanitized.append("\n\n"); //$NON-NLS-1$
+        appendGsdToolGuidance(sanitized, effectiveTools);
+        return sanitized.toString();
+    }
+
+    private static boolean containsToolToken(String line, String toolName) {
+        if (line == null || toolName == null || toolName.isBlank()) {
+            return false;
+        }
+        return Pattern.compile("(?<![A-Za-z0-9_])" + Pattern.quote(toolName) //$NON-NLS-1$
+                + "(?![A-Za-z0-9_])").matcher(line).find(); //$NON-NLS-1$
     }
 
     /**

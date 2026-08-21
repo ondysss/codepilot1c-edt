@@ -92,6 +92,11 @@ public final class OrchestratorProfile implements AgentProfile {
         return false;
     }
 
+    @Override
+    public DynamicToolCapability getDynamicToolGrant() {
+        return DynamicToolCapability.READ_ONLY;
+    }
+
     /**
      * The orchestrator is the declared broker allowed to delegate mutating
      * work while keeping its own execution surface read-only.

@@ -22,16 +22,7 @@ public final class GsdVerifyProfile extends GsdPhaseProfile {
 
     public static final String ID = "gsd-verify"; //$NON-NLS-1$
 
-    private static final Set<String> ALLOWED_TOOLS = extendTools(
-            "gsd_get_state", //$NON-NLS-1$
-            "gsd_record_evidence", //$NON-NLS-1$
-            "gsd_transition", //$NON-NLS-1$
-            "inspect_role_rights", //$NON-NLS-1$
-            "inspect_template", //$NON-NLS-1$
-            "java_compile_probe", //$NON-NLS-1$
-            "qa_validate_feature", //$NON-NLS-1$
-            "validate_query" //$NON-NLS-1$
-    );
+    private static final Set<String> ALLOWED_TOOLS = GsdProfileCapabilities.allowedTools(ID);
 
     private static final List<PermissionRule> DEFAULT_PERMISSIONS = extendPermissions(
             PermissionRule.allow("gsd_get_state").forAllResources(), //$NON-NLS-1$

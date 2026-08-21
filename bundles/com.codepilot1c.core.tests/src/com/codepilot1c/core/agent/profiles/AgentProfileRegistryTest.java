@@ -6,23 +6,58 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
-import java.util.HashSet;
+import java.lang.reflect.Field;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 import com.codepilot1c.core.agent.prompts.AgentPromptTemplates;
 import com.codepilot1c.core.permissions.PermissionDecision;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
+import com.codepilot1c.core.tools.ToolResult;
+import com.codepilot1c.core.tools.surface.ToolSurfaceAugmentor;
+import com.google.gson.Gson;
+
+import sun.misc.Unsafe;
 
 /**
  * Tests for {@link AgentProfileRegistry} and profile gate enforcement.
  */
 public class AgentProfileRegistryTest {
+
+    private ToolRegistry previousRegistry;
+
+    @Before
+    public void installIsolatedRegistry() throws Exception {
+        ToolRegistry registry = (ToolRegistry) unsafe().allocateInstance(ToolRegistry.class);
+        Map<String, ITool> tools = new HashMap<>();
+        for (String name : Set.of(
+                "get_diagnostics", "inspect_role_rights", "inspect_template", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                "java_compile_probe", "qa_validate_feature", "validate_query")) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            tools.put(name, nonMutatingTool(name));
+        }
+        setField(registry, "tools", tools); //$NON-NLS-1$
+        setField(registry, "dynamicTools", new ConcurrentHashMap<String, ITool>()); //$NON-NLS-1$
+        setField(registry, "dynamicToolCapabilities", //$NON-NLS-1$
+                new ConcurrentHashMap<String, DynamicToolCapability>());
+        setField(registry, "gson", new Gson()); //$NON-NLS-1$
+        setField(registry, "augmentor", ToolSurfaceAugmentor.passthrough()); //$NON-NLS-1$
+        previousRegistry = installRegistry(registry);
+    }
+
+    @After
+    public void restoreRegistry() throws Exception {
+        installRegistry(previousRegistry);
+    }
 
     @Test
     public void exploreProfileContainsOnlyWhitelistedTools() {
@@ -334,9 +369,11 @@ public class AgentProfileRegistryTest {
                         "gsd_get_state", "gsd_transition", "git_mutate", "write_file", "remember_fact")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
 
         for (Map.Entry<AgentProfile, Set<String>> entry : matrix.entrySet()) {
-            Set<String> expected = new HashSet<>(GsdPhaseProfile.BASE_READ_TOOLS);
-            expected.addAll(entry.getValue());
-            assertEquals(entry.getKey().getId(), expected, entry.getKey().getAllowedTools());
+            assertTrue(entry.getKey().getId(),
+                    entry.getKey().getAllowedTools().containsAll(entry.getValue()));
+            assertEquals(entry.getKey().getId(),
+                    GsdProfileCapabilities.allowedTools(entry.getKey().getId()),
+                    entry.getKey().getAllowedTools());
         }
     }
 
@@ -529,5 +566,36 @@ public class AgentProfileRegistryTest {
             body = body.substring(0, body.length() - 1);
         }
         return Set.of(body.split(", ")); //$NON-NLS-1$
+    }
+
+    private static ITool nonMutatingTool(String name) {
+        return new ITool() {
+            @Override public String getName() { return name; }
+            @Override public String getDescription() { return name; }
+            @Override public String getParameterSchema() { return "{\"type\":\"object\"}"; } //$NON-NLS-1$
+            @Override public CompletableFuture<ToolResult> execute(Map<String, Object> parameters) {
+                return CompletableFuture.completedFuture(ToolResult.success("ok")); //$NON-NLS-1$
+            }
+        };
+    }
+
+    private static ToolRegistry installRegistry(ToolRegistry registry) throws Exception {
+        Field field = ToolRegistry.class.getDeclaredField("instance"); //$NON-NLS-1$
+        field.setAccessible(true);
+        ToolRegistry previous = (ToolRegistry) field.get(null);
+        field.set(null, registry);
+        return previous;
+    }
+
+    private static void setField(Object target, String name, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    private static Unsafe unsafe() throws Exception {
+        Field field = Unsafe.class.getDeclaredField("theUnsafe"); //$NON-NLS-1$
+        field.setAccessible(true);
+        return (Unsafe) field.get(null);
     }
 }

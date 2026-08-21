@@ -3,6 +3,9 @@ package com.codepilot1c.core.agent.prompts;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.util.List;
+import java.util.Set;
+
 import org.junit.Test;
 
 /**
@@ -18,6 +21,30 @@ import org.junit.Test;
  * gsd_transition with a reason.</p>
  */
 public class GsdExecutePromptTest {
+
+    @Test
+    public void finalParityPassReplacesOverrideToolGuidanceAndStaleInstructions() {
+        String overridden = """
+                # Provider override
+                Use write_file to change source.
+
+                ## Инструменты
+                write_file, mcp_docs_lookup.
+
+                ## Формат
+                Report evidence.
+                """;
+        String prompt = AgentPromptTemplates.enforceGsdToolParity(
+                overridden,
+                Set.of("read_file", "mcp_docs_lookup"), //$NON-NLS-1$ //$NON-NLS-2$
+                List.of("read_file", "write_file", "mcp_docs_lookup")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+
+        assertFalse(prompt.contains("write_file")); //$NON-NLS-1$
+        assertTrue(prompt.contains("mcp_docs_lookup, read_file.")); //$NON-NLS-1$
+        assertTrue(prompt.contains("## Формат")); //$NON-NLS-1$
+        assertTrue(prompt.lastIndexOf("## Инструменты") //$NON-NLS-1$
+                > prompt.indexOf("## Формат")); //$NON-NLS-1$
+    }
 
     @Test
     public void executePromptDoesNotInstructVerifyTransitionForBlockedTask() {

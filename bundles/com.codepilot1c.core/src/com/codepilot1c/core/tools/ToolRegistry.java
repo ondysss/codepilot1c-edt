@@ -29,6 +29,7 @@ import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
 import com.codepilot1c.core.tools.bsl.*;
 import com.codepilot1c.core.tools.debug.*;
 import com.codepilot1c.core.tools.dcs.*;
@@ -66,6 +67,8 @@ public class ToolRegistry {
 
     private final Map<String, ITool> tools = new HashMap<>();
     private final Map<String, ITool> dynamicTools = new ConcurrentHashMap<>();
+    private volatile Map<String, DynamicToolCapability> dynamicToolCapabilities =
+            new ConcurrentHashMap<>();
     private final Gson gson = new Gson();
     private ToolArgumentParser argumentParser;
     private ToolExecutionService executionService;
@@ -261,9 +264,24 @@ public class ToolRegistry {
      * @param tool the tool to register
      */
     public void registerDynamicTool(ITool tool) {
+        registerDynamicTool(tool, DynamicToolCapability.NONE);
+    }
+
+    /**
+     * Registers a runtime tool with an explicit trusted capability. Runtime
+     * lifecycle/provenance alone is not a capability grant; callers that do
+     * not classify the tool use {@link DynamicToolCapability#NONE}.
+     *
+     * @param tool runtime tool
+     * @param capability trusted capability classification
+     */
+    public void registerDynamicTool(ITool tool, DynamicToolCapability capability) {
         dynamicTools.put(tool.getName(), tool);
+        dynamicCapabilities().put(tool.getName(), capability != null
+                ? capability : DynamicToolCapability.NONE);
         ToolDescriptorRegistry.getInstance().registerTool(tool);
-        LOG.debug("Registered dynamic tool: %s", tool.getName()); //$NON-NLS-1$
+        LOG.debug("Registered dynamic tool: %s (%s)", tool.getName(), //$NON-NLS-1$
+                dynamicCapabilities().get(tool.getName()));
     }
 
     /**
@@ -273,6 +291,7 @@ public class ToolRegistry {
      */
     public void unregisterDynamicTool(String name) {
         dynamicTools.remove(name);
+        dynamicCapabilities().remove(name);
         LOG.debug("Unregistered dynamic tool: %s", name); //$NON-NLS-1$
     }
 
@@ -285,7 +304,10 @@ public class ToolRegistry {
         List<String> toRemove = dynamicTools.keySet().stream()
             .filter(name -> name.startsWith(prefix))
             .collect(Collectors.toList());
-        toRemove.forEach(dynamicTools::remove);
+        toRemove.forEach(name -> {
+            dynamicTools.remove(name);
+            dynamicCapabilities().remove(name);
+        });
         if (!toRemove.isEmpty()) {
             LOG.debug("Unregistered %d dynamic tools with prefix: %s", toRemove.size(), prefix); //$NON-NLS-1$
         }
@@ -329,6 +351,33 @@ public class ToolRegistry {
      */
     public Set<String> getDynamicToolNames() {
         return Set.copyOf(dynamicTools.keySet());
+    }
+
+    /**
+     * Returns the trusted capability of the effective dynamic tool. A static
+     * tool with the same name always wins and therefore returns NONE.
+     */
+    public DynamicToolCapability getDynamicToolCapability(String name) {
+        if (!isEffectiveDynamicTool(name)) {
+            return DynamicToolCapability.NONE;
+        }
+        return dynamicCapabilities().getOrDefault(name, DynamicToolCapability.NONE);
+    }
+
+    /** Returns whether the effective implementation is runtime-registered. */
+    public boolean isEffectiveDynamicTool(String name) {
+        return name != null && !tools.containsKey(name) && dynamicTools.containsKey(name);
+    }
+
+    private Map<String, DynamicToolCapability> dynamicCapabilities() {
+        if (dynamicToolCapabilities == null) {
+            synchronized (this) {
+                if (dynamicToolCapabilities == null) {
+                    dynamicToolCapabilities = new ConcurrentHashMap<>();
+                }
+            }
+        }
+        return dynamicToolCapabilities;
     }
 
     /**

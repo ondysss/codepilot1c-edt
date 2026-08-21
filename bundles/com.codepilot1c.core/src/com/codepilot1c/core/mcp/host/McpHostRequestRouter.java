@@ -19,6 +19,7 @@ import com.google.gson.JsonParser;
 import com.codepilot1c.core.agent.profiles.AgentCapability;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.agent.profiles.ProfileToolAccess;
 import com.codepilot1c.core.evaluation.trace.TraceEventType;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.mcp.host.prompt.IMcpPromptProvider;
@@ -232,8 +233,7 @@ public class McpHostRequestRouter {
                 return denyByProfile(request, session, toolName, arguments, null,
                         "profile_unresolved", "profile", null); //$NON-NLS-1$ //$NON-NLS-2$
             }
-            Set<String> allowedTools = sessionProfile.getAllowedTools();
-            if (allowedTools != null && !allowedTools.isEmpty() && !allowedTools.contains(toolName)) {
+            if (!ProfileToolAccess.allows(sessionProfile, toolName, ToolRegistry.getInstance())) {
                 return denyByProfile(request, session, toolName, arguments, null,
                         "tool_not_in_profile", "profile", null); //$NON-NLS-1$ //$NON-NLS-2$
             }
@@ -349,7 +349,7 @@ public class McpHostRequestRouter {
         List<Map<String, Object>> out = new ArrayList<>();
         ToolRegistry registry = ToolRegistry.getInstance();
         ToolSurfaceContext surfaceContext = registry.createRuntimeSurfaceContext(
-                ToolSurfaceContext.defaultProfile());
+                sessionProfile != null ? sessionProfile : ToolSurfaceContext.defaultProfile());
         for (ITool tool : registry.getAllTools()) {
             if (!exposurePolicy.isExposed(tool.getName())) {
                 continue;
@@ -358,9 +358,7 @@ public class McpHostRequestRouter {
                 if (sessionProfile == null) {
                     continue;
                 }
-                Set<String> allowedTools = sessionProfile.getAllowedTools();
-                if (allowedTools != null && !allowedTools.isEmpty()
-                        && !allowedTools.contains(tool.getName())) {
+                if (!ProfileToolAccess.allows(sessionProfile, tool.getName(), registry)) {
                     continue;
                 }
             }

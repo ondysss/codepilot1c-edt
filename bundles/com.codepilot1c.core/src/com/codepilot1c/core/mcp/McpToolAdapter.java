@@ -17,6 +17,7 @@ import com.codepilot1c.core.mcp.model.McpContent;
 import com.codepilot1c.core.mcp.model.McpResourceContent;
 import com.codepilot1c.core.mcp.model.McpTool;
 import com.codepilot1c.core.mcp.model.McpToolResult;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolResult;
 
@@ -172,11 +173,56 @@ public class McpToolAdapter implements ITool {
 
     @Override
     public boolean isDestructive() {
+        DynamicToolCapability capability = getDynamicToolCapability();
+        if (capability == DynamicToolCapability.MUTATING) {
+            return true;
+        }
         // Heuristic based on tool name
         String name = mcpTool.getName().toLowerCase();
         return name.contains("delete") || name.contains("remove") ||
                name.contains("write") || name.contains("create") ||
                name.contains("update") || name.contains("modify");
+    }
+
+    /**
+     * Maps explicit MCP annotations to the runtime capability registry.
+     * Contradictory and absent annotations deliberately fail closed.
+     */
+    public DynamicToolCapability getDynamicToolCapability() {
+        return dynamicToolCapabilityOf(mcpTool);
+    }
+
+    /** Classifies a discovered MCP tool without requiring a connected client. */
+    public static DynamicToolCapability dynamicToolCapabilityOf(McpTool tool) {
+        if (tool == null) {
+            return DynamicToolCapability.NONE;
+        }
+        var annotations = tool.getAnnotations();
+        if (annotations == null) {
+            return DynamicToolCapability.NONE;
+        }
+        boolean hasReadOnly = annotations.has("readOnlyHint"); //$NON-NLS-1$
+        boolean hasDestructive = annotations.has("destructiveHint"); //$NON-NLS-1$
+        if ((hasReadOnly && (!annotations.get("readOnlyHint").isJsonPrimitive() //$NON-NLS-1$
+                || !annotations.getAsJsonPrimitive("readOnlyHint").isBoolean())) //$NON-NLS-1$
+                || (hasDestructive && (!annotations.get("destructiveHint").isJsonPrimitive() //$NON-NLS-1$
+                || !annotations.getAsJsonPrimitive("destructiveHint").isBoolean()))) { //$NON-NLS-1$
+            return DynamicToolCapability.NONE;
+        }
+        boolean readOnly = hasReadOnly
+                && annotations.get("readOnlyHint").getAsBoolean(); //$NON-NLS-1$
+        boolean destructive = hasDestructive
+                && annotations.get("destructiveHint").getAsBoolean(); //$NON-NLS-1$
+        if (readOnly && destructive) {
+            return DynamicToolCapability.NONE;
+        }
+        if (readOnly) {
+            return DynamicToolCapability.READ_ONLY;
+        }
+        if (destructive || (hasReadOnly && !readOnly)) {
+            return DynamicToolCapability.MUTATING;
+        }
+        return DynamicToolCapability.NONE;
     }
 
     /**

@@ -25,7 +25,6 @@ import com.codepilot1c.core.mcp.model.McpServerState;
 import com.codepilot1c.core.mcp.model.McpTool;
 import com.codepilot1c.core.mcp.transport.IMcpTransport;
 import com.codepilot1c.core.mcp.transport.McpTransportFactory;
-import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
 
 /**
@@ -247,8 +246,8 @@ public class McpServerManager {
 
         // Register initial tools
         for (McpTool mcpTool : client.getTools()) {
-            ITool adapter = new McpToolAdapter(client, mcpTool);
-            registry.registerDynamicTool(adapter);
+            McpToolAdapter adapter = new McpToolAdapter(client, mcpTool);
+            registry.registerDynamicTool(adapter, adapter.getDynamicToolCapability());
             LOG.debug("Registered MCP tool: %s", adapter.getName());
         }
 
@@ -259,8 +258,8 @@ public class McpServerManager {
             registry.unregisterToolsByPrefix(prefix);
             // Register new tools
             for (McpTool mcpTool : newTools) {
-                ITool adapter = new McpToolAdapter(client, mcpTool);
-                registry.registerDynamicTool(adapter);
+                McpToolAdapter adapter = new McpToolAdapter(client, mcpTool);
+                registry.registerDynamicTool(adapter, adapter.getDynamicToolCapability());
                 LOG.debug("Re-registered MCP tool: %s", adapter.getName());
             }
         });

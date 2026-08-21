@@ -28,6 +28,9 @@ public class McpTool {
     @SerializedName("inputSchema")
     private JsonObject inputSchema;
 
+    @SerializedName("annotations")
+    private JsonObject annotations;
+
     /**
      * Creates an empty tool.
      */
@@ -110,6 +113,16 @@ public class McpTool {
      */
     public void setInputSchema(JsonObject inputSchema) {
         this.inputSchema = inputSchema;
+    }
+
+    /** Returns standard MCP behavioral annotations supplied by the server. */
+    public JsonObject getAnnotations() {
+        return annotations;
+    }
+
+    /** Sets standard MCP behavioral annotations supplied by the server. */
+    public void setAnnotations(JsonObject annotations) {
+        this.annotations = annotations;
     }
 
     @Override

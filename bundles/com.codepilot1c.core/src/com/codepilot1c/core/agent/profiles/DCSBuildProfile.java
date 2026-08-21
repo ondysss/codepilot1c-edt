@@ -130,4 +130,9 @@ public class DCSBuildProfile implements AgentProfile {
     public boolean canExecuteShell() {
         return false;
     }
+
+    @Override
+    public DynamicToolCapability getDynamicToolGrant() {
+        return DynamicToolCapability.MUTATING;
+    }
 }

@@ -48,9 +48,23 @@ public interface AgentProfile {
     /**
      * Разрешенные инструменты для этого профиля.
      *
+     * <p>The set is exact for statically registered tools: an empty set means
+     * no static tools, not all tools. Runtime tools are governed separately by
+     * {@link #getDynamicToolGrant()} and their trusted registration metadata.</p>
+     *
      * @return набор имен инструментов
      */
     Set<String> getAllowedTools();
+
+    /**
+     * Strongest explicitly classified runtime tool capability accepted by
+     * this profile. Unknown/unannotated runtime tools remain denied.
+     *
+     * @return runtime capability grant; defaults fail closed
+     */
+    default DynamicToolCapability getDynamicToolGrant() {
+        return DynamicToolCapability.NONE;
+    }
 
     /**
      * Правила разрешений по умолчанию.

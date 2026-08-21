@@ -10,7 +10,9 @@ import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.tools.ToolParameters;
 import com.codepilot1c.core.tools.ToolMeta;
 import com.codepilot1c.core.tools.AbstractTool;
+import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.edt.ast.BmSyncHelper;
+import com.codepilot1c.core.agent.profiles.GsdShipPathPolicy;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -103,6 +105,12 @@ public class WriteTool extends AbstractTool {
 
     @Override
     protected CompletableFuture<ToolResult> doExecute(ToolParameters params) {
+        return doExecute(params, ToolExecutionContext.unscoped());
+    }
+
+    @Override
+    protected CompletableFuture<ToolResult> doExecute(
+            ToolParameters params, ToolExecutionContext context) {
         Map<String, Object> parameters = params.getRaw();
         return CompletableFuture.supplyAsync(() -> {
             String pathStr = (String) parameters.get("path");
@@ -125,7 +133,7 @@ public class WriteTool extends AbstractTool {
             }
 
             try {
-                return writeFile(pathStr, content, allowEmpty);
+                return writeFile(pathStr, content, allowEmpty, context);
             } catch (CoreException e) {
                 logError("Ошибка создания файла", e);
                 return ToolResult.failure("Ошибка записи файла: " + e.getMessage());
@@ -136,8 +144,19 @@ public class WriteTool extends AbstractTool {
     /**
      * Записывает содержимое в файл workspace.
      */
-    private ToolResult writeFile(String pathStr, String content, boolean allowEmpty)
+    private ToolResult writeFile(
+            String pathStr,
+            String content,
+            boolean allowEmpty,
+            ToolExecutionContext context)
             throws CoreException {
+
+        boolean shipScoped = context != null
+                && "gsd-ship".equals(context.parentProfileId()); //$NON-NLS-1$
+        if (shipScoped && !GsdShipPathPolicy.isReleaseArtifactPath(pathStr)) {
+            return ToolResult.failure(
+                    "GSD Ship may write only canonical release-artifact paths"); //$NON-NLS-1$
+        }
 
         // Normalize path
         String normalizedPath = normalizePath(pathStr);
@@ -178,15 +197,23 @@ public class WriteTool extends AbstractTool {
         IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
 
         // Find file handle
-        IFile file = findOrCreateFile(root, normalizedPath);
+        IProject currentProject = resolveCurrentProject(root);
+        IFile file = shipScoped
+                ? findShipFile(currentProject, normalizedPath)
+                : findOrCreateFile(root, normalizedPath);
         if (file == null) {
             return ToolResult.failure("Не удалось получить файл: " + pathStr);
+        }
+        if (shipScoped && !isPhysicalShipTarget(root, currentProject, file)) {
+            return ToolResult.failure(
+                    "GSD Ship target is not physically contained in the active workspace project"); //$NON-NLS-1$
         }
 
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
         boolean created = false;
 
-        boolean allowedNewDoc = isAllowedNewDocFile(normalizedPath);
+        boolean allowedNewDoc = isAllowedNewDocFile(normalizedPath)
+                || (shipScoped && GsdShipPathPolicy.isReleaseArtifactPath(normalizedPath));
         if (!file.exists() && !isProjectRootCodeMd(file) && !allowedNewDoc) {
             return ToolResult.failure(
                     "Создание новых файлов через write_file запрещено: " + file.getFullPath() + ". " +
@@ -291,6 +318,34 @@ public class WriteTool extends AbstractTool {
             logError("Ошибка получения файла: " + path, e);
             return null;
         }
+    }
+
+    private IFile findShipFile(IProject project, String normalizedPath) {
+        if (project == null || normalizedPath == null || normalizedPath.isBlank()) {
+            return null;
+        }
+        try {
+            String relative = normalizedPath.startsWith("./") //$NON-NLS-1$
+                    ? normalizedPath.substring(2) : normalizedPath;
+            return project.getFile(org.eclipse.core.runtime.Path.fromPortableString(relative));
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private boolean isPhysicalShipTarget(
+            IWorkspaceRoot root, IProject currentProject, IFile file) {
+        if (root == null || currentProject == null || file == null
+                || !currentProject.equals(file.getProject())
+                || root.getLocation() == null
+                || currentProject.getLocation() == null
+                || file.getLocation() == null) {
+            return false;
+        }
+        return WorkspacePathContainment.isContained(
+                root.getLocation().toFile().toPath(),
+                currentProject.getLocation().toFile().toPath(),
+                file.getLocation().toFile().toPath());
     }
 
     private IProject resolveCurrentProject(IWorkspaceRoot root) {

@@ -50,8 +50,14 @@ public class GsdProfilePermissionTest {
 
     @Test
     public void shipProfileDeniesTraversalDisguisedAsReleaseArtifact() {
-        assertEquals(GateDecision.DENY,
-                evaluateShipWrite("docs/release-notes/../../src/Main.java")); //$NON-NLS-1$
+        for (String path : List.of(
+                "docs/release-notes/../../src/Main.java", //$NON-NLS-1$
+                "docs/release-notes/../v1.md", //$NON-NLS-1$
+                "/CHANGELOG.md", //$NON-NLS-1$
+                "C:\\workspace\\CHANGELOG.md", //$NON-NLS-1$
+                "docs//release-notes/v1.md")) { //$NON-NLS-1$
+            assertEquals(path, GateDecision.DENY, evaluateShipWrite(path));
+        }
     }
 
     @Test
@@ -71,6 +77,19 @@ public class GsdProfilePermissionTest {
                 "init", "create", "create_repo", "clone", "remote_add", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
                 "remote_set_url", "fetch", "pull", "checkout", "create_branch")) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
             assertEquals(operation, GateDecision.DENY, evaluateShipGit(operation));
+        }
+    }
+
+    @Test
+    public void gitMutateMissingOrInvalidOperationFailsAtPermissionBoundary() {
+        for (Map<String, Object> arguments : List.<Map<String, Object>>of(
+                Map.of(),
+                Map.of("operation", ""), //$NON-NLS-1$ //$NON-NLS-2$
+                Map.of("operation", "merge"), //$NON-NLS-1$ //$NON-NLS-2$
+                Map.of("operation", 42))) { //$NON-NLS-1$
+            assertEquals(GateDecision.DENY, ProfilePermissionGate.evaluate(
+                    new GsdShipProfile().getDefaultPermissions(), List.of(),
+                    "git_mutate", arguments).decision()); //$NON-NLS-1$
         }
     }
 

@@ -177,4 +177,9 @@ public class PlanAgentProfile implements AgentProfile {
     public boolean canExecuteShell() {
         return false;
     }
+
+    @Override
+    public DynamicToolCapability getDynamicToolGrant() {
+        return DynamicToolCapability.READ_ONLY;
+    }
 }
