@@ -222,15 +222,18 @@ public record GsdState(
     private static List<String> deriveUsedCycleIds(String currentCycleId,
             List<GsdTransition> history) {
         java.util.LinkedHashSet<String> ids = new java.util.LinkedHashSet<>();
-        if (currentCycleId != null) {
-            ids.add(currentCycleId);
-        }
+        // Transition history is chronological, so first appearances reconstruct the
+        // same append order used by startCycle. The current cycle is appended only
+        // when it has no transition of its own yet.
         if (history != null) {
             for (GsdTransition transition : history) {
                 if (transition != null) {
                     ids.add(transition.cycleId());
                 }
             }
+        }
+        if (currentCycleId != null) {
+            ids.add(currentCycleId);
         }
         return List.copyOf(ids);
     }

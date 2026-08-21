@@ -285,6 +285,42 @@ public class GsdCoreV2Test {
     }
 
     @Test
+    public void compatibilityConstructorPreservesMultiCycleFenceOrder() throws IOException {
+        Path root = tmp.newFolder("compatibility-cycle-order").toPath(); //$NON-NLS-1$
+        GsdStateStore store = new GsdStateStore(root);
+        GsdState persisted = store.save(multiCycleClosedState());
+
+        GsdState reconstructed = new GsdState(
+                persisted.schemaVersion(), persisted.cycleId(), persisted.generation(),
+                persisted.revision(), persisted.phase(), persisted.goal(),
+                persisted.acceptanceCriteria(), persisted.decisions(), persisted.tasks(),
+                persisted.waves(), persisted.evidence(), persisted.shipment(),
+                persisted.transitionHistory(), persisted.sessionPointer());
+
+        assertEquals(List.of("cycle-a", "cycle-b", "cycle-c"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                reconstructed.usedCycleIds());
+        GsdState committed = store.commit(reconstructed).state();
+        assertEquals(reconstructed.usedCycleIds(), committed.usedCycleIds());
+
+        try {
+            store.commit(withUsedCycleIds(committed,
+                    List.of("cycle-a", "cycle-b", "cycle-c", "cycle-c"))); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            fail("duplicate cycle fence identity must be rejected"); //$NON-NLS-1$
+        } catch (GsdGuardException expected) {
+            assertTrue(expected.getViolations().stream()
+                    .anyMatch(v -> v.contains("duplicate used cycleId"))); //$NON-NLS-1$
+        }
+
+        try {
+            GsdWorkflowService.startNewCycle(root.toString(), committed.token(),
+                    "cycle-a", "reuse historical cycle"); //$NON-NLS-1$ //$NON-NLS-2$
+            fail("historical cycle reuse must remain rejected"); //$NON-NLS-1$
+        } catch (GsdCycleIdReuseException expected) {
+            assertEquals("cycle-a", expected.getCycleId()); //$NON-NLS-1$
+        }
+    }
+
+    @Test
     public void commitNewCycleRejectsGenerationRegressionAndStaleAbaToken() throws IOException {
         Path root = tmp.newFolder("cycle-generation").toPath(); //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(root);
@@ -520,6 +556,26 @@ public class GsdCoreV2Test {
                 GsdPhase.CLOSED, base.goal(), base.acceptanceCriteria(), base.decisions(),
                 base.tasks(), base.waves(), base.evidence(), base.shipment(), history,
                 base.sessionPointer());
+    }
+
+    private static GsdState multiCycleClosedState() {
+        GsdState base = closableState(GsdAcceptanceStatus.PASSED,
+                GsdShipment.completed("shipment-multi", "release/multi", Instant.EPOCH)); //$NON-NLS-1$ //$NON-NLS-2$
+        List<GsdTransition> history = List.of(
+                new GsdTransition("cycle-a", 0L, 0L, GsdPhase.DISCOVERY, //$NON-NLS-1$
+                        GsdPhase.PLANNING, "cycle a", Instant.EPOCH), //$NON-NLS-1$
+                new GsdTransition("cycle-b", 0L, 0L, GsdPhase.CLOSED, //$NON-NLS-1$
+                        GsdPhase.DISCOVERY, "cycle b", Instant.EPOCH), //$NON-NLS-1$
+                new GsdTransition("cycle-b", 0L, 0L, GsdPhase.DISCOVERY, //$NON-NLS-1$
+                        GsdPhase.PLANNING, "cycle b plan", Instant.EPOCH), //$NON-NLS-1$
+                new GsdTransition("cycle-c", 0L, 0L, GsdPhase.CLOSED, //$NON-NLS-1$
+                        GsdPhase.DISCOVERY, "cycle c", Instant.EPOCH), //$NON-NLS-1$
+                new GsdTransition("cycle-c", 0L, 0L, GsdPhase.SHIPPING, //$NON-NLS-1$
+                        GsdPhase.CLOSED, "cycle c delivered", Instant.EPOCH)); //$NON-NLS-1$
+        return new GsdState(GsdState.CURRENT_SCHEMA_VERSION, "cycle-c", 0L, 0L, //$NON-NLS-1$
+                GsdPhase.CLOSED, base.goal(), base.acceptanceCriteria(), base.decisions(),
+                base.tasks(), base.waves(), base.evidence(), base.shipment(), history,
+                List.of("cycle-a", "cycle-b", "cycle-c"), base.sessionPointer()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
     }
 
     private static String legacyClosedJson() {
