@@ -11,6 +11,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 import com.codepilot1c.core.agent.AgentConfig;
@@ -78,6 +79,8 @@ public class AgentSessionController {
     private Supplier<ToolRegistry> toolRegistrySupplier = ToolRegistry::getInstance;
     private Supplier<ILlmProvider> providerSupplier =
             () -> LlmProviderRegistry.getInstance().getActiveProvider();
+    private Function<AgentProfile, AgentConfig> configFactory =
+            profile -> AgentProfileRegistry.getInstance().createConfig(profile);
 
     private final IAgentEventListener forwardingListener = new IAgentEventListener() {
         @Override
@@ -577,7 +580,7 @@ public class AgentSessionController {
         AgentProfile profile = AgentProfileRegistry.getInstance()
                 .getProfile(profileId)
                 .orElse(AgentProfileRegistry.getInstance().getDefaultProfile());
-        AgentConfig baseConfig = AgentProfileRegistry.getInstance().createConfig(profile);
+        AgentConfig baseConfig = configFactory.apply(profile);
         boolean hasProjectPath = projectPath != null && !projectPath.isBlank();
         boolean hasOwningSession = owningSessionId != null && !owningSessionId.isBlank();
         if (hasProjectPath != hasOwningSession) {

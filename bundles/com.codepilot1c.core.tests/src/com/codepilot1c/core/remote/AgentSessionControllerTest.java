@@ -34,6 +34,7 @@ import com.codepilot1c.core.agent.AgentResult;
 import com.codepilot1c.core.agent.AgentState;
 import com.codepilot1c.core.agent.IAgentRunner;
 import com.codepilot1c.core.agent.events.IAgentEventListener;
+import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.memory.project.ProjectMemoryInitializationService;
 import com.codepilot1c.core.memory.project.ProjectMemoryInitializationService.Mode;
 import com.codepilot1c.core.memory.project.ProjectMemoryInitializationService.Request;
@@ -54,6 +55,7 @@ public class AgentSessionControllerTest {
     private Object previousRunnerFactory;
     private Object previousToolRegistrySupplier;
     private Object previousProviderSupplier;
+    private Object previousConfigFactory;
 
     @Before
     public void setUp() {
@@ -80,6 +82,10 @@ public class AgentSessionControllerTest {
         if (previousProviderSupplier != null) {
             setControllerField("providerSupplier", previousProviderSupplier); //$NON-NLS-1$
             previousProviderSupplier = null;
+        }
+        if (previousConfigFactory != null) {
+            setControllerField("configFactory", previousConfigFactory); //$NON-NLS-1$
+            previousConfigFactory = null;
         }
     }
 
@@ -316,6 +322,22 @@ public class AgentSessionControllerTest {
         }
         setControllerField("providerSupplier", //$NON-NLS-1$
                 (java.util.function.Supplier<ILlmProvider>) () -> provider);
+        if (previousConfigFactory == null) {
+            previousConfigFactory = controllerField("configFactory"); //$NON-NLS-1$
+        }
+        setControllerField("configFactory", //$NON-NLS-1$
+                (java.util.function.Function<AgentProfile, AgentConfig>)
+                        AgentSessionControllerTest::preferenceFreeConfig);
+    }
+
+    private static AgentConfig preferenceFreeConfig(AgentProfile profile) {
+        return AgentConfig.builder()
+                .maxSteps(profile.getMaxSteps())
+                .timeoutMs(profile.getTimeoutMs())
+                .enabledTools(profile.getAllowedTools())
+                .systemPromptAddition(profile.getSystemPromptAddition())
+                .profileName(profile.getId())
+                .build();
     }
 
     private static final class FakeRunner implements IAgentRunner {
