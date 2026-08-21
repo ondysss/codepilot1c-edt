@@ -232,7 +232,7 @@ public class EdtProjectImportService {
             RuntimeExecutionArguments arguments = new RuntimeExecutionArguments();
             arguments.setMonitor(new NullProgressMonitor());
             applyAccessSettings(arguments, accessSettings);
-            Path exported = thickClientInfo.launcher().exportFullXmlFromInfobase(
+            Path exported = exportConfigurationToXml(thickClientInfo.launcher(),
                     thickClientInfo.component(),
                     infobase,
                     ConfigurationFilesFormat.HIERARCHICAL,
@@ -245,6 +245,63 @@ public class EdtProjectImportService {
             throw new EdtToolException(EdtToolErrorCode.CONFIG_EXPORT_FAILED,
                     "Failed to export configuration from infobase: " + e.getMessage(), e); //$NON-NLS-1$
         }
+    }
+
+    private static Path exportConfigurationToXml(Object launcher, Object component,
+            InfobaseReference infobase, ConfigurationFilesFormat format,
+            ConfigurationFilesKind kind, RuntimeExecutionArguments arguments,
+            Path exportRoot) throws Exception {
+        Method method = null;
+        for (String name : new String[] {
+                "exportFullXmlFromInfobase", "exportConfigurationToXml"}) { //$NON-NLS-1$ //$NON-NLS-2$
+            Object[] argumentsArray = {
+                    component, infobase, format, kind, arguments, exportRoot
+            };
+            for (Method candidate : launcher.getClass().getMethods()) {
+                if (candidate.getName().equals(name)
+                        && accepts(candidate, argumentsArray)) {
+                    method = candidate;
+                    break;
+                }
+            }
+            if (method != null) {
+                break;
+            }
+        }
+        if (method == null) {
+            throw new NoSuchMethodException(
+                    "Compatible EDT configuration export operation is unavailable"); //$NON-NLS-1$
+        }
+        try {
+            Object exported = method.invoke(launcher, component, infobase,
+                    format, kind, arguments, exportRoot);
+            if (exported == null || exported instanceof Path) {
+                return (Path) exported;
+            }
+            throw new IllegalStateException(
+                    "EDT configuration export returned an unexpected result type"); //$NON-NLS-1$
+        } catch (InvocationTargetException e) {
+            if (e.getCause() instanceof Exception cause) {
+                throw cause;
+            }
+            if (e.getCause() instanceof Error cause) {
+                throw cause;
+            }
+            throw new IllegalStateException("EDT configuration export failed", e); //$NON-NLS-1$
+        }
+    }
+
+    private static boolean accepts(Method method, Object[] arguments) {
+        Class<?>[] parameterTypes = method.getParameterTypes();
+        if (parameterTypes.length != arguments.length) {
+            return false;
+        }
+        for (int i = 0; i < parameterTypes.length; i++) {
+            if (arguments[i] != null && !parameterTypes[i].isInstance(arguments[i])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void importConfiguration(ImportProjectFromInfobaseRequest request, Path exportPath, String platformVersion) {

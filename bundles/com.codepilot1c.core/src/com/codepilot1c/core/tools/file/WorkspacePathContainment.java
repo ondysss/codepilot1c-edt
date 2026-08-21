@@ -13,6 +13,8 @@ import java.util.Deque;
 
 import org.eclipse.core.resources.IResource;
 
+import com.codepilot1c.core.filesystem.SecureDirectoryMutation;
+
 /** Physical/canonical containment checks for workspace writes. */
 final class WorkspacePathContainment {
 
@@ -49,6 +51,25 @@ final class WorkspacePathContainment {
      */
     static boolean isLinkedResource(IResource resource) {
         return resource == null || resource.isLinked(IResource.CHECK_ANCESTORS);
+    }
+
+    /**
+     * Publishes a ship artifact through an open parent-directory handle. The hook is intentionally
+     * between initial validation and boundary revalidation so tests can deterministically replace
+     * ancestry without timing races.
+     */
+    static void writeContained(Path workspace, Path project, Path target, byte[] bytes,
+            SecureDirectoryMutation.MutationHook hook) throws IOException {
+        if (!isContained(workspace, project, target) || target.getParent() == null) {
+            throw new java.nio.file.AccessDeniedException(target.toString(), null,
+                    "ship artifact target is not physically contained"); //$NON-NLS-1$
+        }
+        SecureDirectoryMutation.BoundRoot boundProject =
+                SecureDirectoryMutation.bindRoot(project);
+        try (SecureDirectoryMutation parent = SecureDirectoryMutation.open(
+                boundProject, target.getParent(), hook)) {
+            parent.atomicWrite(target.getFileName().toString(), bytes, "ship-artifact"); //$NON-NLS-1$
+        }
     }
 
     private static Path resolveRealPathIncludingMissingTail(Path target) throws IOException {

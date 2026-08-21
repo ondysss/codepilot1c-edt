@@ -14,8 +14,10 @@ import com.codepilot1c.core.tools.ActiveProjectSupport;
 import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.edt.ast.BmSyncHelper;
 import com.codepilot1c.core.agent.profiles.GsdShipPathPolicy;
+import com.codepilot1c.core.filesystem.SecureDirectoryMutation;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -56,6 +58,15 @@ import org.eclipse.core.runtime.Status;
 public class WriteTool extends AbstractTool {
 
     private static final String PLUGIN_ID = "com.codepilot1c.core";
+    private final SecureDirectoryMutation.MutationHook shipMutationHook;
+
+    public WriteTool() {
+        this(null);
+    }
+
+    WriteTool(SecureDirectoryMutation.MutationHook shipMutationHook) {
+        this.shipMutationHook = shipMutationHook;
+    }
 
     private static final String SCHEMA = """
             {
@@ -229,7 +240,30 @@ public class WriteTool extends AbstractTool {
                     "Pass allow_empty=true to intentionally empty the file.");
         }
 
-        if (file.exists()) {
+        if (shipScoped) {
+            created = !file.exists();
+            try {
+                ResourcesPlugin.getWorkspace().run(monitor -> {
+                    ensureParentFolderExists(file);
+                    if (!isPhysicalShipTarget(root, currentProject, file)) {
+                        throw new CoreException(new Status(IStatus.ERROR, PLUGIN_ID,
+                                "GSD Ship target ancestry changed before write")); //$NON-NLS-1$
+                    }
+                    try {
+                        WorkspacePathContainment.writeContained(
+                                root.getLocation().toFile().toPath(),
+                                currentProject.getLocation().toFile().toPath(),
+                                file.getLocation().toFile().toPath(), bytes, shipMutationHook);
+                    } catch (IOException e) {
+                        throw new CoreException(new Status(IStatus.ERROR, PLUGIN_ID,
+                                "GSD Ship write rejected: " + e.getMessage(), e)); //$NON-NLS-1$
+                    }
+                }, currentProject, 0, new NullProgressMonitor());
+            } catch (CoreException e) {
+                return ToolResult.failure(
+                        "GSD Ship write rejected: " + e.getMessage()); //$NON-NLS-1$
+            }
+        } else if (file.exists()) {
             file.setContents(new ByteArrayInputStream(bytes), IResource.FORCE | IResource.KEEP_HISTORY,
                     new NullProgressMonitor());
         } else {
