@@ -19,6 +19,7 @@ import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolParameters;
 import com.codepilot1c.core.tools.ToolParameters.ToolParameterException;
 import com.codepilot1c.core.tools.ToolResult;
+import com.codepilot1c.core.util.ThrowableCauseTraversal;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
@@ -145,14 +146,8 @@ final class GsdToolSupport {
     }
 
     private static boolean hasCapabilityCause(Throwable failure) {
-        Throwable current = failure;
-        while (current != null) {
-            if (current instanceof SecureDirectoryCapabilityException) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
+        return ThrowableCauseTraversal.contains(
+                failure, SecureDirectoryCapabilityException.class);
     }
 
     static void addWarnings(JsonObject payload, java.util.List<String> warnings) {

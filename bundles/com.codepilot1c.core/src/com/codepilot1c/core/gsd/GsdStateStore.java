@@ -8,24 +8,19 @@
 package com.codepilot1c.core.gsd;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
-import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
-import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,6 +28,7 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
+import com.codepilot1c.core.filesystem.AnchoredUnixRead;
 import com.codepilot1c.core.filesystem.SecureDirectoryCapabilityException;
 import com.codepilot1c.core.filesystem.SecureDirectoryMutation;
 import com.codepilot1c.core.filesystem.SecureDirectoryMutation.BoundRoot;
@@ -116,7 +112,7 @@ public final class GsdStateStore {
     /** Cross-process inter-process lock file. */
     public static final String STATE_LOCK = "state.lock"; //$NON-NLS-1$
 
-    /** Hard ceiling for the portable read-only state path. */
+    /** Hard ceiling for the descriptor-anchored read-only state path. */
     static final long MAX_READ_ONLY_STATE_BYTES = 16L * 1024L * 1024L;
 
     /**
@@ -263,15 +259,15 @@ public final class GsdStateStore {
      *   <li>I/O failure reading the primary → propagates as {@link IOException}.</li>
      * </ul>
      *
-     * <p>This is the deliberately separate portable read path. It does not require
-     * {@link java.nio.file.SecureDirectoryStream}: every existing component below the
-     * bound project root is checked with {@link LinkOption#NOFOLLOW_LINKS}, symbolic-link
-     * traversal is rejected, lexical and real ancestry must agree, the final file is
-     * opened with {@code NOFOLLOW_LINKS}, and component identity/metadata is revalidated
-     * after the bytes are read. These checks are the strongest practical portable Java 17
-     * confinement for a strictly non-mutating read. They cannot provide the stable
-     * relative handle used by mutation paths, so a detected concurrent pathname change
-     * fails closed instead of returning data.</p>
+     * <p>This is a deliberately separate descriptor-anchored Unix read path. On macOS and
+     * Linux it opens the project root and every relative component through libc
+     * {@code open}/{@code openat} with no symlink following, retains every descriptor until the
+     * bounded byte read completes, and binds each descriptor to the expected and current entry
+     * with native {@code fstat} identity. Linux also corroborates file keys through
+     * {@code /proc/self/fd}; macOS never interprets {@code /dev/fd} through Java file attributes.
+     * The final regular file must have exactly one hard link before reading. Unsupported operating
+     * systems, unavailable JNA/libc primitives, and unavailable stable identity fail closed; there
+     * is no pathname-only fallback.</p>
      *
      * <p>This method is designed for read-only UI consumers (e.g. status panels)
      * that must never mutate the project directory.</p>
@@ -284,47 +280,24 @@ public final class GsdStateStore {
      * @throws IOException          on I/O failure reading the primary
      */
     public GsdState loadReadOnly() throws IOException {
-        PortableReadSnapshot before = capturePortableReadSnapshot();
-        if (!before.stateExists()) {
-            verifyPortableReadSnapshot(before);
+        boundProjectRoot.verifyCurrent();
+        AnchoredUnixRead.Result result;
+        try {
+            result = AnchoredUnixRead.read(projectRoot,
+                    Path.of(GSD_DIR_NAME).resolve(STATE_JSON),
+                    MAX_READ_ONLY_STATE_BYTES, mutationHook);
+        } catch (AnchoredUnixRead.ReadLimitExceededException e) {
+            throw new GsdCorruptException("GSD state exceeds the anchored read-only limit of " //$NON-NLS-1$
+                    + MAX_READ_ONLY_STATE_BYTES + " bytes", e); //$NON-NLS-1$
+        } catch (LinkageError e) {
+            throw new SecureDirectoryCapabilityException(statePath,
+                    "JNA anchored-read capability is unavailable", e); //$NON-NLS-1$
+        }
+        boundProjectRoot.verifyCurrent();
+        if (!result.exists()) {
             return GsdState.fresh();
         }
-        long expectedSize = before.identities().get(before.identities().size() - 1).size();
-        requirePortableReadSize(expectedSize);
-
-        byte[] bytes;
-        try (SeekableByteChannel channel = Files.newByteChannel(statePath,
-                java.util.Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS));
-                ByteArrayOutputStream output = new ByteArrayOutputStream((int) expectedSize)) {
-            ByteBuffer buffer = ByteBuffer.allocate(8192);
-            long total = 0L;
-            while (true) {
-                int read = channel.read(buffer);
-                if (read < 0) {
-                    break;
-                }
-                if (read == 0) {
-                    continue;
-                }
-                total += read;
-                requirePortableReadSize(total);
-                output.write(buffer.array(), 0, read);
-                buffer.clear();
-            }
-            bytes = output.toByteArray();
-        }
-        if (mutationHook != null) {
-            mutationHook.beforeMutation("gsd-read-before-revalidation"); //$NON-NLS-1$
-        }
-        verifyPortableReadSnapshot(before);
-        return parseState(bytes, statePath).state;
-    }
-
-    private static void requirePortableReadSize(long size) throws GsdCorruptException {
-        if (size < 0L || size > MAX_READ_ONLY_STATE_BYTES) {
-            throw new GsdCorruptException("GSD state exceeds the portable read-only limit of " //$NON-NLS-1$
-                    + MAX_READ_ONLY_STATE_BYTES + " bytes"); //$NON-NLS-1$
-        }
+        return parseState(result.bytes(), statePath).state;
     }
 
     /**
@@ -792,95 +765,6 @@ public final class GsdStateStore {
         }
     }
 
-    /** Captures a portable, strictly read-only view of the GSD state path. */
-    private PortableReadSnapshot capturePortableReadSnapshot() throws IOException {
-        boundProjectRoot.verifyCurrent();
-        Path realRoot = projectRoot.toRealPath();
-        if (!statePath.startsWith(projectRoot) || statePath.equals(projectRoot)) {
-            throw deniedRead(statePath, "GSD state path escapes the project root"); //$NON-NLS-1$
-        }
-
-        List<PortablePathIdentity> identities = new ArrayList<>();
-        Path current = projectRoot;
-        Path relative = projectRoot.relativize(statePath);
-        for (int i = 0; i < relative.getNameCount(); i++) {
-            current = current.resolve(relative.getName(i));
-            boolean finalComponent = i == relative.getNameCount() - 1;
-            BasicFileAttributes attributes;
-            try {
-                attributes = Files.readAttributes(
-                        current, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-            } catch (NoSuchFileException e) {
-                return new PortableReadSnapshot(realRoot, List.copyOf(identities),
-                        current, false);
-            }
-            if (attributes.isSymbolicLink()) {
-                throw deniedRead(current, "symbolic links are not allowed in the GSD read path"); //$NON-NLS-1$
-            }
-            if (finalComponent) {
-                if (!attributes.isRegularFile()) {
-                    throw deniedRead(current, "GSD state is not a regular file"); //$NON-NLS-1$
-                }
-            } else if (!attributes.isDirectory()) {
-                throw deniedRead(current, "GSD read path component is not a directory"); //$NON-NLS-1$
-            }
-
-            Path real = current.toRealPath();
-            Path expectedReal = realRoot.resolve(projectRoot.relativize(current)).normalize();
-            if (!real.startsWith(realRoot) || !real.equals(expectedReal)) {
-                throw deniedRead(current,
-                        "GSD read path does not preserve real project ancestry"); //$NON-NLS-1$
-            }
-            identities.add(new PortablePathIdentity(current, real, attributes.fileKey(),
-                    attributes.isDirectory(), attributes.size(),
-                    attributes.lastModifiedTime().toMillis()));
-        }
-        return new PortableReadSnapshot(realRoot, List.copyOf(identities), null, true);
-    }
-
-    /** Revalidates the complete portable read path after absence detection or byte reading. */
-    private void verifyPortableReadSnapshot(PortableReadSnapshot snapshot) throws IOException {
-        boundProjectRoot.verifyCurrent();
-        if (!projectRoot.toRealPath().equals(snapshot.realRoot())) {
-            throw deniedRead(projectRoot, "project root changed during GSD read"); //$NON-NLS-1$
-        }
-        for (PortablePathIdentity identity : snapshot.identities()) {
-            BasicFileAttributes attributes;
-            try {
-                attributes = Files.readAttributes(identity.path(), BasicFileAttributes.class,
-                        LinkOption.NOFOLLOW_LINKS);
-            } catch (NoSuchFileException e) {
-                throw deniedRead(identity.path(), "GSD read path changed during read"); //$NON-NLS-1$
-            }
-            Path real = identity.path().toRealPath();
-            Object currentKey = attributes.fileKey();
-            boolean keyChanged = identity.fileKey() != null && currentKey != null
-                    && !identity.fileKey().equals(currentKey);
-            if (attributes.isSymbolicLink()
-                    || attributes.isDirectory() != identity.directory()
-                    || keyChanged
-                    || !real.equals(identity.realPath())
-                    || attributes.size() != identity.size()
-                    || attributes.lastModifiedTime().toMillis() != identity.lastModifiedMillis()) {
-                throw deniedRead(identity.path(), "GSD read path changed during read"); //$NON-NLS-1$
-            }
-        }
-        if (!snapshot.stateExists()) {
-            try {
-                Files.readAttributes(snapshot.firstMissingPath(), BasicFileAttributes.class,
-                        LinkOption.NOFOLLOW_LINKS);
-                throw deniedRead(snapshot.firstMissingPath(),
-                        "GSD read path appeared during read"); //$NON-NLS-1$
-            } catch (NoSuchFileException expected) {
-                // Stable absence: returning a fresh state is safe and performs no mutation.
-            }
-        }
-    }
-
-    private static AccessDeniedException deniedRead(Path path, String reason) {
-        return new AccessDeniedException(path.toString(), null, reason);
-    }
-
     /**
      * Verifies the GSD directory stays inside the project root after symlink resolution,
      * resolving through the longest existing ancestor so a pre-existing symlink (e.g.
@@ -958,22 +842,6 @@ public final class GsdStateStore {
             this.state = state;
             this.migrated = migrated;
         }
-    }
-
-    private record PortableReadSnapshot(
-            Path realRoot,
-            List<PortablePathIdentity> identities,
-            Path firstMissingPath,
-            boolean stateExists) {
-    }
-
-    private record PortablePathIdentity(
-            Path path,
-            Path realPath,
-            Object fileKey,
-            boolean directory,
-            long size,
-            long lastModifiedMillis) {
     }
 
     /** Exact schema-v1 shape used only by the explicit one-step migrator. */
