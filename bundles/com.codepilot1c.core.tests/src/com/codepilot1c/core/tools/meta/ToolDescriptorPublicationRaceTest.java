@@ -8,6 +8,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Field;
@@ -17,6 +18,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -222,6 +224,105 @@ public class ToolDescriptorPublicationRaceTest {
                 descriptors.get(sideName).getCategory());
     }
 
+    @Test
+    public void builtInMetadataFailuresRollbackExactPredecessor() {
+        for (FailurePoint point : FailurePoint.values()) {
+            String name = "descriptor_builtin_failure_" + point; //$NON-NLS-1$
+            MetadataTool predecessor = tool(
+                    name, false, false, "predecessor", null); //$NON-NLS-1$
+            registry.register(predecessor);
+
+            assertThrows(RuntimeException.class,
+                    () -> registry.register(new FailingMetadataTool(
+                            name, point, null)));
+
+            assertPublished(predecessor);
+        }
+    }
+
+    @Test
+    public void dynamicMetadataFailuresRollbackExactPredecessor() {
+        for (FailurePoint point : FailurePoint.values()) {
+            String name = "mcp_descriptor_dynamic_failure_" + point; //$NON-NLS-1$
+            MetadataTool predecessor = tool(
+                    name, false, false, "predecessor", null); //$NON-NLS-1$
+            registry.registerDynamicTool(
+                    predecessor, DynamicToolCapability.READ_ONLY);
+
+            assertThrows(RuntimeException.class,
+                    () -> registry.registerDynamicTool(
+                            new FailingMetadataTool(name, point, null),
+                            DynamicToolCapability.MUTATING));
+
+            assertPublished(predecessor);
+            assertEquals(DynamicToolCapability.READ_ONLY,
+                    registry.getDynamicToolCapability(name));
+        }
+    }
+
+    @Test
+    public void failedInitialRegistrationLeavesNoInstalledSlotOrDescriptor() {
+        String name = "descriptor_initial_failure"; //$NON-NLS-1$
+
+        assertThrows(IllegalStateException.class,
+                () -> registry.register(new FailingMetadataTool(
+                        name, FailurePoint.TAGS, null)));
+
+        assertNull(registry.getTool(name));
+        assertNull(descriptors.get(name));
+    }
+
+    @Test
+    public void staleBuiltInRollbackCannotRemoveReplacement() throws Exception {
+        assertStaleRollbackPreservesReplacement(false);
+    }
+
+    @Test
+    public void staleDynamicRollbackCannotRemoveReplacement() throws Exception {
+        assertStaleRollbackPreservesReplacement(true);
+    }
+
+    private void assertStaleRollbackPreservesReplacement(boolean dynamic)
+            throws Exception {
+        String name = dynamic
+                ? "mcp_descriptor_stale_failure" //$NON-NLS-1$
+                : "descriptor_stale_failure"; //$NON-NLS-1$
+        MetadataTool predecessor = tool(
+                name, false, false, "predecessor", null); //$NON-NLS-1$
+        MetadataTool replacement = tool(
+                name, true, true, "replacement", null); //$NON-NLS-1$
+        if (dynamic) {
+            registry.registerDynamicTool(
+                    predecessor, DynamicToolCapability.READ_ONLY);
+        } else {
+            registry.register(predecessor);
+        }
+
+        MetadataBarrier barrier = new MetadataBarrier();
+        Future<?> failing = executor.submit(() -> {
+            FailingMetadataTool tool = new FailingMetadataTool(
+                    name, FailurePoint.VALIDATION, barrier);
+            if (dynamic) {
+                registry.registerDynamicTool(
+                        tool, DynamicToolCapability.MUTATING);
+            } else {
+                registry.register(tool);
+            }
+        });
+        barrier.awaitEntered();
+        if (dynamic) {
+            registry.registerDynamicTool(
+                    replacement, DynamicToolCapability.MUTATING);
+        } else {
+            registry.register(replacement);
+        }
+        barrier.release();
+        assertThrows(ExecutionException.class,
+                () -> failing.get(2, TimeUnit.SECONDS));
+
+        assertPublished(replacement);
+    }
+
     private void assertPublished(MetadataTool expected) {
         ToolResolution resolution = registry.resolveTool(expected.getName());
         ToolDescriptor descriptor = descriptors.get(expected.getName());
@@ -291,6 +392,86 @@ public class ToolDescriptorPublicationRaceTest {
 
         private void release() {
             released.countDown();
+        }
+    }
+
+    private enum FailurePoint {
+        CATEGORY,
+        MUTATING,
+        VALIDATION,
+        TAGS,
+        CHANGED_NAME
+    }
+
+    private static final class FailingMetadataTool implements ITool {
+        private final String name;
+        private final FailurePoint point;
+        private final MetadataBarrier barrier;
+        private int nameCalls;
+
+        private FailingMetadataTool(
+                String name, FailurePoint point, MetadataBarrier barrier) {
+            this.name = name;
+            this.point = point;
+            this.barrier = barrier;
+        }
+
+        @Override
+        public String getName() {
+            nameCalls++;
+            if (point == FailurePoint.CHANGED_NAME && nameCalls > 1) {
+                return name + "_changed"; //$NON-NLS-1$
+            }
+            return name;
+        }
+
+        @Override
+        public String getDescription() {
+            return "failing descriptor test tool"; //$NON-NLS-1$
+        }
+
+        @Override
+        public String getParameterSchema() {
+            return "{\"type\":\"object\"}"; //$NON-NLS-1$
+        }
+
+        @Override
+        public CompletableFuture<ToolResult> execute(Map<String, Object> parameters) {
+            return CompletableFuture.completedFuture(ToolResult.success("ok")); //$NON-NLS-1$
+        }
+
+        @Override
+        public String getCategory() {
+            failAt(FailurePoint.CATEGORY);
+            return "metadata"; //$NON-NLS-1$
+        }
+
+        @Override
+        public boolean isMutating() {
+            failAt(FailurePoint.MUTATING);
+            return true;
+        }
+
+        @Override
+        public boolean requiresValidationToken() {
+            if (barrier != null) {
+                barrier.pause();
+            }
+            failAt(FailurePoint.VALIDATION);
+            return true;
+        }
+
+        @Override
+        public Set<String> getTags() {
+            failAt(FailurePoint.TAGS);
+            return Set.of("failing"); //$NON-NLS-1$
+        }
+
+        private void failAt(FailurePoint candidate) {
+            if (point == candidate) {
+                throw new IllegalStateException(
+                        "metadata failure at " + candidate); //$NON-NLS-1$
+            }
         }
     }
 

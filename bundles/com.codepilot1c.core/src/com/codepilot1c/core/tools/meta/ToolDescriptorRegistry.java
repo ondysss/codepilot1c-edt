@@ -154,6 +154,52 @@ public final class ToolDescriptorRegistry {
         return published.get();
     }
 
+    /**
+     * Captures metadata that is about to be replaced structurally. This is a
+     * callback-free snapshot used only for exact-slot registration rollback.
+     */
+    public ToolDescriptor descriptorForReplacement(
+            String name, SlotIdentity expectedIdentity) {
+        DescriptorEntry entry = name != null ? descriptors.get(name) : null;
+        if (entry == null) {
+            return null;
+        }
+        Object identity = entry.slotIdentity();
+        if (expectedIdentity == null) {
+            return identity == UNVERSIONED ? entry.descriptor() : null;
+        }
+        return identity == expectedIdentity ? entry.descriptor() : null;
+    }
+
+    /**
+     * Restores the predecessor of a failed registration when the descriptor
+     * is still owned by that slot (or was concurrently removed). A different
+     * current slot always wins. The operation leaves no tombstone.
+     */
+    public boolean restoreSlot(
+            String name,
+            SlotIdentity failedIdentity,
+            SlotIdentity previousIdentity,
+            ToolDescriptor previousDescriptor) {
+        if (name == null || failedIdentity == null) {
+            return false;
+        }
+        AtomicBoolean restored = new AtomicBoolean();
+        descriptors.compute(name, (ignored, current) -> {
+            if (current != null && current.slotIdentity() != failedIdentity) {
+                return current;
+            }
+            restored.set(true);
+            if (previousDescriptor == null) {
+                return null;
+            }
+            Object identity = previousIdentity != null
+                    ? previousIdentity : UNVERSIONED;
+            return new DescriptorEntry(identity, previousDescriptor);
+        });
+        return restored.get();
+    }
+
     /** Removes metadata only when it still belongs to the specified slot. */
     public void removeSlot(String name, SlotIdentity slotIdentity) {
         if (name == null || slotIdentity == null) {
@@ -178,6 +224,7 @@ public final class ToolDescriptorRegistry {
             return entry.descriptor();
         }
         return access == BootstrapAccess.OWNER_REENTRY
+                || access == BootstrapAccess.CONSERVATIVE_READY
                 ? conservativeDescriptor(name)
                 : null;
     }
@@ -239,12 +286,13 @@ public final class ToolDescriptorRegistry {
     private BootstrapAccess ensureInitialized() {
         BootstrapAccess access = bootstrap.access();
         if (access == BootstrapAccess.READY
+                || access == BootstrapAccess.CONSERVATIVE_READY
                 || access == BootstrapAccess.OWNER_REENTRY) {
             return access;
         }
         if (access == BootstrapAccess.WAIT) {
             bootstrap.awaitCompletion();
-            return BootstrapAccess.READY;
+            return bootstrap.access();
         }
         try {
             bootstrapAction.accept(this);
@@ -253,8 +301,12 @@ public final class ToolDescriptorRegistry {
             bootstrap.complete();
             return BootstrapAccess.READY;
         } catch (Throwable failure) {
-            bootstrap.fail(failure);
-            throw propagate(failure);
+            if (bootstrap.fail(failure)) {
+                throw propagate(failure);
+            }
+            LOG.error("Keeping conservative descriptors after late bootstrap failure", //$NON-NLS-1$
+                    failure);
+            return bootstrap.access();
         }
     }
 
@@ -276,22 +328,37 @@ public final class ToolDescriptorRegistry {
         return new IllegalStateException("Tool descriptor bootstrap failed", failure); //$NON-NLS-1$
     }
 
-    /** Ownership token for ToolRegistry-coordinated descriptor bootstrap. */
+    /**
+     * Coordinates ToolRegistry's structural publication and later metadata
+     * refinement without making authorization readers wait for refinement.
+     */
     public final class BootstrapLease {
         private final boolean owned;
+        private boolean structuralPublished;
 
         private BootstrapLease(boolean owned) {
             this.owned = owned;
         }
 
-        public void complete() {
+        public void structuralReady() {
             try {
-                if (owned) {
-                    bootstrap.complete();
-                }
+                bootstrap.structuralReady();
+                structuralPublished = true;
             } finally {
                 bootstrap.leaveExternalBootstrap();
             }
+        }
+
+        public void refinementComplete() {
+            if (structuralPublished) {
+                bootstrap.complete();
+            }
+        }
+
+        /** Preserves the original one-phase lease contract for external callers. */
+        public void complete() {
+            structuralReady();
+            refinementComplete();
         }
 
         public void fail(Throwable failure) {
@@ -308,6 +375,7 @@ public final class ToolDescriptorRegistry {
     private enum BootstrapState {
         NEW,
         INITIALIZING,
+        STRUCTURAL_READY,
         READY,
         FAILED
     }
@@ -316,6 +384,7 @@ public final class ToolDescriptorRegistry {
         OWNER,
         OWNER_REENTRY,
         WAIT,
+        CONSERVATIVE_READY,
         READY
     }
 
@@ -365,6 +434,7 @@ public final class ToolDescriptorRegistry {
                             || externalParticipant.get().booleanValue()
                             ? BootstrapAccess.OWNER_REENTRY
                             : BootstrapAccess.WAIT;
+                    case STRUCTURAL_READY -> BootstrapAccess.CONSERVATIVE_READY;
                     case READY -> BootstrapAccess.READY;
                     case FAILED -> throw propagate(failure);
                 };
@@ -373,7 +443,8 @@ public final class ToolDescriptorRegistry {
 
         private void complete() {
             synchronized (stateLock) {
-                if (state != BootstrapState.INITIALIZING) {
+                if (state != BootstrapState.INITIALIZING
+                        && state != BootstrapState.STRUCTURAL_READY) {
                     return;
                 }
                 state = BootstrapState.READY;
@@ -382,16 +453,31 @@ public final class ToolDescriptorRegistry {
             completion.countDown();
         }
 
-        private void fail(Throwable cause) {
+        private void structuralReady() {
             synchronized (stateLock) {
+                if (state == BootstrapState.FAILED) {
+                    throw propagate(failure);
+                }
                 if (state != BootstrapState.INITIALIZING) {
                     return;
+                }
+                state = BootstrapState.STRUCTURAL_READY;
+                owner = null;
+            }
+            completion.countDown();
+        }
+
+        private boolean fail(Throwable cause) {
+            synchronized (stateLock) {
+                if (state != BootstrapState.INITIALIZING) {
+                    return false;
                 }
                 failure = cause;
                 state = BootstrapState.FAILED;
                 owner = null;
             }
             completion.countDown();
+            return true;
         }
 
         private void awaitCompletion() {

@@ -11,6 +11,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.lang.reflect.Field;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -21,7 +22,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
+import java.util.function.Function;
 
 import org.junit.After;
 import org.junit.Before;
@@ -160,7 +161,7 @@ public class ToolDescriptorBootstrapStateTest {
                     await(releaseDescriptorOwner);
                     ToolRegistry.getInstance().refreshToolDescriptors();
                 });
-        Consumer<ToolRegistry> override = registry -> registry.register(
+        Function<ToolRegistry, List<ITool>> override = ignored -> List.of(
                 new ReentrantDescriptorTool(descriptors, callbackDescriptor));
         try {
             descriptorInstance.set(null, descriptors);

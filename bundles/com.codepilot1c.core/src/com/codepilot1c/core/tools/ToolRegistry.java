@@ -18,7 +18,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
-import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.eclipse.core.runtime.IConfigurationElement;
@@ -69,7 +69,7 @@ public class ToolRegistry {
 
     private static final Object INSTANCE_LOCK = new Object();
     private static volatile ToolRegistry instance;
-    private static volatile Consumer<ToolRegistry> initializationOverride;
+    private static volatile Function<ToolRegistry, List<ITool>> initializationOverride;
 
     private final Map<String, ITool> tools = new HashMap<>();
     private final Map<String, ITool> dynamicTools = new ConcurrentHashMap<>();
@@ -117,24 +117,50 @@ public class ToolRegistry {
 
     private void initializeSingleton() {
         ToolDescriptorRegistry.BootstrapLease descriptorBootstrap = null;
+        List<RegistrationClaim> claims = List.of();
         try {
             descriptorBootstrap = descriptorRegistry().beginExternalBootstrap();
-            Consumer<ToolRegistry> override = initializationOverride;
-            if (override != null) {
-                override.accept(this);
-            } else {
-                registerDefaultTools();
+            Function<ToolRegistry, List<ITool>> override = initializationOverride;
+            List<ITool> defaults = override != null
+                    ? override.apply(this)
+                    : createDefaultTools();
+            claims = new ArrayList<>(defaults.size());
+            for (ITool tool : defaults) {
+                claims.add(installBuiltInStructurally(tool));
             }
-            augmentor = ToolSurfaceAugmentor.defaultAugmentor();
-            LOG.info("ToolRegistry initialized with %d tools", tools.size()); //$NON-NLS-1$
-            descriptorBootstrap.complete();
-            initialization.complete();
+
+            // Authorization is safe once every structural slot has a
+            // conservative descriptor. Refinement must never gate callers.
+            descriptorBootstrap.structuralReady();
+            initialization.structuralReady();
         } catch (Throwable failure) {
             if (descriptorBootstrap != null) {
                 descriptorBootstrap.fail(failure);
             }
             initialization.fail(failure);
             throw propagateInitializationFailure(failure);
+        }
+
+        // Default-tool refinement is deliberately best-effort. A broken
+        // metadata callback leaves the structurally installed default tool
+        // visible only through its conservative fail-closed descriptor.
+        try {
+            for (RegistrationClaim claim : claims) {
+                try {
+                    refineDescriptor(claim);
+                } catch (Throwable failure) {
+                    LOG.error("Keeping conservative metadata for default tool: " //$NON-NLS-1$
+                            + claim.name(), failure);
+                }
+            }
+            loadToolsFromExtensionPoint();
+            augmentor = ToolSurfaceAugmentor.defaultAugmentor();
+            LOG.info("ToolRegistry initialized with %d tools", tools.size()); //$NON-NLS-1$
+        } catch (Throwable failure) {
+            LOG.error("Tool metadata refinement did not complete", failure); //$NON-NLS-1$
+        } finally {
+            descriptorBootstrap.refinementComplete();
+            initialization.refinementComplete();
         }
     }
 
@@ -147,120 +173,119 @@ public class ToolRegistry {
         return this;
     }
 
-    private void registerDefaultTools() {
+    private List<ITool> createDefaultTools() {
+        List<ITool> defaults = new ArrayList<>();
         // OSS default tools (commodity)
-        register(new ReadFileTool());
-        register(new ListFilesTool());
-        register(new EditFileTool());
-        register(new WriteTool());
-        register(new WorkspaceCopyTransformTool());
-        register(new WorkspaceCopyTransformBatchTool());
-        register(new GrepTool());
-        register(new GlobTool());
-        register(new WorkspaceImportProjectTool());
-        register(new ConnectInfobaseTool());
-        register(new GitInspectTool());
-        register(new GitMutateTool());
-        register(new GitCloneAndImportProjectTool());
-        register(new ImportProjectFromInfobaseTool());
-        register(new EdtContentAssistTool());
-        register(new EdtFindReferencesTool());
-        register(new EdtMetadataDetailsTool());
-        register(new ScanMetadataIndexTool());
-        register(new InspectRoleRightsTool());
-        register(new MutateRoleRightsTool());
-        register(new GetConfigurationPropertiesTool());
-        register(new GetProblemSummaryTool());
-        register(new GetTagsTool());
-        register(new GetObjectsByTagsTool());
-        register(new ListModulesTool());
-        register(new GetModuleStructureTool());
-        register(new SearchInCodeTool());
-        register(new GetMethodCallHierarchyTool());
-        register(new GetProjectCallGraphTool());
-        register(new GoToDefinitionTool());
-        register(new GetSymbolInfoTool());
-        register(new GetBookmarksTool());
-        register(new GetTasksTool());
-        register(new JavaCompileProbeTool());
+        defaults.add(new ReadFileTool());
+        defaults.add(new ListFilesTool());
+        defaults.add(new EditFileTool());
+        defaults.add(new WriteTool());
+        defaults.add(new WorkspaceCopyTransformTool());
+        defaults.add(new WorkspaceCopyTransformBatchTool());
+        defaults.add(new GrepTool());
+        defaults.add(new GlobTool());
+        defaults.add(new WorkspaceImportProjectTool());
+        defaults.add(new ConnectInfobaseTool());
+        defaults.add(new GitInspectTool());
+        defaults.add(new GitMutateTool());
+        defaults.add(new GitCloneAndImportProjectTool());
+        defaults.add(new ImportProjectFromInfobaseTool());
+        defaults.add(new EdtContentAssistTool());
+        defaults.add(new EdtFindReferencesTool());
+        defaults.add(new EdtMetadataDetailsTool());
+        defaults.add(new ScanMetadataIndexTool());
+        defaults.add(new InspectRoleRightsTool());
+        defaults.add(new MutateRoleRightsTool());
+        defaults.add(new GetConfigurationPropertiesTool());
+        defaults.add(new GetProblemSummaryTool());
+        defaults.add(new GetTagsTool());
+        defaults.add(new GetObjectsByTagsTool());
+        defaults.add(new ListModulesTool());
+        defaults.add(new GetModuleStructureTool());
+        defaults.add(new SearchInCodeTool());
+        defaults.add(new GetMethodCallHierarchyTool());
+        defaults.add(new GetProjectCallGraphTool());
+        defaults.add(new GoToDefinitionTool());
+        defaults.add(new GetSymbolInfoTool());
+        defaults.add(new GetBookmarksTool());
+        defaults.add(new GetTasksTool());
+        defaults.add(new JavaCompileProbeTool());
 
-        register(new com.codepilot1c.core.tools.profiling.StartProfilingTool());
-        register(new com.codepilot1c.core.tools.profiling.GetProfilingResultsTool());
-        register(new SetBreakpointTool());
-        register(new RemoveBreakpointTool());
-        register(new ListBreakpointsTool());
-        register(new WaitForBreakTool());
-        register(new GetVariablesTool());
-        register(new StepTool());
-        register(new ResumeTool());
-        register(new EvaluateExpressionTool());
-        register(new DebugStatusTool());
-        register(new RunYaxunitTestsTool());
-        register(new DebugYaxunitTestsTool());
-        register(new EdtFieldTypeCandidatesTool());
-        register(new GetPlatformDocumentationTool());
-        register(new BslSymbolAtPositionTool());
-        register(new BslTypeAtPositionTool());
-        register(new BslScopeMembersTool());
-        register(new BslListMethodsTool());
-        register(new BslGetMethodBodyTool());
-        register(new BslAnalyzeMethodTool());
-        register(new BslModuleContextTool());
-        register(new BslModuleExportsTool());
-        register(new ValidateQueryTool());
-        register(new EdtValidateRequestTool());
-        register(new CreateMetadataTool());
-        register(new CreateFormTool());
-        register(new ApplyFormRecipeTool());
-        register(new InspectFormLayoutTool());
-        register(new AddMetadataChildTool());
-        register(new EnsureModuleArtifactTool());
-        register(new UpdateMetadataTool());
-        register(new MutateFormModelTool());
-        register(new DeleteMetadataTool());
-        register(new RenderTemplateTool());
-        register(new InspectTemplateTool());
-        register(new YaxunitAuthoringTool());
-        register(new EdtDiagnosticsTool());
-        register(new GetOneCProcessesTool());
-        register(new GetInfobaseLocksTool());
-        register(new GetStandaloneServerStatusTool());
-        register(new ResolveWebClientUrlTool());
-        register(new GetInfobaseCredentialsTool());
-        register(new TailEdtLogsTool());
-        register(new ExtensionManageTool());
-        register(new MigrateToExtensionNativeTool());
-        register(new EdtExtensionSmokeTool());
-        register(new DcsManageTool());
-        register(new ExternalManageTool());
-        register(new EdtExternalSmokeTool());
+        defaults.add(new com.codepilot1c.core.tools.profiling.StartProfilingTool());
+        defaults.add(new com.codepilot1c.core.tools.profiling.GetProfilingResultsTool());
+        defaults.add(new SetBreakpointTool());
+        defaults.add(new RemoveBreakpointTool());
+        defaults.add(new ListBreakpointsTool());
+        defaults.add(new WaitForBreakTool());
+        defaults.add(new GetVariablesTool());
+        defaults.add(new StepTool());
+        defaults.add(new ResumeTool());
+        defaults.add(new EvaluateExpressionTool());
+        defaults.add(new DebugStatusTool());
+        defaults.add(new RunYaxunitTestsTool());
+        defaults.add(new DebugYaxunitTestsTool());
+        defaults.add(new EdtFieldTypeCandidatesTool());
+        defaults.add(new GetPlatformDocumentationTool());
+        defaults.add(new BslSymbolAtPositionTool());
+        defaults.add(new BslTypeAtPositionTool());
+        defaults.add(new BslScopeMembersTool());
+        defaults.add(new BslListMethodsTool());
+        defaults.add(new BslGetMethodBodyTool());
+        defaults.add(new BslAnalyzeMethodTool());
+        defaults.add(new BslModuleContextTool());
+        defaults.add(new BslModuleExportsTool());
+        defaults.add(new ValidateQueryTool());
+        defaults.add(new EdtValidateRequestTool());
+        defaults.add(new CreateMetadataTool());
+        defaults.add(new CreateFormTool());
+        defaults.add(new ApplyFormRecipeTool());
+        defaults.add(new InspectFormLayoutTool());
+        defaults.add(new AddMetadataChildTool());
+        defaults.add(new EnsureModuleArtifactTool());
+        defaults.add(new UpdateMetadataTool());
+        defaults.add(new MutateFormModelTool());
+        defaults.add(new DeleteMetadataTool());
+        defaults.add(new RenderTemplateTool());
+        defaults.add(new InspectTemplateTool());
+        defaults.add(new YaxunitAuthoringTool());
+        defaults.add(new EdtDiagnosticsTool());
+        defaults.add(new GetOneCProcessesTool());
+        defaults.add(new GetInfobaseLocksTool());
+        defaults.add(new GetStandaloneServerStatusTool());
+        defaults.add(new ResolveWebClientUrlTool());
+        defaults.add(new GetInfobaseCredentialsTool());
+        defaults.add(new TailEdtLogsTool());
+        defaults.add(new ExtensionManageTool());
+        defaults.add(new MigrateToExtensionNativeTool());
+        defaults.add(new EdtExtensionSmokeTool());
+        defaults.add(new DcsManageTool());
+        defaults.add(new ExternalManageTool());
+        defaults.add(new EdtExternalSmokeTool());
         // QaInspectTool dispatches: qa_explain_config, qa_status, qa_steps_search
-        register(new QaInspectTool());
+        defaults.add(new QaInspectTool());
         // QaGenerateTool dispatches: qa_init_config, qa_migrate_config, qa_compile_feature
-        register(new QaGenerateTool());
+        defaults.add(new QaGenerateTool());
         // AnalyzeToolErrorTool, EdtUpdateInfobaseTool, EdtLaunchAppTool
         // are now dispatched through EdtDiagnosticsTool
-        register(new com.codepilot1c.core.tools.workspace.UpdateInfobaseStatusTool());
-        register(new QaRunTool());
-        register(new QaPrepareFormContextTool());
-        register(new QaPlanScenarioTool());
-        register(new QaValidateFeatureTool());
-        register(new SkillTool());
-        register(new DelegateToAgentTool(this));
-        register(new TaskTool(this));
-        register(new DiscoverToolsTool(this));
-        register(new com.codepilot1c.core.tools.memory.RememberFactTool());
+        defaults.add(new com.codepilot1c.core.tools.workspace.UpdateInfobaseStatusTool());
+        defaults.add(new QaRunTool());
+        defaults.add(new QaPrepareFormContextTool());
+        defaults.add(new QaPlanScenarioTool());
+        defaults.add(new QaValidateFeatureTool());
+        defaults.add(new SkillTool());
+        defaults.add(new DelegateToAgentTool(this));
+        defaults.add(new TaskTool(this));
+        defaults.add(new DiscoverToolsTool(this));
+        defaults.add(new com.codepilot1c.core.tools.memory.RememberFactTool());
 
         // GSD workflow tools
-        register(new GsdGetStateTool());
-        register(new GsdRecordDecisionTool());
-        register(new GsdCreatePlanTool());
-        register(new GsdUpdateTaskTool());
-        register(new GsdRecordEvidenceTool());
-        register(new GsdTransitionTool());
-
-        // Extra tools may be contributed by an overlay (e.g. Pro) via extension point.
-        loadToolsFromExtensionPoint();
+        defaults.add(new GsdGetStateTool());
+        defaults.add(new GsdRecordDecisionTool());
+        defaults.add(new GsdCreatePlanTool());
+        defaults.add(new GsdUpdateTaskTool());
+        defaults.add(new GsdRecordEvidenceTool());
+        defaults.add(new GsdTransitionTool());
+        return defaults;
     }
 
     private void loadToolsFromExtensionPoint() {
@@ -295,18 +320,13 @@ public class ToolRegistry {
      * @param tool the tool to register
      */
     public void register(ITool tool) {
-        String name = requireToolName(tool);
-        ToolDescriptorRegistry descriptors = descriptorRegistry();
-        ToolSlot slot;
-        synchronized (this) {
-            ToolSlot previous = currentSlot(name);
-            slot = ToolSlot.builtIn(tool);
-            publishDescriptor(descriptors, previous, slot,
-                    conservativeDescriptor(name));
-            tools.put(name, tool);
-            effectiveSlots().put(name, slot);
+        RegistrationClaim claim = installBuiltInStructurally(tool);
+        try {
+            refineDescriptor(claim);
+        } catch (Throwable failure) {
+            rollbackRegistration(claim);
+            throw propagateRegistrationFailure(failure);
         }
-        refineDescriptor(descriptors, name, tool, slot);
     }
 
     /**
@@ -342,7 +362,14 @@ public class ToolRegistry {
             }
         }
         if (revealed != null) {
-            refineDescriptor(descriptors, name, revealed, revealedSlot);
+            try {
+                refineDescriptor(new RegistrationClaim(
+                        name, revealed, revealedSlot, null, null,
+                        null, null, DynamicToolCapability.NONE, false));
+            } catch (Throwable failure) {
+                LOG.error("Keeping conservative metadata for revealed dynamic tool: " //$NON-NLS-1$
+                        + name, failure);
+            }
         }
     }
 
@@ -371,24 +398,37 @@ public class ToolRegistry {
         DynamicToolCapability trustedCapability = capability != null
                 ? capability : DynamicToolCapability.NONE;
         ToolDescriptorRegistry descriptors = descriptorRegistry();
-        ToolSlot slot = null;
+        RegistrationClaim claim = null;
         synchronized (this) {
             ToolSlot previous = currentSlot(name);
             ITool builtIn = tools.get(name);
             if (builtIn == null) {
-                slot = ToolSlot.dynamic(tool, trustedCapability);
+                ToolDescriptor previousDescriptor = descriptorBeforeReplacement(
+                        descriptors, name, previous);
+                ITool previousDynamic = dynamicTools.get(name);
+                DynamicToolCapability previousCapability = dynamicCapabilities()
+                        .getOrDefault(name, DynamicToolCapability.NONE);
+                ToolSlot slot = ToolSlot.dynamic(tool, trustedCapability);
                 publishDescriptor(descriptors, previous, slot,
                         conservativeDescriptor(name));
                 dynamicTools.put(name, tool);
                 dynamicCapabilities().put(name, trustedCapability);
                 effectiveSlots().put(name, slot);
+                claim = new RegistrationClaim(name, tool, slot, previous,
+                        previousDescriptor, null, previousDynamic,
+                        previousCapability, false);
             } else {
                 dynamicTools.put(name, tool);
                 dynamicCapabilities().put(name, trustedCapability);
             }
         }
-        if (slot != null) {
-            refineDescriptor(descriptors, name, tool, slot);
+        if (claim != null) {
+            try {
+                refineDescriptor(claim);
+            } catch (Throwable failure) {
+                rollbackRegistration(claim);
+                throw propagateRegistrationFailure(failure);
+            }
         }
         LOG.debug("Registered dynamic tool: %s (%s)", name, trustedCapability); //$NON-NLS-1$
     }
@@ -583,6 +623,12 @@ public class ToolRegistry {
         }
         ToolSlot repaired = new ToolSlot(
                 effective, capability, isDynamic, new SlotIdentity());
+        ToolDescriptorRegistry descriptors = descriptorRegistry();
+        if (!descriptors.publishSlot(
+                null, repaired.identity(), conservativeDescriptor(name))) {
+            throw new IllegalStateException(
+                    "Tool descriptor slot changed while repairing: " + name); //$NON-NLS-1$
+        }
         effectiveSlots().put(name, repaired);
         return repaired;
     }
@@ -636,6 +682,94 @@ public class ToolRegistry {
         }
     }
 
+    private record RegistrationClaim(
+            String name,
+            ITool tool,
+            ToolSlot slot,
+            ToolSlot previousSlot,
+            ToolDescriptor previousDescriptor,
+            ITool previousBuiltIn,
+            ITool previousDynamic,
+            DynamicToolCapability previousDynamicCapability,
+            boolean builtIn) {
+    }
+
+    /**
+     * Installs a built-in slot with fail-closed metadata without invoking any
+     * tool metadata callback while holding the registry monitor.
+     */
+    private RegistrationClaim installBuiltInStructurally(ITool tool) {
+        String name = requireToolName(tool);
+        ToolDescriptorRegistry descriptors = descriptorRegistry();
+        synchronized (this) {
+            ToolSlot previous = currentSlot(name);
+            ToolDescriptor previousDescriptor = descriptorBeforeReplacement(
+                    descriptors, name, previous);
+            ITool previousBuiltIn = tools.get(name);
+            ToolSlot slot = ToolSlot.builtIn(tool);
+            publishDescriptor(descriptors, previous, slot,
+                    conservativeDescriptor(name));
+            tools.put(name, tool);
+            effectiveSlots().put(name, slot);
+            return new RegistrationClaim(name, tool, slot, previous,
+                    previousDescriptor, previousBuiltIn, null,
+                    DynamicToolCapability.NONE, true);
+        }
+    }
+
+    private ToolDescriptor descriptorBeforeReplacement(
+            ToolDescriptorRegistry descriptors,
+            String name,
+            ToolSlot previous) {
+        return descriptors.descriptorForReplacement(name,
+                previous != null ? previous.identity() : null);
+    }
+
+    /**
+     * Rolls back only while the failed registration still owns the effective
+     * name. A concurrent replacement therefore cannot be removed or obscured
+     * by a stale metadata failure.
+     */
+    private void rollbackRegistration(RegistrationClaim claim) {
+        ToolDescriptorRegistry descriptors = descriptorRegistry();
+        synchronized (this) {
+            ToolSlot current = currentSlot(claim.name());
+            if (current == null || current.identity() != claim.slot().identity()) {
+                return;
+            }
+
+            if (claim.builtIn()) {
+                if (claim.previousBuiltIn() != null) {
+                    tools.put(claim.name(), claim.previousBuiltIn());
+                } else {
+                    tools.remove(claim.name());
+                }
+            } else if (claim.previousDynamic() != null) {
+                dynamicTools.put(claim.name(), claim.previousDynamic());
+                dynamicCapabilities().put(claim.name(),
+                        claim.previousDynamicCapability());
+            } else {
+                dynamicTools.remove(claim.name());
+                dynamicCapabilities().remove(claim.name());
+            }
+
+            if (claim.previousSlot() != null) {
+                effectiveSlots().put(claim.name(), claim.previousSlot());
+            } else {
+                effectiveSlots().remove(claim.name());
+            }
+            ToolDescriptor restoredDescriptor = claim.previousDescriptor();
+            if (claim.previousSlot() != null && restoredDescriptor == null) {
+                restoredDescriptor = conservativeDescriptor(claim.name());
+            }
+            descriptors.restoreSlot(
+                    claim.name(), claim.slot().identity(),
+                    claim.previousSlot() != null
+                            ? claim.previousSlot().identity() : null,
+                    restoredDescriptor);
+        }
+    }
+
     /**
      * Recomputes metadata without holding registry locks, then publishes it
      * only if the exact captured slot is still effective.
@@ -669,16 +803,14 @@ public class ToolRegistry {
         }
     }
 
-    private void refineDescriptor(
-            ToolDescriptorRegistry descriptors,
-            String name,
-            ITool tool,
-            ToolSlot slot) {
+    private void refineDescriptor(RegistrationClaim claim) {
+        ToolDescriptorRegistry descriptors = descriptorRegistry();
         ToolDescriptor descriptor = requireDescriptor(
-                descriptors.describeTool(tool), name);
+                descriptors.describeTool(claim.tool()), claim.name());
         synchronized (this) {
-            ToolSlot current = currentSlot(name);
-            if (current != null && current.identity() == slot.identity()) {
+            ToolSlot current = currentSlot(claim.name());
+            if (current != null
+                    && current.identity() == claim.slot().identity()) {
                 publishDescriptor(descriptors, current, current, descriptor);
             }
         }
@@ -733,15 +865,27 @@ public class ToolRegistry {
         return new IllegalStateException("ToolRegistry initialization failed", failure); //$NON-NLS-1$
     }
 
+    private static RuntimeException propagateRegistrationFailure(
+            Throwable failure) {
+        if (failure instanceof RuntimeException runtime) {
+            return runtime;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        return new IllegalStateException("Tool registration failed", failure); //$NON-NLS-1$
+    }
+
     private enum InitializationState {
         INITIALIZING,
-        READY,
+        STRUCTURAL_READY,
+        REFINEMENT_COMPLETE,
         FAILED
     }
 
     private static final class InitializationControl {
         private final Object stateLock = new Object();
-        private final CountDownLatch completion = new CountDownLatch(1);
+        private final CountDownLatch structuralCompletion = new CountDownLatch(1);
         private volatile InitializationState state = InitializationState.INITIALIZING;
         private volatile Thread owner;
         private volatile Throwable failure;
@@ -759,15 +903,23 @@ public class ToolRegistry {
                     && owner == thread;
         }
 
-        private void complete() {
+        private void structuralReady() {
             synchronized (stateLock) {
                 if (state != InitializationState.INITIALIZING) {
                     return;
                 }
-                state = InitializationState.READY;
+                state = InitializationState.STRUCTURAL_READY;
                 owner = null;
             }
-            completion.countDown();
+            structuralCompletion.countDown();
+        }
+
+        private void refinementComplete() {
+            synchronized (stateLock) {
+                if (state == InitializationState.STRUCTURAL_READY) {
+                    state = InitializationState.REFINEMENT_COMPLETE;
+                }
+            }
         }
 
         private void fail(Throwable cause) {
@@ -779,18 +931,19 @@ public class ToolRegistry {
                 state = InitializationState.FAILED;
                 owner = null;
             }
-            completion.countDown();
+            structuralCompletion.countDown();
         }
 
         private void awaitCompletion() {
-            if (state == InitializationState.READY) {
+            if (state == InitializationState.STRUCTURAL_READY
+                    || state == InitializationState.REFINEMENT_COMPLETE) {
                 return;
             }
             if (state == InitializationState.FAILED) {
                 throw propagateInitializationFailure(failure);
             }
             try {
-                completion.await();
+                structuralCompletion.await();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException(

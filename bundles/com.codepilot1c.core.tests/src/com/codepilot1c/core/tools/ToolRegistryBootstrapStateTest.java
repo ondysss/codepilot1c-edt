@@ -12,6 +12,7 @@ import static org.junit.Assert.fail;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -22,13 +23,12 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
+import java.util.function.Function;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
 import com.codepilot1c.core.tools.meta.ToolDescriptor;
 import com.codepilot1c.core.tools.meta.ToolDescriptorRegistry;
 
@@ -77,40 +77,38 @@ public class ToolRegistryBootstrapStateTest {
     public void metadataCallbackReentersSingletonAndAwaitsCrossThreadWork()
             throws Exception {
         AtomicReference<ToolRegistry> reentrant = new AtomicReference<>();
-        AtomicReference<ITool> registered = new AtomicReference<>();
+        AtomicReference<ToolRegistry> workerRegistry = new AtomicReference<>();
         AtomicReference<Boolean> registryMonitorHeld = new AtomicReference<>();
         AtomicReference<Boolean> classMonitorHeld = new AtomicReference<>();
         AtomicReference<Boolean> singletonMonitorHeld = new AtomicReference<>();
         AtomicReference<ToolDescriptor> structuralDescriptor = new AtomicReference<>();
-        String crossThreadName = "bootstrap_cross_thread_dynamic"; //$NON-NLS-1$
+        String bootstrapName = "bootstrap_reentrant_default"; //$NON-NLS-1$
         Constructor<ToolDescriptorRegistry> descriptorConstructor =
                 ToolDescriptorRegistry.class.getDeclaredConstructor();
         descriptorConstructor.setAccessible(true);
         descriptorInstanceField.set(null, descriptorConstructor.newInstance());
         BootstrapTool bootstrapTool = new BootstrapTool(
-                "bootstrap_reentrant_default", () -> { //$NON-NLS-1$
+                bootstrapName, () -> {
                     ToolRegistry current = ToolRegistry.getInstance();
                     reentrant.set(current);
                     registryMonitorHeld.set(Thread.holdsLock(current));
                     classMonitorHeld.set(Thread.holdsLock(ToolRegistry.class));
                     singletonMonitorHeld.set(Thread.holdsLock(singletonLock));
-                    structuralDescriptor.set(ToolDescriptorRegistry.getInstance()
-                            .getOrDefault("bootstrap_structural_missing")); //$NON-NLS-1$
-                    Future<?> crossThread = executor.submit(() -> {
-                        ITool tool = new SimpleTool(crossThreadName);
-                        current.registerDynamicTool(
-                                tool, DynamicToolCapability.READ_ONLY);
-                        registered.set(current.getTool(crossThreadName));
-                    });
-                    await(crossThread);
+                    Future<ToolRegistry> registryLookup = executor.submit(
+                            ToolRegistry::getInstance);
+                    workerRegistry.set(await(registryLookup));
+                    Future<ToolDescriptor> descriptorLookup = executor.submit(
+                            () -> ToolDescriptorRegistry.getInstance()
+                                    .getOrDefault(bootstrapName));
+                    structuralDescriptor.set(await(descriptorLookup));
                 });
-        setOverride(registry -> registry.register(bootstrapTool));
+        setOverride(ignored -> List.of(bootstrapTool));
 
         ToolRegistry initialized = ToolRegistry.getInstance();
 
         assertSame(initialized, reentrant.get());
+        assertSame(initialized, workerRegistry.get());
         assertSame(bootstrapTool, initialized.getTool(bootstrapTool.getName()));
-        assertSame(registered.get(), initialized.getTool(crossThreadName));
         assertFalse(registryMonitorHeld.get());
         assertFalse(classMonitorHeld.get());
         assertFalse(singletonMonitorHeld.get());
@@ -132,7 +130,7 @@ public class ToolRegistryBootstrapStateTest {
             singletonMonitorHeld.set(Thread.holdsLock(singletonLock));
             ownerEntered.countDown();
             await(releaseOwner);
-            registry.register(new SimpleTool("bootstrap_waiter_ready")); //$NON-NLS-1$
+            return List.of(new SimpleTool("bootstrap_waiter_ready")); //$NON-NLS-1$
         });
 
         Future<ToolRegistry> owner = executor.submit(ToolRegistry::getInstance);
@@ -151,6 +149,24 @@ public class ToolRegistryBootstrapStateTest {
         assertFalse(registryMonitorHeld.get());
         assertFalse(classMonitorHeld.get());
         assertFalse(singletonMonitorHeld.get());
+    }
+
+    @Test
+    public void defaultMetadataFailureLeavesConservativeInstalledTool()
+            throws Exception {
+        String name = "bootstrap_default_metadata_failure"; //$NON-NLS-1$
+        BootstrapTool broken = new BootstrapTool(name, () -> {
+            throw new IllegalStateException("default metadata sentinel"); //$NON-NLS-1$
+        });
+        setOverride(ignored -> List.of(broken));
+
+        ToolRegistry initialized = ToolRegistry.getInstance();
+
+        assertSame(broken, initialized.getTool(name));
+        ToolDescriptor descriptor = ToolDescriptorRegistry.getInstance()
+                .getOrDefault(name);
+        assertTrue(descriptor.isMutating());
+        assertTrue(descriptor.requiresValidationToken());
     }
 
     @Test
@@ -185,7 +201,8 @@ public class ToolRegistryBootstrapStateTest {
         assertEquals(1, attempts.get());
     }
 
-    private void setOverride(Consumer<ToolRegistry> override) throws Exception {
+    private void setOverride(Function<ToolRegistry, List<ITool>> override)
+            throws Exception {
         overrideField.set(null, override);
     }
 
@@ -209,9 +226,9 @@ public class ToolRegistryBootstrapStateTest {
         }
     }
 
-    private static void await(Future<?> future) {
+    private static <T> T await(Future<T> future) {
         try {
-            future.get(2, TimeUnit.SECONDS);
+            return future.get(2, TimeUnit.SECONDS);
         } catch (Exception e) {
             throw new IllegalStateException("Cross-thread registry work failed", e); //$NON-NLS-1$
         }
