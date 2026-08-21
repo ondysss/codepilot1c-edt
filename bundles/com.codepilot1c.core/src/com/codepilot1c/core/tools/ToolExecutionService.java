@@ -174,7 +174,8 @@ public class ToolExecutionService {
 
     /**
      * Executes the exact registry implementation authorized by the caller if
-     * its effective implementation, capability, and generation are unchanged.
+     * its opaque effective slot is unchanged. The registry claim is completed
+     * before logging, tracing, contract inspection, or tool execution begins.
      * No lookup by name occurs after validation.
      *
      * @return empty when the authorized registry resolution is stale
@@ -190,11 +191,15 @@ public class ToolExecutionService {
         Map<String, Object> approvedParameters = parameters != null
                 ? parameters
                 : Collections.emptyMap();
-        return registry.dispatchIfCurrent(resolution, () -> {
-            LOG.debug("Executing exact tool with pre-parsed args: %s", toolCall.getName()); //$NON-NLS-1$
-            return executeResolved(toolCall, approvedParameters, traceSession, parentEventId,
-                    context, resolution.tool());
-        });
+        Optional<ToolResolution> claimed = registry.dispatchIfCurrent(resolution);
+        if (claimed.isEmpty()) {
+            return Optional.empty();
+        }
+        ToolResolution exact = claimed.get();
+        LOG.debug("Executing exact tool with pre-parsed args: %s", toolCall.getName()); //$NON-NLS-1$
+        return Optional.of(executeResolved(
+                toolCall, approvedParameters, traceSession, parentEventId,
+                context, exact.tool()));
     }
 
     private CompletableFuture<ToolResult> executeResolved(
