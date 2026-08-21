@@ -9,6 +9,7 @@ package com.codepilot1c.ui.gsd;
 
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 import org.eclipse.core.resources.IProject;
@@ -50,11 +51,13 @@ public class GsdStatusPanel {
 
     private static final int PANEL_MARGIN = 6;
     private static final int PANEL_COLUMNS = 4;
+    private static final int AUTO_REFRESH_DEBOUNCE_MS = 125;
 
     private final Composite root;
     private final Composite contentArea;
     private final Button collapseToggle;
     private final Button refreshButton;
+    private final Display display;
 
     // Status labels
     private Label phaseLabel;
@@ -73,6 +76,9 @@ public class GsdStatusPanel {
     /** Guards against stale async results overwriting fresh data. */
     private final GsdRefreshCoordinator coordinator = new GsdRefreshCoordinator();
 
+    /** Latest automatic refresh request; older timer callbacks become no-ops. */
+    private final AtomicLong refreshRequestSequence = new AtomicLong();
+
     /** Volatile so the constructor-registered click listener always sees the latest value. */
     private volatile GsdUiSnapshot currentSnapshot;
 
@@ -88,8 +94,13 @@ public class GsdStatusPanel {
     public GsdStatusPanel(Composite parent) {
         VibeTheme theme = ThemeManager.getInstance().getTheme();
         this.currentSnapshot = GsdUiSnapshot.empty();
+        this.display = parent.getDisplay();
 
         root = new Composite(parent, SWT.NONE);
+        root.addDisposeListener(e -> {
+            refreshRequestSequence.incrementAndGet();
+            coordinator.dispose();
+        });
         root.setBackground(theme.getSurface());
         GridLayout rootLayout = new GridLayout(1, false);
         rootLayout.marginWidth = 0;
@@ -278,13 +289,50 @@ public class GsdStatusPanel {
      * refreshes invalidate earlier tokens).
      */
     public void refresh() {
+        refreshRequestSequence.incrementAndGet();
+        refreshNow();
+    }
+
+    /**
+     * Requests a debounced automatic refresh. Safe from tool-completion and
+     * session-listener threads; all SWT work is marshalled to the UI thread.
+     */
+    public void refreshDebounced() {
+        long request = refreshRequestSequence.incrementAndGet();
+        if (display == null || display.isDisposed() || coordinator.isDisposed()) {
+            return;
+        }
+        Runnable schedule = () -> {
+            if (root.isDisposed() || coordinator.isDisposed()) {
+                return;
+            }
+            display.timerExec(AUTO_REFRESH_DEBOUNCE_MS, () -> {
+                if (request == refreshRequestSequence.get()
+                        && !root.isDisposed() && !coordinator.isDisposed()) {
+                    refresh();
+                }
+            });
+        };
+        if (display.getThread() == Thread.currentThread()) {
+            schedule.run();
+        } else {
+            try {
+                display.asyncExec(schedule);
+            } catch (org.eclipse.swt.SWTException e) {
+                // Display was disposed between the guard and dispatch.
+            }
+        }
+    }
+
+    private void refreshNow() {
         GsdRefreshCoordinator.RefreshToken token = this.coordinator.beginRefresh();
         if (token == null) {
-            applySnapshot(GsdUiSnapshot.error("No project root resolved")); //$NON-NLS-1$
+            if (!coordinator.isDisposed()) {
+                applySnapshot(GsdUiSnapshot.error("No project root resolved")); //$NON-NLS-1$
+            }
             return;
         }
 
-        Display display = root.getDisplay();
         if (display == null || display.isDisposed()) {
             return;
         }
@@ -302,12 +350,16 @@ public class GsdStatusPanel {
             }
         }).thenAccept(snapshot -> {
             if (!display.isDisposed()) {
-                display.asyncExec(() -> {
-                    if (!root.isDisposed()
-                            && this.coordinator.shouldApply(token)) {
-                        applySnapshot(snapshot);
-                    }
-                });
+                try {
+                    display.asyncExec(() -> {
+                        if (!root.isDisposed()
+                                && this.coordinator.shouldApply(token)) {
+                            applySnapshot(snapshot);
+                        }
+                    });
+                } catch (org.eclipse.swt.SWTException e) {
+                    // Display was disposed between the guard and dispatch.
+                }
             }
         });
     }
@@ -319,10 +371,12 @@ public class GsdStatusPanel {
      * @param snapshot the snapshot to display; {@code null} is treated as empty
      */
     public void applySnapshot(GsdUiSnapshot snapshot) {
+        if (root.isDisposed() || coordinator.isDisposed()) {
+            return;
+        }
         final GsdUiSnapshot normalized = (snapshot != null) ? snapshot : GsdUiSnapshot.empty();
         this.currentSnapshot = normalized;
 
-        Display display = root.getDisplay();
         if (display == null || display.isDisposed()) {
             return;
         }
@@ -331,7 +385,11 @@ public class GsdStatusPanel {
         if (display.getThread() == Thread.currentThread()) {
             applySnapshotOnUiThread(normalized);
         } else {
-            display.asyncExec(() -> applySnapshotOnUiThread(normalized));
+            try {
+                display.asyncExec(() -> applySnapshotOnUiThread(normalized));
+            } catch (org.eclipse.swt.SWTException e) {
+                // Display was disposed between the guard and dispatch.
+            }
         }
     }
 
@@ -349,6 +407,8 @@ public class GsdStatusPanel {
      * Disposes all resources held by this panel.
      */
     public void dispose() {
+        refreshRequestSequence.incrementAndGet();
+        coordinator.dispose();
         if (!root.isDisposed()) {
             root.dispose();
         }
@@ -385,7 +445,7 @@ public class GsdStatusPanel {
         String profileId = snapshot.suggestedProfileId();
         if (!profileId.isEmpty()) {
             profileHintLabel.setText(profileId + " (suggested)"); //$NON-NLS-1$
-            profileHintLabel.setToolTipText("Click to open profile preferences"); //$NON-NLS-1$
+            profileHintLabel.setToolTipText("Click to select this profile for this chat"); //$NON-NLS-1$
         } else {
             profileHintLabel.setText("—"); //$NON-NLS-1$
             profileHintLabel.setToolTipText(null);

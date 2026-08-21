@@ -68,6 +68,7 @@ import com.codepilot1c.core.model.LlmAttachment;
 import com.codepilot1c.core.memory.compaction.LlmCompactionService;
 import com.codepilot1c.core.session.Session;
 import com.codepilot1c.core.session.SessionManager;
+import com.codepilot1c.core.session.SessionManager.ISessionChangeListener;
 import com.codepilot1c.core.session.SessionMessage;
 import com.codepilot1c.core.model.LlmContentPart;
 import com.codepilot1c.core.model.LlmMessage;
@@ -104,6 +105,7 @@ import com.codepilot1c.ui.diff.ProposedChange;
 import com.codepilot1c.ui.diff.ProposedChangeSet;
 import com.codepilot1c.ui.editor.CodeApplicationService;
 import com.codepilot1c.ui.gsd.GsdStatusPanel;
+import com.codepilot1c.ui.gsd.GsdToolMutationRefreshPolicy;
 import com.codepilot1c.ui.internal.Messages;
 import com.codepilot1c.ui.internal.ToolDisplayNames;
 import com.codepilot1c.ui.internal.VibeUiPlugin;
@@ -244,6 +246,16 @@ public class ChatView extends ViewPart {
     private ProposedChangeSet currentProposedChanges;
     /** Profile and permission policy fixed for the current chat turn. */
     private volatile ChatToolGate toolGate;
+    /** Profile plus per-view prompt context fixed for the current chat turn. */
+    private volatile ChatTurnContext turnContext;
+    /** Session lifecycle bridge used only to request a UI-owned GSD refresh. */
+    private final ISessionChangeListener sessionChangeListener = new ISessionChangeListener() {
+        @Override
+        public void onCurrentSessionChanged(Session oldSession, Session newSession) {
+            requestGsdStatusRefresh();
+        }
+    };
+    private boolean sessionChangeListenerRegistered;
     /** Token usage totals for current chat session */
     private long inputTokensTotal = 0;
     private long cachedInputTokensTotal = 0;
@@ -304,6 +316,7 @@ public class ChatView extends ViewPart {
         createChatArea(container);
         createGsdStatusPanel(container);
         createInputArea(container);
+        registerSessionChangeListener();
 
         // Phase 0: restore the last chat (persistence) or show the welcome message.
         restoreLastSessionOrWelcome();
@@ -326,22 +339,8 @@ public class ChatView extends ViewPart {
         GridData gsdData = new GridData(SWT.FILL, SWT.CENTER, true, false);
         gsdStatusPanel.getControl().setLayoutData(gsdData);
 
-        // Wire the suggested-profile hint to open profile preferences
-        gsdStatusPanel.setSuggestedProfileAction(profileId -> {
-            try {
-                org.eclipse.ui.PlatformUI.getWorkbench().getDisplay().asyncExec(() -> {
-                    if (isDisposed()) {
-                        return;
-                    }
-                    org.eclipse.ui.dialogs.PreferencesUtil.createPreferenceDialogOn(
-                            getSite().getShell(),
-                            "com.codepilot1c.ui.preferences.ProfilesPreferencePage", //$NON-NLS-1$
-                            null, null).open();
-                });
-            } catch (Exception e) {
-                LOG.debug("Failed to open profile preferences: %s", e.getMessage()); //$NON-NLS-1$
-            }
-        });
+        // Select the suggested profile on this view's own persisted session.
+        gsdStatusPanel.setSuggestedProfileAction(this::selectSuggestedProfile);
 
         // Initial refresh
         refreshGsdStatus();
@@ -361,6 +360,38 @@ public class ChatView extends ViewPart {
         gsdStatusPanel.refresh();
     }
 
+    /** Requests a coalesced reload after lifecycle events or tool mutations. */
+    private void requestGsdStatusRefresh() {
+        GsdStatusPanel panel = gsdStatusPanel;
+        if (panel == null || panel.isDisposed()) {
+            return;
+        }
+        panel.setProjectRoot(resolveGsdProjectRoot());
+        panel.refreshDebounced();
+    }
+
+    private void registerSessionChangeListener() {
+        if (!sessionChangeListenerRegistered) {
+            SessionManager.getInstance().addListener(sessionChangeListener);
+            sessionChangeListenerRegistered = true;
+        }
+    }
+
+    private void selectSuggestedProfile(String profileId) {
+        if (isDisposed()) {
+            return;
+        }
+        Session target = viewSession();
+        if (!ChatTurnContext.selectForSession(target, profileId)) {
+            LOG.warn("Unknown suggested chat profile: %s", profileId); //$NON-NLS-1$
+            return;
+        }
+        SessionManager.getInstance().saveSession(target);
+        LOG.info("Selected chat profile %s for session %s", profileId, target.getId()); //$NON-NLS-1$
+        // A running turn keeps its captured gate/context. startConversationLoop
+        // resolves the newly selected session profile for the next turn.
+    }
+
     /**
      * Resolves the project root for GSD state reading. Prefers this view's own session
      * over the global {@code currentSession} to avoid cross-view interference.
@@ -370,10 +401,10 @@ public class ChatView extends ViewPart {
     private Path resolveGsdProjectRoot() {
         // 1. Try this view's own session first
         if (session != null && session.hasProject()) {
-            IProject project = SessionManager.getInstance().findProjectByPath(session.getProjectPath());
-            Path root = GsdStatusPanel.resolveProjectRoot(project);
-            if (root != null) {
-                return root;
+            try {
+                return Path.of(session.getProjectPath()).toAbsolutePath().normalize();
+            } catch (RuntimeException e) {
+                LOG.debug("Invalid GSD session project path: %s", e.getMessage()); //$NON-NLS-1$
             }
         }
 
@@ -1239,8 +1270,10 @@ public class ChatView extends ViewPart {
     private void bindCurrentSessionToProject(IProject project) {
         try {
             SessionManager manager = SessionManager.getInstance();
-            Session session = manager.getOrCreateCurrentSession();
-            manager.bindSessionToProject(session, project);
+            manager.bindSessionToProject(viewSession(), project);
+            turnContext = null;
+            toolGate = null;
+            requestGsdStatusRefresh();
         } catch (Exception e) {
             LOG.debug("Failed to bind Code.md session to project: %s", e.getMessage()); //$NON-NLS-1$
         }
@@ -1316,7 +1349,8 @@ public class ChatView extends ViewPart {
     private void startConversationLoop(ILlmProvider provider) {
         LOG.debug("startConversationLoop: beginning"); //$NON-NLS-1$
 
-        this.toolGate = createToolGate();
+        this.turnContext = ChatTurnContext.resolve(viewSession(), configuredChatProfileId());
+        this.toolGate = createToolGate(turnContext.profile());
         LOG.debug("chat tool gate: profile=%s", toolGate.profile().getId()); //$NON-NLS-1$
 
         // Build request with tools
@@ -2029,17 +2063,27 @@ public class ChatView extends ViewPart {
 
     private synchronized ChatToolGate activeToolGate() {
         if (toolGate == null) {
-            toolGate = createToolGate();
+            ChatTurnContext context = activeTurnContext();
+            toolGate = createToolGate(context.profile());
         }
         return toolGate;
     }
 
-    private ChatToolGate createToolGate() {
+    private synchronized ChatTurnContext activeTurnContext() {
+        if (turnContext == null) {
+            turnContext = ChatTurnContext.resolve(viewSession(), configuredChatProfileId());
+        }
+        return turnContext;
+    }
+
+    private String configuredChatProfileId() {
+        return InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID)
+                .get(PREF_CHAT_PROFILE_ID, ""); //$NON-NLS-1$
+    }
+
+    private ChatToolGate createToolGate(AgentProfile profile) {
         Display display = getDisplay();
         ToolRegistry registry = ToolRegistry.getInstance();
-        AgentProfile profile = ChatToolGate.selectProfile(
-                InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID)
-                        .get(PREF_CHAT_PROFILE_ID, "")); //$NON-NLS-1$
         return new ChatToolGate(
                 profile,
                 () -> PermissionManager.getInstance().getAllRules(),
@@ -2118,6 +2162,10 @@ public class ChatView extends ViewPart {
             conversationHistory.add(LlmMessage.toolResult(
                     call.getId(),
                     result.getContentForLlm(MAX_TOOL_RESULT_HISTORY_CHARS)));
+        }
+
+        if (GsdToolMutationRefreshPolicy.shouldRefresh(toolCalls, allResults)) {
+            requestGsdStatusRefresh();
         }
 
         // Plan 1.2: detect repetition loops only after all tool-result messages
@@ -2567,11 +2615,15 @@ public class ChatView extends ViewPart {
             это контекст из активного редактора. Учитывайте его при ответе.
             """); //$NON-NLS-1$
 
-        return SystemPromptAssembler.getInstance().assemble(
-                prompt.toString(),
-                null,
-                "chat", //$NON-NLS-1$
-                currentRequestedSkills);
+        ChatTurnContext context = activeTurnContext();
+        // activeToolGate() and context.profile() are created together and stay
+        // fixed until the next top-level user turn.
+        if (activeToolGate().profile() != context.profile()) {
+            throw new IllegalStateException("Chat turn profile mismatch"); //$NON-NLS-1$
+        }
+        return SystemPromptAssembler.getInstance()
+                .assembleDetailed(context.promptInput(prompt.toString(), currentRequestedSkills))
+                .prompt();
     }
 
     private void handleError(Throwable error) {
@@ -2733,6 +2785,9 @@ public class ChatView extends ViewPart {
         if (session == null) {
             // Multi-view: each ChatView instance owns a distinct session (not the global current one).
             session = SessionManager.getInstance().createSessionForCurrentProject();
+            turnContext = null;
+            toolGate = null;
+            requestGsdStatusRefresh();
         }
         return session;
     }
@@ -2815,12 +2870,18 @@ public class ChatView extends ViewPart {
                 restored = loadMostRecentSession();
             }
             // else: a window explicitly opened by the user (secondary id, no memento) → start fresh.
-            if (restored != null && !restored.getMessages().isEmpty()) {
+            if (restored != null) {
                 session = restored;
+                turnContext = null;
+                toolGate = null;
                 // Restore this window's per-view model choice.
                 overrideModelId = restored.getModelId();
                 SessionManager.getInstance().setCurrentSession(restored);
-                renderSession(restored);
+                if (restored.getMessages().isEmpty()) {
+                    appendSystemMessage(Messages.ChatView_WelcomeMessage);
+                } else {
+                    renderSession(restored);
+                }
                 updateModelButtonLabel();
                 refreshGsdStatus();
                 return;
@@ -2828,7 +2889,9 @@ public class ChatView extends ViewPart {
         } catch (Exception e) {
             LOG.debug("restoreLastSession failed: %s", e.getMessage()); //$NON-NLS-1$
         }
+        viewSession();
         appendSystemMessage(Messages.ChatView_WelcomeMessage);
+        requestGsdStatusRefresh();
     }
 
     /** @return the most recent non-empty saved session, or {@code null}. */
@@ -2881,10 +2944,15 @@ public class ChatView extends ViewPart {
                 LOG.debug("clearChat: completed session %s (%d UI messages)", //$NON-NLS-1$
                         target.getId(), Integer.valueOf(conversationHistory.size()));
             }
-            // Drop the per-view binding so the next turn rebinds to a fresh session.
-            session = null;
+            // Replace only this view's session; other ChatViews remain untouched.
+            session = SessionManager.getInstance().createSessionForCurrentProject();
+            turnContext = null;
+            toolGate = null;
         } catch (Exception e) {
             LOG.debug("clearChat: session management failed: " + e.getMessage()); //$NON-NLS-1$
+            session = null;
+            turnContext = null;
+            toolGate = null;
         }
 
         if (USE_BROWSER_RENDERING) {
@@ -2906,6 +2974,7 @@ public class ChatView extends ViewPart {
         refreshAttachmentPreview();
 
         appendSystemMessage(Messages.ChatView_WelcomeMessage);
+        requestGsdStatusRefresh();
     }
 
     private void clearChatBrowser() {
@@ -3607,6 +3676,10 @@ public class ChatView extends ViewPart {
     public void dispose() {
         // Phase 0: persist the conversation so it survives EDT close/restart.
         persistSession();
+        if (sessionChangeListenerRegistered) {
+            SessionManager.getInstance().removeListener(sessionChangeListener);
+            sessionChangeListenerRegistered = false;
+        }
         if (currentRequest != null && !currentRequest.isDone()) {
             currentRequest.cancel(true);
             if (currentRequestUsesDesktopController) {
