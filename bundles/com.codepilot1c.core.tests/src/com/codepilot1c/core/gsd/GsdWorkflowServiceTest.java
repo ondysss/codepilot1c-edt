@@ -25,6 +25,7 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.junit.rules.TestName;
 
 /**
  * Tests for {@link GsdWorkflowService}: transitions, operations, and structured results.
@@ -34,11 +35,14 @@ public class GsdWorkflowServiceTest {
     @Rule
     public TemporaryFolder tmp = new TemporaryFolder();
 
+    @Rule
+    public TestName testName = new TestName();
+
     private Path projectRoot;
 
     @Before
     public void setUp() throws IOException {
-        projectRoot = GsdTestSupport.secureProject(
+        projectRoot = GsdTestSupport.projectForTest(getClass(), testName.getMethodName(),
                 tmp.newFolder("project").toPath()); //$NON-NLS-1$
     }
 
@@ -124,6 +128,7 @@ public class GsdWorkflowServiceTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void transitionPhasePersistsAndIncrementsRevision() throws IOException {
         GsdState state = GsdWorkflowService.getState(projectRoot.toString());
         long rev = state.revision();
@@ -135,6 +140,7 @@ public class GsdWorkflowServiceTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void transitionPhaseWithRollbackWorks() throws IOException {
         // DISCOVERY -> PLANNING -> plan -> EXECUTING -> evidence+DONE -> VERIFYING -> rollback
         GsdState state = GsdWorkflowService.getState(projectRoot.toString());
@@ -164,6 +170,7 @@ public class GsdWorkflowServiceTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void staleRevisionThrowsOnTransition() throws IOException {
         GsdState state = GsdWorkflowService.getState(projectRoot.toString());
         long rev = state.revision();
@@ -179,6 +186,7 @@ public class GsdWorkflowServiceTest {
     // ---- Phase-gated operations ------------------------------------------
 
     @Test
+    @RequiresSecureMutation
     public void recordDecisionOnlyInDiscovery() throws IOException {
         GsdState state = GsdWorkflowService.getState(projectRoot.toString());
         long rev = state.revision();
@@ -200,6 +208,7 @@ public class GsdWorkflowServiceTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void createPlanOnlyInPlanning() throws IOException {
         GsdTask task = new GsdTask("t1", "task", GsdTaskStatus.PENDING, "w1", List.of(), List.of()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         GsdWave wave = new GsdWave("w1", "wave 1", "sub-goal", List.of("t1")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -230,8 +239,6 @@ public class GsdWorkflowServiceTest {
     public void createPlanRejectsAllOptionalAcceptanceCriteriaAtDomainBoundary()
             throws IOException {
         GsdState state = GsdWorkflowService.getState(projectRoot.toString());
-        state = GsdWorkflowService.transitionPhase(
-                projectRoot.toString(), state.token(), GsdPhase.PLANNING, null);
         GsdTask task = new GsdTask("t1", "task", GsdTaskStatus.PENDING, "w1", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                 List.of(), List.of());
         GsdWave wave = new GsdWave("w1", "wave", "goal", List.of("t1")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
@@ -252,6 +259,7 @@ public class GsdWorkflowServiceTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void updateTaskOnlyInExecuting() throws IOException {
         GsdState state = GsdWorkflowService.getState(projectRoot.toString());
         try {
@@ -264,6 +272,7 @@ public class GsdWorkflowServiceTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void recordEvidenceOnlyInExecutingOrVerifying() throws IOException {
         GsdState state = GsdWorkflowService.getState(projectRoot.toString());
         // DISCOVERY: rejected.
@@ -280,6 +289,7 @@ public class GsdWorkflowServiceTest {
     // ---- Rollback audit decision -----------------------------------------
 
     @Test
+    @RequiresSecureMutation
     public void rollbackRecordsAuditDecision() throws IOException {
         GsdState state = GsdWorkflowService.getState(projectRoot.toString());
         long rev = state.revision();
@@ -316,6 +326,7 @@ public class GsdWorkflowServiceTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void forwardTransitionDoesNotRecordDecision() throws IOException {
         GsdState state = GsdWorkflowService.getState(projectRoot.toString());
         long rev = state.revision();
@@ -327,6 +338,7 @@ public class GsdWorkflowServiceTest {
     // ---- Dependency guard ------------------------------------------------
 
     @Test
+    @RequiresSecureMutation
     public void updateTaskInProgressRequiresDependenciesDone() throws IOException {
         GsdTask depTask = new GsdTask("t-dep", "dep", GsdTaskStatus.PENDING, "w1", List.of(), List.of()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         GsdTask mainTask = new GsdTask("t1", "main", GsdTaskStatus.PENDING, "w2", List.of("t-dep"), List.of()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
@@ -370,6 +382,7 @@ public class GsdWorkflowServiceTest {
     // ---- Record evidence -------------------------------------------------
 
     @Test
+    @RequiresSecureMutation
     public void recordEvidenceAppendsAndLinks() throws IOException {
         // PLANNING -> createPlan -> EXECUTING
         GsdTask task = new GsdTask("t1", "task", GsdTaskStatus.PENDING, "w1", List.of(), List.of()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -417,12 +430,29 @@ public class GsdWorkflowServiceTest {
         assertNotNull(GsdWorkflowService.ERR_CORRUPT);
         assertNotNull(GsdWorkflowService.ERR_GUARD);
         assertNotNull(GsdWorkflowService.ERR_IO);
+        assertEquals("unsupported", GsdWorkflowService.ERR_UNSUPPORTED); //$NON-NLS-1$
         assertNotNull(GsdWorkflowService.ERR_INVALID);
+    }
+
+    @Test
+    public void shipmentSanitizationPrecedesIdempotencyComparisonWithoutPersistence() {
+        GsdShipment persisted = new GsdShipment(
+                "release-1", "registry/release-1", GsdShipmentStatus.IN_PROGRESS, null); //$NON-NLS-1$ //$NON-NLS-2$
+        GsdShipment request = new GsdShipment(
+                "release-\u200B1", "registry/release-\u200B1", //$NON-NLS-1$ //$NON-NLS-2$
+                GsdShipmentStatus.IN_PROGRESS, null);
+
+        GsdShipment sanitized = GsdWorkflowService.sanitizeShipment(request);
+
+        assertEquals(persisted, sanitized);
+        assertTrue(GsdWorkflowService.sameShipment(persisted, sanitized));
+        assertFalse(GsdWorkflowService.sameShipment(persisted, request));
     }
 
     // ---- No deadlock: execute can record evidence before marking DONE ----
 
     @Test
+    @RequiresSecureMutation
     public void noDeadlockEvidenceThenDoneInExecuting() throws IOException {
         GsdTask task = new GsdTask("t1", "task", GsdTaskStatus.PENDING, "w1", List.of(), List.of()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         GsdWave wave = new GsdWave("w1", "w", "g", List.of("t1")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -471,6 +501,7 @@ public class GsdWorkflowServiceTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void createPlanRejectsInjectionInGoalWithoutWrite() throws IOException {
         GsdState state = GsdWorkflowService.getState(projectRoot.toString());
         GsdWorkflowService.transitionPhase(projectRoot.toString(), state.revision(), GsdPhase.PLANNING, null);
@@ -493,6 +524,7 @@ public class GsdWorkflowServiceTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void recordEvidenceRejectsInjectionWithoutWrite() throws IOException {
         // Set up EXECUTING phase.
         GsdTask task = new GsdTask("t1", "task", GsdTaskStatus.PENDING, "w1", List.of(), List.of()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -524,6 +556,7 @@ public class GsdWorkflowServiceTest {
     // ---- Execution-kind preserved through operations ---------------------
 
     @Test
+    @RequiresSecureMutation
     public void createPlanPreservesExecutionKind() throws IOException {
         GsdState state = GsdWorkflowService.getState(projectRoot.toString());
         GsdWorkflowService.transitionPhase(projectRoot.toString(), state.revision(), GsdPhase.PLANNING, null);
@@ -541,6 +574,7 @@ public class GsdWorkflowServiceTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void updateTaskPreservesExecutionKind() throws IOException {
         GsdTask task = new GsdTask("t1", "edit file", GsdTaskStatus.PENDING, "w1", //$NON-NLS-1$ //$NON-NLS-2$
                 List.of(), List.of(), GsdExecutionKind.EDT_MUTATION);
@@ -559,6 +593,7 @@ public class GsdWorkflowServiceTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void recordEvidencePreservesTaskExecutionKind() throws IOException {
         GsdTask task = new GsdTask("t1", "git commit", GsdTaskStatus.PENDING, "w1", //$NON-NLS-1$ //$NON-NLS-2$
                 List.of(), List.of(), GsdExecutionKind.GIT_MUTATION);
@@ -581,6 +616,7 @@ public class GsdWorkflowServiceTest {
     // ---- Verification-phase captured on evidence -------------------------
 
     @Test
+    @RequiresSecureMutation
     public void evidenceCapturedPhaseMatchesCurrentPhase() throws IOException {
         GsdTask task = new GsdTask("t1", "task", GsdTaskStatus.PENDING, "w1", List.of(), List.of()); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         GsdWave wave = new GsdWave("w1", "w", "g", List.of("t1")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
@@ -670,6 +706,7 @@ public class GsdWorkflowServiceTest {
     // ---- createPlan new-plan contract enforcement -------------------------
 
     @Test
+    @RequiresSecureMutation
     public void createPlanRejectsNonPendingTask() throws IOException {
         GsdState state = GsdWorkflowService.getState(projectRoot.toString());
         GsdWorkflowService.transitionPhase(projectRoot.toString(), state.revision(), GsdPhase.PLANNING, null);
@@ -687,6 +724,7 @@ public class GsdWorkflowServiceTest {
     }
 
     @Test
+    @RequiresSecureMutation
     public void createPlanRejectsNonEmptyEvidenceIds() throws IOException {
         GsdState state = GsdWorkflowService.getState(projectRoot.toString());
         GsdWorkflowService.transitionPhase(projectRoot.toString(), state.revision(), GsdPhase.PLANNING, null);

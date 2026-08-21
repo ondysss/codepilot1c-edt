@@ -949,7 +949,7 @@ public final class GsdWorkflowService {
     }
 
     /** Sanitizes the complete shipment before idempotency or conflict comparison. */
-    private static GsdShipment sanitizeShipment(GsdShipment shipment) {
+    static GsdShipment sanitizeShipment(GsdShipment shipment) {
         Objects.requireNonNull(shipment, "shipment"); //$NON-NLS-1$
         if (shipment.status() == GsdShipmentStatus.LEGACY_MIGRATED) {
             throw new IllegalArgumentException(
@@ -962,7 +962,7 @@ public final class GsdWorkflowService {
                 shipment.status(), shipment.completedAt());
     }
 
-    private static boolean sameShipment(GsdShipment current, GsdShipment requested) {
+    static boolean sameShipment(GsdShipment current, GsdShipment requested) {
         return requested != null && current != null && !current.emptyRecord()
                 && current.equals(requested);
     }
@@ -1104,6 +1104,8 @@ public final class GsdWorkflowService {
     public static final String ERR_GUARD = "guard"; //$NON-NLS-1$
     /** Error code: I/O failure. */
     public static final String ERR_IO = "io"; //$NON-NLS-1$
+    /** Error code: the filesystem provider lacks a required secure capability. */
+    public static final String ERR_UNSUPPORTED = "unsupported"; //$NON-NLS-1$
     /** Error code: invalid parameters / illegal transition. */
     public static final String ERR_INVALID = "invalid"; //$NON-NLS-1$
     /** Error code: content-security rejection (injection, cap exceeded, blocked). */

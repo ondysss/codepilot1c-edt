@@ -102,6 +102,42 @@ public final class SecureDirectoryMutation implements AutoCloseable {
         }
     }
 
+    /**
+     * Verifies that the bound root still has a real secure directory stream.
+     * This check is read-only and is used to order bootstrap errors before any
+     * mutation directory precreation guidance is returned.
+     *
+     * @param root the already-bound mutation root
+     * @throws IOException if the root changed or the provider lacks the capability
+     */
+    public static void requireSecureDirectoryStreams(BoundRoot root) throws IOException {
+        Objects.requireNonNull(root, "root"); //$NON-NLS-1$
+        List<DirectoryStream<Path>> opened = new ArrayList<>();
+        try {
+            openSecureRoot(root, opened);
+        } catch (IOException e) {
+            closeReverse(opened, e);
+            throw e;
+        }
+        IOException closeFailure = null;
+        List<DirectoryStream<Path>> reverse = new ArrayList<>(opened);
+        Collections.reverse(reverse);
+        for (DirectoryStream<Path> stream : reverse) {
+            try {
+                stream.close();
+            } catch (IOException e) {
+                if (closeFailure == null) {
+                    closeFailure = e;
+                } else {
+                    closeFailure.addSuppressed(e);
+                }
+            }
+        }
+        if (closeFailure != null) {
+            throw closeFailure;
+        }
+    }
+
     /** Opens an existing directory below an already-bound root. */
     public static SecureDirectoryMutation open(BoundRoot root, Path directory,
             MutationHook hook) throws IOException {

@@ -14,7 +14,9 @@ import com.codepilot1c.core.tools.ActiveProjectSupport;
 import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.edt.ast.BmSyncHelper;
 import com.codepilot1c.core.agent.profiles.GsdShipPathPolicy;
+import com.codepilot1c.core.filesystem.SecureDirectoryCapabilityException;
 import com.codepilot1c.core.filesystem.SecureDirectoryMutation;
+import com.google.gson.JsonObject;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -28,6 +30,7 @@ import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
+import org.eclipse.core.resources.IWorkspaceRunnable;
 import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
@@ -59,13 +62,27 @@ public class WriteTool extends AbstractTool {
 
     private static final String PLUGIN_ID = "com.codepilot1c.core";
     private final SecureDirectoryMutation.MutationHook shipMutationHook;
+    private final IWorkspaceRoot workspaceRootOverride;
+    private final IProject projectOverride;
+    private final SecureDirectoryMutation.CapabilityPolicy shipCapabilityPolicy;
 
     public WriteTool() {
         this(null);
     }
 
     WriteTool(SecureDirectoryMutation.MutationHook shipMutationHook) {
+        this(shipMutationHook, null, null,
+                SecureDirectoryMutation.CapabilityPolicy.REQUIRE_SECURE);
+    }
+
+    WriteTool(SecureDirectoryMutation.MutationHook shipMutationHook,
+            IWorkspaceRoot workspaceRootOverride, IProject projectOverride,
+            SecureDirectoryMutation.CapabilityPolicy shipCapabilityPolicy) {
         this.shipMutationHook = shipMutationHook;
+        this.workspaceRootOverride = workspaceRootOverride;
+        this.projectOverride = projectOverride;
+        this.shipCapabilityPolicy = java.util.Objects.requireNonNull(
+                shipCapabilityPolicy, "shipCapabilityPolicy"); //$NON-NLS-1$
     }
 
     private static final String SCHEMA = """
@@ -204,7 +221,8 @@ public class WriteTool extends AbstractTool {
         }
 
         // Get workspace
-        IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
+        IWorkspaceRoot root = workspaceRootOverride != null
+                ? workspaceRootOverride : ResourcesPlugin.getWorkspace().getRoot();
 
         // Find file handle
         IProject currentProject = resolveCurrentProject(context);
@@ -243,7 +261,7 @@ public class WriteTool extends AbstractTool {
         if (shipScoped) {
             created = !file.exists();
             try {
-                ResourcesPlugin.getWorkspace().run(monitor -> {
+                IWorkspaceRunnable write = monitor -> {
                     if (!isPhysicalShipTarget(root, currentProject, file)) {
                         throw new CoreException(new Status(IStatus.ERROR, PLUGIN_ID,
                                 "GSD Ship target ancestry changed before write")); //$NON-NLS-1$
@@ -252,15 +270,29 @@ public class WriteTool extends AbstractTool {
                         WorkspacePathContainment.writeContained(
                                 root.getLocation().toFile().toPath(),
                                 currentProject.getLocation().toFile().toPath(),
-                                file.getLocation().toFile().toPath(), bytes, shipMutationHook);
+                                file.getLocation().toFile().toPath(), bytes, shipMutationHook,
+                                shipCapabilityPolicy);
                     } catch (IOException e) {
                         throw new CoreException(new Status(IStatus.ERROR, PLUGIN_ID,
                                 "GSD Ship write rejected: " + e.getMessage(), e)); //$NON-NLS-1$
                     }
-                }, currentProject, 0, new NullProgressMonitor());
+                };
+                if (workspaceRootOverride != null) {
+                    write.run(new NullProgressMonitor());
+                } else {
+                    ResourcesPlugin.getWorkspace().run(
+                            write, currentProject, 0, new NullProgressMonitor());
+                }
             } catch (CoreException e) {
-                return ToolResult.failure(
-                        "GSD Ship write rejected: " + e.getMessage()); //$NON-NLS-1$
+                String message = "GSD Ship write rejected: " + e.getMessage(); //$NON-NLS-1$
+                if (hasCapabilityCause(e)) {
+                    JsonObject payload = new JsonObject();
+                    payload.addProperty("status", "error"); //$NON-NLS-1$ //$NON-NLS-2$
+                    payload.addProperty("operation", "write_file"); //$NON-NLS-1$ //$NON-NLS-2$
+                    payload.addProperty("error_code", "unsupported"); //$NON-NLS-1$ //$NON-NLS-2$
+                    return ToolResult.failure(message, payload);
+                }
+                return ToolResult.failure(message);
             }
         } else if (file.exists()) {
             file.setContents(new ByteArrayInputStream(bytes), IResource.FORCE | IResource.KEEP_HISTORY,
@@ -291,6 +323,17 @@ public class WriteTool extends AbstractTool {
         logInfo((created ? "Файл создан: " : "Файл обновлен: ") + file.getFullPath());
 
         return ToolResult.success(result.toString(), ToolResult.ToolResultType.TEXT);
+    }
+
+    private static boolean hasCapabilityCause(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof SecureDirectoryCapabilityException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /**
@@ -383,7 +426,8 @@ public class WriteTool extends AbstractTool {
     }
 
     private IProject resolveCurrentProject(ToolExecutionContext context) {
-        return ActiveProjectSupport.resolveActiveProject(context);
+        return projectOverride != null
+                ? projectOverride : ActiveProjectSupport.resolveActiveProject(context);
     }
 
     private boolean isProjectRootCodeMd(IFile file) {
