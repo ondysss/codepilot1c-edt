@@ -7,12 +7,17 @@
  */
 package com.codepilot1c.core.gsd;
 
-import java.util.HashSet;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
-/** Shared service/store rules for CLOSED-to-DISCOVERY cycle replacement. */
+/**
+ * Shared service/store rules for CLOSED-to-DISCOVERY cycle replacement.
+ *
+ * <p>The used-cycle fence is correctness-critical state, not a disposable
+ * projection of transition history. Audit entries may be pruned only if their
+ * cycle identities remain preserved in that fence.</p>
+ */
 final class GsdCycleRules {
 
     private GsdCycleRules() {
@@ -32,12 +37,7 @@ final class GsdCycleRules {
             throw new IllegalArgumentException("new cycle must preserve generation " //$NON-NLS-1$
                     + current.generation() + ", requested " + newGeneration); //$NON-NLS-1$
         }
-        Set<String> usedCycleIds = new HashSet<>();
-        usedCycleIds.add(current.cycleId());
-        for (GsdTransition transition : current.transitionHistory()) {
-            usedCycleIds.add(transition.cycleId());
-        }
-        if (usedCycleIds.contains(newCycleId)) {
+        if (current.usedCycleIds().contains(newCycleId)) {
             throw new GsdCycleIdReuseException(newCycleId);
         }
     }
@@ -52,6 +52,12 @@ final class GsdCycleRules {
             throw new IllegalArgumentException("new cycle must start in DISCOVERY at revision 0"); //$NON-NLS-1$
         }
         validateRequestedIdentity(current, next.cycleId(), next.generation());
+        List<String> expectedUsedCycleIds = new ArrayList<>(current.usedCycleIds());
+        expectedUsedCycleIds.add(next.cycleId());
+        if (!next.usedCycleIds().equals(expectedUsedCycleIds)) {
+            throw new IllegalArgumentException(
+                    "new cycle must preserve the used-cycle fence and append its cycleId"); //$NON-NLS-1$
+        }
         List<GsdTransition> oldHistory = current.transitionHistory();
         List<GsdTransition> newHistory = next.transitionHistory();
         if (newHistory.size() != oldHistory.size() + 1

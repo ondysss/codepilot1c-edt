@@ -49,10 +49,12 @@ public class GsdCoreV2Test {
         assertEquals(GsdState.LEGACY_CYCLE_ID, migrated.cycleId());
         assertEquals(0L, migrated.generation());
         assertEquals(7L, migrated.revision());
+        assertEquals(List.of(GsdState.LEGACY_CYCLE_ID), migrated.usedCycleIds());
         assertTrue(migrated.acceptanceCriteria().isEmpty());
         assertTrue(migrated.transitionHistory().isEmpty());
         assertTrue(migrated.shipment().emptyRecord());
         assertTrue(Files.readString(statePath).contains("\"schemaVersion\": 2")); //$NON-NLS-1$
+        assertTrue(Files.readString(statePath).contains("\"usedCycleIds\"")); //$NON-NLS-1$
         assertTrue(Files.readString(store.getGsdDirectory().resolve(GsdStateStore.STATE_BAK))
                 .contains("\"schemaVersion\":1")); //$NON-NLS-1$
 
@@ -319,14 +321,100 @@ public class GsdCoreV2Test {
         Files.delete(stateProjection);
         Files.createDirectory(stateProjection);
 
-        GsdCommitOutcome outcome = GsdWorkflowService.transitionPhaseWithOutcome(
-                root.toString(), initial.token(), GsdPhase.PLANNING, null);
+        GsdState state = warned(GsdWorkflowService.recordDecisionWithOutcome(
+                root.toString(), initial.token(), "d1", "scope", "ship", List.of())); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        state = warned(GsdWorkflowService.transitionPhaseWithOutcome(
+                root.toString(), state.token(), GsdPhase.PLANNING, null));
+        GsdTask task = new GsdTask("t1", "task", GsdTaskStatus.PENDING, "w1", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                List.of(), List.of(), GsdExecutionKind.READ_ONLY);
+        GsdWave wave = new GsdWave("w1", "wave", "goal", List.of("t1")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        GsdAcceptanceCriterion criterion = new GsdAcceptanceCriterion(
+                "ac-1", "release checks pass", true); //$NON-NLS-1$ //$NON-NLS-2$
+        state = warned(GsdWorkflowService.createPlanWithOutcome(root.toString(), state.token(),
+                "goal", List.of(criterion), List.of(task), List.of(wave))); //$NON-NLS-1$
+        state = warned(GsdWorkflowService.transitionPhaseWithOutcome(
+                root.toString(), state.token(), GsdPhase.EXECUTING, null));
+        state = warned(GsdWorkflowService.recordEvidenceWithOutcome(root.toString(), state.token(),
+                "e-exec", "implemented", GsdProvenance.TESTED, List.of("t1"))); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        state = warned(GsdWorkflowService.updateTaskWithOutcome(
+                root.toString(), state.token(), "t1", GsdTaskStatus.DONE)); //$NON-NLS-1$
+        state = warned(GsdWorkflowService.transitionPhaseWithOutcome(
+                root.toString(), state.token(), GsdPhase.VERIFYING, null));
+        state = warned(GsdWorkflowService.recordEvidenceWithOutcome(root.toString(), state.token(),
+                "e-verify", "verified", GsdProvenance.TESTED, List.of("t1"))); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        state = warned(GsdWorkflowService.updateAcceptanceCriterionWithOutcome(
+                root.toString(), state.token(), "ac-1", GsdAcceptanceStatus.PASSED)); //$NON-NLS-1$
+        state = warned(GsdWorkflowService.transitionPhaseWithOutcome(
+                root.toString(), state.token(), GsdPhase.SHIPPING, null));
+        state = warned(GsdWorkflowService.recordShipmentWithOutcome(root.toString(), state.token(),
+                new GsdShipment("shipment-progress", "release/pending", //$NON-NLS-1$ //$NON-NLS-2$
+                        GsdShipmentStatus.IN_PROGRESS, null)));
+        state = warned(GsdWorkflowService.completeShipmentWithOutcome(root.toString(), state.token(),
+                "shipment-complete", "release/complete")); //$NON-NLS-1$ //$NON-NLS-2$
+        state = warned(GsdWorkflowService.transitionPhaseWithOutcome(
+                root.toString(), state.token(), GsdPhase.CLOSED, null));
+        state = warned(GsdWorkflowService.startNewCycleWithOutcome(root.toString(), state.token(),
+                "cycle-warning-next", "next delivery")); //$NON-NLS-1$ //$NON-NLS-2$
 
-        assertTrue(outcome.committed());
-        assertTrue(outcome.hasWarnings());
-        assertTrue(outcome.projectionWarnings().get(0).contains("state committed")); //$NON-NLS-1$
-        assertEquals(GsdPhase.PLANNING, outcome.state().phase());
-        assertEquals(outcome.state(), store.loadReadOnly());
+        assertEquals(GsdPhase.DISCOVERY, state.phase());
+        assertEquals(state, store.loadReadOnly());
+    }
+
+    @Test
+    public void migratedLegacyCycleIdentitySurvivesRealWorkflowAndCannotBeReused()
+            throws IOException {
+        Path root = tmp.newFolder("legacy-cycle-fence").toPath(); //$NON-NLS-1$
+        GsdStateStore store = new GsdStateStore(root);
+        Files.createDirectories(store.getGsdDirectory());
+        Files.writeString(store.getGsdDirectory().resolve(GsdStateStore.STATE_JSON),
+                legacyClosedJson(), StandardCharsets.UTF_8);
+
+        GsdState migrated = store.load();
+        assertEquals(List.of(GsdState.LEGACY_CYCLE_ID), migrated.usedCycleIds());
+        GsdState state = GsdWorkflowService.startNewCycle(root.toString(), migrated.token(),
+                "cycle-after-legacy", "first native cycle"); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals(List.of(GsdState.LEGACY_CYCLE_ID, "cycle-after-legacy"), //$NON-NLS-1$
+                state.usedCycleIds());
+        assertEquals(state.usedCycleIds(), store.loadReadOnly().usedCycleIds());
+
+        try {
+            store.commit(withUsedCycleIds(state, List.of(state.cycleId())));
+            fail("ordinary commit must not prune the historical cycle fence"); //$NON-NLS-1$
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage().contains("preserve the used-cycle")); //$NON-NLS-1$
+        }
+
+        state = completeCurrentCycle(root, state);
+        try {
+            GsdWorkflowService.startNewCycle(root.toString(), state.token(),
+                    GsdState.LEGACY_CYCLE_ID, "attempt ABA reuse"); //$NON-NLS-1$
+            fail("migrated legacy cycle identity must remain fenced"); //$NON-NLS-1$
+        } catch (GsdCycleIdReuseException expected) {
+            assertEquals(GsdState.LEGACY_CYCLE_ID, expected.getCycleId());
+        }
+    }
+
+    @Test
+    public void legacyMigratedShipmentCannotBeInjected() throws IOException {
+        Path root = tmp.newFolder("legacy-shipment-injection").toPath(); //$NON-NLS-1$
+        GsdState shipping = workflowToShipping(root);
+        try {
+            GsdWorkflowService.recordShipmentWithOutcome(
+                    root.toString(), shipping.token(), GsdShipment.legacyMigrated());
+            fail("legacy migration marker must not be accepted as a workflow shipment"); //$NON-NLS-1$
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage().contains("reserved for schema-v1 migration")); //$NON-NLS-1$
+        }
+        assertEquals(shipping, new GsdStateStore(root).loadReadOnly());
+
+        try {
+            GsdGuard.validate(closableState(
+                    GsdAcceptanceStatus.PASSED, GsdShipment.legacyMigrated()));
+            fail("legacy migration marker must not validate on a native aggregate"); //$NON-NLS-1$
+        } catch (GsdGuardException expected) {
+            assertTrue(expected.getViolations().stream()
+                    .anyMatch(v -> v.contains("LEGACY_MIGRATED"))); //$NON-NLS-1$
+        }
     }
 
     @Test
@@ -373,6 +461,51 @@ public class GsdCoreV2Test {
                 "ac-1", GsdAcceptanceStatus.PASSED); //$NON-NLS-1$
         return GsdWorkflowService.transitionPhase(root.toString(), state.token(),
                 GsdPhase.SHIPPING, null);
+    }
+
+    private static GsdState completeCurrentCycle(Path root, GsdState state) throws IOException {
+        state = GsdWorkflowService.transitionPhase(root.toString(), state.token(),
+                GsdPhase.PLANNING, null);
+        GsdTask task = new GsdTask("native-t1", "task", GsdTaskStatus.PENDING, "native-w1", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                List.of(), List.of(), GsdExecutionKind.READ_ONLY);
+        GsdWave wave = new GsdWave("native-w1", "wave", "goal", List.of("native-t1")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        GsdAcceptanceCriterion criterion = new GsdAcceptanceCriterion(
+                "native-ac", "release checks pass", true); //$NON-NLS-1$ //$NON-NLS-2$
+        state = GsdWorkflowService.createPlan(root.toString(), state.token(), "goal", //$NON-NLS-1$
+                List.of(criterion), List.of(task), List.of(wave));
+        state = GsdWorkflowService.transitionPhase(root.toString(), state.token(),
+                GsdPhase.EXECUTING, null);
+        state = GsdWorkflowService.recordEvidence(root.toString(), state.token(),
+                "native-exec", "implemented", GsdProvenance.TESTED, List.of("native-t1")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        state = GsdWorkflowService.updateTask(root.toString(), state.token(),
+                "native-t1", GsdTaskStatus.DONE); //$NON-NLS-1$
+        state = GsdWorkflowService.transitionPhase(root.toString(), state.token(),
+                GsdPhase.VERIFYING, null);
+        state = GsdWorkflowService.recordEvidence(root.toString(), state.token(),
+                "native-verify", "verified", GsdProvenance.TESTED, List.of("native-t1")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        state = GsdWorkflowService.updateAcceptanceCriterion(root.toString(), state.token(),
+                "native-ac", GsdAcceptanceStatus.PASSED); //$NON-NLS-1$
+        state = GsdWorkflowService.transitionPhase(root.toString(), state.token(),
+                GsdPhase.SHIPPING, null);
+        state = GsdWorkflowService.completeShipment(root.toString(), state.token(),
+                "native-shipment", "release/native"); //$NON-NLS-1$ //$NON-NLS-2$
+        return GsdWorkflowService.transitionPhase(root.toString(), state.token(),
+                GsdPhase.CLOSED, null);
+    }
+
+    private static GsdState warned(GsdCommitOutcome outcome) {
+        assertTrue(outcome.committed());
+        assertTrue(outcome.hasWarnings());
+        assertTrue(outcome.projectionWarnings().get(0).contains("state committed")); //$NON-NLS-1$
+        return outcome.state();
+    }
+
+    private static GsdState withUsedCycleIds(GsdState state, List<String> usedCycleIds) {
+        return new GsdState(state.schemaVersion(), state.cycleId(), state.generation(),
+                state.revision(), state.phase(), state.goal(), state.acceptanceCriteria(),
+                state.decisions(), state.tasks(), state.waves(), state.evidence(),
+                state.shipment(), state.transitionHistory(), usedCycleIds,
+                state.sessionPointer());
     }
 
     private static GsdState historicalClosedState() {

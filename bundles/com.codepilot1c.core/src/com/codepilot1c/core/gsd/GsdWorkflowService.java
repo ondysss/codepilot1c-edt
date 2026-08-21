@@ -347,18 +347,36 @@ public final class GsdWorkflowService {
      */
     public static GsdState recordDecision(String projectRoot, long expectedRevision,
             String id, String summary, String rationale, List<String> alternatives) throws IOException {
-        return recordDecisionInternal(projectRoot, state -> checkRevision(state, expectedRevision),
-                id, summary, rationale, alternatives);
+        return compatibilityState("recordDecision", //$NON-NLS-1$
+                recordDecisionWithOutcome(projectRoot, expectedRevision,
+                        id, summary, rationale, alternatives));
     }
 
     /** Token-aware decision API. */
     public static GsdState recordDecision(String projectRoot, GsdConcurrencyToken expectedToken,
             String id, String summary, String rationale, List<String> alternatives) throws IOException {
+        return compatibilityState("recordDecision", //$NON-NLS-1$
+                recordDecisionWithOutcome(projectRoot, expectedToken,
+                        id, summary, rationale, alternatives));
+    }
+
+    /** Revision-compatible decision API that exposes projection warnings. */
+    public static GsdCommitOutcome recordDecisionWithOutcome(String projectRoot,
+            long expectedRevision, String id, String summary, String rationale,
+            List<String> alternatives) throws IOException {
+        return recordDecisionInternal(projectRoot, state -> checkRevision(state, expectedRevision),
+                id, summary, rationale, alternatives);
+    }
+
+    /** Token-aware decision API that exposes projection warnings. */
+    public static GsdCommitOutcome recordDecisionWithOutcome(String projectRoot,
+            GsdConcurrencyToken expectedToken, String id, String summary, String rationale,
+            List<String> alternatives) throws IOException {
         return recordDecisionInternal(projectRoot, state -> checkToken(state, expectedToken),
                 id, summary, rationale, alternatives);
     }
 
-    private static GsdState recordDecisionInternal(String projectRoot, IdentityCheck identity,
+    private static GsdCommitOutcome recordDecisionInternal(String projectRoot, IdentityCheck identity,
             String id, String summary, String rationale, List<String> alternatives) throws IOException {
         // Validate and sanitize all supplied text before any state store access.
         String safeId = secureField(id, "id", ContentKind.DECISION); //$NON-NLS-1$
@@ -382,7 +400,7 @@ public final class GsdWorkflowService {
         GsdDecision decision = new GsdDecision(safeId, safeSummary, safeRationale, safeAlternatives);
         List<GsdDecision> decisions = new ArrayList<>(current.decisions());
         decisions.add(decision);
-        return store.save(current.withDecisions(decisions));
+        return store.commit(current.withDecisions(decisions));
     }
 
     // ---- Create plan ------------------------------------------------------
@@ -406,18 +424,39 @@ public final class GsdWorkflowService {
      */
     public static GsdState createPlan(String projectRoot, long expectedRevision,
             String goal, List<GsdTask> tasks, List<GsdWave> waves) throws IOException {
-        return createPlan(projectRoot, expectedRevision, goal, List.of(), tasks, waves);
+        return compatibilityState("createPlan", //$NON-NLS-1$
+                createPlanWithOutcome(projectRoot, expectedRevision,
+                        goal, List.of(), tasks, waves));
     }
 
     /** Token-aware compatibility overload for a plan without explicit criteria. */
     public static GsdState createPlan(String projectRoot, GsdConcurrencyToken expectedToken,
             String goal, List<GsdTask> tasks, List<GsdWave> waves) throws IOException {
-        return createPlan(projectRoot, expectedToken, goal, List.of(), tasks, waves);
+        return compatibilityState("createPlan", //$NON-NLS-1$
+                createPlanWithOutcome(projectRoot, expectedToken,
+                        goal, List.of(), tasks, waves));
     }
 
     /** Creates a plan with persisted acceptance criteria. */
     public static GsdState createPlan(String projectRoot, long expectedRevision,
             String goal, List<GsdAcceptanceCriterion> acceptanceCriteria,
+            List<GsdTask> tasks, List<GsdWave> waves) throws IOException {
+        return compatibilityState("createPlan", //$NON-NLS-1$
+                createPlanWithOutcome(projectRoot, expectedRevision,
+                        goal, acceptanceCriteria, tasks, waves));
+    }
+
+    /** Revision-compatible plan API that exposes projection warnings. */
+    public static GsdCommitOutcome createPlanWithOutcome(String projectRoot,
+            long expectedRevision, String goal, List<GsdTask> tasks,
+            List<GsdWave> waves) throws IOException {
+        return createPlanWithOutcome(projectRoot, expectedRevision, goal, List.of(), tasks, waves);
+    }
+
+    /** Revision-compatible plan API with acceptance criteria and projection warnings. */
+    public static GsdCommitOutcome createPlanWithOutcome(String projectRoot,
+            long expectedRevision, String goal,
+            List<GsdAcceptanceCriterion> acceptanceCriteria,
             List<GsdTask> tasks, List<GsdWave> waves) throws IOException {
         return createPlanInternal(projectRoot, state -> checkRevision(state, expectedRevision),
                 goal, acceptanceCriteria, tasks, waves);
@@ -427,11 +466,28 @@ public final class GsdWorkflowService {
     public static GsdState createPlan(String projectRoot, GsdConcurrencyToken expectedToken,
             String goal, List<GsdAcceptanceCriterion> acceptanceCriteria,
             List<GsdTask> tasks, List<GsdWave> waves) throws IOException {
+        return compatibilityState("createPlan", //$NON-NLS-1$
+                createPlanWithOutcome(projectRoot, expectedToken,
+                        goal, acceptanceCriteria, tasks, waves));
+    }
+
+    /** Token-aware plan API that exposes projection warnings. */
+    public static GsdCommitOutcome createPlanWithOutcome(String projectRoot,
+            GsdConcurrencyToken expectedToken, String goal, List<GsdTask> tasks,
+            List<GsdWave> waves) throws IOException {
+        return createPlanWithOutcome(projectRoot, expectedToken, goal, List.of(), tasks, waves);
+    }
+
+    /** Token-aware plan API with acceptance criteria and projection warnings. */
+    public static GsdCommitOutcome createPlanWithOutcome(String projectRoot,
+            GsdConcurrencyToken expectedToken, String goal,
+            List<GsdAcceptanceCriterion> acceptanceCriteria,
+            List<GsdTask> tasks, List<GsdWave> waves) throws IOException {
         return createPlanInternal(projectRoot, state -> checkToken(state, expectedToken),
                 goal, acceptanceCriteria, tasks, waves);
     }
 
-    private static GsdState createPlanInternal(String projectRoot, IdentityCheck identity,
+    private static GsdCommitOutcome createPlanInternal(String projectRoot, IdentityCheck identity,
             String goal, List<GsdAcceptanceCriterion> acceptanceCriteria,
             List<GsdTask> tasks, List<GsdWave> waves) throws IOException {
         // Validate and sanitize all supplied text before any state store access.
@@ -518,7 +574,7 @@ public final class GsdWorkflowService {
         identity.verify(current);
         requirePhase("createPlan", current.phase(), GsdPhase.PLANNING); //$NON-NLS-1$
 
-        return store.save(current.withPlan(safeGoal, safeCriteria, safeTasks, safeWaves));
+        return store.commit(current.withPlan(safeGoal, safeCriteria, safeTasks, safeWaves));
     }
 
     // ---- Update task ------------------------------------------------------
@@ -545,6 +601,13 @@ public final class GsdWorkflowService {
      */
     public static GsdState updateTask(String projectRoot, long expectedRevision,
             String taskId, GsdTaskStatus newStatus) throws IOException {
+        return compatibilityState("updateTask", //$NON-NLS-1$
+                updateTaskWithOutcome(projectRoot, expectedRevision, taskId, newStatus));
+    }
+
+    /** Revision-compatible task update API that exposes projection warnings. */
+    public static GsdCommitOutcome updateTaskWithOutcome(String projectRoot,
+            long expectedRevision, String taskId, GsdTaskStatus newStatus) throws IOException {
         return updateTaskInternal(projectRoot, state -> checkRevision(state, expectedRevision),
                 taskId, newStatus);
     }
@@ -552,11 +615,19 @@ public final class GsdWorkflowService {
     /** Token-aware task update API. */
     public static GsdState updateTask(String projectRoot, GsdConcurrencyToken expectedToken,
             String taskId, GsdTaskStatus newStatus) throws IOException {
+        return compatibilityState("updateTask", //$NON-NLS-1$
+                updateTaskWithOutcome(projectRoot, expectedToken, taskId, newStatus));
+    }
+
+    /** Token-aware task update API that exposes projection warnings. */
+    public static GsdCommitOutcome updateTaskWithOutcome(String projectRoot,
+            GsdConcurrencyToken expectedToken, String taskId,
+            GsdTaskStatus newStatus) throws IOException {
         return updateTaskInternal(projectRoot, state -> checkToken(state, expectedToken),
                 taskId, newStatus);
     }
 
-    private static GsdState updateTaskInternal(String projectRoot, IdentityCheck identity,
+    private static GsdCommitOutcome updateTaskInternal(String projectRoot, IdentityCheck identity,
             String taskId, GsdTaskStatus newStatus) throws IOException {
         GsdStateStore store = new GsdStateStore(projectRoot);
         GsdState current = store.load();
@@ -604,7 +675,7 @@ public final class GsdWorkflowService {
                 existing.executionKind());
         tasks.set(idx, updated);
 
-        return store.save(current.withTasks(tasks));
+        return store.commit(current.withTasks(tasks));
     }
 
     private static GsdTask findTaskById(List<GsdTask> tasks, String id) {
@@ -636,6 +707,15 @@ public final class GsdWorkflowService {
      */
     public static GsdState recordEvidence(String projectRoot, long expectedRevision,
             String id, String description, GsdProvenance provenance, List<String> taskIds) throws IOException {
+        return compatibilityState("recordEvidence", //$NON-NLS-1$
+                recordEvidenceWithOutcome(projectRoot, expectedRevision,
+                        id, description, provenance, taskIds));
+    }
+
+    /** Revision-compatible evidence API that exposes projection warnings. */
+    public static GsdCommitOutcome recordEvidenceWithOutcome(String projectRoot,
+            long expectedRevision, String id, String description,
+            GsdProvenance provenance, List<String> taskIds) throws IOException {
         return recordEvidenceInternal(projectRoot, state -> checkRevision(state, expectedRevision),
                 id, description, provenance, taskIds);
     }
@@ -644,11 +724,20 @@ public final class GsdWorkflowService {
     public static GsdState recordEvidence(String projectRoot, GsdConcurrencyToken expectedToken,
             String id, String description, GsdProvenance provenance,
             List<String> taskIds) throws IOException {
+        return compatibilityState("recordEvidence", //$NON-NLS-1$
+                recordEvidenceWithOutcome(projectRoot, expectedToken,
+                        id, description, provenance, taskIds));
+    }
+
+    /** Token-aware evidence API that exposes projection warnings. */
+    public static GsdCommitOutcome recordEvidenceWithOutcome(String projectRoot,
+            GsdConcurrencyToken expectedToken, String id, String description,
+            GsdProvenance provenance, List<String> taskIds) throws IOException {
         return recordEvidenceInternal(projectRoot, state -> checkToken(state, expectedToken),
                 id, description, provenance, taskIds);
     }
 
-    private static GsdState recordEvidenceInternal(String projectRoot, IdentityCheck identity,
+    private static GsdCommitOutcome recordEvidenceInternal(String projectRoot, IdentityCheck identity,
             String id, String description, GsdProvenance provenance,
             List<String> taskIds) throws IOException {
         // Validate and sanitize all supplied text before any state store access.
@@ -691,7 +780,7 @@ public final class GsdWorkflowService {
             }
         }
 
-        return store.save(current.withTasksAndEvidence(tasks, evidenceList));
+        return store.commit(current.withTasksAndEvidence(tasks, evidenceList));
     }
 
     // ---- Acceptance and shipment ----------------------------------------
@@ -699,24 +788,43 @@ public final class GsdWorkflowService {
     /** Records an acceptance result while verifying or shipping. */
     public static GsdState updateAcceptanceCriterion(String projectRoot,
             long expectedRevision, String criterionId, GsdAcceptanceStatus status) throws IOException {
+        return compatibilityState("updateAcceptanceCriterion", //$NON-NLS-1$
+                updateAcceptanceCriterionWithOutcome(
+                        projectRoot, expectedRevision, criterionId, status));
+    }
+
+    /** Revision-compatible acceptance update that exposes projection warnings. */
+    public static GsdCommitOutcome updateAcceptanceCriterionWithOutcome(String projectRoot,
+            long expectedRevision, String criterionId,
+            GsdAcceptanceStatus status) throws IOException {
         GsdStateStore store = new GsdStateStore(projectRoot);
         GsdState current = store.load();
         checkRevision(current, expectedRevision);
-        return updateAcceptanceCriterion(store, current, criterionId, status);
+        return updateAcceptanceCriterionWithOutcome(store, current, criterionId, status);
     }
 
     /** Token-aware acceptance update. */
     public static GsdState updateAcceptanceCriterion(String projectRoot,
             GsdConcurrencyToken expectedToken, String criterionId,
             GsdAcceptanceStatus status) throws IOException {
+        return compatibilityState("updateAcceptanceCriterion", //$NON-NLS-1$
+                updateAcceptanceCriterionWithOutcome(
+                        projectRoot, expectedToken, criterionId, status));
+    }
+
+    /** Token-aware acceptance update that exposes projection warnings. */
+    public static GsdCommitOutcome updateAcceptanceCriterionWithOutcome(String projectRoot,
+            GsdConcurrencyToken expectedToken, String criterionId,
+            GsdAcceptanceStatus status) throws IOException {
         GsdStateStore store = new GsdStateStore(projectRoot);
         GsdState current = store.load();
         checkToken(current, expectedToken);
-        return updateAcceptanceCriterion(store, current, criterionId, status);
+        return updateAcceptanceCriterionWithOutcome(store, current, criterionId, status);
     }
 
-    private static GsdState updateAcceptanceCriterion(GsdStateStore store, GsdState current,
-            String criterionId, GsdAcceptanceStatus status) throws IOException {
+    private static GsdCommitOutcome updateAcceptanceCriterionWithOutcome(
+            GsdStateStore store, GsdState current, String criterionId,
+            GsdAcceptanceStatus status) throws IOException {
         requirePhase("updateAcceptanceCriterion", current.phase(), //$NON-NLS-1$
                 GsdPhase.VERIFYING, GsdPhase.SHIPPING);
         Objects.requireNonNull(status, "status"); //$NON-NLS-1$
@@ -734,50 +842,85 @@ public final class GsdWorkflowService {
         if (!found) {
             throw new IllegalArgumentException("acceptance criterion not found: " + safeId); //$NON-NLS-1$
         }
-        return store.save(current.withAcceptanceCriteria(criteria));
+        return store.commit(current.withAcceptanceCriteria(criteria));
     }
 
     /** Persists a shipment/delivery record in the SHIPPING phase. */
     public static GsdState recordShipment(String projectRoot, long expectedRevision,
             GsdShipment shipment) throws IOException {
+        return compatibilityState("recordShipment", //$NON-NLS-1$
+                recordShipmentWithOutcome(projectRoot, expectedRevision, shipment));
+    }
+
+    /** Revision-compatible shipment update that exposes projection warnings. */
+    public static GsdCommitOutcome recordShipmentWithOutcome(String projectRoot,
+            long expectedRevision, GsdShipment shipment) throws IOException {
         GsdStateStore store = new GsdStateStore(projectRoot);
         GsdState current = store.load();
         checkRevision(current, expectedRevision);
-        return recordShipment(store, current, shipment);
+        return recordShipmentWithOutcome(store, current, shipment);
     }
 
     /** Token-aware shipment update. */
     public static GsdState recordShipment(String projectRoot, GsdConcurrencyToken expectedToken,
             GsdShipment shipment) throws IOException {
+        return compatibilityState("recordShipment", //$NON-NLS-1$
+                recordShipmentWithOutcome(projectRoot, expectedToken, shipment));
+    }
+
+    /** Token-aware shipment update that exposes projection warnings. */
+    public static GsdCommitOutcome recordShipmentWithOutcome(String projectRoot,
+            GsdConcurrencyToken expectedToken, GsdShipment shipment) throws IOException {
         GsdStateStore store = new GsdStateStore(projectRoot);
         GsdState current = store.load();
         checkToken(current, expectedToken);
-        return recordShipment(store, current, shipment);
+        return recordShipmentWithOutcome(store, current, shipment);
     }
 
-    private static GsdState recordShipment(GsdStateStore store, GsdState current,
+    private static GsdCommitOutcome recordShipmentWithOutcome(GsdStateStore store, GsdState current,
             GsdShipment shipment) throws IOException {
         requirePhase("recordShipment", current.phase(), GsdPhase.SHIPPING); //$NON-NLS-1$
         Objects.requireNonNull(shipment, "shipment"); //$NON-NLS-1$
+        if (shipment.status() == GsdShipmentStatus.LEGACY_MIGRATED) {
+            throw new IllegalArgumentException(
+                    "LEGACY_MIGRATED shipment is reserved for schema-v1 migration"); //$NON-NLS-1$
+        }
         GsdShipment safeShipment = new GsdShipment(
                 secureField(shipment.id(), "shipment.id", ContentKind.DECISION), //$NON-NLS-1$
                 secureField(shipment.deliveryReference(), "shipment.deliveryReference", //$NON-NLS-1$
                         ContentKind.EVIDENCE),
                 shipment.status(), shipment.completedAt());
-        return store.save(current.withShipment(safeShipment));
+        return store.commit(current.withShipment(safeShipment));
     }
 
     /** Convenience API for recording a completed shipment at the current time. */
     public static GsdState completeShipment(String projectRoot, long expectedRevision,
             String shipmentId, String deliveryReference) throws IOException {
-        return recordShipment(projectRoot, expectedRevision,
+        return compatibilityState("completeShipment", //$NON-NLS-1$
+                completeShipmentWithOutcome(
+                        projectRoot, expectedRevision, shipmentId, deliveryReference));
+    }
+
+    /** Revision-compatible shipment completion that exposes projection warnings. */
+    public static GsdCommitOutcome completeShipmentWithOutcome(String projectRoot,
+            long expectedRevision, String shipmentId, String deliveryReference) throws IOException {
+        return recordShipmentWithOutcome(projectRoot, expectedRevision,
                 GsdShipment.completed(shipmentId, deliveryReference, Instant.now()));
     }
 
     /** Token-aware convenience API for completing a shipment. */
     public static GsdState completeShipment(String projectRoot, GsdConcurrencyToken expectedToken,
             String shipmentId, String deliveryReference) throws IOException {
-        return recordShipment(projectRoot, expectedToken,
+        return compatibilityState("completeShipment", //$NON-NLS-1$
+                completeShipmentWithOutcome(
+                        projectRoot, expectedToken, shipmentId, deliveryReference));
+    }
+
+    /** Token-aware shipment completion that exposes projection warnings. */
+    public static GsdCommitOutcome completeShipmentWithOutcome(String projectRoot,
+            GsdConcurrencyToken expectedToken, String shipmentId,
+            String deliveryReference) throws IOException {
+        return recordShipmentWithOutcome(projectRoot, expectedToken,
                 GsdShipment.completed(shipmentId, deliveryReference, Instant.now()));
     }
 

@@ -406,6 +406,12 @@ public final class GsdStateStore {
             throw new GsdStaleTokenException(
                     validated.concurrencyToken(), outcome.state.concurrencyToken());
         }
+        // The used-cycle fence is authoritative ABA protection. Ordinary commits
+        // must preserve it exactly; commitNewCycle is the only path allowed to append.
+        if (!validated.usedCycleIds().equals(outcome.state.usedCycleIds())) {
+            throw new IllegalArgumentException(
+                    "ordinary commit must preserve the used-cycle identity fence"); //$NON-NLS-1$
+        }
     }
 
     /**

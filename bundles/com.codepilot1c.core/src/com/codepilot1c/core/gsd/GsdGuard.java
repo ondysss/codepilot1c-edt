@@ -82,6 +82,23 @@ public final class GsdGuard {
         if (state.cycleId() == null || state.cycleId().isBlank()) {
             violations.add("cycleId must not be blank"); //$NON-NLS-1$
         }
+        Set<String> usedCycleIds = new HashSet<>();
+        for (String usedCycleId : state.usedCycleIds()) {
+            if (usedCycleId == null || usedCycleId.isBlank()) {
+                violations.add("usedCycleIds must contain only non-blank ids"); //$NON-NLS-1$
+            } else if (!usedCycleIds.add(usedCycleId)) {
+                violations.add("duplicate used cycleId: " + usedCycleId); //$NON-NLS-1$
+            }
+        }
+        if (!usedCycleIds.contains(state.cycleId())) {
+            violations.add("usedCycleIds must preserve the current cycleId"); //$NON-NLS-1$
+        }
+        for (GsdTransition transition : state.transitionHistory()) {
+            if (!usedCycleIds.contains(transition.cycleId())) {
+                violations.add("usedCycleIds must preserve transition cycleId: " //$NON-NLS-1$
+                        + transition.cycleId());
+            }
+        }
         if (state.generation() < GsdState.INITIAL_GENERATION) {
             violations.add("generation " + state.generation() + " is negative"); //$NON-NLS-1$ //$NON-NLS-2$
         }
@@ -430,9 +447,11 @@ public final class GsdGuard {
             }
         }
         if (shipment.status() == GsdShipmentStatus.LEGACY_MIGRATED
-                && (!GsdState.LEGACY_CYCLE_ID.equals(state.cycleId())
-                        || !state.transitionHistory().isEmpty())) {
-            violations.add("LEGACY_MIGRATED shipment is valid only for an unmoved migrated v1 cycle"); //$NON-NLS-1$
+                && (state.phase() != GsdPhase.CLOSED
+                        || !GsdState.LEGACY_CYCLE_ID.equals(state.cycleId())
+                        || !state.transitionHistory().isEmpty()
+                        || !state.usedCycleIds().equals(List.of(GsdState.LEGACY_CYCLE_ID)))) {
+            violations.add("LEGACY_MIGRATED shipment is valid only for an unmoved CLOSED v1 migration"); //$NON-NLS-1$
         }
     }
 
