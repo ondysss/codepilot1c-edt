@@ -24,6 +24,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -52,6 +53,7 @@ import com.codepilot1c.core.tools.TaskTool;
 import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolExecutionService;
 import com.codepilot1c.core.tools.ToolRegistry;
+import com.codepilot1c.core.tools.ToolRegistry.ToolResolution;
 import com.codepilot1c.core.tools.ToolResult;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -228,6 +230,48 @@ public class McpHostProfileGateTest {
     }
 
     @Test
+    public void dynamicReplacementBetweenAuthorizationAndDispatchFailsClosed()
+            throws Exception {
+        String name = "mcp_race_replace"; //$NON-NLS-1$
+        CapturingTool trusted = new CapturingTool(name, false);
+        CapturingTool replacement = new CapturingTool(name, false);
+        registry.registerDynamicTool(trusted, DynamicToolCapability.READ_ONLY);
+        setField(registry, "executionService", new RegisteringExecutionService( //$NON-NLS-1$
+                registry, replacement, DynamicToolCapability.MUTATING));
+
+        McpMessage response = router(
+                new NamedExposurePolicy(Set.of(name)),
+                McpHostConfig.MutationPolicy.ALLOW, "build") //$NON-NLS-1$
+                .route(call(name, Map.of()), session());
+
+        assertTrue(isToolError(response));
+        assertEquals("confirmation_unavailable_tool_policy", //$NON-NLS-1$
+                structuredContent(response).get("reason_code").getAsString()); //$NON-NLS-1$
+        assertEquals(0, trusted.calls);
+        assertEquals(0, replacement.calls);
+        assertSame(replacement, registry.getTool(name));
+    }
+
+    @Test
+    public void unrelatedDynamicRefreshDoesNotInvalidateStableResolution()
+            throws Exception {
+        CapturingTool stable = new CapturingTool("mcp_stable_read", false); //$NON-NLS-1$
+        CapturingTool unrelated = new CapturingTool("mcp_unrelated_update", false); //$NON-NLS-1$
+        registry.registerDynamicTool(stable, DynamicToolCapability.READ_ONLY);
+        setField(registry, "executionService", new RegisteringExecutionService( //$NON-NLS-1$
+                registry, unrelated, DynamicToolCapability.MUTATING));
+
+        McpMessage response = router(
+                new NamedExposurePolicy(Set.of(stable.getName())),
+                McpHostConfig.MutationPolicy.ALLOW, "build") //$NON-NLS-1$
+                .route(call(stable.getName(), Map.of()), session());
+
+        assertFalse(isToolError(response));
+        assertEquals(1, stable.calls);
+        assertEquals(0, unrelated.calls);
+    }
+
+    @Test
     public void toolAndExposureConfirmationSignalsFailClosedUnderAllow() {
         CapturingTool confirming = new CapturingTool(
                 "mcp_local_confirming", false, true, false); //$NON-NLS-1$
@@ -291,18 +335,19 @@ public class McpHostProfileGateTest {
     }
 
     @Test
-    public void builtInCollisionKeepsBuiltInExecutionAndMetadata() {
+    public void builtInCollisionKeepsBuiltInExecutionAndMetadata() throws Exception {
         String name = "mcp_collision"; //$NON-NLS-1$
         CapturingTool builtIn = register(new CapturingTool(name, false));
         CapturingTool dynamic = new CapturingTool(name, false);
-        registry.registerDynamicTool(dynamic, DynamicToolCapability.MUTATING);
+        setField(registry, "executionService", new RegisteringExecutionService( //$NON-NLS-1$
+                registry, dynamic, DynamicToolCapability.MUTATING));
         McpToolExposurePolicy exposure = new NamedExposurePolicy(Set.of(name));
         McpHostRequestRouter router = router(
                 exposure, McpHostConfig.MutationPolicy.ALLOW, ""); //$NON-NLS-1$
 
+        McpMessage response = router.route(call(name, Map.of()), session());
         Map<String, Object> listed = listedTool(router.route(
                 request("tools/list", Map.of()), session()), name); //$NON-NLS-1$
-        McpMessage response = router.route(call(name, Map.of()), session());
 
         assertSame(builtIn, registry.getTool(name));
         assertFalse(listed.containsKey("annotations")); //$NON-NLS-1$
@@ -993,11 +1038,38 @@ public class McpHostProfileGateTest {
         }
 
         @Override
-        public CompletableFuture<ToolResult> execute(
+        public Optional<CompletableFuture<ToolResult>> executeIfCurrent(
                 ToolCall toolCall, Map<String, Object> parameters,
                 AgentTraceSession traceSession, String parentEventId,
-                ToolExecutionContext context) {
-            return CompletableFuture.failedFuture(new TimeoutException("forced timeout")); //$NON-NLS-1$
+                ToolExecutionContext context, ToolResolution resolution) {
+            return Optional.of(CompletableFuture.failedFuture(
+                    new TimeoutException("forced timeout"))); //$NON-NLS-1$
+        }
+    }
+
+    private static final class RegisteringExecutionService extends ToolExecutionService {
+
+        private final ToolRegistry registry;
+        private final ITool replacement;
+        private final DynamicToolCapability capability;
+
+        private RegisteringExecutionService(
+                ToolRegistry registry, ITool replacement,
+                DynamicToolCapability capability) {
+            super(registry);
+            this.registry = registry;
+            this.replacement = replacement;
+            this.capability = capability;
+        }
+
+        @Override
+        public Optional<CompletableFuture<ToolResult>> executeIfCurrent(
+                ToolCall toolCall, Map<String, Object> parameters,
+                AgentTraceSession traceSession, String parentEventId,
+                ToolExecutionContext context, ToolResolution resolution) {
+            registry.registerDynamicTool(replacement, capability);
+            return super.executeIfCurrent(toolCall, parameters, traceSession,
+                    parentEventId, context, resolution);
         }
     }
 }

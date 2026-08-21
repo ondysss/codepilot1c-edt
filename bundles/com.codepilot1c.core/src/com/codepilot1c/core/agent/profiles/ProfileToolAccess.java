@@ -8,8 +8,8 @@ import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 
-import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
+import com.codepilot1c.core.tools.ToolRegistry.ToolResolution;
 
 /** Shared static/dynamic profile capability decision for every runtime gate. */
 public final class ProfileToolAccess {
@@ -29,20 +29,30 @@ public final class ProfileToolAccess {
         if (toolName == null || toolName.isBlank()) {
             return false;
         }
-        if (registry.isEffectiveDynamicTool(toolName)) {
+        return allows(profile, registry.resolveTool(toolName));
+    }
+
+    /** Applies the profile gate to the exact registry resolution being authorized. */
+    public static boolean allows(AgentProfile profile, ToolResolution resolution) {
+        Objects.requireNonNull(profile, "profile"); //$NON-NLS-1$
+        if (resolution == null || resolution.name() == null
+                || resolution.name().isBlank()) {
+            return false;
+        }
+        if (resolution.dynamic()) {
             return profile.getDynamicToolGrant().grants(
-                    registry.getDynamicToolCapability(toolName));
+                    resolution.dynamicCapability());
         }
         Set<String> allowed = profile.getAllowedTools();
-        return allowed != null && allowed.contains(toolName);
+        return allowed != null && allowed.contains(resolution.name());
     }
 
     /** Returns the currently effective model-facing tool names for a profile. */
     public static Set<String> effectiveToolNames(AgentProfile profile, ToolRegistry registry) {
         Set<String> result = new LinkedHashSet<>();
-        for (ITool tool : registry.getAllTools()) {
-            if (allows(profile, tool.getName(), registry)) {
-                result.add(tool.getName());
+        for (ToolResolution resolution : registry.getAllToolResolutions()) {
+            if (allows(profile, resolution)) {
+                result.add(resolution.name());
             }
         }
         return Set.copyOf(result);

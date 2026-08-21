@@ -41,6 +41,7 @@ import com.codepilot1c.core.permissions.ProfilePermissionGate;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolRegistry;
+import com.codepilot1c.core.tools.ToolRegistry.ToolResolution;
 import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.tools.surface.ToolSurfaceContext;
 
@@ -224,7 +225,9 @@ public class McpHostRequestRouter {
             return ok(request, toolError("Tool is not exposed: " + toolName)); //$NON-NLS-1$
         }
 
-        ITool tool = ToolRegistry.getInstance().getTool(toolName);
+        ToolRegistry registry = ToolRegistry.getInstance();
+        ToolResolution resolution = registry.resolveTool(toolName);
+        ITool tool = resolution.tool();
         if (tool == null) {
             return ok(request, toolError("Unknown tool: " + toolName)); //$NON-NLS-1$
         }
@@ -234,7 +237,7 @@ public class McpHostRequestRouter {
                 return denyByProfile(request, session, toolName, arguments, null,
                         "profile_unresolved", "profile", null); //$NON-NLS-1$ //$NON-NLS-2$
             }
-            if (!ProfileToolAccess.allows(sessionProfile, toolName, ToolRegistry.getInstance())) {
+            if (!ProfileToolAccess.allows(sessionProfile, resolution)) {
                 return denyByProfile(request, session, toolName, arguments, null,
                         "tool_not_in_profile", "profile", null); //$NON-NLS-1$ //$NON-NLS-2$
             }
@@ -261,7 +264,7 @@ public class McpHostRequestRouter {
             return ok(request, toolError("Tool execution denied by permission policy: " + decision)); //$NON-NLS-1$
         }
 
-        EffectiveToolPolicy effectivePolicy = effectiveToolPolicy(tool, arguments);
+        EffectiveToolPolicy effectivePolicy = effectiveToolPolicy(resolution, arguments);
         if (effectivePolicy.requiresConfirmation()) {
             return denyConfirmationUnavailable(request, session, toolName, arguments);
         }
@@ -270,10 +273,15 @@ public class McpHostRequestRouter {
         try {
             int timeoutSeconds = "qa_run".equals(toolName) ? 3600 : 120; //$NON-NLS-1$
             ToolCall call = new ToolCall(String.valueOf(request.getRawId()), toolName, null);
-            toolResult = ToolRegistry.getInstance().getExecutionService()
-                .execute(call, arguments, null, null, executionContext)
-                .orTimeout(timeoutSeconds, TimeUnit.SECONDS)
-                .join();
+            var dispatched = registry.getExecutionService().executeIfCurrent(
+                    call, arguments, null, null, executionContext, resolution);
+            if (dispatched.isEmpty()) {
+                return denyConfirmationUnavailable(
+                        request, session, toolName, arguments);
+            }
+            toolResult = dispatched.get()
+                    .orTimeout(timeoutSeconds, TimeUnit.SECONDS)
+                    .join();
         } catch (Exception e) {
             writeMcpToolTrace(session, toolName, arguments, decision, null,
                     Duration.between(startedAt, Instant.now()), e);
@@ -369,7 +377,8 @@ public class McpHostRequestRouter {
         ToolRegistry registry = ToolRegistry.getInstance();
         ToolSurfaceContext surfaceContext = registry.createRuntimeSurfaceContext(
                 sessionProfile != null ? sessionProfile : ToolSurfaceContext.defaultProfile());
-        for (ITool tool : registry.getAllTools()) {
+        for (ToolResolution resolution : registry.getAllToolResolutions()) {
+            ITool tool = resolution.tool();
             if (!exposurePolicy.isExposed(tool.getName())) {
                 continue;
             }
@@ -377,7 +386,7 @@ public class McpHostRequestRouter {
                 if (sessionProfile == null) {
                     continue;
                 }
-                if (!ProfileToolAccess.allows(sessionProfile, tool.getName(), registry)) {
+                if (!ProfileToolAccess.allows(sessionProfile, resolution)) {
                     continue;
                 }
             }
@@ -386,7 +395,8 @@ public class McpHostRequestRouter {
             item.put("name", tool.getName()); //$NON-NLS-1$
             item.put("description", effectiveTool.getDescription()); //$NON-NLS-1$
             item.put("inputSchema", parseSchema(effectiveTool.getParametersSchema())); //$NON-NLS-1$
-            addToolContractMetadata(item, tool, effectiveToolPolicy(tool, Map.of()));
+            addToolContractMetadata(item, tool,
+                    effectiveToolPolicy(resolution, Map.of()));
             out.add(item);
         }
         return out;
@@ -416,9 +426,9 @@ public class McpHostRequestRouter {
     }
 
     private EffectiveToolPolicy effectiveToolPolicy(
-            ITool tool, Map<String, Object> arguments) {
-        DynamicToolCapability dynamicCapability = ToolRegistry.getInstance()
-                .getDynamicToolCapability(tool.getName());
+            ToolResolution resolution, Map<String, Object> arguments) {
+        ITool tool = resolution.tool();
+        DynamicToolCapability dynamicCapability = resolution.dynamicCapability();
         boolean destructive = dynamicCapability == DynamicToolCapability.MUTATING;
         boolean requiresConfirmation = destructive;
         try {

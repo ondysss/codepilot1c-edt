@@ -13,9 +13,12 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.eclipse.core.runtime.IConfigurationElement;
@@ -68,6 +71,8 @@ public class ToolRegistry {
     private final Map<String, ITool> tools = new HashMap<>();
     private final Map<String, ITool> dynamicTools = new ConcurrentHashMap<>();
     private volatile Map<String, DynamicToolCapability> dynamicToolCapabilities =
+            new ConcurrentHashMap<>();
+    private volatile Map<String, Long> effectiveToolGenerations =
             new ConcurrentHashMap<>();
     private final Gson gson = new Gson();
     private ToolArgumentParser argumentParser;
@@ -242,8 +247,10 @@ public class ToolRegistry {
      *
      * @param tool the tool to register
      */
-    public void register(ITool tool) {
+    public synchronized void register(ITool tool) {
+        ToolResolution previous = resolveTool(tool.getName());
         tools.put(tool.getName(), tool);
+        recordEffectiveChange(previous, true);
         ToolDescriptorRegistry.getInstance().registerTool(tool);
     }
 
@@ -252,8 +259,10 @@ public class ToolRegistry {
      *
      * @param name the tool name
      */
-    public void unregister(String name) {
+    public synchronized void unregister(String name) {
+        ToolResolution previous = resolveTool(name);
         tools.remove(name);
+        recordEffectiveChange(previous, false);
         ITool dynamic = dynamicTools.get(name);
         if (dynamic != null) {
             ToolDescriptorRegistry.getInstance().registerTool(dynamic);
@@ -281,10 +290,14 @@ public class ToolRegistry {
      * @param tool runtime tool
      * @param capability trusted capability classification
      */
-    public void registerDynamicTool(ITool tool, DynamicToolCapability capability) {
+    public synchronized void registerDynamicTool(
+            ITool tool, DynamicToolCapability capability) {
+        ToolResolution previous = resolveTool(tool.getName());
+        boolean hiddenByBuiltIn = tools.containsKey(tool.getName());
         dynamicTools.put(tool.getName(), tool);
         dynamicCapabilities().put(tool.getName(), capability != null
                 ? capability : DynamicToolCapability.NONE);
+        recordEffectiveChange(previous, !hiddenByBuiltIn);
         ITool builtIn = tools.get(tool.getName());
         ToolDescriptorRegistry.getInstance().registerTool(
                 builtIn != null ? builtIn : tool);
@@ -297,9 +310,11 @@ public class ToolRegistry {
      *
      * @param name the tool name
      */
-    public void unregisterDynamicTool(String name) {
+    public synchronized void unregisterDynamicTool(String name) {
+        ToolResolution previous = resolveTool(name);
         dynamicTools.remove(name);
         dynamicCapabilities().remove(name);
+        recordEffectiveChange(previous, false);
         restoreEffectiveDescriptor(name);
         LOG.debug("Unregistered dynamic tool: %s", name); //$NON-NLS-1$
     }
@@ -309,13 +324,15 @@ public class ToolRegistry {
      *
      * @param prefix the prefix
      */
-    public void unregisterToolsByPrefix(String prefix) {
+    public synchronized void unregisterToolsByPrefix(String prefix) {
         List<String> toRemove = dynamicTools.keySet().stream()
             .filter(name -> name.startsWith(prefix))
             .collect(Collectors.toList());
         toRemove.forEach(name -> {
+            ToolResolution previous = resolveTool(name);
             dynamicTools.remove(name);
             dynamicCapabilities().remove(name);
+            recordEffectiveChange(previous, false);
             restoreEffectiveDescriptor(name);
         });
         if (!toRemove.isEmpty()) {
@@ -329,7 +346,7 @@ public class ToolRegistry {
      * @param name the tool name
      * @return the tool, or null if not found
      */
-    public ITool getTool(String name) {
+    public synchronized ITool getTool(String name) {
         // Built-in tools take precedence over dynamic tools
         ITool tool = tools.get(name);
         if (tool == null) {
@@ -345,7 +362,7 @@ public class ToolRegistry {
      *
      * @return unmodifiable list of tools
      */
-    public List<ITool> getAllTools() {
+    public synchronized List<ITool> getAllTools() {
         Map<String, ITool> allTools = new LinkedHashMap<>();
         // Add dynamic tools first
         allTools.putAll(dynamicTools);
@@ -359,7 +376,7 @@ public class ToolRegistry {
      *
      * @return immutable set of dynamic tool names
      */
-    public Set<String> getDynamicToolNames() {
+    public synchronized Set<String> getDynamicToolNames() {
         return Set.copyOf(dynamicTools.keySet());
     }
 
@@ -367,7 +384,7 @@ public class ToolRegistry {
      * Returns the trusted capability of the effective dynamic tool. A static
      * tool with the same name always wins and therefore returns NONE.
      */
-    public DynamicToolCapability getDynamicToolCapability(String name) {
+    public synchronized DynamicToolCapability getDynamicToolCapability(String name) {
         if (!isEffectiveDynamicTool(name)) {
             return DynamicToolCapability.NONE;
         }
@@ -375,8 +392,76 @@ public class ToolRegistry {
     }
 
     /** Returns whether the effective implementation is runtime-registered. */
-    public boolean isEffectiveDynamicTool(String name) {
+    public synchronized boolean isEffectiveDynamicTool(String name) {
         return name != null && !tools.containsKey(name) && dynamicTools.containsKey(name);
+    }
+
+    /**
+     * Resolves one effective registry entry and its capability as an atomic
+     * authorization snapshot. Built-ins retain precedence over dynamic tools.
+     *
+     * @param name tool name
+     * @return immutable effective resolution; {@link ToolResolution#tool()} may be null
+     */
+    public synchronized ToolResolution resolveTool(String name) {
+        ITool builtIn = tools.get(name);
+        boolean dynamic = builtIn == null && dynamicTools.containsKey(name);
+        ITool effective = builtIn != null ? builtIn : dynamicTools.get(name);
+        DynamicToolCapability capability = dynamic
+                ? dynamicCapabilities().getOrDefault(name, DynamicToolCapability.NONE)
+                : DynamicToolCapability.NONE;
+        return new ToolResolution(name, effective, capability, dynamic,
+                effectiveGenerations().getOrDefault(name, Long.valueOf(0L)).longValue());
+    }
+
+    /** Returns an atomic snapshot of every effective registry entry. */
+    public synchronized List<ToolResolution> getAllToolResolutions() {
+        Map<String, ITool> effective = new LinkedHashMap<>();
+        effective.putAll(dynamicTools);
+        effective.putAll(tools);
+        List<ToolResolution> resolutions = new ArrayList<>(effective.size());
+        for (String name : effective.keySet()) {
+            resolutions.add(resolveTool(name));
+        }
+        return Collections.unmodifiableList(resolutions);
+    }
+
+    /**
+     * Starts dispatch only while the supplied resolution is still the exact
+     * effective registry entry. The callback is invoked under the registry
+     * monitor so registration cannot interleave before the exact tool begins.
+     */
+    synchronized <T> Optional<T> dispatchIfCurrent(
+            ToolResolution resolution, Supplier<T> dispatch) {
+        Objects.requireNonNull(dispatch, "dispatch"); //$NON-NLS-1$
+        if (!isCurrentResolution(resolution)) {
+            return Optional.empty();
+        }
+        return Optional.of(Objects.requireNonNull(dispatch.get(), "dispatch result")); //$NON-NLS-1$
+    }
+
+    private boolean isCurrentResolution(ToolResolution resolution) {
+        if (resolution == null || resolution.name() == null
+                || resolution.tool() == null) {
+            return false;
+        }
+        ToolResolution current = resolveTool(resolution.name());
+        return current.tool() == resolution.tool()
+                && current.dynamicCapability() == resolution.dynamicCapability()
+                && current.dynamic() == resolution.dynamic()
+                && current.generation() == resolution.generation();
+    }
+
+    private void recordEffectiveChange(
+            ToolResolution previous, boolean effectiveRegistrationTouched) {
+        ToolResolution current = resolveTool(previous.name());
+        if (effectiveRegistrationTouched
+                || previous.tool() != current.tool()
+                || previous.dynamicCapability() != current.dynamicCapability()
+                || previous.dynamic() != current.dynamic()) {
+            effectiveGenerations().merge(previous.name(), Long.valueOf(1L),
+                    (left, right) -> Long.valueOf(left.longValue() + right.longValue()));
+        }
     }
 
     private Map<String, DynamicToolCapability> dynamicCapabilities() {
@@ -388,6 +473,26 @@ public class ToolRegistry {
             }
         }
         return dynamicToolCapabilities;
+    }
+
+    private Map<String, Long> effectiveGenerations() {
+        if (effectiveToolGenerations == null) {
+            synchronized (this) {
+                if (effectiveToolGenerations == null) {
+                    effectiveToolGenerations = new ConcurrentHashMap<>();
+                }
+            }
+        }
+        return effectiveToolGenerations;
+    }
+
+    /** Exact effective implementation and capability used for authorization. */
+    public record ToolResolution(
+            String name,
+            ITool tool,
+            DynamicToolCapability dynamicCapability,
+            boolean dynamic,
+            long generation) {
     }
 
     private void restoreEffectiveDescriptor(String name) {
@@ -492,7 +597,8 @@ public class ToolRegistry {
         return executionService().execute(toolCall, parameters, traceSession, parentEventId, context);
     }
 
-    private ToolSurfaceContext contextForTool(ITool tool, ToolSurfaceContext baseContext) {
+    private synchronized ToolSurfaceContext contextForTool(
+            ITool tool, ToolSurfaceContext baseContext) {
         boolean builtIn = tool != null && tools.containsKey(tool.getName());
         return (baseContext != null ? baseContext : ToolSurfaceContext.passthrough())
                 .toBuilder()

@@ -10,6 +10,7 @@ package com.codepilot1c.core.tools;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -17,6 +18,7 @@ import com.codepilot1c.core.evaluation.trace.AgentTraceSession;
 import com.codepilot1c.core.evaluation.trace.TraceEventType;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.model.ToolCall;
+import com.codepilot1c.core.tools.ToolRegistry.ToolResolution;
 
 /**
  * Executes tool calls with argument parsing, logging, and tracing.
@@ -150,10 +152,10 @@ public class ToolExecutionService {
             AgentTraceSession traceSession, String parentEventId, ToolExecutionContext context) {
         LOG.debug("Executing tool with pre-parsed args: %s", toolCall.getName()); //$NON-NLS-1$
 
-        ToolLogger toolLogger = ToolLogger.getInstance();
         Map<String, Object> approvedParameters = parameters != null
                 ? parameters
                 : Collections.emptyMap();
+        ToolLogger toolLogger = ToolLogger.getInstance();
         ITool tool = registry.getTool(toolCall.getName());
         if (tool == null) {
             LOG.error("Unknown tool: %s (checked %d tools)", //$NON-NLS-1$
@@ -165,6 +167,41 @@ public class ToolExecutionService {
             writeToolResultTrace(traceSession, traceToolCallEventId, toolCall, failResult, 0, null, false);
             return CompletableFuture.completedFuture(failResult);
         }
+
+        return executeResolved(toolCall, approvedParameters, traceSession, parentEventId,
+                context, tool);
+    }
+
+    /**
+     * Executes the exact registry implementation authorized by the caller if
+     * its effective implementation, capability, and generation are unchanged.
+     * No lookup by name occurs after validation.
+     *
+     * @return empty when the authorized registry resolution is stale
+     */
+    public Optional<CompletableFuture<ToolResult>> executeIfCurrent(
+            ToolCall toolCall, Map<String, Object> parameters,
+            AgentTraceSession traceSession, String parentEventId,
+            ToolExecutionContext context, ToolResolution resolution) {
+        if (toolCall == null || resolution == null
+                || !Objects.equals(toolCall.getName(), resolution.name())) {
+            return Optional.empty();
+        }
+        Map<String, Object> approvedParameters = parameters != null
+                ? parameters
+                : Collections.emptyMap();
+        return registry.dispatchIfCurrent(resolution, () -> {
+            LOG.debug("Executing exact tool with pre-parsed args: %s", toolCall.getName()); //$NON-NLS-1$
+            return executeResolved(toolCall, approvedParameters, traceSession, parentEventId,
+                    context, resolution.tool());
+        });
+    }
+
+    private CompletableFuture<ToolResult> executeResolved(
+            ToolCall toolCall, Map<String, Object> approvedParameters,
+            AgentTraceSession traceSession, String parentEventId,
+            ToolExecutionContext context, ITool tool) {
+        ToolLogger toolLogger = ToolLogger.getInstance();
 
         boolean sensitive = isSensitive(tool);
 
