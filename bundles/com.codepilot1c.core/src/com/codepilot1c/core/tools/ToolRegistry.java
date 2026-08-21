@@ -47,6 +47,7 @@ import com.codepilot1c.core.tools.surface.ToolCategory;
 import com.codepilot1c.core.tools.surface.ToolSurfaceAugmentor;
 import com.codepilot1c.core.tools.surface.ToolSurfaceContext;
 import com.codepilot1c.core.tools.meta.DiscoverToolsTool;
+import com.codepilot1c.core.tools.meta.ToolDescriptor;
 import com.codepilot1c.core.tools.meta.ToolDescriptorRegistry;
 import com.codepilot1c.core.tools.workspace.*;
 import com.codepilot1c.core.tools.gsd.*;
@@ -72,6 +73,8 @@ public class ToolRegistry {
             new ConcurrentHashMap<>();
     private volatile Map<String, ToolSlot> effectiveToolSlots = new HashMap<>();
     private final Gson gson = new Gson();
+    private volatile ToolDescriptorRegistry descriptorRegistry =
+            ToolDescriptorRegistry.getInstance();
     private ToolArgumentParser argumentParser;
     private ToolExecutionService executionService;
     private volatile ToolSurfaceAugmentor augmentor;
@@ -246,11 +249,15 @@ public class ToolRegistry {
      */
     public void register(ITool tool) {
         String name = tool.getName();
+        ToolDescriptorRegistry descriptors = descriptorRegistry();
+        ToolDescriptor descriptor = requireDescriptor(descriptors.describeTool(tool), name);
         synchronized (this) {
+            ToolSlot previous = currentSlot(name);
+            ToolSlot slot = ToolSlot.builtIn(tool);
+            publishDescriptor(descriptors, previous, slot, descriptor);
             tools.put(name, tool);
-            effectiveSlots().put(name, ToolSlot.builtIn(tool));
+            effectiveSlots().put(name, slot);
         }
-        ToolDescriptorRegistry.getInstance().registerTool(tool);
     }
 
     /**
@@ -259,23 +266,47 @@ public class ToolRegistry {
      * @param name the tool name
      */
     public void unregister(String name) {
-        ITool effective;
-        synchronized (this) {
-            tools.remove(name);
-            ITool dynamic = dynamicTools.get(name);
-            if (dynamic != null) {
-                DynamicToolCapability capability = dynamicCapabilities()
-                        .getOrDefault(name, DynamicToolCapability.NONE);
-                effectiveSlots().put(name, ToolSlot.dynamic(dynamic, capability));
-            } else {
-                effectiveSlots().remove(name);
+        ToolDescriptorRegistry descriptors = descriptorRegistry();
+        while (true) {
+            ITool dynamic;
+            DynamicToolCapability capability;
+            synchronized (this) {
+                dynamic = dynamicTools.get(name);
+                capability = dynamic != null
+                        ? dynamicCapabilities().getOrDefault(
+                                name, DynamicToolCapability.NONE)
+                        : DynamicToolCapability.NONE;
             }
-            effective = dynamic;
-        }
-        if (effective != null) {
-            ToolDescriptorRegistry.getInstance().registerTool(effective);
-        } else {
-            ToolDescriptorRegistry.getInstance().unregister(name);
+            ToolDescriptor descriptor = dynamic != null
+                    ? requireDescriptor(descriptors.describeTool(dynamic), name)
+                    : null;
+            synchronized (this) {
+                DynamicToolCapability currentCapability = dynamic != null
+                        ? dynamicCapabilities().getOrDefault(
+                                name, DynamicToolCapability.NONE)
+                        : DynamicToolCapability.NONE;
+                if (dynamicTools.get(name) != dynamic
+                        || currentCapability != capability) {
+                    continue;
+                }
+                ToolSlot removed = currentSlot(name);
+                if (!tools.containsKey(name)) {
+                    return;
+                }
+                if (dynamic != null) {
+                    ToolSlot slot = ToolSlot.dynamic(dynamic, capability);
+                    publishDescriptor(descriptors, removed, slot, descriptor);
+                    tools.remove(name);
+                    effectiveSlots().put(name, slot);
+                } else {
+                    tools.remove(name);
+                    effectiveSlots().remove(name);
+                    if (removed != null) {
+                        descriptors.removeSlot(name, removed.identity());
+                    }
+                }
+                return;
+            }
         }
     }
 
@@ -303,20 +334,22 @@ public class ToolRegistry {
         String name = tool.getName();
         DynamicToolCapability trustedCapability = capability != null
                 ? capability : DynamicToolCapability.NONE;
-        ITool effective;
+        ToolDescriptorRegistry descriptors = descriptorRegistry();
+        ToolDescriptor descriptor = requireDescriptor(descriptors.describeTool(tool), name);
         synchronized (this) {
-            dynamicTools.put(name, tool);
-            dynamicCapabilities().put(name, trustedCapability);
+            ToolSlot previous = currentSlot(name);
             ITool builtIn = tools.get(name);
             if (builtIn == null) {
-                effectiveSlots().put(name, ToolSlot.dynamic(tool, trustedCapability));
-                effective = tool;
+                ToolSlot slot = ToolSlot.dynamic(tool, trustedCapability);
+                publishDescriptor(descriptors, previous, slot, descriptor);
+                dynamicTools.put(name, tool);
+                dynamicCapabilities().put(name, trustedCapability);
+                effectiveSlots().put(name, slot);
             } else {
-                currentSlot(name);
-                effective = builtIn;
+                dynamicTools.put(name, tool);
+                dynamicCapabilities().put(name, trustedCapability);
             }
         }
-        ToolDescriptorRegistry.getInstance().registerTool(effective);
         LOG.debug("Registered dynamic tool: %s (%s)", name, trustedCapability); //$NON-NLS-1$
     }
 
@@ -326,20 +359,21 @@ public class ToolRegistry {
      * @param name the tool name
      */
     public void unregisterDynamicTool(String name) {
-        ITool effective;
+        ToolDescriptorRegistry descriptors = descriptorRegistry();
         synchronized (this) {
-            dynamicTools.remove(name);
+            ToolSlot removed = currentSlot(name);
+            ITool dynamic = dynamicTools.remove(name);
             dynamicCapabilities().remove(name);
             ITool builtIn = tools.get(name);
             if (builtIn != null) {
                 currentSlot(name);
-                effective = builtIn;
-            } else {
+            } else if (dynamic != null) {
                 effectiveSlots().remove(name);
-                effective = null;
+                if (removed != null) {
+                    descriptors.removeSlot(name, removed.identity());
+                }
             }
         }
-        refreshEffectiveDescriptor(name, effective);
         LOG.debug("Unregistered dynamic tool: %s", name); //$NON-NLS-1$
     }
 
@@ -349,25 +383,27 @@ public class ToolRegistry {
      * @param prefix the prefix
      */
     public void unregisterToolsByPrefix(String prefix) {
-        Map<String, ITool> descriptorUpdates = new LinkedHashMap<>();
+        ToolDescriptorRegistry descriptors = descriptorRegistry();
         List<String> toRemove;
         synchronized (this) {
             toRemove = dynamicTools.keySet().stream()
                     .filter(name -> name.startsWith(prefix))
                     .collect(Collectors.toList());
             for (String name : toRemove) {
-                dynamicTools.remove(name);
+                ToolSlot removed = currentSlot(name);
+                ITool dynamic = dynamicTools.remove(name);
                 dynamicCapabilities().remove(name);
                 ITool builtIn = tools.get(name);
                 if (builtIn != null) {
                     currentSlot(name);
-                } else {
+                } else if (dynamic != null) {
                     effectiveSlots().remove(name);
+                    if (removed != null) {
+                        descriptors.removeSlot(name, removed.identity());
+                    }
                 }
-                descriptorUpdates.put(name, builtIn);
             }
         }
-        descriptorUpdates.forEach(this::refreshEffectiveDescriptor);
         if (!toRemove.isEmpty()) {
             LOG.debug("Unregistered %d dynamic tools with prefix: %s", toRemove.size(), prefix); //$NON-NLS-1$
         }
@@ -560,12 +596,58 @@ public class ToolRegistry {
         }
     }
 
-    private void refreshEffectiveDescriptor(String name, ITool effective) {
-        if (effective != null) {
-            ToolDescriptorRegistry.getInstance().registerTool(effective);
-        } else {
-            ToolDescriptorRegistry.getInstance().unregister(name);
+    /**
+     * Recomputes metadata without holding registry locks, then publishes it
+     * only if the exact captured slot is still effective.
+     */
+    public void refreshToolDescriptors() {
+        ToolDescriptorRegistry descriptors = descriptorRegistry();
+        for (ToolResolution captured : getAllToolResolutions()) {
+            ToolDescriptor descriptor = descriptors.describeTool(captured.tool());
+            if (descriptor == null) {
+                continue;
+            }
+            synchronized (this) {
+                ToolSlot current = currentSlot(captured.name());
+                if (current != null
+                        && current.identity() == captured.slotIdentity()) {
+                    publishDescriptor(descriptors, current, current, descriptor);
+                }
+            }
         }
+    }
+
+    private void publishDescriptor(
+            ToolDescriptorRegistry descriptors,
+            ToolSlot previous,
+            ToolSlot current,
+            ToolDescriptor descriptor) {
+        SlotIdentity expected = previous != null ? previous.identity() : null;
+        if (!descriptors.publishSlot(expected, current.identity(), descriptor)) {
+            throw new IllegalStateException(
+                    "Tool descriptor slot changed while publishing: " + descriptor.getName()); //$NON-NLS-1$
+        }
+    }
+
+    private ToolDescriptor requireDescriptor(
+            ToolDescriptor descriptor, String toolName) {
+        if (descriptor == null || toolName == null
+                || !toolName.equals(descriptor.getName())) {
+            throw new IllegalArgumentException(
+                    "Tool must expose a non-blank stable name: " + toolName); //$NON-NLS-1$
+        }
+        return descriptor;
+    }
+
+    private ToolDescriptorRegistry descriptorRegistry() {
+        if (descriptorRegistry == null) {
+            synchronized (this) {
+                if (descriptorRegistry == null) {
+                    descriptorRegistry = ToolDescriptorRegistry.createDetached();
+                }
+            }
+        }
+        return descriptorRegistry;
     }
 
     /**

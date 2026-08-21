@@ -2,12 +2,14 @@ package com.codepilot1c.core.tools.meta;
 
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
+import com.codepilot1c.core.tools.ToolRegistry.SlotIdentity;
 
 /**
  * Registry of tool metadata used by routing logic.
@@ -18,9 +20,12 @@ public final class ToolDescriptorRegistry {
 
     private static ToolDescriptorRegistry instance;
 
-    private final Map<String, ToolDescriptor> descriptors = new HashMap<>();
-    private boolean bootstrapAttempted;
-    private boolean bootstrapping;
+    private static final Object UNVERSIONED = new Object();
+
+    private final ConcurrentMap<String, DescriptorEntry> descriptors =
+            new ConcurrentHashMap<>();
+    private final AtomicBoolean bootstrapStarted = new AtomicBoolean();
+    private volatile boolean bootstrapAttempted;
 
     private ToolDescriptorRegistry() {
     }
@@ -32,27 +37,58 @@ public final class ToolDescriptorRegistry {
         return instance;
     }
 
+    /**
+     * Creates a descriptor store for a detached/test registry that must not
+     * publish into the process-wide effective tool surface.
+     */
+    public static ToolDescriptorRegistry createDetached() {
+        ToolDescriptorRegistry detached = new ToolDescriptorRegistry();
+        detached.bootstrapStarted.set(true);
+        detached.bootstrapAttempted = true;
+        return detached;
+    }
+
     public void register(ToolDescriptor descriptor) {
         if (descriptor == null) {
             return;
         }
-        descriptors.put(descriptor.getName(), descriptor);
+        descriptors.compute(descriptor.getName(), (ignored, current) ->
+                current != null && current.slotIdentity() instanceof SlotIdentity
+                        ? current
+                        : new DescriptorEntry(UNVERSIONED, descriptor));
     }
 
     /** Removes metadata for a tool that no longer has an effective implementation. */
     public void unregister(String name) {
         if (name != null) {
-            descriptors.remove(name);
+            descriptors.computeIfPresent(name, (ignored, current) ->
+                    current.slotIdentity() == UNVERSIONED ? null : current);
         }
     }
 
     public void registerTool(ITool tool) {
-        if (tool == null || tool.getName() == null || tool.getName().isBlank()) {
-            return;
+        ToolDescriptor descriptor = describeTool(tool);
+        if (descriptor != null) {
+            register(descriptor);
         }
-        ToolDescriptor existing = descriptors.get(tool.getName());
+    }
+
+    /** Computes tool-derived metadata without holding a descriptor-store lock. */
+    public ToolDescriptor describeTool(ITool tool) {
+        if (tool == null) {
+            return null;
+        }
+        String name = tool.getName();
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        DescriptorEntry existingEntry = descriptors.get(name);
+        ToolDescriptor existing = existingEntry != null
+                && existingEntry.slotIdentity() == UNVERSIONED
+                ? existingEntry.descriptor()
+                : null;
         ToolCategory runtimeCategory = resolveCategory(tool.getCategory());
-        ToolDescriptor.Builder builder = ToolDescriptor.builder(tool.getName())
+        ToolDescriptor.Builder builder = ToolDescriptor.builder(name)
                 .category(resolveMergedCategory(existing, runtimeCategory))
                 .mutating(tool.isMutating())
                 .requiresValidationToken(tool.requiresValidationToken());
@@ -64,7 +100,50 @@ public final class ToolDescriptorRegistry {
         for (String tag : tool.getTags()) {
             builder.tag(tag);
         }
-        register(builder.build());
+        return builder.build();
+    }
+
+    /**
+     * Atomically publishes metadata for one exact effective registry slot.
+     * A different versioned slot can only be replaced by a caller that names
+     * that slot as the expected predecessor. Unversioned/bootstrap metadata
+     * and an absent entry may be claimed by the current effective slot.
+     */
+    public boolean publishSlot(
+            SlotIdentity expectedIdentity,
+            SlotIdentity slotIdentity,
+            ToolDescriptor descriptor) {
+        if (slotIdentity == null || descriptor == null) {
+            return false;
+        }
+        AtomicBoolean published = new AtomicBoolean();
+        descriptors.compute(descriptor.getName(), (ignored, current) -> {
+            if (current == null && expectedIdentity != null) {
+                return null;
+            }
+            if (current != null && current.slotIdentity() != UNVERSIONED
+                    && current.slotIdentity() != expectedIdentity
+                    && current.slotIdentity() != slotIdentity) {
+                return current;
+            }
+            published.set(true);
+            return new DescriptorEntry(slotIdentity, descriptor);
+        });
+        return published.get();
+    }
+
+    /** Removes metadata only when it still belongs to the specified slot. */
+    public void removeSlot(String name, SlotIdentity slotIdentity) {
+        if (name == null || slotIdentity == null) {
+            return;
+        }
+        descriptors.computeIfPresent(name, (ignored, current) ->
+                current.slotIdentity() == slotIdentity ? null : current);
+    }
+
+    boolean belongsToSlot(String name, SlotIdentity slotIdentity) {
+        DescriptorEntry entry = name != null ? descriptors.get(name) : null;
+        return entry != null && entry.slotIdentity() == slotIdentity;
     }
 
     public ToolDescriptor get(String name) {
@@ -72,7 +151,8 @@ public final class ToolDescriptorRegistry {
             return null;
         }
         ensureInitialized();
-        return descriptors.get(name);
+        DescriptorEntry entry = descriptors.get(name);
+        return entry != null ? entry.descriptor() : null;
     }
 
     public ToolDescriptor getOrDefault(String name) {
@@ -89,7 +169,9 @@ public final class ToolDescriptorRegistry {
 
     public Collection<ToolDescriptor> getAll() {
         ensureInitialized();
-        return Collections.unmodifiableCollection(descriptors.values());
+        return Collections.unmodifiableList(descriptors.values().stream()
+                .map(DescriptorEntry::descriptor)
+                .toList());
     }
 
     private ToolCategory resolveCategory(String rawCategory) {
@@ -119,23 +201,23 @@ public final class ToolDescriptorRegistry {
         return runtimeCategory != null ? runtimeCategory : ToolCategory.OTHER;
     }
 
-    private synchronized void ensureInitialized() {
-        if (bootstrapAttempted || bootstrapping) {
+    private void ensureInitialized() {
+        if (bootstrapAttempted
+                || !bootstrapStarted.compareAndSet(false, true)) {
             return;
         }
-        bootstrapping = true;
         try {
             ToolRegistry registry = ToolRegistry.getInstance();
-            for (ITool tool : registry.getAllTools()) {
-                registerTool(tool);
-            }
+            registry.refreshToolDescriptors();
             LOG.debug("ToolDescriptorRegistry bootstrapped from ToolRegistry with %d descriptors", //$NON-NLS-1$
                     Integer.valueOf(descriptors.size()));
         } catch (RuntimeException e) {
             LOG.warn("ToolDescriptorRegistry bootstrap from ToolRegistry failed: %s", e.getMessage()); //$NON-NLS-1$
         } finally {
             bootstrapAttempted = true;
-            bootstrapping = false;
         }
+    }
+
+    private record DescriptorEntry(Object slotIdentity, ToolDescriptor descriptor) {
     }
 }
