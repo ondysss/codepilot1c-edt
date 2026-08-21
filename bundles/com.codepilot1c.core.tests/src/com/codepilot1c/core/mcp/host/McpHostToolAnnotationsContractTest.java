@@ -50,7 +50,8 @@ public class McpHostToolAnnotationsContractTest {
             Map<String, Object> destructive = listed.get(DESTRUCTIVE);
             assertEquals(Boolean.TRUE, annotations(destructive).get("destructiveHint")); //$NON-NLS-1$
             assertFalse(annotations(destructive).containsKey("readOnlyHint")); //$NON-NLS-1$
-            assertFalse(destructive.containsKey("_meta")); //$NON-NLS-1$
+            assertEquals(Boolean.TRUE, metadata(destructive).get(
+                    "codepilot1c/requiresConfirmation")); //$NON-NLS-1$
 
             Map<String, Object> confirmation = listed.get(CONFIRMATION);
             assertFalse(confirmation.containsKey("annotations")); //$NON-NLS-1$

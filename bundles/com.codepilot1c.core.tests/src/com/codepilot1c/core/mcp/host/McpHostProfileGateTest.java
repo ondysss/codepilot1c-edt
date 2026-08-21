@@ -194,6 +194,125 @@ public class McpHostProfileGateTest {
     }
 
     @Test
+    public void dynamicMutatingNoRuleIsRejectedUnderAllowWithMachineReadableReason() {
+        CapturingTool tool = new CapturingTool("mcp_adversary_update", false); //$NON-NLS-1$
+        registry.registerDynamicTool(tool, DynamicToolCapability.MUTATING);
+
+        McpMessage response = router(
+                new NamedExposurePolicy(Set.of(tool.getName())),
+                McpHostConfig.MutationPolicy.ALLOW, "build") //$NON-NLS-1$
+                .route(call(tool.getName(), Map.of("value", "changed")), session()); //$NON-NLS-1$ //$NON-NLS-2$
+
+        assertTrue(isToolError(response));
+        assertEquals(0, tool.calls);
+        JsonObject denial = structuredContent(response);
+        assertEquals("confirmation_unavailable_tool_policy", //$NON-NLS-1$
+                denial.get("reason_code").getAsString()); //$NON-NLS-1$
+        assertEquals("tool", denial.get("layer").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals("build", denial.get("profile").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void trustedDynamicReadOnlyToolStillExecutesUnderAllow() {
+        CapturingTool tool = new CapturingTool("mcp_tracker_search", false); //$NON-NLS-1$
+        registry.registerDynamicTool(tool, DynamicToolCapability.READ_ONLY);
+
+        McpMessage response = router(
+                new NamedExposurePolicy(Set.of(tool.getName())),
+                McpHostConfig.MutationPolicy.ALLOW, "build") //$NON-NLS-1$
+                .route(call(tool.getName(), Map.of("query", "open")), session()); //$NON-NLS-1$ //$NON-NLS-2$
+
+        assertFalse(isToolError(response));
+        assertEquals("ok", text(response)); //$NON-NLS-1$
+        assertEquals(1, tool.calls);
+    }
+
+    @Test
+    public void toolAndExposureConfirmationSignalsFailClosedUnderAllow() {
+        CapturingTool confirming = new CapturingTool(
+                "mcp_local_confirming", false, true, false); //$NON-NLS-1$
+        CapturingTool destructive = new CapturingTool(
+                "mcp_local_destructive", false, false, true); //$NON-NLS-1$
+        CapturingTool policyConfirmed = new CapturingTool(
+                "mcp_policy_confirming", false); //$NON-NLS-1$
+        registry.registerDynamicTool(confirming, DynamicToolCapability.READ_ONLY);
+        registry.registerDynamicTool(destructive, DynamicToolCapability.READ_ONLY);
+        registry.registerDynamicTool(policyConfirmed, DynamicToolCapability.READ_ONLY);
+
+        McpMessage confirmingResponse = router(
+                new NamedExposurePolicy(Set.of(confirming.getName())),
+                McpHostConfig.MutationPolicy.ALLOW, "build") //$NON-NLS-1$
+                .route(call(confirming.getName(), Map.of()), session());
+        McpMessage destructiveResponse = router(
+                new NamedExposurePolicy(Set.of(destructive.getName())),
+                McpHostConfig.MutationPolicy.ALLOW, "build") //$NON-NLS-1$
+                .route(call(destructive.getName(), Map.of()), session());
+        McpHostRequestRouter policyRouter = router(
+                new ConfirmingExposurePolicy(policyConfirmed.getName()),
+                McpHostConfig.MutationPolicy.ALLOW, "build"); //$NON-NLS-1$
+        Map<String, Object> policyMetadata = listedTool(policyRouter.route(
+                request("tools/list", Map.of()), session()), policyConfirmed.getName()); //$NON-NLS-1$
+        McpMessage policyResponse = policyRouter.route(
+                call(policyConfirmed.getName(), Map.of()), session());
+
+        for (McpMessage response : List.of(
+                confirmingResponse, destructiveResponse, policyResponse)) {
+            assertTrue(isToolError(response));
+            assertEquals("confirmation_unavailable_tool_policy", //$NON-NLS-1$
+                    structuredContent(response).get("reason_code").getAsString()); //$NON-NLS-1$
+        }
+        assertEquals(0, confirming.calls);
+        assertEquals(0, destructive.calls);
+        assertEquals(0, policyConfirmed.calls);
+        assertEquals(Boolean.TRUE, metadata(policyMetadata)
+                .get("codepilot1c/requiresConfirmation")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void toolListMetadataUsesEffectiveDynamicCapability() {
+        CapturingTool read = new CapturingTool("mcp_metadata_read", false); //$NON-NLS-1$
+        CapturingTool mutate = new CapturingTool("mcp_metadata_update", false); //$NON-NLS-1$
+        registry.registerDynamicTool(read, DynamicToolCapability.READ_ONLY);
+        registry.registerDynamicTool(mutate, DynamicToolCapability.MUTATING);
+        McpToolExposurePolicy exposure = new NamedExposurePolicy(
+                Set.of(read.getName(), mutate.getName()));
+
+        McpMessage response = router(
+                exposure, McpHostConfig.MutationPolicy.ALLOW, "build") //$NON-NLS-1$
+                .route(request("tools/list", Map.of()), session()); //$NON-NLS-1$
+        Map<String, Object> readMetadata = listedTool(response, read.getName());
+        Map<String, Object> mutateMetadata = listedTool(response, mutate.getName());
+
+        assertEquals(Boolean.TRUE, annotations(readMetadata).get("readOnlyHint")); //$NON-NLS-1$
+        assertFalse(readMetadata.containsKey("_meta")); //$NON-NLS-1$
+        assertEquals(Boolean.TRUE, annotations(mutateMetadata).get("destructiveHint")); //$NON-NLS-1$
+        assertEquals(Boolean.TRUE, metadata(mutateMetadata)
+                .get("codepilot1c/requiresConfirmation")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void builtInCollisionKeepsBuiltInExecutionAndMetadata() {
+        String name = "mcp_collision"; //$NON-NLS-1$
+        CapturingTool builtIn = register(new CapturingTool(name, false));
+        CapturingTool dynamic = new CapturingTool(name, false);
+        registry.registerDynamicTool(dynamic, DynamicToolCapability.MUTATING);
+        McpToolExposurePolicy exposure = new NamedExposurePolicy(Set.of(name));
+        McpHostRequestRouter router = router(
+                exposure, McpHostConfig.MutationPolicy.ALLOW, ""); //$NON-NLS-1$
+
+        Map<String, Object> listed = listedTool(router.route(
+                request("tools/list", Map.of()), session()), name); //$NON-NLS-1$
+        McpMessage response = router.route(call(name, Map.of()), session());
+
+        assertSame(builtIn, registry.getTool(name));
+        assertFalse(listed.containsKey("annotations")); //$NON-NLS-1$
+        assertFalse(listed.containsKey("_meta")); //$NON-NLS-1$
+        assertFalse(isToolError(response));
+        assertEquals(1, builtIn.calls);
+        assertEquals(0, dynamic.calls);
+    }
+
+    @Test
     public void configuredProfileNarrowsToolListWithoutWideningExposure() {
         register(new CapturingTool("profile_visible", false)); //$NON-NLS-1$
         register(new CapturingTool("profile_disallowed", false)); //$NON-NLS-1$
@@ -579,6 +698,12 @@ public class McpHostProfileGateTest {
     }
 
     @SuppressWarnings("unchecked")
+    private JsonObject structuredContent(McpMessage response) {
+        Map<String, Object> result = (Map<String, Object>) response.getResult();
+        return (JsonObject) result.get("structuredContent"); //$NON-NLS-1$
+    }
+
+    @SuppressWarnings("unchecked")
     private Set<String> listedNames(McpMessage response) {
         Map<String, Object> result = (Map<String, Object>) response.getResult();
         List<Map<String, Object>> tools = (List<Map<String, Object>>) result.get("tools"); //$NON-NLS-1$
@@ -587,6 +712,26 @@ public class McpHostProfileGateTest {
             names.add(String.valueOf(tool.get("name"))); //$NON-NLS-1$
         }
         return names;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> listedTool(McpMessage response, String name) {
+        Map<String, Object> result = (Map<String, Object>) response.getResult();
+        List<Map<String, Object>> tools = (List<Map<String, Object>>) result.get("tools"); //$NON-NLS-1$
+        return tools.stream()
+                .filter(tool -> name.equals(tool.get("name"))) //$NON-NLS-1$
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Missing listed tool: " + name)); //$NON-NLS-1$
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> annotations(Map<String, Object> tool) {
+        return (Map<String, Object>) tool.get("annotations"); //$NON-NLS-1$
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> metadata(Map<String, Object> tool) {
+        return (Map<String, Object>) tool.get("_meta"); //$NON-NLS-1$
     }
 
     private List<JsonObject> readJsonLines(Path file) throws IOException {
@@ -641,6 +786,8 @@ public class McpHostProfileGateTest {
 
         private final String name;
         private final boolean mutating;
+        private final boolean requiresConfirmation;
+        private final boolean destructive;
         private int calls;
         private Map<String, Object> parameters;
         private ToolExecutionContext context;
@@ -648,8 +795,16 @@ public class McpHostProfileGateTest {
         private CompletableFuture<ToolResult> future;
 
         private CapturingTool(String name, boolean mutating) {
+            this(name, mutating, false, false);
+        }
+
+        private CapturingTool(
+                String name, boolean mutating, boolean requiresConfirmation,
+                boolean destructive) {
             this.name = name;
             this.mutating = mutating;
+            this.requiresConfirmation = requiresConfirmation;
+            this.destructive = destructive;
         }
 
         @Override
@@ -684,6 +839,16 @@ public class McpHostProfileGateTest {
         @Override
         public boolean isMutating() {
             return mutating;
+        }
+
+        @Override
+        public boolean requiresConfirmation() {
+            return requiresConfirmation;
+        }
+
+        @Override
+        public boolean isDestructive() {
+            return destructive;
         }
     }
 
@@ -789,6 +954,30 @@ public class McpHostProfileGateTest {
         @Override
         public boolean requiresConfirmation(String toolName, Map<String, Object> args) {
             return false;
+        }
+
+        @Override
+        public boolean isDestructive(String toolName) {
+            return false;
+        }
+    }
+
+    private static final class ConfirmingExposurePolicy implements McpToolExposurePolicy {
+
+        private final String exposedTool;
+
+        private ConfirmingExposurePolicy(String exposedTool) {
+            this.exposedTool = exposedTool;
+        }
+
+        @Override
+        public boolean isExposed(String toolName) {
+            return exposedTool.equals(toolName);
+        }
+
+        @Override
+        public boolean requiresConfirmation(String toolName, Map<String, Object> args) {
+            return exposedTool.equals(toolName);
         }
 
         @Override

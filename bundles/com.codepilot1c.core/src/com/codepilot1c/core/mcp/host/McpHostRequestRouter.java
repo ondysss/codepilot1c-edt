@@ -19,6 +19,7 @@ import com.google.gson.JsonParser;
 import com.codepilot1c.core.agent.profiles.AgentCapability;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
 import com.codepilot1c.core.agent.profiles.ProfileToolAccess;
 import com.codepilot1c.core.evaluation.trace.TraceEventType;
 import com.codepilot1c.core.logging.VibeLogger;
@@ -260,6 +261,11 @@ public class McpHostRequestRouter {
             return ok(request, toolError("Tool execution denied by permission policy: " + decision)); //$NON-NLS-1$
         }
 
+        EffectiveToolPolicy effectivePolicy = effectiveToolPolicy(tool, arguments);
+        if (effectivePolicy.requiresConfirmation()) {
+            return denyConfirmationUnavailable(request, session, toolName, arguments);
+        }
+
         ToolResult toolResult;
         try {
             int timeoutSeconds = "qa_run".equals(toolName) ? 3600 : 120; //$NON-NLS-1$
@@ -293,6 +299,19 @@ public class McpHostRequestRouter {
         LOG.warn("mcp_permission_denied tool=%s profile=%s layer=%s resource=%s reason_code=%s", //$NON-NLS-1$
                 toolName, configuredProfileId, layer, resource, reasonCode);
         return ok(request, toolError(denied.getErrorMessage()));
+    }
+
+    private McpMessage denyConfirmationUnavailable(
+            McpMessage request, McpHostSession session, String toolName,
+            Map<String, Object> arguments) {
+        String reasonCode = "confirmation_unavailable_tool_policy"; //$NON-NLS-1$
+        ToolResult denied = PermissionDenialPayload.denied(
+                toolName, configuredProfileId, null, reasonCode, "tool", null); //$NON-NLS-1$
+        writeMcpToolTrace(session, toolName, arguments, PermissionDecision.DENY,
+                denied, Duration.ZERO, null);
+        LOG.warn("mcp_permission_denied tool=%s profile=%s layer=tool resource=null reason_code=%s", //$NON-NLS-1$
+                toolName, configuredProfileId, reasonCode);
+        return ok(request, toMcpToolResult(denied));
     }
 
     private PermissionDecision resolvePermissionDecision(String toolName, Map<String, Object> arguments) {
@@ -367,30 +386,69 @@ public class McpHostRequestRouter {
             item.put("name", tool.getName()); //$NON-NLS-1$
             item.put("description", effectiveTool.getDescription()); //$NON-NLS-1$
             item.put("inputSchema", parseSchema(effectiveTool.getParametersSchema())); //$NON-NLS-1$
-            addToolContractMetadata(item, tool);
+            addToolContractMetadata(item, tool, effectiveToolPolicy(tool, Map.of()));
             out.add(item);
         }
         return out;
     }
 
-    private void addToolContractMetadata(Map<String, Object> item, ITool tool) {
+    private void addToolContractMetadata(
+            Map<String, Object> item, ITool tool, EffectiveToolPolicy effectivePolicy) {
         Map<String, Object> annotations = new LinkedHashMap<>();
-        boolean destructive = tool.isDestructive();
+        boolean destructive = effectivePolicy.destructive();
         if (destructive) {
             annotations.put("destructiveHint", Boolean.TRUE); //$NON-NLS-1$
         }
         Set<String> tags = tool.getTags();
-        if (!destructive && !tool.isMutating()
-                && tags != null && tags.contains("read-only")) { //$NON-NLS-1$
+        boolean trustedReadOnly = effectivePolicy.dynamicCapability()
+                == DynamicToolCapability.READ_ONLY;
+        if (!destructive && (trustedReadOnly || (!tool.isMutating()
+                && tags != null && tags.contains("read-only")))) { //$NON-NLS-1$
             annotations.put("readOnlyHint", Boolean.TRUE); //$NON-NLS-1$
         }
         if (!annotations.isEmpty()) {
             item.put("annotations", annotations); //$NON-NLS-1$
         }
-        if (tool.requiresConfirmation()) {
+        if (effectivePolicy.requiresConfirmation()) {
             item.put("_meta", Map.of( //$NON-NLS-1$
                     "codepilot1c/requiresConfirmation", Boolean.TRUE)); //$NON-NLS-1$
         }
+    }
+
+    private EffectiveToolPolicy effectiveToolPolicy(
+            ITool tool, Map<String, Object> arguments) {
+        DynamicToolCapability dynamicCapability = ToolRegistry.getInstance()
+                .getDynamicToolCapability(tool.getName());
+        boolean destructive = dynamicCapability == DynamicToolCapability.MUTATING;
+        boolean requiresConfirmation = destructive;
+        try {
+            destructive |= tool.isDestructive();
+        } catch (RuntimeException e) {
+            destructive = true;
+            LOG.warn("MCP tool destructive classification failed closed: %s", tool.getName()); //$NON-NLS-1$
+        }
+        try {
+            destructive |= exposurePolicy.isDestructive(tool.getName());
+        } catch (RuntimeException e) {
+            destructive = true;
+            LOG.warn("MCP exposure destructive classification failed closed: %s", tool.getName()); //$NON-NLS-1$
+        }
+        requiresConfirmation |= destructive;
+        try {
+            requiresConfirmation |= tool.requiresConfirmation();
+        } catch (RuntimeException e) {
+            requiresConfirmation = true;
+            LOG.warn("MCP tool confirmation classification failed closed: %s", tool.getName()); //$NON-NLS-1$
+        }
+        try {
+            requiresConfirmation |= exposurePolicy.requiresConfirmation(
+                    tool.getName(), arguments != null ? arguments : Map.of());
+        } catch (RuntimeException e) {
+            requiresConfirmation = true;
+            LOG.warn("MCP exposure confirmation classification failed closed: %s", tool.getName()); //$NON-NLS-1$
+        }
+        return new EffectiveToolPolicy(
+                dynamicCapability, destructive, requiresConfirmation);
     }
 
     private List<McpResource> listResources(McpHostSession session) {
@@ -550,5 +608,11 @@ public class McpHostRequestRouter {
             payload.put("exception_message", error.getMessage()); //$NON-NLS-1$
         }
         session.getTraceSession().writeMcpEvent(TraceEventType.MCP_RESPONSE, null, payload);
+    }
+
+    private record EffectiveToolPolicy(
+            DynamicToolCapability dynamicCapability,
+            boolean destructive,
+            boolean requiresConfirmation) {
     }
 }
