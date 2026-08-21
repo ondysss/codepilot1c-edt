@@ -247,13 +247,16 @@ public class WorkspacePathContainmentTest {
     }
 
     @Test
-    public void realWriteToolShipExecutionMapsForcedCapabilityWithoutMutation()
+    public void realWriteToolShipExecutionMapsActualNonSdsCapabilityWithoutMutation()
             throws Exception {
-        Path workspace = Files.createTempDirectory("ship-tool-forced-workspace-"); //$NON-NLS-1$
+        Path workspace = Files.createTempDirectory("ship-tool-native-workspace-"); //$NON-NLS-1$
         Path projectPath = Files.createDirectories(workspace.resolve("project")); //$NON-NLS-1$
+        if (SecureDirectoryMutation.supportsSecureDirectoryStreams(projectPath)) {
+            return;
+        }
         Path parent = Files.createDirectories(projectPath.resolve("docs/release-notes")); //$NON-NLS-1$
         Path target = parent.resolve("v1.md"); //$NON-NLS-1$
-        Path outside = Files.createTempDirectory("ship-tool-forced-outside-"); //$NON-NLS-1$
+        Path outside = Files.createTempDirectory("ship-tool-native-outside-"); //$NON-NLS-1$
         Path sentinel = Files.writeString(outside.resolve("sentinel"), "unchanged"); //$NON-NLS-1$ //$NON-NLS-2$
         org.eclipse.core.runtime.IPath workspaceLocation =
                 org.eclipse.core.runtime.Path.fromOSString(workspace.toString());
@@ -294,7 +297,7 @@ public class WorkspacePathContainmentTest {
                 (proxy, method, args) -> "getLocation".equals(method.getName()) //$NON-NLS-1$
                         ? workspaceLocation : defaultValue(method.getReturnType()));
         WriteTool tool = new WriteTool(null, root, project,
-                CapabilityPolicy.FORCE_NON_SECURE_FOR_TESTS);
+                CapabilityPolicy.REQUIRE_SECURE);
         ToolExecutionContext context = new ToolExecutionContext(
                 "gsd-ship", AgentCapability.MUTATING, 0, //$NON-NLS-1$
                 projectPath.toString(), "ship-test"); //$NON-NLS-1$
@@ -324,6 +327,22 @@ public class WorkspacePathContainmentTest {
         assertTrue(linkedFile.isLinked());
         assertTrue(WorkspacePathContainment.isLinkedResource(linkedFile));
         assertTrue((options.get() & IResource.CHECK_ANCESTORS) != 0);
+    }
+
+    @Test
+    public void writeToolCapabilityCauseWalkTerminatesOnIdentityCycle() {
+        IOException first = new IOException("first"); //$NON-NLS-1$
+        IOException second = new IOException("second"); //$NON-NLS-1$
+        first.initCause(second);
+        second.initCause(first);
+
+        assertFalse(WriteTool.hasCapabilityCause(first));
+
+        SecureDirectoryCapabilityException capability =
+                new SecureDirectoryCapabilityException(Path.of("state"), "unsupported"); //$NON-NLS-1$ //$NON-NLS-2$
+        IOException wrapper = new IOException("wrapper", capability); //$NON-NLS-1$
+        capability.initCause(wrapper);
+        assertTrue(WriteTool.hasCapabilityCause(wrapper));
     }
 
     @Test

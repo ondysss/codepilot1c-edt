@@ -32,6 +32,7 @@ import org.junit.rules.TestName;
 
 import com.codepilot1c.core.agent.profiles.AgentCapability;
 import com.codepilot1c.core.filesystem.SecureDirectoryMutation;
+import com.codepilot1c.core.filesystem.SecureDirectoryCapabilityException;
 import com.codepilot1c.core.gsd.GsdTestSupport;
 import com.codepilot1c.core.gsd.RequiresSecureMutation;
 import com.codepilot1c.core.tools.ITool;
@@ -79,6 +80,16 @@ public class GsdToolsTest {
         return tool.execute(effective, context);
     }
 
+    private Map<String, Object> populatedTokenParams(Map<String, Object> primary) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("project_path", projectPath); //$NON-NLS-1$
+        result.put("expected_cycle_id", "portable-cycle"); //$NON-NLS-1$ //$NON-NLS-2$
+        result.put("expected_generation", 3L); //$NON-NLS-1$
+        result.put("expected_revision", 7L); //$NON-NLS-1$
+        result.putAll(primary);
+        return result;
+    }
+
     private static Map<String, String> treeSnapshot(Path root) throws IOException {
         Map<String, String> result = new TreeMap<>();
         try (java.util.stream.Stream<Path> paths = Files.walk(root)) {
@@ -98,6 +109,25 @@ public class GsdToolsTest {
             }
         }
         return result;
+    }
+
+    @Test
+    public void gsdCapabilityCauseWalkTerminatesOnIdentityCycle() {
+        IOException first = new IOException("first"); //$NON-NLS-1$
+        IOException second = new IOException("second"); //$NON-NLS-1$
+        first.initCause(second);
+        second.initCause(first);
+
+        ToolResult ordinary = GsdToolSupport.ioFailure("cycle", "", first); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals("io", ordinary.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
+
+        SecureDirectoryCapabilityException capability =
+                new SecureDirectoryCapabilityException(Path.of("state"), "unsupported"); //$NON-NLS-1$ //$NON-NLS-2$
+        IOException wrapper = new IOException("wrapper", capability); //$NON-NLS-1$
+        capability.initCause(wrapper);
+        ToolResult unsupported = GsdToolSupport.ioFailure(
+                "cycle", "", wrapper); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals("unsupported", unsupported.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     // ---- Registry registration -------------------------------------------
@@ -339,7 +369,7 @@ public class GsdToolsTest {
     }
 
     @Test
-    public void getStateReadsPopulatedPortableStateWithoutMutation()
+    public void getStateReadsPopulatedAnchoredStateWithoutMutation()
             throws IOException, ExecutionException, InterruptedException {
         Path project = Path.of(projectPath);
         GsdTestSupport.seedPortablePopulatedState(project);
@@ -356,6 +386,66 @@ public class GsdToolsTest {
         assertEquals(7, result.getStructuredInt("revision", -1)); //$NON-NLS-1$
         assertEquals(1, result.getStructuredData().getAsJsonArray("decisions").size()); //$NON-NLS-1$
         assertEquals(before, treeSnapshot(project));
+    }
+
+    @Test
+    public void allSevenActualMutatingToolsReachNativeNonSdsCapabilityBoundary()
+            throws IOException, ExecutionException, InterruptedException {
+        Path project = Path.of(projectPath);
+        if (SecureDirectoryMutation.supportsSecureDirectoryStreams(project)) {
+            // This contract targets the real non-SDS envelope. Linux secure execution is covered
+            // by every mutation lifecycle test without marking this method skipped.
+            return;
+        }
+        GsdTestSupport.seedPortablePopulatedState(project);
+        Map<String, String> projectBefore = treeSnapshot(project);
+        Path outside = tmp.newFolder("all-tools-non-sds-outside").toPath(); //$NON-NLS-1$
+        Files.writeString(outside.resolve("sentinel"), "unchanged"); //$NON-NLS-1$ //$NON-NLS-2$
+        Map<String, String> outsideBefore = treeSnapshot(outside);
+
+        Map<ITool, Map<String, Object>> invocations = new LinkedHashMap<>();
+        invocations.put(new GsdRecordDecisionTool(), populatedTokenParams(Map.of(
+                "id", "d2", "summary", "decision", "rationale", "reason", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$
+                "alternatives", List.of()))); //$NON-NLS-1$
+        invocations.put(new GsdCreatePlanTool(), populatedTokenParams(Map.of(
+                "goal", "valid plan", //$NON-NLS-1$ //$NON-NLS-2$
+                "acceptance_criteria", List.of(Map.of( //$NON-NLS-1$
+                        "id", "ac-1", "description", "passes", "required", true)), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                "tasks", List.of(Map.of( //$NON-NLS-1$
+                        "id", "t1", "title", "task", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                        "execution_kind", "READ_ONLY", "wave_id", "w1", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                        "depends_on", List.of())), //$NON-NLS-1$
+                "waves", List.of(Map.of( //$NON-NLS-1$
+                        "id", "w1", "name", "wave", "goal", "deliver", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$
+                        "task_ids", List.of("t1")))))); //$NON-NLS-1$ //$NON-NLS-2$
+        invocations.put(new GsdUpdateTaskTool(), populatedTokenParams(Map.of(
+                "task_id", "t1", "status", "IN_PROGRESS"))); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        invocations.put(new GsdRecordEvidenceTool(), populatedTokenParams(Map.of(
+                "id", "e1", "description", "tested", "provenance", "TESTED", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$
+                "task_ids", List.of()))); //$NON-NLS-1$
+        invocations.put(new GsdTransitionTool(), populatedTokenParams(Map.of(
+                "target_phase", "PLANNING"))); //$NON-NLS-1$ //$NON-NLS-2$
+        invocations.put(new GsdRecordVerificationOutcomeTool(), populatedTokenParams(Map.of(
+                "criterion_id", "ac-1", "outcome", "PASSED"))); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        invocations.put(new GsdRecordShipmentTool(), populatedTokenParams(Map.of(
+                "shipment_id", "release-1", //$NON-NLS-1$ //$NON-NLS-2$
+                "delivery_reference", "refs/tags/v1", //$NON-NLS-1$ //$NON-NLS-2$
+                "status", "IN_PROGRESS"))); //$NON-NLS-1$ //$NON-NLS-2$
+
+        assertEquals(7, invocations.size());
+        for (Map.Entry<ITool, Map<String, Object>> invocation : invocations.entrySet()) {
+            ITool tool = invocation.getKey();
+            ToolResult result = execute(tool, invocation.getValue()).get();
+            assertFalse(tool.getName(), result.isSuccess());
+            assertTrue(tool.getName(), result.hasStructuredData());
+            assertEquals(tool.getName(), "error", result.getStructuredString("status")); //$NON-NLS-1$ //$NON-NLS-2$
+            assertEquals(tool.getName(), tool.getName(),
+                    result.getStructuredString("operation")); //$NON-NLS-1$
+            assertEquals(tool.getName(), "unsupported", //$NON-NLS-1$
+                    result.getStructuredString("error_code")); //$NON-NLS-1$
+            assertEquals(tool.getName(), projectBefore, treeSnapshot(project));
+            assertEquals(tool.getName(), outsideBefore, treeSnapshot(outside));
+        }
     }
 
     @Test

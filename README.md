@@ -448,14 +448,27 @@ mvn "-Dedt.home=C:\Program Files\1C\EDT\Eclipse" -DskipTests package
 EDT `2025.1.5+34`; локальную и Docker-проверку следует выполнять против одной
 и той же инсталляции этой версии.
 
-На Java 17 GSD-инспекция (`gsd_get_state` и status UI) остаётся доступной на
-провайдерах без `SecureDirectoryStream`, включая стандартный macOS provider:
-`state.json` читается без lock/recovery/projection и без каких-либо записей,
-с запретом symlink traversal и проверкой физической идентичности пути до и после
-чтения. Все GSD-мутации и GSD Ship publication на таких провайдерах отключены
-fail-closed и возвращают `error_code=unsupported`. Предварительное создание
-`.codepilot1c/gsd` или каталога release artifact помогает только провайдеру с
-реальным `SecureDirectoryStream`; на macOS Java 17 это не обход ограничения.
+На Java 17 GSD-инспекция (`gsd_get_state` и status UI) остаётся доступной на macOS
+и Linux, включая стандартный macOS provider без `SecureDirectoryStream`. Узкий
+optional import использует JNA core 5.13.0 из pinned EDT: корень и каждый компонент
+открываются через libc `open`/`openat` с `O_NOFOLLOW|O_DIRECTORY|O_CLOEXEC`, байты
+читаются только из открытого fd с пределом 16 MiB, а `fstat` до и после чтения
+проверяет `dev`/`ino`/тип/размер/`nlink`. Перед чтением у final regular file должен
+быть ровно один hard link; после чтения fd допускает только `nlink` 0 или 1, но unlink
+или atomic replacement current path всё равно завершается fail-closed при полной
+повторной проверке identity. На macOS Java-атрибуты `/dev/fd` и `isSameFile` не
+используются; Linux дополнительно сверяет file key и `isSameFile` через
+`/proc/self/fd`. Pathname-only fallback и любые записи отсутствуют.
+
+Native anchored read намеренно применяется и на Linux-провайдерах с
+`SecureDirectoryStream`: Java API не раскрывает fd, необходимый для `fstat` и
+проверки hard-link count. Поддерживаются macOS и Linux x86_64/AArch64; Windows,
+другие ОС/архитектуры, отсутствие JNA/libc или stable file identity возвращают
+`unsupported` без pathname fallback. Все GSD-мутации и GSD Ship publication на
+провайдерах без реального `SecureDirectoryStream` также отключены fail-closed и
+возвращают `error_code=unsupported`. Предварительное создание `.codepilot1c/gsd`
+или каталога release artifact помогает только провайдеру с реальным
+`SecureDirectoryStream`; на macOS Java 17 это не обход ограничения.
 
 ## Публикация update site
 

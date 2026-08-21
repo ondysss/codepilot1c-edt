@@ -7,6 +7,7 @@
  */
 package com.codepilot1c.core.tools.file;
 import com.codepilot1c.core.tools.ToolResult;
+import com.codepilot1c.core.util.ThrowableCauseTraversal;
 import com.codepilot1c.core.tools.ToolParameters;
 import com.codepilot1c.core.tools.ToolMeta;
 import com.codepilot1c.core.tools.AbstractTool;
@@ -325,15 +326,9 @@ public class WriteTool extends AbstractTool {
         return ToolResult.success(result.toString(), ToolResult.ToolResultType.TEXT);
     }
 
-    private static boolean hasCapabilityCause(Throwable failure) {
-        Throwable current = failure;
-        while (current != null) {
-            if (current instanceof SecureDirectoryCapabilityException) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
+    static boolean hasCapabilityCause(Throwable failure) {
+        return ThrowableCauseTraversal.contains(
+                failure, SecureDirectoryCapabilityException.class);
     }
 
     /**
