@@ -13,8 +13,13 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 import org.junit.Before;
@@ -22,9 +27,14 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import com.codepilot1c.core.agent.profiles.AgentCapability;
+import com.codepilot1c.core.tools.ITool;
+import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolMeta;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 /**
  * Tests for GSD tool schemas, registration, names, metadata, and execution.
@@ -41,6 +51,24 @@ public class GsdToolsTest {
         projectPath = tmp.newFolder("project").getAbsolutePath(); //$NON-NLS-1$
     }
 
+    /** Executes through the same request-local identity and full token used by AgentRunner. */
+    private CompletableFuture<ToolResult> execute(ITool tool, Map<String, Object> parameters) {
+        Map<String, Object> effective = new LinkedHashMap<>(parameters);
+        if (tool.isMutating()) {
+            effective.putIfAbsent("expected_cycle_id", "cycle-1"); //$NON-NLS-1$ //$NON-NLS-2$
+            effective.putIfAbsent("expected_generation", 0L); //$NON-NLS-1$
+        }
+        if (tool instanceof GsdCreatePlanTool) {
+            effective.putIfAbsent("acceptance_criteria", List.of(Map.of( //$NON-NLS-1$
+                    "id", "ac-1", //$NON-NLS-1$ //$NON-NLS-2$
+                    "description", "release checks pass", //$NON-NLS-1$ //$NON-NLS-2$
+                    "required", true))); //$NON-NLS-1$
+        }
+        ToolExecutionContext context = new ToolExecutionContext(
+                "gsd-test", AgentCapability.MUTATING, 0, projectPath, "session-test"); //$NON-NLS-1$ //$NON-NLS-2$
+        return tool.execute(effective, context);
+    }
+
     // ---- Registry registration -------------------------------------------
 
     @Test
@@ -52,6 +80,8 @@ public class GsdToolsTest {
         assertNotNull(registry.getTool("gsd_update_task")); //$NON-NLS-1$
         assertNotNull(registry.getTool("gsd_record_evidence")); //$NON-NLS-1$
         assertNotNull(registry.getTool("gsd_transition")); //$NON-NLS-1$
+        assertNotNull(registry.getTool("gsd_record_verification_outcome")); //$NON-NLS-1$
+        assertNotNull(registry.getTool("gsd_record_shipment")); //$NON-NLS-1$
     }
 
     @Test
@@ -107,6 +137,16 @@ public class GsdToolsTest {
         assertTrue(tool.isMutating());
     }
 
+    @Test
+    public void verificationAndShipmentToolsAreConfirmedMutations() {
+        for (ITool tool : List.of(
+                new GsdRecordVerificationOutcomeTool(), new GsdRecordShipmentTool())) {
+            assertTrue(tool.getName(), tool.isMutating());
+            assertTrue(tool.getName(), tool.requiresConfirmation());
+            assertTrue(tool.getName(), tool.isDestructive());
+        }
+    }
+
     // ---- Schema alignment ------------------------------------------------
 
     @Test
@@ -118,6 +158,8 @@ public class GsdToolsTest {
             new GsdUpdateTaskTool().getParameterSchema(),
             new GsdRecordEvidenceTool().getParameterSchema(),
             new GsdTransitionTool().getParameterSchema(),
+            new GsdRecordVerificationOutcomeTool().getParameterSchema(),
+            new GsdRecordShipmentTool().getParameterSchema(),
         };
         for (String schema : schemas) {
             assertTrue("schema must contain project_path: " + schema, schema.contains("\"project_path\"")); //$NON-NLS-1$
@@ -133,10 +175,39 @@ public class GsdToolsTest {
             new GsdUpdateTaskTool().getParameterSchema(),
             new GsdRecordEvidenceTool().getParameterSchema(),
             new GsdTransitionTool().getParameterSchema(),
+            new GsdRecordVerificationOutcomeTool().getParameterSchema(),
+            new GsdRecordShipmentTool().getParameterSchema(),
         };
         for (String schema : schemas) {
             assertTrue("mutation schema must require expected_revision: " + schema, schema.contains("\"expected_revision\"")); //$NON-NLS-1$
+            assertTrue("mutation schema must require expected_cycle_id: " + schema, schema.contains("\"expected_cycle_id\"")); //$NON-NLS-1$
+            assertTrue("mutation schema must require expected_generation: " + schema, schema.contains("\"expected_generation\"")); //$NON-NLS-1$
         }
+    }
+
+    @Test
+    public void allSchemasAreStrictProviderNeutralObjects() {
+        ITool[] tools = {
+            new GsdGetStateTool(), new GsdRecordDecisionTool(), new GsdCreatePlanTool(),
+            new GsdUpdateTaskTool(), new GsdRecordEvidenceTool(), new GsdTransitionTool(),
+            new GsdRecordVerificationOutcomeTool(), new GsdRecordShipmentTool()
+        };
+        for (ITool tool : tools) {
+            JsonObject schema = JsonParser.parseString(tool.getParameterSchema()).getAsJsonObject();
+            assertEquals(tool.getName(), "object", schema.get("type").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
+            assertTrue(tool.getName(), schema.has("properties")); //$NON-NLS-1$
+            assertTrue(tool.getName(), schema.has("required")); //$NON-NLS-1$
+            assertFalse(tool.getName(), schema.get("additionalProperties").getAsBoolean()); //$NON-NLS-1$
+        }
+    }
+
+    @Test
+    public void runtimeRejectsUnknownTopLevelProperty()
+            throws ExecutionException, InterruptedException {
+        ToolResult result = execute(new GsdGetStateTool(), Map.of(
+                "project_path", projectPath, "unexpected", true)).get(); //$NON-NLS-1$ //$NON-NLS-2$
+        assertFalse(result.isSuccess());
+        assertEquals("invalid", result.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     @Test
@@ -170,6 +241,8 @@ public class GsdToolsTest {
         assertFalse(new GsdUpdateTaskTool().getDescription().isBlank());
         assertFalse(new GsdRecordEvidenceTool().getDescription().isBlank());
         assertFalse(new GsdTransitionTool().getDescription().isBlank());
+        assertFalse(new GsdRecordVerificationOutcomeTool().getDescription().isBlank());
+        assertFalse(new GsdRecordShipmentTool().getDescription().isBlank());
     }
 
     // ---- gsd_get_state execution -----------------------------------------
@@ -177,7 +250,7 @@ public class GsdToolsTest {
     @Test
     public void getStateReturnsFreshState() throws ExecutionException, InterruptedException {
         GsdGetStateTool tool = new GsdGetStateTool();
-        ToolResult result = tool.execute(Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
+        ToolResult result = execute(tool, Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
         assertTrue(result.isSuccess());
         assertTrue(result.getContent().contains("DISCOVERY")); //$NON-NLS-1$
         assertTrue(result.getContent().contains("Revision: 0")); //$NON-NLS-1$
@@ -189,21 +262,51 @@ public class GsdToolsTest {
         assertNotNull(result.getStructuredData().get("decisions")); //$NON-NLS-1$
         assertNotNull(result.getStructuredData().get("waves")); //$NON-NLS-1$
         assertNotNull(result.getStructuredData().get("evidence")); //$NON-NLS-1$
+        assertNotNull(result.getStructuredData().get("plan")); //$NON-NLS-1$
+        assertNotNull(result.getStructuredData().get("acceptance_criteria")); //$NON-NLS-1$
+        assertNotNull(result.getStructuredData().get("verification")); //$NON-NLS-1$
+        assertNotNull(result.getStructuredData().get("shipment")); //$NON-NLS-1$
+        assertNotNull(result.getStructuredData().get("warnings")); //$NON-NLS-1$
+        assertNotNull(result.getStructuredData().get("concurrency_token")); //$NON-NLS-1$
+        assertNotNull(result.getStructuredData().get("transition_history")); //$NON-NLS-1$
+        assertEquals("cycle-1", result.getStructuredString("cycle_id")); //$NON-NLS-1$ //$NON-NLS-2$
         assertEquals(0, result.getStructuredData().getAsJsonArray("tasks").size()); //$NON-NLS-1$
     }
 
     @Test
-    public void getStateWithInvalidPathReturnsIoError() throws ExecutionException, InterruptedException {
+    public void getStateWithDifferentProjectFailsClosed() throws ExecutionException, InterruptedException {
         GsdGetStateTool tool = new GsdGetStateTool();
-        ToolResult result = tool.execute(Map.of("project_path", "/nonexistent/path/xyz")).get(); //$NON-NLS-1$
+        ToolResult result = execute(tool, Map.of("project_path", "/nonexistent/path/xyz")).get(); //$NON-NLS-1$
         assertFalse(result.isSuccess());
-        assertTrue(result.getErrorMessage().contains("I/O error")); //$NON-NLS-1$
+        assertEquals("identity", result.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void mutationCannotCrossCapturedProjectBoundary()
+            throws IOException, ExecutionException, InterruptedException {
+        Path otherProject = tmp.newFolder("other-project").toPath(); //$NON-NLS-1$
+        ToolResult result = execute(new GsdRecordDecisionTool(), Map.of(
+                "project_path", otherProject.toString(), //$NON-NLS-1$
+                "expected_revision", 0L, //$NON-NLS-1$
+                "id", "d1", "summary", "scope", "rationale", "reason")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        assertFalse(result.isSuccess());
+        assertEquals("identity", result.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertFalse(Files.exists(otherProject.resolve(".gsd"))); //$NON-NLS-1$
+    }
+
+    @Test
+    public void getStateWithoutExecutionIdentityFailsClosed()
+            throws ExecutionException, InterruptedException {
+        ToolResult result = new GsdGetStateTool()
+                .execute(Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
+        assertFalse(result.isSuccess());
+        assertEquals("identity", result.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     @Test
     public void getStateMissingProjectPathFails() throws ExecutionException, InterruptedException {
         GsdGetStateTool tool = new GsdGetStateTool();
-        ToolResult result = tool.execute(Map.of()).get();
+        ToolResult result = execute(tool, Map.of()).get();
         assertFalse(result.isSuccess());
         assertTrue(result.getErrorMessage().contains("project_path")); //$NON-NLS-1$
     }
@@ -316,9 +419,9 @@ public class GsdToolsTest {
     public void getStateReturnsFullStructuredPayloadAfterPopulate() throws ExecutionException, InterruptedException {
         // Transition DISCOVERY -> PLANNING, then create a plan.
         GsdTransitionTool tt = new GsdTransitionTool();
-        tt.execute(Map.of("project_path", projectPath, "expected_revision", 0, "target_phase", "PLANNING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        execute(tt, Map.of("project_path", projectPath, "expected_revision", 0, "target_phase", "PLANNING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
         GsdCreatePlanTool planTool = new GsdCreatePlanTool();
-        planTool.execute(Map.of(
+        execute(planTool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 1, //$NON-NLS-1$
                 "goal", "Ship it", //$NON-NLS-1$
@@ -326,7 +429,7 @@ public class GsdToolsTest {
                 "waves", List.of(Map.of("id", "w1", "name", "wave 1", "task_ids", List.of("t1"))))).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 
         GsdGetStateTool tool = new GsdGetStateTool();
-        ToolResult result = tool.execute(Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
+        ToolResult result = execute(tool, Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
         assertTrue(result.isSuccess());
         assertTrue(result.hasStructuredData());
         assertEquals("Ship it", result.getStructuredString("goal")); //$NON-NLS-1$ //$NON-NLS-2$
@@ -342,7 +445,7 @@ public class GsdToolsTest {
     @Test
     public void recordDecisionSuccess() throws ExecutionException, InterruptedException {
         GsdRecordDecisionTool tool = new GsdRecordDecisionTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 0, //$NON-NLS-1$
                 "id", "d1", //$NON-NLS-1$
@@ -358,13 +461,13 @@ public class GsdToolsTest {
     @Test
     public void recordDecisionStaleRevision() throws ExecutionException, InterruptedException {
         GsdRecordDecisionTool tool = new GsdRecordDecisionTool();
-        tool.execute(Map.of(
+        execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 0, //$NON-NLS-1$
                 "id", "d1", //$NON-NLS-1$
                 "summary", "use JSON", //$NON-NLS-1$
                 "rationale", "why")).get(); //$NON-NLS-1$
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 0, //$NON-NLS-1$
                 "id", "d2", //$NON-NLS-1$
@@ -377,7 +480,7 @@ public class GsdToolsTest {
     @Test
     public void recordDecisionMissingParamFails() throws ExecutionException, InterruptedException {
         GsdRecordDecisionTool tool = new GsdRecordDecisionTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 0, //$NON-NLS-1$
                 "id", "d1")).get(); //$NON-NLS-1$
@@ -390,7 +493,7 @@ public class GsdToolsTest {
         // recordDecision requires DISCOVERY; transition to PLANNING first.
         transitionToPlanning();
         GsdRecordDecisionTool tool = new GsdRecordDecisionTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 1, //$NON-NLS-1$
                 "id", "d1", //$NON-NLS-1$
@@ -412,7 +515,7 @@ public class GsdToolsTest {
      */
     private long transitionToPlanning() throws ExecutionException, InterruptedException {
         GsdTransitionTool tt = new GsdTransitionTool();
-        tt.execute(Map.of("project_path", projectPath, "expected_revision", 0, "target_phase", "PLANNING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        execute(tt, Map.of("project_path", projectPath, "expected_revision", 0, "target_phase", "PLANNING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
         return 1;
     }
 
@@ -420,7 +523,7 @@ public class GsdToolsTest {
     public void createPlanSuccess() throws ExecutionException, InterruptedException {
         long rev = transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", rev, //$NON-NLS-1$
                 "goal", "Ship it", //$NON-NLS-1$
@@ -436,7 +539,7 @@ public class GsdToolsTest {
     public void createPlanEmptyTasksFails() throws ExecutionException, InterruptedException {
         transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 1, //$NON-NLS-1$
                 "goal", "Ship it", //$NON-NLS-1$
@@ -450,7 +553,7 @@ public class GsdToolsTest {
         transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
         // tasks[0] missing id
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 1, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
@@ -464,7 +567,7 @@ public class GsdToolsTest {
     public void createPlanNonArrayTasksFails() throws ExecutionException, InterruptedException {
         transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 1, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
@@ -478,7 +581,7 @@ public class GsdToolsTest {
     public void createPlanMissingExecutionKindFails() throws ExecutionException, InterruptedException {
         transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 1, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
@@ -492,7 +595,7 @@ public class GsdToolsTest {
     public void createPlanUnknownExecutionKindFails() throws ExecutionException, InterruptedException {
         transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 1, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
@@ -506,7 +609,7 @@ public class GsdToolsTest {
     public void createPlanMalformedWaveFails() throws ExecutionException, InterruptedException {
         transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 1, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
@@ -520,7 +623,7 @@ public class GsdToolsTest {
     public void createPlanTaskDependsOnNonStringElementFails() throws ExecutionException, InterruptedException {
         transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 1, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
@@ -534,7 +637,7 @@ public class GsdToolsTest {
     public void createPlanDoesNotChangePhase() throws ExecutionException, InterruptedException {
         long rev = transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", rev, //$NON-NLS-1$
                 "goal", "Ship it", //$NON-NLS-1$
@@ -549,7 +652,7 @@ public class GsdToolsTest {
     public void createPlanNestedExtraTaskKeyReturnsInvalid() throws ExecutionException, InterruptedException {
         long rev = transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", rev, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
@@ -563,7 +666,7 @@ public class GsdToolsTest {
     public void createPlanNestedExtraWaveKeyReturnsInvalid() throws ExecutionException, InterruptedException {
         long rev = transitionToPlanning();
         GsdCreatePlanTool tool = new GsdCreatePlanTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", rev, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
@@ -577,7 +680,7 @@ public class GsdToolsTest {
     public void createPlanFromInvalidPhaseFails() throws ExecutionException, InterruptedException {
         // In DISCOVERY (rev 0), createPlan must be rejected.
         GsdCreatePlanTool cpt = new GsdCreatePlanTool();
-        ToolResult result = cpt.execute(Map.of(
+        ToolResult result = execute(cpt, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 0, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
@@ -592,7 +695,7 @@ public class GsdToolsTest {
         // DISCOVERY -> PLANNING -> create plan -> EXECUTING -> try createPlan (must fail).
         transitionToPlanning();
         GsdCreatePlanTool cpt = new GsdCreatePlanTool();
-        cpt.execute(Map.of(
+        execute(cpt, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 1, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
@@ -600,9 +703,9 @@ public class GsdToolsTest {
                 "waves", List.of(Map.of("id", "w1", "name", "w", "task_ids", List.of("t1"))))).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         // Transition PLANNING -> EXECUTING (rev 2).
         GsdTransitionTool tt = new GsdTransitionTool();
-        tt.execute(Map.of("project_path", projectPath, "expected_revision", 2, "target_phase", "EXECUTING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        execute(tt, Map.of("project_path", projectPath, "expected_revision", 2, "target_phase", "EXECUTING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
         // createPlan in EXECUTING must fail.
-        ToolResult result = cpt.execute(Map.of(
+        ToolResult result = execute(cpt, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 3, //$NON-NLS-1$
                 "goal", "g2", //$NON-NLS-1$
@@ -618,17 +721,17 @@ public class GsdToolsTest {
         // DISCOVERY -> PLANNING -> create plan -> EXECUTING
         transitionToPlanning();
         GsdCreatePlanTool planTool = new GsdCreatePlanTool();
-        planTool.execute(Map.of(
+        execute(planTool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 1, //$NON-NLS-1$
                 "goal", "Ship it", //$NON-NLS-1$
                 "tasks", List.of(Map.of("id", "t1", "title", "task", "execution_kind", "READ_ONLY", "wave_id", "w1")), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                 "waves", List.of(Map.of("id", "w1", "name", "w", "task_ids", List.of("t1"))))).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         GsdTransitionTool tt = new GsdTransitionTool();
-        tt.execute(Map.of("project_path", projectPath, "expected_revision", 2, "target_phase", "EXECUTING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        execute(tt, Map.of("project_path", projectPath, "expected_revision", 2, "target_phase", "EXECUTING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
 
         GsdUpdateTaskTool tool = new GsdUpdateTaskTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 3, //$NON-NLS-1$
                 "task_id", "t1", //$NON-NLS-1$
@@ -640,7 +743,7 @@ public class GsdToolsTest {
     @Test
     public void updateTaskNotFoundFails() throws ExecutionException, InterruptedException {
         GsdUpdateTaskTool tool = new GsdUpdateTaskTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 0, //$NON-NLS-1$
                 "task_id", "nonexistent", //$NON-NLS-1$
@@ -652,7 +755,7 @@ public class GsdToolsTest {
     @Test
     public void updateTaskUnknownStatusFails() throws ExecutionException, InterruptedException {
         GsdUpdateTaskTool tool = new GsdUpdateTaskTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 0, //$NON-NLS-1$
                 "task_id", "t1", //$NON-NLS-1$
@@ -664,7 +767,7 @@ public class GsdToolsTest {
     @Test
     public void updateTaskMissingStatusFails() throws ExecutionException, InterruptedException {
         GsdUpdateTaskTool tool = new GsdUpdateTaskTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 0, //$NON-NLS-1$
                 "task_id", "t1")).get(); //$NON-NLS-1$
@@ -691,14 +794,14 @@ public class GsdToolsTest {
     private long setUpExecutingPhase() throws ExecutionException, InterruptedException {
         transitionToPlanning();
         GsdCreatePlanTool planTool = new GsdCreatePlanTool();
-        planTool.execute(Map.of(
+        execute(planTool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 1, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
                 "tasks", List.of(Map.of("id", "t1", "title", "task", "execution_kind", "READ_ONLY", "wave_id", "w1")), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                 "waves", List.of(Map.of("id", "w1", "name", "w", "task_ids", List.of("t1"))))).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         GsdTransitionTool tt = new GsdTransitionTool();
-        tt.execute(Map.of("project_path", projectPath, "expected_revision", 2, "target_phase", "EXECUTING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        execute(tt, Map.of("project_path", projectPath, "expected_revision", 2, "target_phase", "EXECUTING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
         return 3;
     }
 
@@ -706,7 +809,7 @@ public class GsdToolsTest {
     public void recordEvidenceSuccess() throws ExecutionException, InterruptedException {
         long rev = setUpExecutingPhase();
         GsdRecordEvidenceTool tool = new GsdRecordEvidenceTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", rev, //$NON-NLS-1$
                 "id", "e1", //$NON-NLS-1$
@@ -721,7 +824,7 @@ public class GsdToolsTest {
     public void recordEvidenceInvalidProvenanceFails() throws ExecutionException, InterruptedException {
         long rev = setUpExecutingPhase();
         GsdRecordEvidenceTool tool = new GsdRecordEvidenceTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", rev, //$NON-NLS-1$
                 "id", "e1", //$NON-NLS-1$
@@ -736,7 +839,7 @@ public class GsdToolsTest {
     @Test
     public void transitionSuccess() throws ExecutionException, InterruptedException {
         GsdTransitionTool tool = new GsdTransitionTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 0, //$NON-NLS-1$
                 "target_phase", "PLANNING")).get(); //$NON-NLS-1$
@@ -747,7 +850,7 @@ public class GsdToolsTest {
     @Test
     public void transitionIllegalFails() throws ExecutionException, InterruptedException {
         GsdTransitionTool tool = new GsdTransitionTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 0, //$NON-NLS-1$
                 "target_phase", "EXECUTING")).get(); //$NON-NLS-1$
@@ -758,7 +861,7 @@ public class GsdToolsTest {
     @Test
     public void transitionUnknownPhaseFails() throws ExecutionException, InterruptedException {
         GsdTransitionTool tool = new GsdTransitionTool();
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 0, //$NON-NLS-1$
                 "target_phase", "INVALID_PHASE")).get(); //$NON-NLS-1$
@@ -770,40 +873,40 @@ public class GsdToolsTest {
         // Set up: PLANNING -> create plan -> EXECUTING -> VERIFYING -> rollback
         transitionToPlanning();
         GsdCreatePlanTool planTool = new GsdCreatePlanTool();
-        planTool.execute(Map.of(
+        execute(planTool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 1, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
                 "tasks", List.of(Map.of("id", "t1", "title", "task", "execution_kind", "READ_ONLY", "wave_id", "w1")), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                 "waves", List.of(Map.of("id", "w1", "name", "w", "task_ids", List.of("t1"))))).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         GsdTransitionTool tool = new GsdTransitionTool();
-        tool.execute(Map.of("project_path", projectPath, "expected_revision", 2, "target_phase", "EXECUTING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
-        ToolResult verifying = tool.execute(Map.of("project_path", projectPath, "expected_revision", 3, "target_phase", "VERIFYING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        execute(tool, Map.of("project_path", projectPath, "expected_revision", 2, "target_phase", "EXECUTING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        ToolResult verifying = execute(tool, Map.of("project_path", projectPath, "expected_revision", 3, "target_phase", "VERIFYING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
         // VERIFYING entry guard requires all tasks DONE; mark t1 DONE with evidence first.
         GsdRecordEvidenceTool evTool = new GsdRecordEvidenceTool();
         // Back up — VERIFYING can't be entered without all DONE. Reload and do it properly.
         // Actually the VERIFYING transition above failed because t1 is not DONE.
         // Let's go back: we need to reload the current revision.
         GsdGetStateTool gs = new GsdGetStateTool();
-        ToolResult gsResult = gs.execute(Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
+        ToolResult gsResult = execute(gs, Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
         long rev = gsResult.getStructuredInt("revision", 0); //$NON-NLS-1$
         // Record evidence, then mark t1 DONE.
-        evTool.execute(Map.of("project_path", projectPath, "expected_revision", rev, //$NON-NLS-1$
+        execute(evTool, Map.of("project_path", projectPath, "expected_revision", rev, //$NON-NLS-1$
                 "id", "e1", "description", "ok", "provenance", "TESTED", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                 "task_ids", List.of("t1"))).get(); //$NON-NLS-1$ //$NON-NLS-2$
-        gsResult = gs.execute(Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
+        gsResult = execute(gs, Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
         rev = gsResult.getStructuredInt("revision", 0); //$NON-NLS-1$
         GsdUpdateTaskTool ut = new GsdUpdateTaskTool();
-        ut.execute(Map.of("project_path", projectPath, "expected_revision", rev, //$NON-NLS-1$
+        execute(ut, Map.of("project_path", projectPath, "expected_revision", rev, //$NON-NLS-1$
                 "task_id", "t1", "status", "DONE")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-        gsResult = gs.execute(Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
+        gsResult = execute(gs, Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
         rev = gsResult.getStructuredInt("revision", 0); //$NON-NLS-1$
         // Now VERIFYING should succeed.
-        ToolResult vr = tool.execute(Map.of("project_path", projectPath, "expected_revision", rev, "target_phase", "VERIFYING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        ToolResult vr = execute(tool, Map.of("project_path", projectPath, "expected_revision", rev, "target_phase", "VERIFYING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
         assertTrue("VERIFYING transition must succeed", vr.isSuccess()); //$NON-NLS-1$
         long verifyingRev = vr.getStructuredInt("revision", 0); //$NON-NLS-1$
 
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", verifyingRev, //$NON-NLS-1$
                 "target_phase", "EXECUTING", //$NON-NLS-1$
@@ -817,39 +920,159 @@ public class GsdToolsTest {
         // Set up same as above to reach VERIFYING.
         transitionToPlanning();
         GsdCreatePlanTool planTool = new GsdCreatePlanTool();
-        planTool.execute(Map.of(
+        execute(planTool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", 1, //$NON-NLS-1$
                 "goal", "g", //$NON-NLS-1$
                 "tasks", List.of(Map.of("id", "t1", "title", "task", "execution_kind", "READ_ONLY", "wave_id", "w1")), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                 "waves", List.of(Map.of("id", "w1", "name", "w", "task_ids", List.of("t1"))))).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
         GsdTransitionTool tool = new GsdTransitionTool();
-        tool.execute(Map.of("project_path", projectPath, "expected_revision", 2, "target_phase", "EXECUTING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        execute(tool, Map.of("project_path", projectPath, "expected_revision", 2, "target_phase", "EXECUTING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
         // Record evidence + mark DONE so VERIFYING entry guard passes.
         GsdGetStateTool gs = new GsdGetStateTool();
-        ToolResult gsResult = gs.execute(Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
+        ToolResult gsResult = execute(gs, Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
         long rev = gsResult.getStructuredInt("revision", 0); //$NON-NLS-1$
         GsdRecordEvidenceTool evTool = new GsdRecordEvidenceTool();
-        evTool.execute(Map.of("project_path", projectPath, "expected_revision", rev, //$NON-NLS-1$
+        execute(evTool, Map.of("project_path", projectPath, "expected_revision", rev, //$NON-NLS-1$
                 "id", "e1", "description", "ok", "provenance", "TESTED", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                 "task_ids", List.of("t1"))).get(); //$NON-NLS-1$ //$NON-NLS-2$
-        gsResult = gs.execute(Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
+        gsResult = execute(gs, Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
         rev = gsResult.getStructuredInt("revision", 0); //$NON-NLS-1$
         GsdUpdateTaskTool ut = new GsdUpdateTaskTool();
-        ut.execute(Map.of("project_path", projectPath, "expected_revision", rev, //$NON-NLS-1$
+        execute(ut, Map.of("project_path", projectPath, "expected_revision", rev, //$NON-NLS-1$
                 "task_id", "t1", "status", "DONE")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-        gsResult = gs.execute(Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
+        gsResult = execute(gs, Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
         rev = gsResult.getStructuredInt("revision", 0); //$NON-NLS-1$
-        ToolResult vr = tool.execute(Map.of("project_path", projectPath, "expected_revision", rev, "target_phase", "VERIFYING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        ToolResult vr = execute(tool, Map.of("project_path", projectPath, "expected_revision", rev, "target_phase", "VERIFYING")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
         assertTrue("VERIFYING must succeed", vr.isSuccess()); //$NON-NLS-1$
         long verifyingRev = vr.getStructuredInt("revision", 0); //$NON-NLS-1$
 
         // Rollback without reason must fail with "invalid" (not "stale").
-        ToolResult result = tool.execute(Map.of(
+        ToolResult result = execute(tool, Map.of(
                 "project_path", projectPath, //$NON-NLS-1$
                 "expected_revision", verifyingRev, //$NON-NLS-1$
                 "target_phase", "EXECUTING")).get(); //$NON-NLS-1$
         assertFalse(result.isSuccess());
         assertEquals("invalid", result.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void staleCycleTokenFailsBeforeMutation()
+            throws ExecutionException, InterruptedException {
+        GsdRecordDecisionTool tool = new GsdRecordDecisionTool();
+        ToolResult result = execute(tool, Map.of(
+                "project_path", projectPath, //$NON-NLS-1$
+                "expected_cycle_id", "wrong-cycle", //$NON-NLS-1$ //$NON-NLS-2$
+                "expected_generation", 0L, //$NON-NLS-1$
+                "expected_revision", 0L, //$NON-NLS-1$
+                "id", "d1", "summary", "scope", "rationale", "reason")).get(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        assertFalse(result.isSuccess());
+        assertEquals("stale", result.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void failedVerificationCannotEnterShipping()
+            throws ExecutionException, InterruptedException {
+        long verifyingRevision = reachVerifying();
+        GsdRecordVerificationOutcomeTool outcomeTool =
+                new GsdRecordVerificationOutcomeTool();
+        ToolResult failed = execute(outcomeTool, Map.of(
+                "project_path", projectPath, //$NON-NLS-1$
+                "expected_revision", verifyingRevision, //$NON-NLS-1$
+                "criterion_id", "ac-1", //$NON-NLS-1$ //$NON-NLS-2$
+                "outcome", "FAILED")).get(); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(failed.isSuccess());
+
+        ToolResult shipping = execute(new GsdTransitionTool(), Map.of(
+                "project_path", projectPath, //$NON-NLS-1$
+                "expected_revision", verifyingRevision + 1L, //$NON-NLS-1$
+                "target_phase", "SHIPPING")).get(); //$NON-NLS-1$ //$NON-NLS-2$
+        assertFalse(shipping.isSuccess());
+        assertEquals("invalid", shipping.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void shipmentExactRetryIsIdempotentAndReplacementConflicts()
+            throws ExecutionException, InterruptedException {
+        long verifyingRevision = reachVerifying();
+        ToolResult passed = execute(new GsdRecordVerificationOutcomeTool(), Map.of(
+                "project_path", projectPath, //$NON-NLS-1$
+                "expected_revision", verifyingRevision, //$NON-NLS-1$
+                "criterion_id", "ac-1", //$NON-NLS-1$ //$NON-NLS-2$
+                "outcome", "PASSED")).get(); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(passed.isSuccess());
+        ToolResult shipping = execute(new GsdTransitionTool(), Map.of(
+                "project_path", projectPath, //$NON-NLS-1$
+                "expected_revision", verifyingRevision + 1L, //$NON-NLS-1$
+                "target_phase", "SHIPPING")).get(); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(shipping.isSuccess());
+        long shippingRevision = shipping.getStructuredInt("revision", 0); //$NON-NLS-1$
+        String completedAt = Instant.parse("2026-08-21T10:15:30Z").toString(); //$NON-NLS-1$
+        Map<String, Object> shipment = Map.of(
+                "project_path", projectPath, //$NON-NLS-1$
+                "expected_revision", shippingRevision, //$NON-NLS-1$
+                "shipment_id", "release-1", //$NON-NLS-1$ //$NON-NLS-2$
+                "delivery_reference", "registry/release-1", //$NON-NLS-1$ //$NON-NLS-2$
+                "status", "COMPLETED", //$NON-NLS-1$ //$NON-NLS-2$
+                "completed_at", completedAt); //$NON-NLS-1$
+        GsdRecordShipmentTool shipmentTool = new GsdRecordShipmentTool();
+        ToolResult first = execute(shipmentTool, shipment).get();
+        assertTrue(first.isSuccess());
+        assertFalse(first.getStructuredData().get("idempotent").getAsBoolean()); //$NON-NLS-1$
+
+        ToolResult staleDuplicate = execute(shipmentTool, shipment).get();
+        assertFalse(staleDuplicate.isSuccess());
+        assertEquals("stale", staleDuplicate.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
+
+        Map<String, Object> currentShipment = new LinkedHashMap<>(shipment);
+        currentShipment.put("expected_revision", shippingRevision + 1L); //$NON-NLS-1$
+        ToolResult duplicate = execute(shipmentTool, currentShipment).get();
+        assertTrue(duplicate.isSuccess());
+        assertTrue(duplicate.getStructuredData().get("idempotent").getAsBoolean()); //$NON-NLS-1$
+        assertEquals(first.getStructuredInt("revision", 0), //$NON-NLS-1$
+                duplicate.getStructuredInt("revision", 0)); //$NON-NLS-1$
+
+        ToolResult conflict = execute(shipmentTool, Map.of(
+                "project_path", projectPath, //$NON-NLS-1$
+                "expected_revision", shippingRevision + 1L, //$NON-NLS-1$
+                "shipment_id", "release-2", //$NON-NLS-1$ //$NON-NLS-2$
+                "delivery_reference", "registry/release-2", //$NON-NLS-1$ //$NON-NLS-2$
+                "status", "FAILED")).get(); //$NON-NLS-1$ //$NON-NLS-2$
+        assertFalse(conflict.isSuccess());
+        assertEquals("conflict", conflict.getStructuredString("error_code")); //$NON-NLS-1$ //$NON-NLS-2$
+
+        ToolResult state = execute(new GsdGetStateTool(),
+                Map.of("project_path", projectPath)).get(); //$NON-NLS-1$
+        assertEquals("SHIPPING", state.getStructuredString("phase")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(state.getStructuredData().getAsJsonObject("verification") //$NON-NLS-1$
+                .get("all_required_passed").getAsBoolean()); //$NON-NLS-1$
+        assertEquals("COMPLETED", state.getStructuredData().getAsJsonObject("shipment") //$NON-NLS-1$ //$NON-NLS-2$
+                .get("status").getAsString()); //$NON-NLS-1$
+        assertEquals(completedAt, state.getStructuredData().getAsJsonObject("shipment") //$NON-NLS-1$
+                .get("completed_at").getAsString()); //$NON-NLS-1$
+    }
+
+    private long reachVerifying() throws ExecutionException, InterruptedException {
+        long executingRevision = setUpExecutingPhase();
+        ToolResult evidence = execute(new GsdRecordEvidenceTool(), Map.of(
+                "project_path", projectPath, //$NON-NLS-1$
+                "expected_revision", executingRevision, //$NON-NLS-1$
+                "id", "e-verify", //$NON-NLS-1$ //$NON-NLS-2$
+                "description", "release checks observed", //$NON-NLS-1$ //$NON-NLS-2$
+                "provenance", "TESTED", //$NON-NLS-1$ //$NON-NLS-2$
+                "task_ids", List.of("t1"))).get(); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(evidence.isSuccess());
+        ToolResult done = execute(new GsdUpdateTaskTool(), Map.of(
+                "project_path", projectPath, //$NON-NLS-1$
+                "expected_revision", executingRevision + 1L, //$NON-NLS-1$
+                "task_id", "t1", //$NON-NLS-1$ //$NON-NLS-2$
+                "status", "DONE")).get(); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(done.isSuccess());
+        ToolResult verifying = execute(new GsdTransitionTool(), Map.of(
+                "project_path", projectPath, //$NON-NLS-1$
+                "expected_revision", executingRevision + 2L, //$NON-NLS-1$
+                "target_phase", "VERIFYING")).get(); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(verifying.isSuccess());
+        return verifying.getStructuredInt("revision", 0); //$NON-NLS-1$
     }
 }

@@ -340,6 +340,10 @@ public class AgentProfileRegistryTest {
         assertTrue("plan needs gsd_create_plan", plan.getAllowedTools().contains("gsd_create_plan")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("execute needs gsd_update_task", execute.getAllowedTools().contains("gsd_update_task")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("verify needs gsd_record_evidence", verify.getAllowedTools().contains("gsd_record_evidence")); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue("verify needs criterion outcome recording", //$NON-NLS-1$
+                verify.getAllowedTools().contains("gsd_record_verification_outcome")); //$NON-NLS-1$
+        assertTrue("ship needs shipment recording", //$NON-NLS-1$
+                ship.getAllowedTools().contains("gsd_record_shipment")); //$NON-NLS-1$
 
         for (AgentProfile profile : Arrays.asList(discuss, plan, execute, verify, ship)) {
             Set<String> tools = profile.getAllowedTools();
@@ -362,11 +366,13 @@ public class AgentProfileRegistryTest {
                         "create_metadata", "create_form", "add_metadata_child", "update_metadata", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                         "mutate_form_model", "delete_metadata", "remember_fact"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                 new GsdVerifyProfile(), Set.of(
-                        "gsd_get_state", "gsd_record_evidence", "gsd_transition", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                        "gsd_get_state", "gsd_record_evidence", //$NON-NLS-1$ //$NON-NLS-2$
+                        "gsd_record_verification_outcome", "gsd_transition", //$NON-NLS-1$ //$NON-NLS-2$
                         "inspect_role_rights", "inspect_template", "java_compile_probe", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                         "qa_validate_feature", "validate_query"), //$NON-NLS-1$ //$NON-NLS-2$
                 new GsdShipProfile(), Set.of(
-                        "gsd_get_state", "gsd_transition", "git_mutate", "write_file", "remember_fact")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+                        "gsd_get_state", "gsd_record_shipment", "gsd_transition", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                        "git_mutate", "write_file", "remember_fact")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 
         for (Map.Entry<AgentProfile, Set<String>> entry : matrix.entrySet()) {
             assertTrue(entry.getKey().getId(),

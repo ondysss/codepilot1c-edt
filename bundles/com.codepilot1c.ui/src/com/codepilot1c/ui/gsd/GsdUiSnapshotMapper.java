@@ -36,6 +36,7 @@ public final class GsdUiSnapshotMapper {
      *   <li>{@code PLANNING} → {@code gsd-plan}</li>
      *   <li>{@code EXECUTING} → {@code gsd-execute}</li>
      *   <li>{@code VERIFYING} → {@code gsd-verify}</li>
+     *   <li>{@code SHIPPING} → {@code gsd-ship}</li>
      *   <li>{@code CLOSED} → {@code gsd-ship}</li>
      * </ul>
      */
@@ -44,9 +45,8 @@ public final class GsdUiSnapshotMapper {
             GsdPhase.PLANNING, "gsd-plan", //$NON-NLS-1$
             GsdPhase.EXECUTING, "gsd-execute", //$NON-NLS-1$
             GsdPhase.VERIFYING, "gsd-verify", //$NON-NLS-1$
+            GsdPhase.SHIPPING, "gsd-ship", //$NON-NLS-1$
             GsdPhase.CLOSED, "gsd-ship"); //$NON-NLS-1$
-    // Integration follow-up: map the distinct SHIPPING phase only after the
-    // core-v2 GsdPhase contract lands. Do not infer it from CLOSED in this slice.
 
     private GsdUiSnapshotMapper() {
     }

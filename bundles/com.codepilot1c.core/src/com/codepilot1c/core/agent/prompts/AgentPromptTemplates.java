@@ -540,13 +540,15 @@ public final class AgentPromptTemplates {
         sb.append("inspect_template/inspect_role_rights или compile-only java_compile_probe по типу результата.\n"); //$NON-NLS-1$
         sb.append("6. java_compile_probe не исполняет код и может вернуть probe_disabled; не подменяй этим реальную диагностику проекта.\n"); //$NON-NLS-1$
         sb.append("7. Зафиксируй доказательства через gsd_record_evidence: что проверено, каким инструментом, вывод.\n"); //$NON-NLS-1$
-        sb.append("8. Переход к Ship возможен только через gsd_transition по guard state-machine.\n\n"); //$NON-NLS-1$
+        sb.append("8. Для каждого acceptance criterion зафиксируй PASSED/FAILED через gsd_record_verification_outcome.\n"); //$NON-NLS-1$
+        sb.append("9. Переход к SHIPPING возможен только через gsd_transition после PASSED всех обязательных критериев.\n\n"); //$NON-NLS-1$
         appendGsdToolGuidance(sb, allowedTools);
         sb.append("## Формат результата\n"); //$NON-NLS-1$
         sb.append("1. Общий вердикт: passed / needs_fix / blocked с обоснованием.\n"); //$NON-NLS-1$
         sb.append("2. gsd_record_evidence для каждого проверенного критерия.\n"); //$NON-NLS-1$
-        sb.append("3. Список найденных отклонений и рекомендации по исправлению.\n"); //$NON-NLS-1$
-        sb.append("4. Если нужны исправления — переход к Execute только через gsd_transition.\n"); //$NON-NLS-1$
+        sb.append("3. gsd_record_verification_outcome для каждого acceptance criterion.\n"); //$NON-NLS-1$
+        sb.append("4. Список найденных отклонений и рекомендации по исправлению.\n"); //$NON-NLS-1$
+        sb.append("5. Если нужны исправления — переход к Execute только через gsd_transition.\n"); //$NON-NLS-1$
         return PromptQualityAssurance.verify(
                 "gsd-verify", //$NON-NLS-1$
                 sb.toString(),
@@ -564,20 +566,21 @@ public final class AgentPromptTemplates {
         sb.append("Подготовить изменения к доставке: зафиксировать версию, создать необходимые release-артефакты, "); //$NON-NLS-1$
         sb.append("выполнить минимальные git-операции.\n\n"); //$NON-NLS-1$
         sb.append("## Операционный контракт\n"); //$NON-NLS-1$
-        sb.append("1. Проверь через gsd_get_state, что все задачи DONE и фаза VERIFYING завершена.\n"); //$NON-NLS-1$
+        sb.append("1. Проверь через gsd_get_state, что текущая фаза SHIPPING и все обязательные criteria PASSED.\n"); //$NON-NLS-1$
         sb.append("2. Переход из CLOSED в любую другую фазу запрещён state-machine. Если нужны изменения,\n"); //$NON-NLS-1$
         sb.append("   создай новую GSD-сессию.\n"); //$NON-NLS-1$
-        sb.append("3. Переход в CLOSED через gsd_transition только при all DONE + non-INFERRED evidence (GsdGuard).\n"); //$NON-NLS-1$
+        sb.append("3. Запиши результат доставки через gsd_record_shipment; exact retry с актуальным token идемпотентен, другой shipment конфликтует.\n"); //$NON-NLS-1$
         sb.append("4. write_file разрешён только для CHANGELOG.md, RELEASE_NOTES.md, release-notes.md и файлов "); //$NON-NLS-1$
         sb.append("docs/release-notes/* или release-notes/* с расширением md/txt/json; не изменяй код, manifests, product/EDT metadata и формы EDT.\n"); //$NON-NLS-1$
         sb.append("5. Используй git_inspect перед git_mutate; в Ship разрешены только операции add, commit и push.\n"); //$NON-NLS-1$
-        sb.append("6. Заверши фазу через gsd_transition (VERIFYING->CLOSED) только по guard state-machine.\n\n"); //$NON-NLS-1$
+        sb.append("6. Заверши фазу через gsd_transition (SHIPPING->CLOSED) только после COMPLETED shipment.\n\n"); //$NON-NLS-1$
         appendGsdToolGuidance(sb, allowedTools);
         sb.append("## Формат результата\n"); //$NON-NLS-1$
         sb.append("1. Список артефактов доставки и выполненных git-операций.\n"); //$NON-NLS-1$
         sb.append("2. Краткое release-ното с изменениями и проверками.\n"); //$NON-NLS-1$
-        sb.append("3. gsd_transition с финальным статусом.\n"); //$NON-NLS-1$
-        sb.append("4. Остаточные риски или рекомендации для rollout.\n"); //$NON-NLS-1$
+        sb.append("3. gsd_record_shipment с delivery reference и результатом.\n"); //$NON-NLS-1$
+        sb.append("4. gsd_transition с финальным статусом.\n"); //$NON-NLS-1$
+        sb.append("5. Остаточные риски или рекомендации для rollout.\n"); //$NON-NLS-1$
         return PromptQualityAssurance.verify(
                 "gsd-ship", //$NON-NLS-1$
                 sb.toString(),

@@ -39,10 +39,12 @@ public final class GsdProfileCapabilities {
                     "create_metadata", "create_form", "add_metadata_child", "update_metadata", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                     "mutate_form_model", "delete_metadata", "remember_fact"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "gsd-verify" -> add(result, //$NON-NLS-1$
-                    "gsd_get_state", "gsd_record_evidence", "gsd_transition", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    "gsd_get_state", "gsd_record_evidence", //$NON-NLS-1$ //$NON-NLS-2$
+                    "gsd_record_verification_outcome", "gsd_transition", //$NON-NLS-1$ //$NON-NLS-2$
                     "inspect_role_rights", "inspect_template", "java_compile_probe", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                     "qa_validate_feature", "validate_query"); //$NON-NLS-1$ //$NON-NLS-2$
-            case "gsd-ship" -> add(result, "gsd_get_state", "gsd_transition", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "gsd-ship" -> add(result, "gsd_get_state", "gsd_record_shipment", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    "gsd_transition", //$NON-NLS-1$
                     "git_mutate", "write_file", "remember_fact"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             default -> throw new IllegalArgumentException("Unknown GSD phase: " + phaseId); //$NON-NLS-1$
         }

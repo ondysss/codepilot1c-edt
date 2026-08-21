@@ -30,6 +30,17 @@ public class GsdToolMutationRefreshPolicyTest {
     }
 
     @Test
+    public void shippingMutationsRefreshPhaseState() {
+        for (String name : List.of(
+                "gsd_record_verification_outcome", "gsd_record_shipment")) { //$NON-NLS-1$ //$NON-NLS-2$
+            ToolCall call = call("c1", name); //$NON-NLS-1$
+            assertTrue(name, GsdToolMutationRefreshPolicy.shouldRefresh(
+                    List.of(call), Map.of("c1", ToolResult.success("ok")), //$NON-NLS-1$ //$NON-NLS-2$
+                    Set.of("c1"))); //$NON-NLS-1$
+        }
+    }
+
+    @Test
     public void failedOrDeniedMutationDoesNotRefresh() {
         ToolCall call = call("c1", "gsd_transition"); //$NON-NLS-1$ //$NON-NLS-2$
         assertFalse(GsdToolMutationRefreshPolicy.shouldRefresh(

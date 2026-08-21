@@ -27,6 +27,7 @@ public final class GsdVerifyProfile extends GsdPhaseProfile {
     private static final List<PermissionRule> DEFAULT_PERMISSIONS = extendPermissions(
             PermissionRule.allow("gsd_get_state").forAllResources(), //$NON-NLS-1$
             PermissionRule.allow("gsd_record_evidence").forAllResources(), //$NON-NLS-1$
+            PermissionRule.allow("gsd_record_verification_outcome").forAllResources(), //$NON-NLS-1$
             PermissionRule.allow("gsd_transition").forAllResources(), //$NON-NLS-1$
             PermissionRule.allow("inspect_role_rights").forAllResources(), //$NON-NLS-1$
             PermissionRule.allow("inspect_template").forAllResources(), //$NON-NLS-1$

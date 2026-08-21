@@ -123,7 +123,7 @@ public class ToolRegistry {
             Function<ToolRegistry, List<ITool>> override = initializationOverride;
             List<ITool> defaults = override != null
                     ? override.apply(this)
-                    : createDefaultTools();
+                    : registerDefaultTools();
             claims = new ArrayList<>(defaults.size());
             for (ITool tool : defaults) {
                 claims.add(installBuiltInStructurally(tool));
@@ -173,7 +173,7 @@ public class ToolRegistry {
         return this;
     }
 
-    private List<ITool> createDefaultTools() {
+    private List<ITool> registerDefaultTools() {
         List<ITool> defaults = new ArrayList<>();
         // OSS default tools (commodity)
         defaults.add(new ReadFileTool());
@@ -284,6 +284,8 @@ public class ToolRegistry {
         defaults.add(new GsdCreatePlanTool());
         defaults.add(new GsdUpdateTaskTool());
         defaults.add(new GsdRecordEvidenceTool());
+        defaults.add(new GsdRecordVerificationOutcomeTool());
+        defaults.add(new GsdRecordShipmentTool());
         defaults.add(new GsdTransitionTool());
         return defaults;
     }

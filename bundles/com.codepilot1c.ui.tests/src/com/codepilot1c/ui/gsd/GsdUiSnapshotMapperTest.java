@@ -55,6 +55,11 @@ public class GsdUiSnapshotMapperTest {
     }
 
     @Test
+    public void suggestProfileForPhase_shipping() {
+        assertEquals("gsd-ship", GsdUiSnapshotMapper.suggestProfileForPhase(GsdPhase.SHIPPING));
+    }
+
+    @Test
     public void suggestProfileForPhase_closed() {
         assertEquals("gsd-ship", GsdUiSnapshotMapper.suggestProfileForPhase(GsdPhase.CLOSED));
     }

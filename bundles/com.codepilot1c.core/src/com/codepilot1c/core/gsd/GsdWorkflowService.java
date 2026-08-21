@@ -134,12 +134,12 @@ public final class GsdWorkflowService {
                 ? secureField(reason, "reason", ContentKind.DECISION) : reason; //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(projectRoot);
         GsdState current = store.load();
-        validateTransition(current.phase(), targetPhase, safeReason);
         if (expectedToken != null) {
             checkToken(current, expectedToken);
         } else {
             checkRevision(current, expectedRevision.longValue());
         }
+        validateTransition(current.phase(), targetPhase, safeReason);
 
         // Entry guard for EXECUTING: goal+tasks+waves required.
         if (targetPhase == GsdPhase.EXECUTING) {
@@ -148,6 +148,9 @@ public final class GsdWorkflowService {
         // Entry guard for VERIFYING: all tasks must be DONE.
         if (targetPhase == GsdPhase.VERIFYING) {
             validateVerifyingEntry(current);
+        }
+        if (targetPhase == GsdPhase.SHIPPING) {
+            validateShippingEntry(current);
         }
 
         GsdState next = current.withPhase(targetPhase);
@@ -251,6 +254,29 @@ public final class GsdWorkflowService {
         if (!allDone) {
             throw new IllegalArgumentException(
                     "cannot enter VERIFYING: all tasks must be DONE"); //$NON-NLS-1$
+        }
+    }
+
+    /** Entry guard: SHIPPING requires an explicit, successful verification outcome. */
+    private static void validateShippingEntry(GsdState state) {
+        if (state.acceptanceCriteria().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "cannot enter SHIPPING: acceptance criteria are required"); //$NON-NLS-1$
+        }
+        boolean hasRequired = false;
+        for (GsdAcceptanceCriterion criterion : state.acceptanceCriteria()) {
+            if (criterion.required()) {
+                hasRequired = true;
+                if (!criterion.passed()) {
+                    throw new IllegalArgumentException(
+                            "cannot enter SHIPPING: required acceptance criterion " //$NON-NLS-1$
+                                    + criterion.id() + " is " + criterion.status()); //$NON-NLS-1$
+                }
+            }
+        }
+        if (!hasRequired) {
+            throw new IllegalArgumentException(
+                    "cannot enter SHIPPING: at least one required acceptance criterion is required"); //$NON-NLS-1$
         }
     }
 
@@ -825,8 +851,7 @@ public final class GsdWorkflowService {
     private static GsdCommitOutcome updateAcceptanceCriterionWithOutcome(
             GsdStateStore store, GsdState current, String criterionId,
             GsdAcceptanceStatus status) throws IOException {
-        requirePhase("updateAcceptanceCriterion", current.phase(), //$NON-NLS-1$
-                GsdPhase.VERIFYING, GsdPhase.SHIPPING);
+        requirePhase("updateAcceptanceCriterion", current.phase(), GsdPhase.VERIFYING); //$NON-NLS-1$
         Objects.requireNonNull(status, "status"); //$NON-NLS-1$
         String safeId = secureField(criterionId, "criterionId", ContentKind.DECISION); //$NON-NLS-1$
         List<GsdAcceptanceCriterion> criteria = new ArrayList<>(current.acceptanceCriteria());
@@ -858,6 +883,10 @@ public final class GsdWorkflowService {
         GsdStateStore store = new GsdStateStore(projectRoot);
         GsdState current = store.load();
         checkRevision(current, expectedRevision);
+        requirePhase("recordShipment", current.phase(), GsdPhase.SHIPPING); //$NON-NLS-1$
+        if (sameShipment(current.shipment(), shipment)) {
+            return new GsdCommitOutcome(current, false, List.of());
+        }
         return recordShipmentWithOutcome(store, current, shipment);
     }
 
@@ -874,6 +903,10 @@ public final class GsdWorkflowService {
         GsdStateStore store = new GsdStateStore(projectRoot);
         GsdState current = store.load();
         checkToken(current, expectedToken);
+        requirePhase("recordShipment", current.phase(), GsdPhase.SHIPPING); //$NON-NLS-1$
+        if (sameShipment(current.shipment(), shipment)) {
+            return new GsdCommitOutcome(current, false, List.of());
+        }
         return recordShipmentWithOutcome(store, current, shipment);
     }
 
@@ -890,7 +923,26 @@ public final class GsdWorkflowService {
                 secureField(shipment.deliveryReference(), "shipment.deliveryReference", //$NON-NLS-1$
                         ContentKind.EVIDENCE),
                 shipment.status(), shipment.completedAt());
+        if (!current.shipment().emptyRecord()
+                && !mayAdvanceShipment(current.shipment(), safeShipment)) {
+            throw new GsdShipmentConflictException(
+                    "shipment already recorded for cycle " + current.cycleId()); //$NON-NLS-1$
+        }
         return store.commit(current.withShipment(safeShipment));
+    }
+
+    private static boolean sameShipment(GsdShipment current, GsdShipment requested) {
+        return requested != null && current != null && !current.emptyRecord()
+                && current.equals(requested);
+    }
+
+    /** Allows the one-way lifecycle of the same shipment, never replacement. */
+    private static boolean mayAdvanceShipment(GsdShipment current, GsdShipment requested) {
+        return current.status() == GsdShipmentStatus.IN_PROGRESS
+                && (requested.status() == GsdShipmentStatus.COMPLETED
+                        || requested.status() == GsdShipmentStatus.FAILED)
+                && current.id().equals(requested.id())
+                && current.deliveryReference().equals(requested.deliveryReference());
     }
 
     /** Convenience API for recording a completed shipment at the current time. */
@@ -1025,4 +1077,8 @@ public final class GsdWorkflowService {
     public static final String ERR_INVALID = "invalid"; //$NON-NLS-1$
     /** Error code: content-security rejection (injection, cap exceeded, blocked). */
     public static final String ERR_SECURITY = "security"; //$NON-NLS-1$
+    /** Error code: execution identity is missing or does not match the request. */
+    public static final String ERR_IDENTITY = "identity"; //$NON-NLS-1$
+    /** Error code: a distinct immutable record already exists. */
+    public static final String ERR_CONFLICT = "conflict"; //$NON-NLS-1$
 }

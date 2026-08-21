@@ -18,7 +18,7 @@ import java.util.Objects;
  * this outcome.</p>
  *
  * @param state     committed state
- * @param committed always {@code true} for a returned outcome
+ * @param committed whether a new authoritative state revision was written; false for an idempotent no-op
  * @param warnings  non-authoritative projection warnings
  */
 public record GsdCommitOutcome(GsdState state, boolean committed, List<String> warnings) {

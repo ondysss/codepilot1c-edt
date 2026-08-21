@@ -415,7 +415,7 @@ public class ChatViewPermissionGateTest {
                 StandardCharsets.UTF_8);
         int start = source.indexOf("private CompletableFuture<String> processToolCalls("); //$NON-NLS-1$
         int end = source.indexOf(
-                "private synchronized ChatToolGate activeToolGate()", start); //$NON-NLS-1$
+                "private boolean shouldSkipToolConfirmations()", start); //$NON-NLS-1$
         assertTrue("processToolCalls region must exist", start >= 0 && end > start); //$NON-NLS-1$
         String region = source.substring(start, end);
 

@@ -435,13 +435,25 @@ public final class GsdGuard {
         if (shipment.status() != GsdShipmentStatus.COMPLETED && shipment.completedAt() != null) {
             violations.add("non-completed shipment must not have completedAt"); //$NON-NLS-1$
         }
-        if (state.phase() == GsdPhase.CLOSED) {
+        boolean legacyClosed = state.phase() == GsdPhase.CLOSED
+                && shipment.status() == GsdShipmentStatus.LEGACY_MIGRATED;
+        if ((state.phase() == GsdPhase.SHIPPING || state.phase() == GsdPhase.CLOSED)
+                && !legacyClosed) {
+            boolean hasRequired = false;
             for (GsdAcceptanceCriterion criterion : state.acceptanceCriteria()) {
-                if (criterion.required() && !criterion.passed()) {
-                    violations.add("required acceptance criterion " + criterion.id() //$NON-NLS-1$
-                            + " has not passed"); //$NON-NLS-1$
+                if (criterion.required()) {
+                    hasRequired = true;
+                    if (!criterion.passed()) {
+                        violations.add("required acceptance criterion " + criterion.id() //$NON-NLS-1$
+                                + " has not passed"); //$NON-NLS-1$
+                    }
                 }
             }
+            if (!hasRequired) {
+                violations.add("SHIPPING/CLOSED requires at least one required acceptance criterion"); //$NON-NLS-1$
+            }
+        }
+        if (state.phase() == GsdPhase.CLOSED) {
             if (!shipment.satisfiesClosure()) {
                 violations.add("phase is CLOSED but shipment is not completed"); //$NON-NLS-1$
             }

@@ -1,6 +1,8 @@
 package com.codepilot1c.core.agent.profiles;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import java.util.List;
 import java.util.Map;
@@ -20,6 +22,22 @@ import com.codepilot1c.core.permissions.ProfilePermissionGate.GateDecision;
  * explicitly scoped release artifacts.</p>
  */
 public class GsdProfilePermissionTest {
+
+    @Test
+    public void verificationAndShipmentMutationsArePhaseScoped() {
+        assertTrue(new GsdVerifyProfile().getAllowedTools()
+                .contains("gsd_record_verification_outcome")); //$NON-NLS-1$
+        assertFalse(new GsdVerifyProfile().getAllowedTools()
+                .contains("gsd_record_shipment")); //$NON-NLS-1$
+        assertTrue(new GsdShipProfile().getAllowedTools()
+                .contains("gsd_record_shipment")); //$NON-NLS-1$
+        assertFalse(new GsdShipProfile().getAllowedTools()
+                .contains("gsd_record_verification_outcome")); //$NON-NLS-1$
+        assertFalse(new GsdDiscussProfile().getAllowedTools()
+                .contains("gsd_record_shipment")); //$NON-NLS-1$
+        assertFalse(new GsdPlanProfile().getAllowedTools()
+                .contains("gsd_record_shipment")); //$NON-NLS-1$
+    }
 
     // ---- GsdShipProfile: explicit release-artifact paths only ----------
 

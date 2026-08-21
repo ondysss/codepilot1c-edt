@@ -27,6 +27,7 @@ public final class GsdShipProfile extends GsdPhaseProfile {
 
     private static final List<PermissionRule> DEFAULT_PERMISSIONS = extendPermissions(
             PermissionRule.allow("gsd_get_state").forAllResources(), //$NON-NLS-1$
+            PermissionRule.allow("gsd_record_shipment").forAllResources(), //$NON-NLS-1$
             PermissionRule.allow("gsd_transition").forAllResources(), //$NON-NLS-1$
             PermissionRule.allow("remember_fact").forAllResources(), //$NON-NLS-1$
             PermissionRule.ask("git_mutate") //$NON-NLS-1$

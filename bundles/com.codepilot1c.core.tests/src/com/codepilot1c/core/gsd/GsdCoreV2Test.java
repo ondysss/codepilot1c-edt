@@ -259,6 +259,47 @@ public class GsdCoreV2Test {
     }
 
     @Test
+    public void shipmentLifecycleIsIdempotentAndConflictSafe() throws IOException {
+        Path root = tmp.newFolder("shipment-idempotency").toPath(); //$NON-NLS-1$
+        GsdState shipping = workflowToShipping(root);
+        GsdShipment inProgress = new GsdShipment(
+                "shipment-1", "release/42", GsdShipmentStatus.IN_PROGRESS, null); //$NON-NLS-1$ //$NON-NLS-2$
+        GsdCommitOutcome first = GsdWorkflowService.recordShipmentWithOutcome(
+                root.toString(), shipping.token(), inProgress);
+        assertTrue(first.committed());
+
+        try {
+            GsdWorkflowService.recordShipmentWithOutcome(
+                    root.toString(), shipping.token(), inProgress);
+            fail("an exact retry must not bypass a stale token fence"); //$NON-NLS-1$
+        } catch (GsdStaleTokenException expected) {
+            assertEquals(shipping.token(), expected.getExpectedToken());
+            assertEquals(first.state().token(), expected.getActualToken());
+        }
+
+        GsdCommitOutcome duplicate = GsdWorkflowService.recordShipmentWithOutcome(
+                root.toString(), first.state().token(), inProgress);
+        assertFalse(duplicate.committed());
+        assertEquals(first.state().token(), duplicate.state().token());
+
+        GsdShipment completed = GsdShipment.completed(
+                "shipment-1", "release/42", Instant.EPOCH); //$NON-NLS-1$ //$NON-NLS-2$
+        GsdCommitOutcome terminal = GsdWorkflowService.recordShipmentWithOutcome(
+                root.toString(), first.state().token(), completed);
+        assertTrue(terminal.committed());
+        assertTrue(terminal.state().shipment().completed());
+
+        try {
+            GsdWorkflowService.recordShipmentWithOutcome(root.toString(), terminal.state().token(),
+                    new GsdShipment("shipment-2", "release/43", //$NON-NLS-1$ //$NON-NLS-2$
+                            GsdShipmentStatus.FAILED, null));
+            fail("terminal shipment replacement must be rejected"); //$NON-NLS-1$
+        } catch (GsdShipmentConflictException expected) {
+            assertTrue(expected.getMessage().contains("already recorded")); //$NON-NLS-1$
+        }
+    }
+
+    @Test
     public void newCycleRejectsAnyCycleIdPresentInRealHistory() throws IOException {
         Path root = tmp.newFolder("cycle-reuse").toPath(); //$NON-NLS-1$
         GsdStateStore store = new GsdStateStore(root);
@@ -386,7 +427,7 @@ public class GsdCoreV2Test {
                 new GsdShipment("shipment-progress", "release/pending", //$NON-NLS-1$ //$NON-NLS-2$
                         GsdShipmentStatus.IN_PROGRESS, null)));
         state = warned(GsdWorkflowService.completeShipmentWithOutcome(root.toString(), state.token(),
-                "shipment-complete", "release/complete")); //$NON-NLS-1$ //$NON-NLS-2$
+                "shipment-progress", "release/pending")); //$NON-NLS-1$ //$NON-NLS-2$
         state = warned(GsdWorkflowService.transitionPhaseWithOutcome(
                 root.toString(), state.token(), GsdPhase.CLOSED, null));
         state = warned(GsdWorkflowService.startNewCycleWithOutcome(root.toString(), state.token(),

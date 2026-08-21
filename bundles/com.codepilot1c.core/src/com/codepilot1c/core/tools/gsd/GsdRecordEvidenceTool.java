@@ -18,6 +18,7 @@ import com.codepilot1c.core.gsd.GsdState;
 import com.codepilot1c.core.gsd.GsdWorkflowService;
 import com.codepilot1c.core.tools.AbstractTool;
 import com.codepilot1c.core.tools.ToolMeta;
+import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolParameters;
 import com.codepilot1c.core.tools.ToolParameters.ToolParameterException;
 import com.codepilot1c.core.tools.ToolResult;
@@ -45,6 +46,8 @@ public class GsdRecordEvidenceTool extends AbstractTool {
                   "type": "string",
                   "description": "Absolute path to the project root."
                 },
+                "expected_cycle_id": {"type": "string"},
+                "expected_generation": {"type": "integer"},
                 "expected_revision": {
                   "type": "integer",
                   "description": "Expected revision for optimistic concurrency."
@@ -68,7 +71,7 @@ public class GsdRecordEvidenceTool extends AbstractTool {
                   "description": "Tasks this evidence supports."
                 }
               },
-              "required": ["project_path", "expected_revision", "id", "description", "provenance"],
+              "required": ["project_path", "expected_cycle_id", "expected_generation", "expected_revision", "id", "description", "provenance"],
               "additionalProperties": false
             }
             """; //$NON-NLS-1$
@@ -85,9 +88,17 @@ public class GsdRecordEvidenceTool extends AbstractTool {
 
     @Override
     protected CompletableFuture<ToolResult> doExecute(ToolParameters params) {
+        return doExecute(params, ToolExecutionContext.unscoped());
+    }
+
+    @Override
+    protected CompletableFuture<ToolResult> doExecute(
+            ToolParameters params, ToolExecutionContext context) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return executeInternal(params);
+                return executeInternal(params, context);
+            } catch (GsdToolSupport.GsdToolIdentityException e) {
+                return GsdToolSupport.identityFailure("gsd_record_evidence", e); //$NON-NLS-1$
             } catch (ToolParameterException e) {
                 return ToolResult.failure("Parameter error: " + e.getMessage(), //$NON-NLS-1$
                         GsdWorkflowService.buildResult(false, "gsd_record_evidence", 0, null, GsdWorkflowService.ERR_INVALID)); //$NON-NLS-1$
@@ -97,6 +108,9 @@ public class GsdRecordEvidenceTool extends AbstractTool {
             } catch (GsdContentRejectedException e) {
                 return ToolResult.failure("Content rejected: " + e.getMessage(), //$NON-NLS-1$
                         GsdWorkflowService.buildResult(false, "gsd_record_evidence", 0, null, GsdWorkflowService.ERR_SECURITY)); //$NON-NLS-1$
+            } catch (com.codepilot1c.core.gsd.GsdStaleTokenException e) {
+                return ToolResult.failure("Stale concurrency token", //$NON-NLS-1$
+                        GsdWorkflowService.buildResult(false, "gsd_record_evidence", 0, null, GsdWorkflowService.ERR_STALE)); //$NON-NLS-1$
             } catch (com.codepilot1c.core.gsd.GsdStaleRevisionException e) {
                 return ToolResult.failure("Stale revision: expected " + e.getExpectedRevision() //$NON-NLS-1$
                                 + ", current " + e.getActualRevision(), //$NON-NLS-1$
@@ -117,9 +131,13 @@ public class GsdRecordEvidenceTool extends AbstractTool {
         });
     }
 
-    private ToolResult executeInternal(ToolParameters params) throws IOException {
-        String projectPath = params.requireString("project_path"); //$NON-NLS-1$
-        long expectedRevision = params.requireLong("expected_revision"); //$NON-NLS-1$
+    private ToolResult executeInternal(ToolParameters params, ToolExecutionContext context)
+            throws IOException {
+        GsdToolSupport.requireOnly(params, "project_path", "expected_cycle_id", //$NON-NLS-1$ //$NON-NLS-2$
+                "expected_generation", "expected_revision", "id", "description", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                "provenance", "task_ids"); //$NON-NLS-1$ //$NON-NLS-2$
+        String projectPath = GsdToolSupport.requireProject(params, context);
+        var expectedToken = GsdToolSupport.requireToken(params);
         String id = params.requireString("id"); //$NON-NLS-1$
         String description = params.requireString("description"); //$NON-NLS-1$
         String provenanceStr = params.requireString("provenance"); //$NON-NLS-1$
@@ -128,12 +146,11 @@ public class GsdRecordEvidenceTool extends AbstractTool {
             return ToolResult.failure("Unknown provenance: " + provenanceStr, //$NON-NLS-1$
                     GsdWorkflowService.buildResult(false, "gsd_record_evidence", 0, null, GsdWorkflowService.ERR_INVALID)); //$NON-NLS-1$
         }
-        List<String> taskIds = params.optStringList("task_ids"); //$NON-NLS-1$
+        List<String> taskIds = GsdToolSupport.optionalStringList(params, "task_ids"); //$NON-NLS-1$
 
         GsdState state = GsdWorkflowService.recordEvidence(
-                projectPath, expectedRevision, id, description, provenance, taskIds);
-        JsonObject structured = GsdWorkflowService.buildResult(
-                true, "gsd_record_evidence", state.revision(), state.phase(), null); //$NON-NLS-1$
+                projectPath, expectedToken, id, description, provenance, taskIds);
+        JsonObject structured = GsdToolSupport.stateEnvelope("gsd_record_evidence", state); //$NON-NLS-1$
         return ToolResult.success(
                 "Evidence '" + id + "' recorded (provenance: " + provenance //$NON-NLS-1$ //$NON-NLS-2$
                         + "). Revision: " + state.revision(), structured); //$NON-NLS-1$
