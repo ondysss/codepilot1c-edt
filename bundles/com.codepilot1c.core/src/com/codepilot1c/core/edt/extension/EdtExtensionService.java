@@ -30,6 +30,8 @@ import com._1c.g5.v8.dt.metadata.mdclass.extension.type.MdPropertyState;
 import com._1c.g5.v8.dt.platform.version.Version;
 import com.codepilot1c.core.edt.BmObjectHelper;
 import com.codepilot1c.core.edt.metadata.EdtMetadataGateway;
+import com.codepilot1c.core.edt.metadata.MetadataConfigurationCollections;
+import com.codepilot1c.core.edt.metadata.MetadataKind;
 import com.codepilot1c.core.edt.metadata.MetadataOperationCode;
 import com.codepilot1c.core.edt.metadata.MetadataOperationException;
 
@@ -451,47 +453,29 @@ public class EdtExtensionService {
         return items;
     }
 
+    /**
+     * Every top-level object of the configuration, across all metadata kinds known to
+     * {@link MetadataKind}.
+     *
+     * <p>This used to be a hand-maintained list of 39 {@code configuration.getXxx()} calls, which
+     * silently skipped 9 kinds: StyleItem, Style, Language, CommonAttribute, CommandGroup,
+     * FilterCriterion, Interface, Bot and WebSocketClient. An object of a skipped kind that was
+     * adopted into an extension became invisible to every caller of this method - it was missing
+     * from {@code list_objects} output and from the dependency set reported by adopt.</p>
+     *
+     * <p>Walking {@link MetadataConfigurationCollections} instead makes the coverage exhaustive by
+     * construction: that registry is an exhaustive switch over {@link MetadataKind}, so adding a
+     * kind without a collection mapping is a compile error rather than a silently skipped type.</p>
+     */
     private List<MdObject> collectKnownTopLevelObjects(Configuration configuration) {
         List<MdObject> all = new ArrayList<>();
-        all.addAll(configuration.getCatalogs());
-        all.addAll(configuration.getDocuments());
-        all.addAll(configuration.getInformationRegisters());
-        all.addAll(configuration.getAccumulationRegisters());
-        all.addAll(configuration.getAccountingRegisters());
-        all.addAll(configuration.getCalculationRegisters());
-        all.addAll(configuration.getCommonModules());
-        all.addAll(configuration.getEnums());
-        all.addAll(configuration.getReports());
-        all.addAll(configuration.getDataProcessors());
-        all.addAll(configuration.getConstants());
-        all.addAll(configuration.getSubsystems());
-        all.addAll(configuration.getRoles());
-        all.addAll(configuration.getCommonCommands());
-        all.addAll(configuration.getCommonForms());
-        all.addAll(configuration.getCommonTemplates());
-        all.addAll(configuration.getCommonPictures());
-        all.addAll(configuration.getScheduledJobs());
-        all.addAll(configuration.getDefinedTypes());
-        all.addAll(configuration.getDocumentJournals());
-        all.addAll(configuration.getDocumentNumerators());
-        all.addAll(configuration.getChartsOfAccounts());
-        all.addAll(configuration.getChartsOfCharacteristicTypes());
-        all.addAll(configuration.getChartsOfCalculationTypes());
-        all.addAll(configuration.getExchangePlans());
-        all.addAll(configuration.getBusinessProcesses());
-        all.addAll(configuration.getTasks());
-        all.addAll(configuration.getSequences());
-        all.addAll(configuration.getFunctionalOptions());
-        all.addAll(configuration.getFunctionalOptionsParameters());
-        all.addAll(configuration.getSessionParameters());
-        all.addAll(configuration.getSettingsStorages());
-        all.addAll(configuration.getXDTOPackages());
-        all.addAll(configuration.getWsReferences());
-        all.addAll(configuration.getWebServices());
-        all.addAll(configuration.getHttpServices());
-        all.addAll(configuration.getIntegrationServices());
-        all.addAll(configuration.getExternalDataSources());
-        all.addAll(configuration.getEventSubscriptions());
+        for (MetadataKind kind : MetadataKind.values()) {
+            List<? extends MdObject> collection =
+                    MetadataConfigurationCollections.topLevelForKind(configuration, kind);
+            if (collection != null) {
+                all.addAll(collection);
+            }
+        }
         return all;
     }
 
@@ -560,51 +544,31 @@ public class EdtExtensionService {
         return current;
     }
 
+    /**
+     * Resolves a top-level object by its kind token and name.
+     *
+     * <p>The kind token is resolved through {@link MetadataKind#fromString} and the backing
+     * collection through {@link MetadataConfigurationCollections}. The previous implementation
+     * carried its own 40-branch switch that did not cover StyleItem, Style, Language, CommandGroup,
+     * FilterCriterion, Interface or WebSocketClient: such an FQN fell into
+     * {@code default -> emptyList()} and the object was reported as not found even though it
+     * existed in the configuration.</p>
+     *
+     * <p>An unknown kind still yields {@code null} rather than an exception, so callers keep
+     * treating it as "object not found".</p>
+     */
     private MdObject findTopLevel(Configuration configuration, String type, String name) {
-        String normalized = normalize(type);
-        List<? extends MdObject> topLevel = switch (normalized) {
-            case "catalog", "справочник" -> configuration.getCatalogs(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "document", "документ" -> configuration.getDocuments(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "informationregister", "регистрсведений" -> configuration.getInformationRegisters(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "accumulationregister", "регистрнакопления" -> configuration.getAccumulationRegisters(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "accountingregister", "регистрбухгалтерии" -> configuration.getAccountingRegisters(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "calculationregister", "регистррасчета", "регистррасчёта" -> configuration.getCalculationRegisters(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            case "commonmodule", "общиймодуль" -> configuration.getCommonModules(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "enum", "перечисление" -> configuration.getEnums(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "report", "отчет", "отчёт" -> configuration.getReports(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            case "dataprocessor", "обработка" -> configuration.getDataProcessors(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "constant", "константа" -> configuration.getConstants(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "subsystem", "подсистема" -> configuration.getSubsystems(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "role", "роль" -> configuration.getRoles(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "commoncommand", "общаякоманда" -> configuration.getCommonCommands(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "commonform", "общаяформа" -> configuration.getCommonForms(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "commontemplate", "общиймокет", "общиймакет" -> configuration.getCommonTemplates(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            case "commonpicture", "общаякартинка" -> configuration.getCommonPictures(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "scheduledjob", "регламентноезадание" -> configuration.getScheduledJobs(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "definedtype", "определяемыйтип" -> configuration.getDefinedTypes(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "documentjournal", "журналдокументов" -> configuration.getDocumentJournals(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "documentnumerator", "нумератордокументов" -> configuration.getDocumentNumerators(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "chartofaccounts", "плансчетов" -> configuration.getChartsOfAccounts(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "chartofcharacteristictypes", "планвидовхарактеристик" -> configuration.getChartsOfCharacteristicTypes(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "chartofcalculationtypes", "планвидоврасчета", "планвидоврасчёта" -> configuration.getChartsOfCalculationTypes(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            case "exchangeplan", "планобмена" -> configuration.getExchangePlans(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "businessprocess", "бизнеспроцесс" -> configuration.getBusinessProcesses(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "task", "задача" -> configuration.getTasks(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "sequence", "последовательность" -> configuration.getSequences(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "functionaloption", "функциональнаяопция" -> configuration.getFunctionalOptions(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "functionaloptionsparameter", "параметрфункциональныхопций" -> configuration.getFunctionalOptionsParameters(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "sessionparameter", "параметрсеанса" -> configuration.getSessionParameters(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "settingsstorage", "хранилищенастроек" -> configuration.getSettingsStorages(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "xdtopackage", "xdtoпакет" -> configuration.getXDTOPackages(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "wsreference", "webсервис" -> configuration.getWsReferences(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "webservice", "webсервиспубликация" -> configuration.getWebServices(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "httpservice", "httpсервис" -> configuration.getHttpServices(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "integrationservice", "сервисинтеграции" -> configuration.getIntegrationServices(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "bot", "бот" -> configuration.getBots(); //$NON-NLS-1$ //$NON-NLS-2$
-            case "externdatasource", "externaldatasource", "внешнийисточникданных" -> configuration.getExternalDataSources(); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-            case "eventsubscription", "подписканасобытие" -> configuration.getEventSubscriptions(); //$NON-NLS-1$ //$NON-NLS-2$
-            default -> Collections.emptyList();
-        };
+        MetadataKind kind;
+        try {
+            kind = MetadataKind.fromString(type);
+        } catch (MetadataOperationException e) {
+            return null;
+        }
+        List<? extends MdObject> topLevel =
+                MetadataConfigurationCollections.topLevelForKind(configuration, kind);
+        if (topLevel == null) {
+            return null;
+        }
         for (MdObject object : topLevel) {
             if (object != null && name.equalsIgnoreCase(safe(object.getName()))) {
                 return object;
@@ -745,14 +709,26 @@ public class EdtExtensionService {
         return ""; //$NON-NLS-1$
     }
 
+    /**
+     * FQN used for reporting and for addressing the object later on.
+     *
+     * <p>{@code safeTopFqn} returns the FQN of the OWNER for kinds that are not standalone BM top
+     * objects: for a Language object it is literally {@code "Configuration"}. Such an FQN does
+     * not address the object and shows up in listings as a separate entity, so it is accepted only
+     * when it actually ends with the object name; otherwise {@code <Kind>.<Name>} is built, which is
+     * the form {@link #findTopLevel} understands via {@link MetadataKind}.</p>
+     */
     private String safeFqn(EObject object, String kind, String name) {
+        String fallback = kind + "." + name; //$NON-NLS-1$
         if (object instanceof IBmObject bmObject) {
             String fqn = BmObjectHelper.safeTopFqn(bmObject);
-            if (!fqn.isBlank()) {
+            boolean addressesObject = name == null || name.isBlank()
+                    || fqn.endsWith("." + name) || fqn.equals(name); //$NON-NLS-1$
+            if (!fqn.isBlank() && addressesObject) {
                 return fqn;
             }
         }
-        return kind + "." + name; //$NON-NLS-1$
+        return fallback;
     }
 
     private <T> T executeWrite(IProject project, PlatformTransactionTask<T> task) {
