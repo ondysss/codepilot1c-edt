@@ -1655,6 +1655,23 @@ public class EdtMetadataService {
                     }
                     summaries.add("set_item[" + operationIndex + "]: id=" + item.getId()); //$NON-NLS-1$ //$NON-NLS-2$
                 }
+                case "setcommand", "setformcommand", "setcommandprops" -> {
+                    // Form commands live in formModel.getFormCommands(), NOT in the item
+                    // tree, so set_item could never reach them: it failed with
+                    // "Form item not found". Their titles and tooltips were therefore
+                    // unreachable through MCP, and a caller had to edit Form.form by hand
+                    // — exactly what the tool exists to prevent.
+                    FormCommand command = resolveRequiredFormCommand(formModel, operation);
+                    Map<String, Object> set = extractOperationSet(operation);
+                    if (set.isEmpty()) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                                "set_command operation requires non-empty 'set' or 'properties' map", false); //$NON-NLS-1$
+                    }
+                    applyFormPropertySet(command, set);
+                    summaries.add("set_command[" + operationIndex + "]: name=" //$NON-NLS-1$ //$NON-NLS-2$
+                            + command.getName());
+                }
                 case "removeitem", "deleteitem" -> {
                     FormItem item = resolveRequiredItem(formModel, operation);
                     FormItemContainer parent = findParentContainer(formModel, item);
@@ -2883,6 +2900,36 @@ public class EdtMetadataService {
                     "Form item not found: id=" + itemId + ", name=" + itemName, false); //$NON-NLS-1$ //$NON-NLS-2$
         }
         return item;
+    }
+
+    private FormCommand resolveRequiredFormCommand(Form formModel, Map<String, Object> operation) {
+        String name = asString(getMapValueIgnoreCase(operation, "command_name")); //$NON-NLS-1$
+        if (name == null) {
+            name = asString(getMapValueIgnoreCase(operation, "item_name")); //$NON-NLS-1$
+        }
+        if (name == null) {
+            name = asString(getMapValueIgnoreCase(operation, "name")); //$NON-NLS-1$
+        }
+        Integer id = asOptionalInteger(getMapValueIgnoreCase(operation, "command_id"), "command_id"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (name == null && id == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Operation requires command_name or command_id", false); //$NON-NLS-1$
+        }
+        for (FormCommand command : formModel.getFormCommands()) {
+            if (command == null) {
+                continue;
+            }
+            if (id != null && command.getId() == id.intValue()) {
+                return command;
+            }
+            if (name != null && name.equalsIgnoreCase(command.getName())) {
+                return command;
+            }
+        }
+        throw new MetadataOperationException(
+                MetadataOperationCode.METADATA_NOT_FOUND,
+                "Form command not found: id=" + id + ", name=" + name, false); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private FormItem findFormItem(FormItemContainer container, Integer id, String name) {
@@ -4284,11 +4331,19 @@ public class EdtMetadataService {
             if (feature == null || feature.isDerived() || feature.isTransient() || feature.isVolatile()) {
                 continue;
             }
-            if (!includeTitles && "title".equalsIgnoreCase(feature.getName())) { //$NON-NLS-1$
+            if (!includeTitles && ("title".equalsIgnoreCase(feature.getName()) //$NON-NLS-1$
+                    || "toolTip".equalsIgnoreCase(feature.getName()))) { //$NON-NLS-1$
                 continue;
             }
             if (feature instanceof EReference reference && reference.isContainment()) {
-                continue;
+                // Localized strings (toolTip and friends) are containment EMaps, so the
+                // blanket containment skip hid them completely: inspect_form_layout
+                // returned toolTipRepresentation but never the tooltip text itself, and
+                // a caller had no way to read the current value before changing it.
+                // EMap values are already flattened by simplifyFeatureValue below.
+                if (!(object.eGet(feature) instanceof EMap<?, ?>)) {
+                    continue;
+                }
             }
             Object value = object.eGet(feature);
             if (value == null) {
@@ -6724,6 +6779,13 @@ public class EdtMetadataService {
     private MdObject resolveByFqn(Configuration configuration, String fqn) {
         LOG.debug("resolveByFqn: %s", fqn); //$NON-NLS-1$
         String[] parts = fqn != null ? fqn.split("\\.") : new String[0]; //$NON-NLS-1$
+        // The configuration root carries no <Type>.<Name> pair, so the generic parser
+        // rejected it outright and root properties (command interface order, vendor,
+        // version, compatibility mode) stayed unreachable through update_metadata —
+        // the only remaining route was editing Configuration.mdo by hand.
+        if (parts.length == 1 && isConfigurationRootFqn(parts[0])) {
+            return configuration;
+        }
         if (parts.length < 2) {
             throw new MetadataOperationException(
                     MetadataOperationCode.METADATA_PARENT_NOT_FOUND,
@@ -10637,12 +10699,23 @@ public class EdtMetadataService {
 
     private String extractTopLevelFqn(String fqn) {
         String[] parts = fqn != null ? fqn.split("\\.") : new String[0]; //$NON-NLS-1$
+        // The configuration root IS its own top-level object: it has no owner to
+        // export instead of it. Without this branch a successful root mutation still
+        // failed afterwards, on the export step, with "Invalid metadata FQN".
+        if (parts.length == 1 && isConfigurationRootFqn(parts[0])) {
+            return parts[0];
+        }
         if (parts.length < 2) {
             throw new MetadataOperationException(
                     MetadataOperationCode.METADATA_NOT_FOUND,
                     "Invalid metadata FQN: " + fqn, false); //$NON-NLS-1$
         }
         return parts[0] + "." + parts[1]; //$NON-NLS-1$
+    }
+
+    private boolean isConfigurationRootFqn(String candidate) {
+        return "Configuration".equalsIgnoreCase(candidate) //$NON-NLS-1$
+                || "Конфигурация".equalsIgnoreCase(candidate); //$NON-NLS-1$
     }
 
     @SuppressWarnings("unchecked")
