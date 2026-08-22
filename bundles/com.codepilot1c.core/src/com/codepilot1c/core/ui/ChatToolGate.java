@@ -27,6 +27,7 @@ import com.codepilot1c.core.permissions.ProfilePermissionGate;
 import com.codepilot1c.core.permissions.ProfilePermissionGate.GateDecision;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolExecutionContext;
+import com.codepilot1c.core.tools.ToolExecutionService;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolRegistry.ToolResolution;
 import com.codepilot1c.core.tools.ToolResult;
@@ -138,8 +139,14 @@ public final class ChatToolGate {
         try {
             AgentProfileRegistry registry = AgentProfileRegistry.getInstance();
             if (configuredProfileId != null && !configuredProfileId.isBlank()) {
-                return registry.getProfile(configuredProfileId)
-                        .orElseGet(registry::getDefaultProfile);
+                var available = registry.getAvailableProfile(configuredProfileId);
+                if (available.isPresent()) {
+                    return available.get();
+                }
+                if (registry.getProfile(configuredProfileId).isPresent()) {
+                    return registry.getExploreProfile();
+                }
+                return registry.getDefaultProfile();
             }
             return registry.getDefaultProfile();
         } catch (Throwable e) {
@@ -168,7 +175,7 @@ public final class ChatToolGate {
         Objects.requireNonNull(registry, "registry"); //$NON-NLS-1$
         ToolSurfaceContext context = registry.createRuntimeSurfaceContext(profile);
         List<ToolDefinition> result = new ArrayList<>();
-        for (ToolResolution resolution : registry.getAllToolResolutions()) {
+        for (ToolResolution resolution : registry.getModelFacingToolResolutions()) {
             if (!ProfileToolAccess.allows(profile, resolution)) {
                 continue;
             }
@@ -195,6 +202,13 @@ public final class ChatToolGate {
         ToolExecutionContext context = executionContext;
         String toolName = call.getName();
         ITool tool = resolution.tool();
+
+        if (!ToolRegistry.getInstance().isToolModelFacing(toolName)) {
+            String reasonCode = ToolExecutionService.GSD_DISABLED_ERROR;
+            return deny(arguments, context, resolution, false,
+                    ToolExecutionService.gsdDisabledResult(toolName),
+                    reasonCode, LAYER_TOOL, null);
+        }
 
         if (tool == null) {
             return execute(arguments, context, resolution, false, null, "none", null); //$NON-NLS-1$

@@ -780,7 +780,7 @@ public class AgentRunner implements IAgentRunner {
         int baseBuiltinCount = 0;
         int baseDynamicCount = 0;
 
-        for (ToolResolution resolution : toolRegistry.getAllToolResolutions()) {
+        for (ToolResolution resolution : toolRegistry.getModelFacingToolResolutions()) {
             totalCount++;
             ITool tool = resolution.tool();
             String name = tool.getName();
@@ -851,8 +851,11 @@ public class AgentRunner implements IAgentRunner {
         try {
             if (config != null && config.getProfileName() != null && !config.getProfileName().isBlank()) {
                 return AgentProfileRegistry.getInstance()
-                        .getProfile(config.getProfileName())
-                        .orElseGet(ToolSurfaceContext::defaultProfile);
+                        .getAvailableProfile(config.getProfileName())
+                        .orElseGet(() -> AgentProfileRegistry.getInstance()
+                                .getProfile(config.getProfileName()).isPresent()
+                                        ? AgentProfileRegistry.getInstance().getExploreProfile()
+                                        : ToolSurfaceContext.defaultProfile());
             }
             return AgentProfileRegistry.getInstance().getDefaultProfile();
         } catch (Throwable e) {

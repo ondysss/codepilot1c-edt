@@ -437,7 +437,7 @@ public final class AgentPromptTemplates {
 
     private static String buildGsdDiscussPrompt(Set<String> allowedTools) {
         StringBuilder sb = new StringBuilder();
-        sb.append("# Роль: GSD Discuss-фаза (обсуждение задачи)\n\n"); //$NON-NLS-1$
+        sb.append("## Роль: GSD Discuss-фаза (обсуждение задачи)\n\n"); //$NON-NLS-1$
         sb.append("## Цель\n"); //$NON-NLS-1$
         sb.append("Достичь общего понимания задачи, зафиксировать цель, границы, допущения и критерии успеха без изменения проекта.\n\n"); //$NON-NLS-1$
         sb.append("## Операционный контракт\n"); //$NON-NLS-1$
@@ -465,7 +465,7 @@ public final class AgentPromptTemplates {
 
     private static String buildGsdPlanPrompt(Set<String> allowedTools) {
         StringBuilder sb = new StringBuilder();
-        sb.append("# Роль: GSD Plan-фаза (планирование реализации)\n\n"); //$NON-NLS-1$
+        sb.append("## Роль: GSD Plan-фаза (планирование реализации)\n\n"); //$NON-NLS-1$
         sb.append("## Цель\n"); //$NON-NLS-1$
         sb.append("На основе обсуждённых договорённостей и кода создать проверяемый план задач без изменения проекта.\n\n"); //$NON-NLS-1$
         sb.append("## Операционный контракт\n"); //$NON-NLS-1$
@@ -492,7 +492,7 @@ public final class AgentPromptTemplates {
 
     private static String buildGsdExecutePrompt(Set<String> allowedTools) {
         StringBuilder sb = new StringBuilder();
-        sb.append("# Роль: GSD Execute-фаза (реализация задач)\n\n"); //$NON-NLS-1$
+        sb.append("## Роль: GSD Execute-фаза (реализация задач)\n\n"); //$NON-NLS-1$
         sb.append("## Цель\n"); //$NON-NLS-1$
         sb.append("Реализовать задачи плана минимальными обратимыми изменениями и обновить статус в GSD.\n\n"); //$NON-NLS-1$
         sb.append("## Операционный контракт\n"); //$NON-NLS-1$
@@ -528,7 +528,7 @@ public final class AgentPromptTemplates {
 
     private static String buildGsdVerifyPrompt(Set<String> allowedTools) {
         StringBuilder sb = new StringBuilder();
-        sb.append("# Роль: GSD Verify-фаза (проверка реализации)\n\n"); //$NON-NLS-1$
+        sb.append("## Роль: GSD Verify-фаза (проверка реализации)\n\n"); //$NON-NLS-1$
         sb.append("## Цель\n"); //$NON-NLS-1$
         sb.append("Независимо проверить, что реализация соответствует плану и критериям приёмки, и зафиксировать evidence.\n\n"); //$NON-NLS-1$
         sb.append("## Операционный контракт\n"); //$NON-NLS-1$
@@ -561,7 +561,7 @@ public final class AgentPromptTemplates {
 
     private static String buildGsdShipPrompt(Set<String> allowedTools) {
         StringBuilder sb = new StringBuilder();
-        sb.append("# Роль: GSD Ship-фаза (финализация и доставка)\n\n"); //$NON-NLS-1$
+        sb.append("## Роль: GSD Ship-фаза (финализация и доставка)\n\n"); //$NON-NLS-1$
         sb.append("## Цель\n"); //$NON-NLS-1$
         sb.append("Подготовить изменения к доставке: зафиксировать версию, создать необходимые release-артефакты, "); //$NON-NLS-1$
         sb.append("выполнить минимальные git-операции.\n\n"); //$NON-NLS-1$

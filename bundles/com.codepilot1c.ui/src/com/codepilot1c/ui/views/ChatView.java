@@ -64,6 +64,7 @@ import org.eclipse.ui.PartInitException;
 import org.eclipse.ui.part.ViewPart;
 
 import com.codepilot1c.core.diff.CodeDiffUtils;
+import com.codepilot1c.core.gsd.GsdFeatureGate;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.agent.prompts.SystemPromptAssembler;
 import com.codepilot1c.core.skills.SkillMentionParser;
@@ -109,6 +110,7 @@ import com.codepilot1c.ui.diff.ProposedChangeSet;
 import com.codepilot1c.ui.editor.CodeApplicationService;
 import com.codepilot1c.ui.gsd.GsdStatusPanel;
 import com.codepilot1c.ui.gsd.GsdToolMutationRefreshPolicy;
+import com.codepilot1c.ui.gsd.GsdUiProfilePolicy;
 import com.codepilot1c.ui.internal.Messages;
 import com.codepilot1c.ui.internal.ToolDisplayNames;
 import com.codepilot1c.ui.internal.VibeUiPlugin;
@@ -181,6 +183,8 @@ public class ChatView extends ViewPart {
     private Label tokenUsageLabel;
     private Composite attachmentPreviewArea;
     private GsdStatusPanel gsdStatusPanel;
+    private Composite viewContainer;
+    private Composite inputAreaControl;
 
     private final List<LlmMessage> conversationHistory = new ArrayList<>();
     private final List<ChatMessageComposite> messageWidgets = new ArrayList<>();
@@ -266,6 +270,21 @@ public class ChatView extends ViewPart {
         }
     };
     private boolean sessionChangeListenerRegistered;
+    private boolean gsdPreferenceListenerRegistered;
+    private final IEclipsePreferences.IPreferenceChangeListener gsdPreferenceListener = event -> {
+        if (!VibePreferenceConstants.PREF_GSD_ENABLED.equals(event.getKey())) {
+            return;
+        }
+        Display display = getDisplay();
+        if (display == null || display.isDisposed()) {
+            return;
+        }
+        display.asyncExec(() -> {
+            if (!isDisposed()) {
+                updateGsdAvailability(true);
+            }
+        });
+    };
     /** Token usage totals for current chat session */
     private long inputTokensTotal = 0;
     private long cachedInputTokensTotal = 0;
@@ -316,6 +335,7 @@ public class ChatView extends ViewPart {
         VibeTheme theme = ThemeManager.getInstance().getTheme();
 
         Composite container = new Composite(parent, SWT.NONE);
+        viewContainer = container;
         GridLayout containerLayout = new GridLayout(1, false);
         containerLayout.marginWidth = 0;
         containerLayout.marginHeight = 0;
@@ -324,12 +344,16 @@ public class ChatView extends ViewPart {
         container.setBackground(theme.getBackground());
 
         createChatArea(container);
-        createGsdStatusPanel(container);
+        if (GsdFeatureGate.getInstance().isEnabled()) {
+            createGsdStatusPanel(container);
+        }
         createInputArea(container);
         registerSessionChangeListener();
+        registerGsdPreferenceListener();
 
         // Phase 0: restore the last chat (persistence) or show the welcome message.
         restoreLastSessionOrWelcome();
+        updateGsdAvailability(true);
     }
 
     private void createChatArea(Composite parent) {
@@ -345,9 +369,16 @@ public class ChatView extends ViewPart {
      * The panel is read-only, collapsible, and loads state asynchronously off the UI thread.
      */
     private void createGsdStatusPanel(Composite parent) {
+        if (!GsdFeatureGate.getInstance().isEnabled()
+                || gsdStatusPanel != null && !gsdStatusPanel.isDisposed()) {
+            return;
+        }
         gsdStatusPanel = new GsdStatusPanel(parent);
         GridData gsdData = new GridData(SWT.FILL, SWT.CENTER, true, false);
         gsdStatusPanel.getControl().setLayoutData(gsdData);
+        if (inputAreaControl != null && !inputAreaControl.isDisposed()) {
+            gsdStatusPanel.getControl().moveAbove(inputAreaControl);
+        }
 
         // Select the suggested profile on this view's own persisted session.
         gsdStatusPanel.setSuggestedProfileAction(this::selectSuggestedProfile);
@@ -362,6 +393,10 @@ public class ChatView extends ViewPart {
      * GSD state off the UI thread.
      */
     private void refreshGsdStatus() {
+        if (!GsdFeatureGate.getInstance().isEnabled()) {
+            hideGsdStatusPanel();
+            return;
+        }
         if (gsdStatusPanel == null || gsdStatusPanel.isDisposed()) {
             return;
         }
@@ -372,6 +407,10 @@ public class ChatView extends ViewPart {
 
     /** Requests a coalesced reload after lifecycle events or tool mutations. */
     private void requestGsdStatusRefresh() {
+        if (!GsdFeatureGate.getInstance().isEnabled()) {
+            hideGsdStatusPanel();
+            return;
+        }
         GsdStatusPanel panel = gsdStatusPanel;
         if (panel == null || panel.isDisposed()) {
             return;
@@ -387,8 +426,89 @@ public class ChatView extends ViewPart {
         }
     }
 
+    private void registerGsdPreferenceListener() {
+        if (!gsdPreferenceListenerRegistered) {
+            InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID)
+                    .addPreferenceChangeListener(gsdPreferenceListener);
+            gsdPreferenceListenerRegistered = true;
+        }
+    }
+
+    private void updateGsdAvailability(boolean notifyProfileFallback) {
+        if (GsdFeatureGate.getInstance().isEnabled()) {
+            if ((gsdStatusPanel == null || gsdStatusPanel.isDisposed())
+                    && viewContainer != null && !viewContainer.isDisposed()) {
+                createGsdStatusPanel(viewContainer);
+            }
+            showGsdStatusPanel();
+            refreshGsdStatus();
+        } else {
+            hideGsdStatusPanel();
+            ensureAvailableChatProfile(notifyProfileFallback);
+        }
+    }
+
+    private void showGsdStatusPanel() {
+        if (gsdStatusPanel == null || gsdStatusPanel.isDisposed()) {
+            return;
+        }
+        Control control = gsdStatusPanel.getControl();
+        if (control.getLayoutData() instanceof GridData data) {
+            data.exclude = false;
+        }
+        control.setVisible(true);
+        if (viewContainer != null && !viewContainer.isDisposed()) {
+            viewContainer.layout(true, true);
+        }
+    }
+
+    private void hideGsdStatusPanel() {
+        if (gsdStatusPanel == null || gsdStatusPanel.isDisposed()) {
+            return;
+        }
+        // Invalidate every in-flight result and prevent subsequent disk reads.
+        gsdStatusPanel.setProjectRoot(null);
+        Control control = gsdStatusPanel.getControl();
+        if (control.getLayoutData() instanceof GridData data) {
+            data.exclude = true;
+        }
+        control.setVisible(false);
+        if (viewContainer != null && !viewContainer.isDisposed()) {
+            viewContainer.layout(true, true);
+        }
+    }
+
+    private boolean ensureAvailableChatProfile(boolean notify) {
+        Session target = session;
+        if (target == null) {
+            return false;
+        }
+        String sessionProfileId = target.getAgentProfile();
+        String configuredProfileId = configuredChatProfileId();
+        String selectedProfileId = sessionProfileId != null && !sessionProfileId.isBlank()
+                ? sessionProfileId : configuredProfileId;
+        String safeProfileId = GsdUiProfilePolicy.safeProfileId(selectedProfileId);
+        if (java.util.Objects.equals(selectedProfileId, safeProfileId)) {
+            return false;
+        }
+        target.setAgentProfile(safeProfileId);
+        if (GsdFeatureGate.isGsdProfile(configuredProfileId)) {
+            InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID)
+                    .put(PREF_CHAT_PROFILE_ID, safeProfileId);
+        }
+        SessionManager.getInstance().saveSession(target);
+        if (notify) {
+            appendSystemMessage(Messages.Gsd_ProfileFallbackNotice);
+        }
+        return true;
+    }
+
     private void selectSuggestedProfile(String profileId) {
         if (isDisposed()) {
+            return;
+        }
+        if (!GsdFeatureGate.getInstance().isProfileAvailable(profileId)) {
+            ensureAvailableChatProfile(true);
             return;
         }
         Session target = viewSession();
@@ -500,6 +620,7 @@ public class ChatView extends ViewPart {
         VibeTheme theme = ThemeManager.getInstance().getTheme();
 
         Composite inputArea = new Composite(parent, SWT.NONE);
+        inputAreaControl = inputArea;
         inputArea.setBackground(theme.getSurface());
         inputArea.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
         GridLayout inputAreaLayout = new GridLayout(1, false);
@@ -1096,6 +1217,8 @@ public class ChatView extends ViewPart {
                     userInput.isEmpty() && draftAttachments.isEmpty(), isProcessing);
             return;
         }
+
+        ensureAvailableChatProfile(true);
 
         ILlmProvider provider = LlmProviderRegistry.getInstance().getActiveProvider();
         if (provider == null || !provider.isConfigured()) {
@@ -3848,6 +3971,11 @@ public class ChatView extends ViewPart {
         if (sessionChangeListenerRegistered) {
             SessionManager.getInstance().removeListener(sessionChangeListener);
             sessionChangeListenerRegistered = false;
+        }
+        if (gsdPreferenceListenerRegistered) {
+            InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID)
+                    .removePreferenceChangeListener(gsdPreferenceListener);
+            gsdPreferenceListenerRegistered = false;
         }
         conversationHistory.clear();
 

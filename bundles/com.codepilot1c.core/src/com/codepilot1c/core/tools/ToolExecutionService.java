@@ -16,6 +16,7 @@ import java.util.concurrent.CompletableFuture;
 
 import com.codepilot1c.core.evaluation.trace.AgentTraceSession;
 import com.codepilot1c.core.evaluation.trace.TraceEventType;
+import com.codepilot1c.core.gsd.GsdFeatureGate;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.tools.ToolRegistry.ToolResolution;
@@ -36,6 +37,7 @@ import com.google.gson.JsonObject;
 public class ToolExecutionService {
 
     public static final String STALE_RESOLUTION_ERROR = "stale_tool_resolution"; //$NON-NLS-1$
+    public static final String GSD_DISABLED_ERROR = "gsd_disabled"; //$NON-NLS-1$
 
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(ToolExecutionService.class);
 
@@ -268,6 +270,21 @@ public class ToolExecutionService {
             ToolLogger toolLogger, AgentTraceSession traceSession, String parentEventId,
             ToolExecutionContext context, boolean sensitive) {
         LOG.debug("Parsed parameters: %s", parameters); //$NON-NLS-1$
+
+        // This is the single final dispatch gate shared by raw, pre-parsed,
+        // context-scoped, and exact-slot execution paths. Keep it immediately
+        // before the only ITool.execute invocation in this service.
+        if (!GsdFeatureGate.getInstance().isToolVisible(toolCall.getName())) {
+            ToolResult failResult = gsdDisabledResult(toolCall.getName());
+            LOG.warn("Blocking disabled GSD tool: %s", toolCall.getName()); //$NON-NLS-1$
+            toolLogger.logToolCallResult(-1, toolCall.getName(), failResult, 0, sensitive);
+            String traceToolCallEventId = writeToolCallTrace(
+                    traceSession, parentEventId, toolCall, parameters, tool);
+            writeToolResultTrace(traceSession, traceToolCallEventId, toolCall,
+                    failResult, 0, null, sensitive);
+            return CompletableFuture.completedFuture(failResult);
+        }
+
         final String traceToolCallEventId =
                 writeToolCallTrace(traceSession, parentEventId, toolCall, parameters, tool);
 
@@ -318,6 +335,15 @@ public class ToolExecutionService {
      */
     public Map<String, Object> parseArguments(String json) {
         return argumentParser.parseArguments(json);
+    }
+
+    /** Deterministic fail-closed result for a GSD call blocked by the feature gate. */
+    public static ToolResult gsdDisabledResult(String toolName) {
+        JsonObject data = new JsonObject();
+        data.addProperty("status", "error"); //$NON-NLS-1$ //$NON-NLS-2$
+        data.addProperty("operation", toolName != null ? toolName : ""); //$NON-NLS-1$ //$NON-NLS-2$
+        data.addProperty("error_code", GSD_DISABLED_ERROR); //$NON-NLS-1$
+        return ToolResult.failure("GSD is disabled", data); //$NON-NLS-1$
     }
 
     /**

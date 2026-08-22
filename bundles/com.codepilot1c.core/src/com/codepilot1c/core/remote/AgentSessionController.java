@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -688,8 +689,12 @@ public class AgentSessionController {
         }
 
         AgentProfile profile = AgentProfileRegistry.getInstance()
-                .getProfile(profileId)
-                .orElse(AgentProfileRegistry.getInstance().getDefaultProfile());
+                .getAvailableProfile(profileId)
+                .orElse(null);
+        if (profile == null) {
+            return PromptSubmission.rejected(RemoteCommandResult.error(
+                    "profile_unavailable", "Профиль агента недоступен: " + profileId)); //$NON-NLS-1$ //$NON-NLS-2$
+        }
         AgentConfig baseConfig = configFactory.apply(profile);
         boolean hasProjectPath = projectPath != null && !projectPath.isBlank();
         boolean hasOwningSession = owningSessionId != null && !owningSessionId.isBlank();
@@ -1090,14 +1095,23 @@ public class AgentSessionController {
     }
 
     private String normalizeProfile(String profileId) {
-        return AgentProfileRegistry.getInstance()
-                .getProfile(profileId)
-                .map(AgentProfile::getId)
-                .orElseGet(() -> AgentProfileRegistry.getInstance().getDefaultProfile().getId());
+        AgentProfileRegistry registry = AgentProfileRegistry.getInstance();
+        Optional<AgentProfile> available = registry
+                .getAvailableProfile(profileId);
+        if (available.isPresent()) {
+            return available.get().getId();
+        }
+        if (profileId != null && !profileId.isBlank()
+                && registry.getProfile(profileId).isPresent()) {
+            // Preserve an explicit known-but-disabled id so submitPrompt rejects
+            // it instead of silently widening permissions through build.
+            return profileId;
+        }
+        return registry.getDefaultProfile().getId();
     }
 
     private List<Map<String, Object>> availableProfiles() {
-        return AgentProfileRegistry.getInstance().getAllProfiles().stream()
+        return AgentProfileRegistry.getInstance().getAvailableProfiles().stream()
                 .map(profile -> Map.<String, Object>of(
                         "id", profile.getId(), //$NON-NLS-1$
                         "name", profile.getName(), //$NON-NLS-1$

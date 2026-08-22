@@ -40,6 +40,7 @@ import com.codepilot1c.core.permissions.PermissionRule;
 import com.codepilot1c.core.permissions.ProfilePermissionGate;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolExecutionContext;
+import com.codepilot1c.core.tools.ToolExecutionService;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolRegistry.ToolResolution;
 import com.codepilot1c.core.tools.ToolResult;
@@ -125,7 +126,7 @@ public class McpHostRequestRouter {
         } else {
             this.profileGateEnabled = true;
             this.sessionProfile = AgentProfileRegistry.getInstance()
-                    .getProfile(configuredProfileId)
+                    .getAvailableProfile(configuredProfileId)
                     .orElse(null);
             if (sessionProfile != null) {
                 this.executionContext = ToolExecutionContext.of(sessionProfile, 0);
@@ -221,11 +222,16 @@ public class McpHostRequestRouter {
             return error(request, -32602, "Missing required parameter: name"); //$NON-NLS-1$
         }
 
+        ToolRegistry registry = ToolRegistry.getInstance();
+        if (!registry.isToolModelFacing(toolName)) {
+            return ok(request, toMcpToolResult(
+                    ToolExecutionService.gsdDisabledResult(toolName)));
+        }
+
         if (!exposurePolicy.isExposed(toolName)) {
             return ok(request, toolError("Tool is not exposed: " + toolName)); //$NON-NLS-1$
         }
 
-        ToolRegistry registry = ToolRegistry.getInstance();
         ToolResolution resolution = registry.resolveTool(toolName);
         ITool tool = resolution.tool();
         if (tool == null) {
@@ -377,7 +383,7 @@ public class McpHostRequestRouter {
         ToolRegistry registry = ToolRegistry.getInstance();
         ToolSurfaceContext surfaceContext = registry.createRuntimeSurfaceContext(
                 sessionProfile != null ? sessionProfile : ToolSurfaceContext.defaultProfile());
-        for (ToolResolution resolution : registry.getAllToolResolutions()) {
+        for (ToolResolution resolution : registry.getModelFacingToolResolutions()) {
             ITool tool = resolution.tool();
             if (!exposurePolicy.isExposed(tool.getName())) {
                 continue;

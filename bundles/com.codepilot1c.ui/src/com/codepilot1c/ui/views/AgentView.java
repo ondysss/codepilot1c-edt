@@ -11,6 +11,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
+import org.eclipse.core.runtime.preferences.IEclipsePreferences;
+import org.eclipse.core.runtime.preferences.InstanceScope;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.ScrolledComposite;
 import org.eclipse.swt.events.KeyAdapter;
@@ -32,11 +34,14 @@ import com.codepilot1c.core.agent.AgentResult;
 import com.codepilot1c.core.agent.AgentState;
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.codepilot1c.core.provider.ILlmProvider;
 import com.codepilot1c.core.provider.LlmProviderRegistry;
 import com.codepilot1c.core.remote.AgentSessionController;
 import com.codepilot1c.ui.chat.AgentProgressWidget;
 import com.codepilot1c.ui.chat.AgentViewAdapter;
+import com.codepilot1c.ui.gsd.GsdUiProfilePolicy;
+import com.codepilot1c.ui.internal.Messages;
 
 /**
  * View для работы с agentic assistant.
@@ -53,6 +58,7 @@ import com.codepilot1c.ui.chat.AgentViewAdapter;
 public class AgentView extends ViewPart {
 
     public static final String ID = "com.codepilot1c.ui.views.AgentView"; //$NON-NLS-1$
+    private static final String CORE_PLUGIN_ID = "com.codepilot1c.core"; //$NON-NLS-1$
 
     private ScrolledComposite scrolledComposite;
     private Composite messagesContainer;
@@ -66,6 +72,25 @@ public class AgentView extends ViewPart {
     private final List<ChatMessageComposite> messageWidgets = new ArrayList<>();
     private AgentViewAdapter agentAdapter;
     private CompletableFuture<AgentResult> currentTask;
+    private boolean gsdPreferenceListenerRegistered;
+    private final IEclipsePreferences.IPreferenceChangeListener gsdPreferenceListener = event -> {
+        if (!VibePreferenceConstants.PREF_GSD_ENABLED.equals(event.getKey())) {
+            return;
+        }
+        Combo combo = profileCombo;
+        if (combo == null || combo.isDisposed()) {
+            return;
+        }
+        Display display = combo.getDisplay();
+        if (display == null || display.isDisposed()) {
+            return;
+        }
+        display.asyncExec(() -> {
+            if (!isDisposed()) {
+                refreshProfileCombo(true);
+            }
+        });
+    };
 
     @Override
     public void createPartControl(Composite parent) {
@@ -79,6 +104,7 @@ public class AgentView extends ViewPart {
         // Initialize adapter
         agentAdapter = new AgentViewAdapter(parent.getDisplay());
         setupAdapterCallbacks();
+        registerGsdPreferenceListener();
 
         appendSystemMessage("🤖 Агентный режим готов. Выберите профиль и введите задачу.");
     }
@@ -183,14 +209,7 @@ public class AgentView extends ViewPart {
     }
 
     private void populateProfileCombo() {
-        for (AgentProfile profile : AgentProfileRegistry.getInstance().getAllProfiles()) {
-            String displayName = String.format("%s - %s",
-                    profile.getName(),
-                    profile.isReadOnly() ? "только чтение" : "полный доступ");
-            profileCombo.add(displayName);
-            profileCombo.setData(displayName, profile.getId());
-        }
-        profileCombo.select(0);
+        refreshProfileCombo(false);
 
         // Add tooltip
         profileCombo.addSelectionListener(new SelectionAdapter() {
@@ -200,6 +219,61 @@ public class AgentView extends ViewPart {
             }
         });
         updateProfileTooltip();
+    }
+
+    private void refreshProfileCombo(boolean notifyFallback) {
+        String previousProfileId = selectedProfileId();
+        String safeProfileId = GsdUiProfilePolicy.safeProfileId(previousProfileId);
+        boolean fellBack = previousProfileId != null && !previousProfileId.equals(safeProfileId);
+
+        profileCombo.removeAll();
+        for (AgentProfile profile : AgentProfileRegistry.getInstance().getAvailableProfiles()) {
+            String displayName = String.format("%s - %s",
+                    profile.getName(),
+                    profile.isReadOnly() ? "только чтение" : "полный доступ");
+            profileCombo.add(displayName);
+            profileCombo.setData(displayName, profile.getId());
+        }
+        if (!selectProfile(safeProfileId) && profileCombo.getItemCount() > 0) {
+            profileCombo.select(0);
+        }
+        updateProfileTooltip();
+        if (fellBack && notifyFallback) {
+            appendSystemMessage(Messages.Gsd_ProfileFallbackNotice);
+        }
+    }
+
+    private String selectedProfileId() {
+        if (profileCombo == null || profileCombo.isDisposed()) {
+            return null;
+        }
+        int idx = profileCombo.getSelectionIndex();
+        if (idx < 0) {
+            return null;
+        }
+        return (String) profileCombo.getData(profileCombo.getItem(idx));
+    }
+
+    private boolean selectProfile(String profileId) {
+        if (profileId == null || profileCombo == null || profileCombo.isDisposed()) {
+            return false;
+        }
+        for (int i = 0; i < profileCombo.getItemCount(); i++) {
+            String displayName = profileCombo.getItem(i);
+            if (profileId.equals(profileCombo.getData(displayName))) {
+                profileCombo.select(i);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void registerGsdPreferenceListener() {
+        if (!gsdPreferenceListenerRegistered) {
+            InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID)
+                    .addPreferenceChangeListener(gsdPreferenceListener);
+            gsdPreferenceListenerRegistered = true;
+        }
     }
 
     private void updateProfileTooltip() {
@@ -275,11 +349,15 @@ public class AgentView extends ViewPart {
         }
 
         // Get selected profile
-        int idx = profileCombo.getSelectionIndex();
-        String profileId = "build"; //$NON-NLS-1$
-        if (idx >= 0) {
-            String displayName = profileCombo.getItem(idx);
-            profileId = (String) profileCombo.getData(displayName);
+        String profileId = selectedProfileId();
+        if (profileId == null) {
+            profileId = "build"; //$NON-NLS-1$
+        }
+        String safeProfileId = GsdUiProfilePolicy.safeProfileId(profileId);
+        if (!profileId.equals(safeProfileId)) {
+            selectProfile(safeProfileId);
+            appendSystemMessage(Messages.Gsd_ProfileFallbackNotice);
+            profileId = safeProfileId;
         }
 
         // Show user message
@@ -407,15 +485,11 @@ public class AgentView extends ViewPart {
     public CompletableFuture<AgentResult> runProgrammatic(String prompt, String profileId) {
         inputField.setText(prompt);
 
-        // Select profile in combo
-        for (int i = 0; i < profileCombo.getItemCount(); i++) {
-            String displayName = profileCombo.getItem(i);
-            String id = (String) profileCombo.getData(displayName);
-            if (profileId.equals(id)) {
-                profileCombo.select(i);
-                break;
-            }
+        String safeProfileId = GsdUiProfilePolicy.safeProfileId(profileId);
+        if (!java.util.Objects.equals(profileId, safeProfileId)) {
+            appendSystemMessage(Messages.Gsd_ProfileFallbackNotice);
         }
+        selectProfile(safeProfileId);
 
         runAgent();
         return currentTask;
@@ -429,6 +503,11 @@ public class AgentView extends ViewPart {
     @Override
     public void dispose() {
         stopAgent();
+        if (gsdPreferenceListenerRegistered) {
+            InstanceScope.INSTANCE.getNode(CORE_PLUGIN_ID)
+                    .removePreferenceChangeListener(gsdPreferenceListener);
+            gsdPreferenceListenerRegistered = false;
+        }
         if (agentAdapter != null) {
             agentAdapter.dispose();
             agentAdapter = null;

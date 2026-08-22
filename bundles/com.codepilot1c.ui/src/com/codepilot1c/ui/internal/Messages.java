@@ -122,6 +122,7 @@ public class Messages extends NLS {
     public static String PreferencePage_AutoCompactEnabledLabel;
     public static String PreferencePage_AutoCompactThresholdLabel;
     public static String PreferencePage_ShowTokenUsageLabel;
+    public static String PreferencePage_GsdEnabledLabel;
     public static String PreferencePage_VaEpfPathLabel;
     public static String PreferencePage_TerminalCwdModeLabel;
     public static String PreferencePage_TerminalCwdModeProject;
@@ -134,6 +135,8 @@ public class Messages extends NLS {
     public static String PreferencePage_TestConnectionButton;
     public static String PreferencePage_TestSuccess;
     public static String PreferencePage_TestFailed;
+
+    public static String Gsd_ProfileFallbackNotice;
 
     public static String AccountPreferencePage_Description;
     public static String AccountPreferencePage_ConnectionGroup;

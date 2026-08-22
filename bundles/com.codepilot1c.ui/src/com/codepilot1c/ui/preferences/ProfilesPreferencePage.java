@@ -55,8 +55,8 @@ public class ProfilesPreferencePage extends PreferencePage implements IWorkbench
 
     @Override
     public void init(IWorkbench workbench) {
-        Collection<AgentProfile> all = AgentProfileRegistry.getInstance().getAllProfiles();
-        profiles = new ArrayList<>(all);
+        Collection<AgentProfile> available = AgentProfileRegistry.getInstance().getAvailableProfiles();
+        profiles = new ArrayList<>(available);
     }
 
     @Override

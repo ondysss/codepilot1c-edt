@@ -134,7 +134,9 @@ public class DiscoverToolsTool extends AbstractTool {
         ToolSurfaceContext surfaceContext = toolRegistry.createRuntimeSurfaceContext(
                 ToolSurfaceContext.defaultProfile());
 
-        for (ITool tool : toolRegistry.getAllTools()) {
+        for (ToolRegistry.ToolResolution resolution
+                : toolRegistry.getModelFacingToolResolutions()) {
+            ITool tool = resolution.tool();
             ToolCategory toolCategory = BuiltinToolTaxonomy.categoryOf(tool);
             if (toolCategory == category) {
                 ToolDefinition def = toolRegistry.getToolDefinition(tool, surfaceContext);

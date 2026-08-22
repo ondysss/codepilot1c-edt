@@ -50,7 +50,7 @@ public final class ProfileToolAccess {
     /** Returns the currently effective model-facing tool names for a profile. */
     public static Set<String> effectiveToolNames(AgentProfile profile, ToolRegistry registry) {
         Set<String> result = new LinkedHashSet<>();
-        for (ToolResolution resolution : registry.getAllToolResolutions()) {
+        for (ToolResolution resolution : registry.getModelFacingToolResolutions()) {
             if (allows(profile, resolution)) {
                 result.add(resolution.name());
             }

@@ -55,6 +55,7 @@ public class VibePreferenceInitializer extends AbstractPreferenceInitializer {
         defaults.putBoolean(VibePreferenceConstants.PREF_CHAT_AUTO_COMPACT_ENABLED, true);
         defaults.putInt(VibePreferenceConstants.PREF_CHAT_AUTO_COMPACT_THRESHOLD_PERCENT, 85);
         defaults.putBoolean(VibePreferenceConstants.PREF_CHAT_SHOW_TOKEN_USAGE, true);
+        defaults.putBoolean(VibePreferenceConstants.PREF_GSD_ENABLED, true);
         defaults.put(VibePreferenceConstants.PREF_QA_VA_EPF_PATH, ""); //$NON-NLS-1$
         defaults.put(VibePreferenceConstants.PREF_TERMINAL_CWD_MODE, "project"); //$NON-NLS-1$
         defaults.putBoolean(VibePreferenceConstants.PREF_TERMINAL_NO_COLOR, false);

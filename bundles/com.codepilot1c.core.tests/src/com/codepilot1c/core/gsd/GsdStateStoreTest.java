@@ -7,6 +7,7 @@
  */
 package com.codepilot1c.core.gsd;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -733,6 +734,30 @@ public class GsdStateStoreTest {
         assertEquals("portable-cycle", loaded.cycleId()); //$NON-NLS-1$
         assertEquals(7L, loaded.revision());
         assertEquals(before, snapshot(root));
+    }
+
+    @Test
+    public void macOsX86_64RosettaReadsGsdStateThroughNativeInode64Identity()
+            throws IOException {
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT); //$NON-NLS-1$ //$NON-NLS-2$
+        String arch = System.getProperty("os.arch", "").toLowerCase(java.util.Locale.ROOT); //$NON-NLS-1$ //$NON-NLS-2$
+        Assume.assumeTrue("requires a macOS x86_64 JVM (native Intel or Rosetta)", //$NON-NLS-1$
+                (os.contains("mac") || os.contains("darwin")) //$NON-NLS-1$ //$NON-NLS-2$
+                        && (arch.equals("x86_64") || arch.equals("amd64"))); //$NON-NLS-1$ //$NON-NLS-2$
+        Path root = tmp.newFolder("macos-x86-inode64-gsd-read").toPath(); //$NON-NLS-1$
+        Path gsd = Files.createDirectories(root.resolve(GsdStateStore.GSD_DIR_NAME));
+        Path statePath = Files.writeString(gsd.resolve(GsdStateStore.STATE_JSON),
+                portablePopulatedStateJson(), StandardCharsets.UTF_8);
+        byte[] before = Files.readAllBytes(statePath);
+
+        GsdState loaded = new GsdStateStore(root).loadReadOnly();
+
+        assertEquals("portable-cycle", loaded.cycleId()); //$NON-NLS-1$
+        assertEquals(7L, loaded.revision());
+        assertEquals("portable inspection", loaded.goal()); //$NON-NLS-1$
+        assertArrayEquals(before, Files.readAllBytes(statePath));
+        assertFalse(Files.exists(gsd.resolve(GsdStateStore.STATE_LOCK)));
+        assertFalse(Files.exists(gsd.resolve(GsdStateStore.STATE_BAK)));
     }
 
     @Test

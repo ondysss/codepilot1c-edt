@@ -17,6 +17,7 @@ import java.util.Set;
 
 import com.codepilot1c.core.agent.AgentConfig;
 import com.codepilot1c.core.agent.prompts.AgentPromptTemplates;
+import com.codepilot1c.core.gsd.GsdFeatureGate;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
 
@@ -98,12 +99,37 @@ public class AgentProfileRegistry {
         return Optional.ofNullable(profiles.get(profileId));
     }
 
+    /** Returns a registered profile only when its feature is currently available. */
+    public Optional<AgentProfile> getAvailableProfile(String profileId) {
+        AgentProfile profile = profiles.get(profileId);
+        return profile != null && GsdFeatureGate.getInstance()
+                .isProfileAvailable(profile.getId())
+                ? Optional.of(profile)
+                : Optional.empty();
+    }
+
     /**
-     * Возвращает все зарегистрированные профили.
+     * Возвращает все доступные профили.
      *
      * @return коллекция профилей
      */
     public Collection<AgentProfile> getAllProfiles() {
+        return getAvailableProfiles();
+    }
+
+    /**
+     * Returns profiles that may currently be selected by UI, remote, MCP, and
+     * other runtime consumers.
+     */
+    public Collection<AgentProfile> getAvailableProfiles() {
+        GsdFeatureGate gate = GsdFeatureGate.getInstance();
+        return profiles.values().stream()
+                .filter(profile -> gate.isProfileAvailable(profile.getId()))
+                .toList();
+    }
+
+    /** Returns every registered profile, including feature-disabled profiles. */
+    public Collection<AgentProfile> getRegisteredProfiles() {
         return Collections.unmodifiableCollection(profiles.values());
     }
 
@@ -113,7 +139,9 @@ public class AgentProfileRegistry {
      * @return профиль по умолчанию
      */
     public AgentProfile getDefaultProfile() {
-        return profiles.getOrDefault(defaultProfileId, new BuildAgentProfile());
+        return getAvailableProfile(defaultProfileId)
+                .orElseGet(() -> profiles.getOrDefault(
+                        BuildAgentProfile.ID, new BuildAgentProfile()));
     }
 
     /**
@@ -134,6 +162,11 @@ public class AgentProfileRegistry {
      * @return конфигурация
      */
     public AgentConfig createConfig(AgentProfile profile) {
+        if (profile == null || !GsdFeatureGate.getInstance()
+                .isProfileAvailable(profile.getId())) {
+            throw new IllegalArgumentException("Agent profile is not available: " //$NON-NLS-1$
+                    + (profile != null ? profile.getId() : "")); //$NON-NLS-1$
+        }
         ProfileOverride override = ProfileConfigStore.getInstance()
                 .getOverride(profile.getId()).orElse(null);
 
@@ -188,7 +221,12 @@ public class AgentProfileRegistry {
      * @return конфигурация или конфигурация по умолчанию
      */
     public AgentConfig createConfig(String profileId) {
-        AgentProfile profile = getProfile(profileId).orElse(getDefaultProfile());
+        Optional<AgentProfile> registered = getProfile(profileId);
+        if (registered.isPresent() && getAvailableProfile(profileId).isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Agent profile is disabled: " + profileId); //$NON-NLS-1$
+        }
+        AgentProfile profile = getAvailableProfile(profileId).orElse(getDefaultProfile());
         return createConfig(profile);
     }
 

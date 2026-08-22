@@ -122,6 +122,8 @@ public final class VibePreferenceConstants {
         "mcp.host.session.idleTimeoutSeconds"; //$NON-NLS-1$
 
     // Feature flags
+    /** Workspace feature flag for the GSD workflow. */
+    public static final String PREF_GSD_ENABLED = "gsd.enabled"; //$NON-NLS-1$
     /** Feature flag: enable LLM-based history compaction instead of lossy truncation. */
     public static final String PREF_ENABLE_LLM_COMPACTION = "codepilot.feature.llm_compaction"; //$NON-NLS-1$
 

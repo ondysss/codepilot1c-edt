@@ -26,6 +26,7 @@ import org.eclipse.core.runtime.IExtensionRegistry;
 import org.eclipse.core.runtime.Platform;
 
 import com.codepilot1c.core.evaluation.trace.AgentTraceSession;
+import com.codepilot1c.core.gsd.GsdFeatureGate;
 import com.google.gson.Gson;
 
 import com.codepilot1c.core.logging.VibeLogger;
@@ -565,6 +566,24 @@ public class ToolRegistry {
     }
 
     /**
+     * Returns the provider-neutral model-facing registry snapshot.
+     *
+     * <p>Registration and direct lookup remain unchanged; feature visibility
+     * is applied only at the publication boundary.</p>
+     */
+    public synchronized List<ToolResolution> getModelFacingToolResolutions() {
+        GsdFeatureGate gate = GsdFeatureGate.getInstance();
+        return getAllToolResolutions().stream()
+                .filter(resolution -> gate.isToolVisible(resolution.name()))
+                .toList();
+    }
+
+    /** Returns whether a registered tool is currently model-facing. */
+    public boolean isToolModelFacing(String toolName) {
+        return GsdFeatureGate.getInstance().isToolVisible(toolName);
+    }
+
+    /**
      * Atomically claims a resolution only if its opaque slot remains current.
      * The returned exact implementation must be invoked after this method
      * releases the registry monitor.
@@ -968,13 +987,15 @@ public class ToolRegistry {
 
     public List<ToolDefinition> getToolDefinitions(AgentProfile profile) {
         ToolSurfaceContext baseContext = createRuntimeSurfaceContext(profile);
-        return getAllTools().stream()
+        return getModelFacingToolResolutions().stream()
+                .map(ToolResolution::tool)
                 .map(tool -> getToolDefinition(tool, baseContext))
                 .collect(Collectors.toList());
     }
 
     public List<ToolDefinition> getToolDefinitions(ToolSurfaceContext baseContext) {
-        return getAllTools().stream()
+        return getModelFacingToolResolutions().stream()
+                .map(ToolResolution::tool)
                 .map(tool -> getToolDefinition(tool, baseContext))
                 .collect(Collectors.toList());
     }

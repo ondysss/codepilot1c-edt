@@ -87,6 +87,11 @@ public class VibePreferencePage extends FieldEditorPreferencePage implements IWo
                 Messages.PreferencePage_ShowTokenUsageLabel,
                 getFieldEditorParent()));
 
+        addField(new BooleanFieldEditor(
+                VibePreferenceConstants.PREF_GSD_ENABLED,
+                Messages.PreferencePage_GsdEnabledLabel,
+                getFieldEditorParent()));
+
         FileFieldEditor vaEpfEditor = new FileFieldEditor(
                 VibePreferenceConstants.PREF_QA_VA_EPF_PATH,
                 Messages.PreferencePage_VaEpfPathLabel,
