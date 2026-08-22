@@ -3,6 +3,9 @@ package com.codepilot1c.core.agent.prompts;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.util.List;
+import java.util.Set;
+
 import org.junit.Test;
 
 /**
@@ -14,10 +17,34 @@ import org.junit.Test;
  * be rejected. The correct behaviour is to keep the task non-DONE, report
  * the blocker via evidence, and let the user decide.</p>
  *
- * <p>The only documented rollback is VERIFYING &rarr; EXECUTING via
- * gsd_transition with a reason.</p>
+ * <p>Documented rollbacks match the domain transition matrix, including
+ * reasoned recovery from a failed shipment.</p>
  */
 public class GsdExecutePromptTest {
+
+    @Test
+    public void finalParityPassReplacesOverrideToolGuidanceAndStaleInstructions() {
+        String overridden = """
+                # Provider override
+                Use write_file to change source.
+
+                ## Инструменты
+                write_file, mcp_docs_lookup.
+
+                ## Формат
+                Report evidence.
+                """;
+        String prompt = AgentPromptTemplates.enforceGsdToolParity(
+                overridden,
+                Set.of("read_file", "mcp_docs_lookup"), //$NON-NLS-1$ //$NON-NLS-2$
+                List.of("read_file", "write_file", "mcp_docs_lookup")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+
+        assertFalse(prompt.contains("write_file")); //$NON-NLS-1$
+        assertTrue(prompt.contains("mcp_docs_lookup, read_file.")); //$NON-NLS-1$
+        assertTrue(prompt.contains("## Формат")); //$NON-NLS-1$
+        assertTrue(prompt.lastIndexOf("## Инструменты") //$NON-NLS-1$
+                > prompt.indexOf("## Формат")); //$NON-NLS-1$
+    }
 
     @Test
     public void executePromptDoesNotInstructVerifyTransitionForBlockedTask() {
@@ -43,12 +70,24 @@ public class GsdExecutePromptTest {
     }
 
     @Test
-    public void executePromptDocumentsOnlyRollbackIsVerifyingToExecuting() {
+    public void executePromptDocumentsCompleteRollbackMatrix() {
         String prompt = AgentPromptTemplates.buildGsdExecutePrompt();
 
-        assertTrue(
-                "Execute prompt must document that the only valid rollback is VERIFYING->EXECUTING", //$NON-NLS-1$
-                prompt.contains("VERIFYING->EXECUTING")); //$NON-NLS-1$
+        assertTrue(prompt.contains("VERIFYING->EXECUTING")); //$NON-NLS-1$
+        assertTrue(prompt.contains("SHIPPING->VERIFYING")); //$NON-NLS-1$
+        assertTrue(prompt.contains("SHIPPING->EXECUTING")); //$NON-NLS-1$
+        assertFalse(prompt.contains("Единственный допустимый rollback")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void shipPromptExplainsFailedShipmentRecovery() {
+        String prompt = AgentPromptTemplates.buildGsdShipPrompt();
+
+        assertTrue(prompt.contains("FAILED shipment")); //$NON-NLS-1$
+        assertTrue(prompt.contains("SHIPPING->VERIFYING")); //$NON-NLS-1$
+        assertTrue(prompt.contains("SHIPPING->EXECUTING")); //$NON-NLS-1$
+        assertTrue(prompt.contains("reason")); //$NON-NLS-1$
+        assertTrue(prompt.contains("model-facing инструмента замены цикла нет")); //$NON-NLS-1$
     }
 
     @Test

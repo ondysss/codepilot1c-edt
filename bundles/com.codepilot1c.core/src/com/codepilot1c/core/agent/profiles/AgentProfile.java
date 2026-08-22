@@ -48,9 +48,31 @@ public interface AgentProfile {
     /**
      * Разрешенные инструменты для этого профиля.
      *
+     * <p>The set is exact for statically registered tools: an empty set means
+     * no static tools, never a wildcard. Runtime tools are governed separately
+     * by {@link #getDynamicToolGrant()} and trusted local registration
+     * provenance.</p>
+     *
+     * <p><strong>Migration:</strong> external profile implementations that
+     * previously returned an empty set to request every tool must now return
+     * explicit static tool names and override {@code getDynamicToolGrant()} for
+     * the strongest reviewed runtime capability they accept.</p>
+     *
      * @return набор имен инструментов
      */
     Set<String> getAllowedTools();
+
+    /**
+     * Strongest explicitly classified runtime tool capability accepted by
+     * this profile. Generic unclassified runtime registrations remain denied;
+     * untrusted MCP tools are explicitly classified mutating and therefore
+     * require a mutating profile plus runtime confirmation.
+     *
+     * @return runtime capability grant; defaults fail closed
+     */
+    default DynamicToolCapability getDynamicToolGrant() {
+        return DynamicToolCapability.NONE;
+    }
 
     /**
      * Правила разрешений по умолчанию.

@@ -10,6 +10,7 @@ package com.codepilot1c.core.tools;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -17,6 +18,8 @@ import com.codepilot1c.core.evaluation.trace.AgentTraceSession;
 import com.codepilot1c.core.evaluation.trace.TraceEventType;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.model.ToolCall;
+import com.codepilot1c.core.tools.ToolRegistry.ToolResolution;
+import com.google.gson.JsonObject;
 
 /**
  * Executes tool calls with argument parsing, logging, and tracing.
@@ -31,6 +34,8 @@ import com.codepilot1c.core.model.ToolCall;
  * </pre>
  */
 public class ToolExecutionService {
+
+    public static final String STALE_RESOLUTION_ERROR = "stale_tool_resolution"; //$NON-NLS-1$
 
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(ToolExecutionService.class);
 
@@ -150,10 +155,10 @@ public class ToolExecutionService {
             AgentTraceSession traceSession, String parentEventId, ToolExecutionContext context) {
         LOG.debug("Executing tool with pre-parsed args: %s", toolCall.getName()); //$NON-NLS-1$
 
-        ToolLogger toolLogger = ToolLogger.getInstance();
         Map<String, Object> approvedParameters = parameters != null
                 ? parameters
                 : Collections.emptyMap();
+        ToolLogger toolLogger = ToolLogger.getInstance();
         ITool tool = registry.getTool(toolCall.getName());
         if (tool == null) {
             LOG.error("Unknown tool: %s (checked %d tools)", //$NON-NLS-1$
@@ -165,6 +170,65 @@ public class ToolExecutionService {
             writeToolResultTrace(traceSession, traceToolCallEventId, toolCall, failResult, 0, null, false);
             return CompletableFuture.completedFuture(failResult);
         }
+
+        return executeResolved(toolCall, approvedParameters, traceSession, parentEventId,
+                context, tool);
+    }
+
+    /**
+     * Executes the exact registry implementation authorized by the caller if
+     * its opaque effective slot is unchanged. The registry claim is completed
+     * before logging, tracing, contract inspection, or tool execution begins.
+     * No lookup by name occurs after validation.
+     *
+     * @return empty when the authorized registry resolution is stale
+     */
+    public Optional<CompletableFuture<ToolResult>> executeIfCurrent(
+            ToolCall toolCall, Map<String, Object> parameters,
+            AgentTraceSession traceSession, String parentEventId,
+            ToolExecutionContext context, ToolResolution resolution) {
+        if (toolCall == null || resolution == null
+                || !Objects.equals(toolCall.getName(), resolution.name())) {
+            return Optional.empty();
+        }
+        Map<String, Object> approvedParameters = parameters != null
+                ? parameters
+                : Collections.emptyMap();
+        Optional<ToolResolution> claimed = claimIfCurrent(resolution);
+        if (claimed.isEmpty()) {
+            return Optional.empty();
+        }
+        ToolResolution exact = claimed.get();
+        LOG.debug("Executing exact tool with pre-parsed args: %s", toolCall.getName()); //$NON-NLS-1$
+        return Optional.of(executeResolved(
+                toolCall, approvedParameters, traceSession, parentEventId,
+                context, exact.tool()));
+    }
+
+    /**
+     * Claims an authorized registry slot without invoking it. This supports
+     * UI-owned execution substitutes such as accepted diff application.
+     */
+    public Optional<ToolResolution> claimIfCurrent(ToolResolution resolution) {
+        return registry.dispatchIfCurrent(resolution);
+    }
+
+    /** Deterministic fail-closed result for an authorization slot that changed before dispatch. */
+    public static ToolResult staleResolutionResult(String toolName) {
+        JsonObject data = new JsonObject();
+        data.addProperty("error", STALE_RESOLUTION_ERROR); //$NON-NLS-1$
+        data.addProperty("tool", toolName != null ? toolName : ""); //$NON-NLS-1$ //$NON-NLS-2$
+        data.addProperty("reason", STALE_RESOLUTION_ERROR); //$NON-NLS-1$
+        data.addProperty("reason_code", STALE_RESOLUTION_ERROR); //$NON-NLS-1$
+        return ToolResult.failure(
+                "Tool authorization became stale before dispatch", data); //$NON-NLS-1$
+    }
+
+    private CompletableFuture<ToolResult> executeResolved(
+            ToolCall toolCall, Map<String, Object> approvedParameters,
+            AgentTraceSession traceSession, String parentEventId,
+            ToolExecutionContext context, ITool tool) {
+        ToolLogger toolLogger = ToolLogger.getInstance();
 
         boolean sensitive = isSensitive(tool);
 

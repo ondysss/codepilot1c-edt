@@ -6,6 +6,8 @@ import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,16 +17,22 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 import com.codepilot1c.core.agent.events.ToolResultEvent;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
 import com.codepilot1c.core.agent.profiles.ExploreAgentProfile;
+import com.codepilot1c.core.agent.prompts.SystemPromptAssembler;
 import com.codepilot1c.core.model.LlmMessage;
 import com.codepilot1c.core.model.LlmRequest;
 import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.ILlmProvider;
+import com.codepilot1c.core.session.Session;
+import com.codepilot1c.core.session.SessionManager;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolContextGate;
 import com.codepilot1c.core.tools.ToolRegistry;
@@ -36,6 +44,44 @@ import com.google.gson.JsonParser;
 import sun.misc.Unsafe;
 
 public class AgentRunnerBuildRequestTest {
+
+    @Rule
+    public TemporaryFolder temporaryFolder = new TemporaryFolder();
+
+    @Test
+    public void delegatedPromptUsesConfigIdentityInsteadOfGlobalSession() throws Exception {
+        SessionManager sessions = SessionManager.getInstance();
+        Session previous = sessions.getCurrentSession();
+        Path delegatedProject = temporaryFolder.newFolder("delegated-project").toPath(); //$NON-NLS-1$
+        Path globalProject = temporaryFolder.newFolder("global-project").toPath(); //$NON-NLS-1$
+        Files.writeString(delegatedProject.resolve("AGENTS.md"), "DELEGATED_PROJECT_IDENTITY"); //$NON-NLS-1$ //$NON-NLS-2$
+        Files.writeString(globalProject.resolve("AGENTS.md"), "GLOBAL_PROJECT_IDENTITY"); //$NON-NLS-1$ //$NON-NLS-2$
+        Session global = new Session("global-session"); //$NON-NLS-1$
+        global.setProjectPath(globalProject.toString());
+        sessions.setCurrentSession(global);
+        try {
+            AgentRunner runner = new AgentRunner(new NoopProvider(),
+                    isolatedRegistry(Map.of()), "system"); //$NON-NLS-1$
+            AgentConfig delegated = AgentConfig.builder()
+                    .profileName("explore") //$NON-NLS-1$
+                    .executionIdentity(delegatedProject.toString(), "delegated-session") //$NON-NLS-1$
+                    .build();
+
+            SystemPromptAssembler.AssemblyInput assemblyInput =
+                    runner.buildPromptAssemblyInput("query", delegated); //$NON-NLS-1$
+
+            String prompt = invokeBuildSystemPrompt(runner, "query", delegated); //$NON-NLS-1$
+
+            assertEquals(delegatedProject.toString(), assemblyInput.projectPath());
+            assertEquals("delegated-session", assemblyInput.sessionId()); //$NON-NLS-1$
+            assertFalse(globalProject.toString().equals(assemblyInput.projectPath()));
+            assertFalse(global.getId().equals(assemblyInput.sessionId()));
+            assertTrue(prompt.contains("DELEGATED_PROJECT_IDENTITY")); //$NON-NLS-1$
+            assertFalse(prompt.contains("GLOBAL_PROJECT_IDENTITY")); //$NON-NLS-1$
+        } finally {
+            sessions.setCurrentSession(previous);
+        }
+    }
 
     @Test
     public void sensitiveToolResultTracePayloadContainsOnlyMetadata() throws Exception {
@@ -97,6 +143,33 @@ public class AgentRunnerBuildRequestTest {
         assertFalse("Profile gate must exclude mutating tool", toolNames.contains("edit_file")); //$NON-NLS-1$ //$NON-NLS-2$
         assertFalse("Context gate must exclude primed tool", toolNames.contains("bsl_list_methods")); //$NON-NLS-1$ //$NON-NLS-2$
         assertFalse("Config disable list must exclude tool", toolNames.contains("glob")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void buildRequestUsesTrustedRuntimeCapabilitiesAcrossProfiles() throws Exception {
+        ToolRegistry registry = isolatedRegistry(Map.of());
+        registry.registerDynamicTool(tool("mcp_runtime_lookup"), //$NON-NLS-1$
+                DynamicToolCapability.READ_ONLY);
+        registry.registerDynamicTool(tool("mcp_runtime_update"), //$NON-NLS-1$
+                DynamicToolCapability.MUTATING);
+        registry.registerDynamicTool(tool("mcp_runtime_unknown")); //$NON-NLS-1$
+        AgentRunner runner = new AgentRunner(new NoopProvider(), registry, "system"); //$NON-NLS-1$
+        primeHistory(runner);
+        primeContextGate(runner, Set.of());
+
+        Set<String> explore = invokeBuildRequest(runner, AgentConfig.builder()
+                .profileName("explore").build()).getTools().stream() //$NON-NLS-1$
+                .map(ToolDefinition::getName).collect(Collectors.toSet());
+        assertTrue(explore.contains("mcp_runtime_lookup")); //$NON-NLS-1$
+        assertFalse(explore.contains("mcp_runtime_update")); //$NON-NLS-1$
+        assertFalse(explore.contains("mcp_runtime_unknown")); //$NON-NLS-1$
+
+        Set<String> build = invokeBuildRequest(runner, AgentConfig.builder()
+                .profileName("build").build()).getTools().stream() //$NON-NLS-1$
+                .map(ToolDefinition::getName).collect(Collectors.toSet());
+        assertTrue(build.contains("mcp_runtime_lookup")); //$NON-NLS-1$
+        assertTrue(build.contains("mcp_runtime_update")); //$NON-NLS-1$
+        assertFalse(build.contains("mcp_runtime_unknown")); //$NON-NLS-1$
     }
 
     @Test
@@ -196,6 +269,14 @@ public class AgentRunnerBuildRequestTest {
         return (LlmRequest) method.invoke(runner, config);
     }
 
+    private static String invokeBuildSystemPrompt(
+            AgentRunner runner, String prompt, AgentConfig config) throws Exception {
+        Method method = AgentRunner.class.getDeclaredMethod(
+                "buildSystemPrompt", String.class, AgentConfig.class); //$NON-NLS-1$
+        method.setAccessible(true);
+        return (String) method.invoke(runner, prompt, config);
+    }
+
     private static void primeContextGate(AgentRunner runner, Set<String> excludedTools) throws Exception {
         Field field = AgentRunner.class.getDeclaredField("contextGate"); //$NON-NLS-1$
         field.setAccessible(true);
@@ -224,6 +305,8 @@ public class AgentRunnerBuildRequestTest {
         ToolRegistry registry = (ToolRegistry) unsafe().allocateInstance(ToolRegistry.class);
         setField(registry, "tools", new HashMap<>(tools)); //$NON-NLS-1$
         setField(registry, "dynamicTools", new ConcurrentHashMap<String, ITool>()); //$NON-NLS-1$
+        setField(registry, "dynamicToolCapabilities", //$NON-NLS-1$
+                new ConcurrentHashMap<String, DynamicToolCapability>());
         setField(registry, "gson", new Gson()); //$NON-NLS-1$
         setField(registry, "augmentor", ToolSurfaceAugmentor.passthrough()); //$NON-NLS-1$
         return registry;

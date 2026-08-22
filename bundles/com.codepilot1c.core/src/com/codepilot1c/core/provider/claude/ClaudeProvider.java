@@ -24,6 +24,7 @@ import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.AbstractLlmProvider;
 import com.codepilot1c.core.provider.LlmProviderException;
+import com.codepilot1c.core.provider.LlmRequestCancellation;
 import com.codepilot1c.core.provider.ProviderCapabilities;
 import com.codepilot1c.core.provider.config.ProviderMessageContentSerializer;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
@@ -39,10 +40,6 @@ public class ClaudeProvider extends AbstractLlmProvider {
 
     private static final String API_VERSION = "2023-06-01"; //$NON-NLS-1$
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(ClaudeProvider.class);
-
-    // Accumulate tool calls during streaming
-    private final List<StreamingToolCall> streamingToolCalls = new ArrayList<>();
-    private boolean streamCompletionSent = false;
 
     @Override
     public String getId() {
@@ -97,11 +94,18 @@ public class ClaudeProvider extends AbstractLlmProvider {
 
     @Override
     public CompletableFuture<LlmResponse> complete(LlmRequest request) {
-        resetCancelled();
+        return complete(request, new LlmRequestCancellation());
+    }
+
+    @Override
+    public CompletableFuture<LlmResponse> complete(
+            LlmRequest request, LlmRequestCancellation cancellation) {
+        LlmRequestCancellation requestCancellation = beginRequest(cancellation);
         long startTime = System.currentTimeMillis();
         String correlationId = LogSanitizer.newCorrelationId();
 
         if (!isConfigured()) {
+            endRequest(requestCancellation);
             LOG.warn("[%s] Claude API key is not configured", correlationId); //$NON-NLS-1$
             return CompletableFuture.failedFuture(
                     new LlmProviderException("Claude API key is not configured")); //$NON-NLS-1$
@@ -117,7 +121,7 @@ public class ClaudeProvider extends AbstractLlmProvider {
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build();
 
-        return sendAsync(httpRequest)
+        return sendAsync(httpRequest, requestCancellation)
                 .thenApply(response -> {
                     LlmResponse llmResponse = parseResponse(response);
                     long duration = System.currentTimeMillis() - startTime;
@@ -128,6 +132,7 @@ public class ClaudeProvider extends AbstractLlmProvider {
                     return llmResponse;
                 })
                 .whenComplete((result, error) -> {
+                    endRequest(requestCancellation);
                     if (error != null) {
                         LOG.error("[%s] Claude request failed after %s: %s", //$NON-NLS-1$
                                 correlationId, LogSanitizer.formatDuration(System.currentTimeMillis() - startTime),
@@ -138,11 +143,19 @@ public class ClaudeProvider extends AbstractLlmProvider {
 
     @Override
     public void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer) {
-        resetCancelled();
+        streamComplete(request, consumer, new LlmRequestCancellation());
+    }
+
+    @Override
+    public void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer,
+            LlmRequestCancellation cancellation) {
+        LlmRequestCancellation requestCancellation = beginRequest(cancellation);
+        StreamState state = new StreamState();
         long startTime = System.currentTimeMillis();
         String correlationId = LogSanitizer.newCorrelationId();
 
         if (!isConfigured()) {
+            endRequest(requestCancellation);
             LOG.warn("[%s] Claude API key is not configured (stream)", correlationId); //$NON-NLS-1$
             throw new LlmProviderException("Claude API key is not configured"); //$NON-NLS-1$
         }
@@ -159,19 +172,24 @@ public class ClaudeProvider extends AbstractLlmProvider {
 
         final LlmProviderException[] error = { null };
 
-        sendAsyncStreaming(
-                httpRequest,
-                (line, complete) -> processStreamLine(line, consumer, complete),
-                ex -> {
-                    if (ex instanceof LlmProviderException) {
-                        error[0] = (LlmProviderException) ex;
-                    } else {
-                        error[0] = new LlmProviderException("Failed to stream from Claude API", ex); //$NON-NLS-1$
-                    }
-                    LOG.error("[%s] Claude stream error: %s", correlationId, error[0].getMessage()); //$NON-NLS-1$
-                    consumer.accept(LlmStreamChunk.error(error[0].getMessage()));
-                }
-        ).join(); // Block here to maintain method contract, but streaming happens async
+        try {
+            sendAsyncStreaming(
+                    httpRequest,
+                    (line, complete) -> processStreamLine(state, line, consumer, complete),
+                    ex -> {
+                        if (ex instanceof LlmProviderException) {
+                            error[0] = (LlmProviderException) ex;
+                        } else {
+                            error[0] = new LlmProviderException("Failed to stream from Claude API", ex); //$NON-NLS-1$
+                        }
+                        LOG.error("[%s] Claude stream error: %s", correlationId, error[0].getMessage()); //$NON-NLS-1$
+                        consumer.accept(LlmStreamChunk.error(error[0].getMessage()));
+                    },
+                    requestCancellation
+            ).join(); // Block here to maintain method contract, but streaming happens async
+        } finally {
+            endRequest(requestCancellation);
+        }
 
         long duration = System.currentTimeMillis() - startTime;
         if (error[0] != null) {
@@ -181,7 +199,8 @@ public class ClaudeProvider extends AbstractLlmProvider {
         LOG.info("[%s] Claude stream completed in %s", correlationId, LogSanitizer.formatDuration(duration)); //$NON-NLS-1$
     }
 
-    private void processStreamLine(String line, Consumer<LlmStreamChunk> consumer, Runnable complete) {
+    void processStreamLine(StreamState state, String line,
+            Consumer<LlmStreamChunk> consumer, Runnable complete) {
         if (!line.startsWith("data: ")) { //$NON-NLS-1$
             return;
         }
@@ -215,8 +234,8 @@ public class ClaudeProvider extends AbstractLlmProvider {
                     return;
                 }
 
-                ensureStreamingToolCallSlot(index);
-                StreamingToolCall tc = streamingToolCalls.get(index);
+                ensureStreamingToolCallSlot(state, index);
+                StreamingToolCall tc = state.toolCalls.get(index);
 
                 if (contentBlock.has("id")) { //$NON-NLS-1$
                     tc.id = contentBlock.get("id").getAsString(); //$NON-NLS-1$
@@ -251,16 +270,16 @@ public class ClaudeProvider extends AbstractLlmProvider {
                 // Example: {"type":"input_json_delta","partial_json":"{\"query\":\"...\""}
                 if (delta.has("type") && "input_json_delta".equals(delta.get("type").getAsString()) //$NON-NLS-1$ //$NON-NLS-2$
                         && delta.has("partial_json")) { //$NON-NLS-1$
-                    ensureStreamingToolCallSlot(index);
-                    StreamingToolCall tc = streamingToolCalls.get(index);
+                    ensureStreamingToolCallSlot(state, index);
+                    StreamingToolCall tc = state.toolCalls.get(index);
                     tc.input.append(delta.get("partial_json").getAsString()); //$NON-NLS-1$
                 }
             } else if ("message_stop".equals(type)) { //$NON-NLS-1$
                 // If tools were requested during streaming, emit them before completion.
-                if (!streamCompletionSent) {
-                    List<ToolCall> toolCalls = finalizeStreamingToolCalls();
+                if (!state.completionSent) {
+                    List<ToolCall> toolCalls = finalizeStreamingToolCalls(state);
                     if (!toolCalls.isEmpty()) {
-                        streamCompletionSent = true;
+                        state.completionSent = true;
                         consumer.accept(LlmStreamChunk.toolCalls(toolCalls));
                         consumer.accept(LlmStreamChunk.complete(LlmResponse.FINISH_REASON_TOOL_USE));
                         complete.run();
@@ -276,20 +295,25 @@ public class ClaudeProvider extends AbstractLlmProvider {
         }
     }
 
-    private void ensureStreamingToolCallSlot(int index) {
-        while (streamingToolCalls.size() <= index) {
-            streamingToolCalls.add(new StreamingToolCall());
+    private void ensureStreamingToolCallSlot(StreamState state, int index) {
+        while (state.toolCalls.size() <= index) {
+            state.toolCalls.add(new StreamingToolCall());
         }
     }
 
-    private List<ToolCall> finalizeStreamingToolCalls() {
+    private List<ToolCall> finalizeStreamingToolCalls(StreamState state) {
         List<ToolCall> result = new ArrayList<>();
-        for (StreamingToolCall stc : streamingToolCalls) {
+        for (StreamingToolCall stc : state.toolCalls) {
             if (stc != null && stc.id != null && stc.name != null) {
                 result.add(new ToolCall(stc.id, stc.name, stc.input.toString()));
             }
         }
         return result;
+    }
+
+    static final class StreamState {
+        private final List<StreamingToolCall> toolCalls = new ArrayList<>();
+        private boolean completionSent;
     }
 
     private String buildRequestBody(LlmRequest request, boolean stream) {

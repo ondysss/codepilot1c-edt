@@ -1,7 +1,14 @@
 package com.codepilot1c.core.agent.prompts;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.regex.Pattern;
+
+import com.codepilot1c.core.agent.profiles.GsdProfileCapabilities;
 
 /**
  * Centralized system prompt templates for agent profiles.
@@ -406,17 +413,29 @@ public final class AgentPromptTemplates {
      * Returns the default GSD phase prompt for a registered GSD profile id.
      */
     public static String buildGsdPhasePrompt(String phaseId) {
+        return buildGsdPhasePrompt(phaseId, GsdProfileCapabilities.allowedTools(phaseId));
+    }
+
+    /**
+     * Builds a GSD prompt with tool guidance derived from the profile's
+     * authoritative capability set.
+     */
+    public static String buildGsdPhasePrompt(String phaseId, Set<String> allowedTools) {
         return switch (phaseId) {
-            case "gsd-discuss" -> buildGsdDiscussPrompt(); //$NON-NLS-1$
-            case "gsd-plan" -> buildGsdPlanPrompt(); //$NON-NLS-1$
-            case "gsd-execute" -> buildGsdExecutePrompt(); //$NON-NLS-1$
-            case "gsd-verify" -> buildGsdVerifyPrompt(); //$NON-NLS-1$
-            case "gsd-ship" -> buildGsdShipPrompt(); //$NON-NLS-1$
+            case "gsd-discuss" -> buildGsdDiscussPrompt(allowedTools); //$NON-NLS-1$
+            case "gsd-plan" -> buildGsdPlanPrompt(allowedTools); //$NON-NLS-1$
+            case "gsd-execute" -> buildGsdExecutePrompt(allowedTools); //$NON-NLS-1$
+            case "gsd-verify" -> buildGsdVerifyPrompt(allowedTools); //$NON-NLS-1$
+            case "gsd-ship" -> buildGsdShipPrompt(allowedTools); //$NON-NLS-1$
             default -> throw new IllegalArgumentException("Unknown GSD phase: " + phaseId); //$NON-NLS-1$
         };
     }
 
     public static String buildGsdDiscussPrompt() {
+        return buildGsdPhasePrompt("gsd-discuss"); //$NON-NLS-1$
+    }
+
+    private static String buildGsdDiscussPrompt(Set<String> allowedTools) {
         StringBuilder sb = new StringBuilder();
         sb.append("# Роль: GSD Discuss-фаза (обсуждение задачи)\n\n"); //$NON-NLS-1$
         sb.append("## Цель\n"); //$NON-NLS-1$
@@ -428,16 +447,7 @@ public final class AgentPromptTemplates {
         sb.append("4. Используй gsd_get_state чтобы узнать текущее состояние GSD.\n"); //$NON-NLS-1$
         sb.append("5. Фиксируй договорённости и допущения через gsd_record_decision.\n"); //$NON-NLS-1$
         sb.append("6. Переход к следующей фазе возможен только через gsd_transition по guard state-machine.\n\n"); //$NON-NLS-1$
-        sb.append("## Инструменты\n"); //$NON-NLS-1$
-        sb.append("read_file, glob, grep, list_files, git_inspect, get_diagnostics, get_bookmarks, get_tasks, "); //$NON-NLS-1$
-        sb.append("edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, "); //$NON-NLS-1$
-        sb.append("edt_get_configuration_properties, edt_get_problem_summary, edt_get_tags, edt_get_objects_by_tags, "); //$NON-NLS-1$
-        sb.append("edt_list_modules, edt_get_module_structure, edt_search_in_code, edt_get_method_call_hierarchy, edt_get_project_call_graph, "); //$NON-NLS-1$
-        sb.append("edt_go_to_definition, edt_get_symbol_info, inspect_form_layout, "); //$NON-NLS-1$
-        sb.append("bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, "); //$NON-NLS-1$
-        sb.append("bsl_get_method_body, bsl_analyze_method, bsl_module_context, bsl_module_exports, "); //$NON-NLS-1$
-        sb.append("inspect_platform_reference, skill, discover_tools, "); //$NON-NLS-1$
-        sb.append("gsd_get_state, gsd_record_decision, gsd_transition.\n\n"); //$NON-NLS-1$
+        appendGsdToolGuidance(sb, allowedTools);
         sb.append("## Формат результата\n"); //$NON-NLS-1$
         sb.append("1. Краткое резюме обсуждения, цель и scope.\n"); //$NON-NLS-1$
         sb.append("2. Явно зафиксированные допущения и ограничения.\n"); //$NON-NLS-1$
@@ -450,6 +460,10 @@ public final class AgentPromptTemplates {
     }
 
     public static String buildGsdPlanPrompt() {
+        return buildGsdPhasePrompt("gsd-plan"); //$NON-NLS-1$
+    }
+
+    private static String buildGsdPlanPrompt(Set<String> allowedTools) {
         StringBuilder sb = new StringBuilder();
         sb.append("# Роль: GSD Plan-фаза (планирование реализации)\n\n"); //$NON-NLS-1$
         sb.append("## Цель\n"); //$NON-NLS-1$
@@ -459,18 +473,9 @@ public final class AgentPromptTemplates {
         sb.append("2. Запрещены любые мутации исходного проекта, EDT, Git и shell-команды.\n"); //$NON-NLS-1$
         sb.append("3. Используй gsd_get_state чтобы прочитать текущее состояние и решения.\n"); //$NON-NLS-1$
         sb.append("4. Создавай и уточняй план через gsd_create_plan: задачи, приоритеты, зависимости, проверки.\n"); //$NON-NLS-1$
-        sb.append("5. Каждая задача должна быть выполнима и иметь чёткий критерий завершения.\n"); //$NON-NLS-1$
+        sb.append("5. Каждая задача должна быть выполнима и иметь чёткий критерий завершения; план обязан содержать хотя бы один acceptance criterion с required=true.\n"); //$NON-NLS-1$
         sb.append("6. Переход к Execute возможен только через gsd_transition по guard state-machine.\n\n"); //$NON-NLS-1$
-        sb.append("## Инструменты\n"); //$NON-NLS-1$
-        sb.append("read_file, glob, grep, list_files, git_inspect, get_diagnostics, get_bookmarks, get_tasks, "); //$NON-NLS-1$
-        sb.append("edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, "); //$NON-NLS-1$
-        sb.append("edt_get_configuration_properties, edt_get_problem_summary, edt_get_tags, edt_get_objects_by_tags, "); //$NON-NLS-1$
-        sb.append("edt_list_modules, edt_get_module_structure, edt_search_in_code, edt_get_method_call_hierarchy, edt_get_project_call_graph, "); //$NON-NLS-1$
-        sb.append("edt_go_to_definition, edt_get_symbol_info, inspect_form_layout, "); //$NON-NLS-1$
-        sb.append("bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, "); //$NON-NLS-1$
-        sb.append("bsl_get_method_body, bsl_analyze_method, bsl_module_context, bsl_module_exports, "); //$NON-NLS-1$
-        sb.append("inspect_platform_reference, skill, discover_tools, "); //$NON-NLS-1$
-        sb.append("gsd_get_state, gsd_create_plan, gsd_transition.\n\n"); //$NON-NLS-1$
+        appendGsdToolGuidance(sb, allowedTools);
         sb.append("## Формат результата\n"); //$NON-NLS-1$
         sb.append("1. Краткий анализ: что есть, ограничения, риски.\n"); //$NON-NLS-1$
         sb.append("2. gsd_create_plan со списком задач, зависимостями и acceptance criteria.\n"); //$NON-NLS-1$
@@ -482,6 +487,10 @@ public final class AgentPromptTemplates {
     }
 
     public static String buildGsdExecutePrompt() {
+        return buildGsdPhasePrompt("gsd-execute"); //$NON-NLS-1$
+    }
+
+    private static String buildGsdExecutePrompt(Set<String> allowedTools) {
         StringBuilder sb = new StringBuilder();
         sb.append("# Роль: GSD Execute-фаза (реализация задач)\n\n"); //$NON-NLS-1$
         sb.append("## Цель\n"); //$NON-NLS-1$
@@ -491,7 +500,7 @@ public final class AgentPromptTemplates {
         sb.append("   оставь задачу в текущем статусе (не переводи в DONE), зафиксировав блок через gsd_record_evidence с описанием причины,\n"); //$NON-NLS-1$
         sb.append("   и запроси решение или новый цикл планирования у пользователя.\n"); //$NON-NLS-1$
         sb.append("   (EXECUTING->PLANNING запрещён state-machine; переход в VERIFYING требует all DONE — blocked-задача его не пройдёт.)\n"); //$NON-NLS-1$
-        sb.append("   Единственный допустимый rollback: VERIFYING->EXECUTING через gsd_transition с reason.\n"); //$NON-NLS-1$
+        sb.append("   Допустимые rollback-переходы: VERIFYING->EXECUTING, SHIPPING->VERIFYING и SHIPPING->EXECUTING; каждый выполняется через gsd_transition с reason.\n"); //$NON-NLS-1$
         sb.append("2. Для каждой задачи сначала собери контекст, затем примени подходящий инструмент.\n"); //$NON-NLS-1$
         sb.append("3. Flow EDT-мутаций: edt_validate_request -> передай полученный validation_token без изменений -> "); //$NON-NLS-1$
         sb.append("create_metadata/create_form/add_metadata_child/update_metadata/mutate_form_model/delete_metadata -> get_diagnostics.\n"); //$NON-NLS-1$
@@ -500,20 +509,7 @@ public final class AgentPromptTemplates {
         sb.append("6. По завершении задачи сначала зафиксируй evidence через gsd_record_evidence (OBSERVED/TESTED/USER_ACCEPTED),\n"); //$NON-NLS-1$
         sb.append("   затем переведи задачу в DONE через gsd_update_task. DONE без не-INFERRED evidence заблокирован GsdGuard.\n"); //$NON-NLS-1$
         sb.append("7. После изменений запускай get_diagnostics и устраняй errors/warnings.\n\n"); //$NON-NLS-1$
-        sb.append("## Инструменты\n"); //$NON-NLS-1$
-        sb.append("read_file, glob, grep, list_files, git_inspect, get_diagnostics, get_bookmarks, get_tasks, "); //$NON-NLS-1$
-        sb.append("edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, "); //$NON-NLS-1$
-        sb.append("edt_get_configuration_properties, edt_get_problem_summary, edt_get_tags, edt_get_objects_by_tags, "); //$NON-NLS-1$
-        sb.append("edt_list_modules, edt_get_module_structure, edt_search_in_code, edt_get_method_call_hierarchy, edt_get_project_call_graph, "); //$NON-NLS-1$
-        sb.append("edt_go_to_definition, edt_get_symbol_info, inspect_form_layout, "); //$NON-NLS-1$
-        sb.append("bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, "); //$NON-NLS-1$
-        sb.append("bsl_get_method_body, bsl_analyze_method, bsl_module_context, bsl_module_exports, "); //$NON-NLS-1$
-        sb.append("inspect_platform_reference, skill, discover_tools, "); //$NON-NLS-1$
-        sb.append("gsd_get_state, gsd_update_task, gsd_record_evidence, gsd_transition, "); //$NON-NLS-1$
-        sb.append("edt_validate_request, "); //$NON-NLS-1$
-        sb.append("edit_file, write_file, ensure_module_artifact, "); //$NON-NLS-1$
-        sb.append("create_metadata, create_form, add_metadata_child, update_metadata, mutate_form_model, delete_metadata, "); //$NON-NLS-1$
-        sb.append("remember_fact.\n\n"); //$NON-NLS-1$
+        appendGsdToolGuidance(sb, allowedTools);
         sb.append("## Формат результата\n"); //$NON-NLS-1$
         sb.append("1. Что реализовано и какие файлы/объекты затронуты.\n"); //$NON-NLS-1$
         sb.append("2. gsd_record_evidence с фиксацией результата (OBSERVED/TESTED).\n"); //$NON-NLS-1$
@@ -527,6 +523,10 @@ public final class AgentPromptTemplates {
     }
 
     public static String buildGsdVerifyPrompt() {
+        return buildGsdPhasePrompt("gsd-verify"); //$NON-NLS-1$
+    }
+
+    private static String buildGsdVerifyPrompt(Set<String> allowedTools) {
         StringBuilder sb = new StringBuilder();
         sb.append("# Роль: GSD Verify-фаза (проверка реализации)\n\n"); //$NON-NLS-1$
         sb.append("## Цель\n"); //$NON-NLS-1$
@@ -536,23 +536,19 @@ public final class AgentPromptTemplates {
         sb.append("2. Проверяй факты инструментами, а не гипотезы.\n"); //$NON-NLS-1$
         sb.append("3. Используй gsd_get_state чтобы получить план и текущий статус задач.\n"); //$NON-NLS-1$
         sb.append("4. Сравни результат с acceptance criteria из плана.\n"); //$NON-NLS-1$
-        sb.append("5. Зафиксируй доказательства через gsd_record_evidence: что проверено, каким инструментом, вывод.\n"); //$NON-NLS-1$
-        sb.append("6. Переход к Ship возможен только через gsd_transition по guard state-machine.\n\n"); //$NON-NLS-1$
-        sb.append("## Инструменты\n"); //$NON-NLS-1$
-        sb.append("read_file, glob, grep, list_files, git_inspect, get_diagnostics, get_bookmarks, get_tasks, "); //$NON-NLS-1$
-        sb.append("edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, "); //$NON-NLS-1$
-        sb.append("edt_get_configuration_properties, edt_get_problem_summary, edt_get_tags, edt_get_objects_by_tags, "); //$NON-NLS-1$
-        sb.append("edt_list_modules, edt_get_module_structure, edt_search_in_code, edt_get_method_call_hierarchy, edt_get_project_call_graph, "); //$NON-NLS-1$
-        sb.append("edt_go_to_definition, edt_get_symbol_info, inspect_form_layout, "); //$NON-NLS-1$
-        sb.append("bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, "); //$NON-NLS-1$
-        sb.append("bsl_get_method_body, bsl_analyze_method, bsl_module_context, bsl_module_exports, "); //$NON-NLS-1$
-        sb.append("inspect_platform_reference, skill, discover_tools, "); //$NON-NLS-1$
-        sb.append("gsd_get_state, gsd_record_evidence, gsd_transition.\n\n"); //$NON-NLS-1$
+        sb.append("5. Для наблюдаемой проверки используй get_diagnostics, validate_query, qa_validate_feature, "); //$NON-NLS-1$
+        sb.append("inspect_template/inspect_role_rights или compile-only java_compile_probe по типу результата.\n"); //$NON-NLS-1$
+        sb.append("6. java_compile_probe не исполняет код и может вернуть probe_disabled; не подменяй этим реальную диагностику проекта.\n"); //$NON-NLS-1$
+        sb.append("7. Зафиксируй доказательства через gsd_record_evidence: что проверено, каким инструментом, вывод.\n"); //$NON-NLS-1$
+        sb.append("8. Для каждого acceptance criterion зафиксируй PASSED/FAILED через gsd_record_verification_outcome.\n"); //$NON-NLS-1$
+        sb.append("9. Переход к SHIPPING возможен только через gsd_transition после PASSED всех обязательных критериев.\n\n"); //$NON-NLS-1$
+        appendGsdToolGuidance(sb, allowedTools);
         sb.append("## Формат результата\n"); //$NON-NLS-1$
         sb.append("1. Общий вердикт: passed / needs_fix / blocked с обоснованием.\n"); //$NON-NLS-1$
         sb.append("2. gsd_record_evidence для каждого проверенного критерия.\n"); //$NON-NLS-1$
-        sb.append("3. Список найденных отклонений и рекомендации по исправлению.\n"); //$NON-NLS-1$
-        sb.append("4. Если нужны исправления — переход к Execute только через gsd_transition.\n"); //$NON-NLS-1$
+        sb.append("3. gsd_record_verification_outcome для каждого acceptance criterion.\n"); //$NON-NLS-1$
+        sb.append("4. Список найденных отклонений и рекомендации по исправлению.\n"); //$NON-NLS-1$
+        sb.append("5. Если нужны исправления — переход к Execute только через gsd_transition.\n"); //$NON-NLS-1$
         return PromptQualityAssurance.verify(
                 "gsd-verify", //$NON-NLS-1$
                 sb.toString(),
@@ -560,38 +556,102 @@ public final class AgentPromptTemplates {
     }
 
     public static String buildGsdShipPrompt() {
+        return buildGsdPhasePrompt("gsd-ship"); //$NON-NLS-1$
+    }
+
+    private static String buildGsdShipPrompt(Set<String> allowedTools) {
         StringBuilder sb = new StringBuilder();
         sb.append("# Роль: GSD Ship-фаза (финализация и доставка)\n\n"); //$NON-NLS-1$
         sb.append("## Цель\n"); //$NON-NLS-1$
         sb.append("Подготовить изменения к доставке: зафиксировать версию, создать необходимые release-артефакты, "); //$NON-NLS-1$
         sb.append("выполнить минимальные git-операции.\n\n"); //$NON-NLS-1$
         sb.append("## Операционный контракт\n"); //$NON-NLS-1$
-        sb.append("1. Проверь через gsd_get_state, что все задачи DONE и фаза VERIFYING завершена.\n"); //$NON-NLS-1$
+        sb.append("1. Проверь через gsd_get_state, что текущая фаза SHIPPING и все обязательные criteria PASSED.\n"); //$NON-NLS-1$
         sb.append("2. Переход из CLOSED в любую другую фазу запрещён state-machine. Если нужны изменения,\n"); //$NON-NLS-1$
-        sb.append("   создай новую GSD-сессию.\n"); //$NON-NLS-1$
-        sb.append("3. Переход в CLOSED через gsd_transition только при all DONE + non-INFERRED evidence (GsdGuard).\n"); //$NON-NLS-1$
-        sb.append("4. Допускаются только git-мутации и запись release-артефактов; не изменяй код, метаданные и формы EDT.\n"); //$NON-NLS-1$
-        sb.append("5. Используй git_inspect перед git_mutate для проверки состояния.\n"); //$NON-NLS-1$
-        sb.append("6. Заверши фазу через gsd_transition (VERIFYING->CLOSED) только по guard state-machine.\n\n"); //$NON-NLS-1$
-        sb.append("## Инструменты\n"); //$NON-NLS-1$
-        sb.append("read_file, glob, grep, list_files, git_inspect, get_diagnostics, get_bookmarks, get_tasks, "); //$NON-NLS-1$
-        sb.append("edt_content_assist, edt_find_references, edt_metadata_details, scan_metadata_index, "); //$NON-NLS-1$
-        sb.append("edt_get_configuration_properties, edt_get_problem_summary, edt_get_tags, edt_get_objects_by_tags, "); //$NON-NLS-1$
-        sb.append("edt_list_modules, edt_get_module_structure, edt_search_in_code, edt_get_method_call_hierarchy, edt_get_project_call_graph, "); //$NON-NLS-1$
-        sb.append("edt_go_to_definition, edt_get_symbol_info, inspect_form_layout, "); //$NON-NLS-1$
-        sb.append("bsl_symbol_at_position, bsl_type_at_position, bsl_scope_members, bsl_list_methods, "); //$NON-NLS-1$
-        sb.append("bsl_get_method_body, bsl_analyze_method, bsl_module_context, bsl_module_exports, "); //$NON-NLS-1$
-        sb.append("inspect_platform_reference, skill, discover_tools, "); //$NON-NLS-1$
-        sb.append("gsd_get_state, gsd_transition, git_mutate, write_file, remember_fact.\n\n"); //$NON-NLS-1$
+        sb.append("   запроси создание нового цикла через host workflow: model-facing инструмента замены цикла нет.\n"); //$NON-NLS-1$
+        sb.append("3. Запиши результат доставки через gsd_record_shipment; exact retry с актуальным token идемпотентен, другой shipment конфликтует.\n"); //$NON-NLS-1$
+        sb.append("4. FAILED shipment нельзя заменить повторной записью: для восстановления выполни обоснованный rollback через gsd_transition с reason — SHIPPING->VERIFYING для повторной проверки или SHIPPING->EXECUTING для исправлений.\n"); //$NON-NLS-1$
+        sb.append("5. write_file разрешён только для CHANGELOG.md, RELEASE_NOTES.md, release-notes.md и файлов "); //$NON-NLS-1$
+        sb.append("docs/release-notes/* или release-notes/* с расширением md/txt/json; не изменяй код, manifests, product/EDT metadata и формы EDT.\n"); //$NON-NLS-1$
+        sb.append("6. Используй git_inspect перед git_mutate; в Ship разрешены только операции add, commit и push.\n"); //$NON-NLS-1$
+        sb.append("7. Заверши фазу через gsd_transition (SHIPPING->CLOSED) только после COMPLETED shipment.\n\n"); //$NON-NLS-1$
+        appendGsdToolGuidance(sb, allowedTools);
         sb.append("## Формат результата\n"); //$NON-NLS-1$
-        sb.append("1. Список артефактов доставки и коммит/теги.\n"); //$NON-NLS-1$
+        sb.append("1. Список артефактов доставки и выполненных git-операций.\n"); //$NON-NLS-1$
         sb.append("2. Краткое release-ното с изменениями и проверками.\n"); //$NON-NLS-1$
-        sb.append("3. gsd_transition с финальным статусом.\n"); //$NON-NLS-1$
-        sb.append("4. Остаточные риски или рекомендации для rollout.\n"); //$NON-NLS-1$
+        sb.append("3. gsd_record_shipment с delivery reference и результатом.\n"); //$NON-NLS-1$
+        sb.append("4. gsd_transition с финальным статусом.\n"); //$NON-NLS-1$
+        sb.append("5. Остаточные риски или рекомендации для rollout.\n"); //$NON-NLS-1$
         return PromptQualityAssurance.verify(
                 "gsd-ship", //$NON-NLS-1$
                 sb.toString(),
                 List.of("## Роль", "## Цель", "## Операционный контракт", "## Инструменты", "## Формат результата")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+    }
+
+    private static void appendGsdToolGuidance(StringBuilder sb, Set<String> allowedTools) {
+        if (allowedTools == null) {
+            throw new IllegalArgumentException("GSD allowed tools must not be null"); //$NON-NLS-1$
+        }
+        sb.append("## Инструменты\n"); //$NON-NLS-1$
+        sb.append(String.join(", ", new TreeSet<>(allowedTools))).append(".\n\n"); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    /**
+     * Re-applies the authoritative GSD tool section after provider/filesystem
+     * overrides and removes override lines that instruct use of a registered
+     * but unavailable tool.
+     *
+     * @param prompt effective overridden prompt
+     * @param effectiveTools currently visible static and trusted runtime tools
+     * @param registeredToolNames all registered names used to detect stale instructions
+     * @return prompt whose tool guidance matches the effective runtime surface
+     */
+    public static String enforceGsdToolParity(
+            String prompt,
+            Set<String> effectiveTools,
+            Collection<String> registeredToolNames) {
+        if (effectiveTools == null) {
+            throw new IllegalArgumentException("GSD effective tools must not be null"); //$NON-NLS-1$
+        }
+        String withoutSections = Pattern.compile(
+                "(?ms)^## Инструменты\\R.*?(?=^## |\\z)") //$NON-NLS-1$
+                .matcher(prompt != null ? prompt : "") //$NON-NLS-1$
+                .replaceAll(""); //$NON-NLS-1$
+
+        Set<String> unavailable = new HashSet<>();
+        if (registeredToolNames != null) {
+            unavailable.addAll(registeredToolNames);
+        }
+        unavailable.removeAll(effectiveTools);
+
+        StringBuilder sanitized = new StringBuilder();
+        for (String line : withoutSections.split("\\R", -1)) { //$NON-NLS-1$
+            boolean staleInstruction = false;
+            for (String toolName : unavailable) {
+                if (containsToolToken(line, toolName)) {
+                    staleInstruction = true;
+                    break;
+                }
+            }
+            if (!staleInstruction) {
+                sanitized.append(line).append('\n');
+            }
+        }
+        while (sanitized.length() > 0
+                && Character.isWhitespace(sanitized.charAt(sanitized.length() - 1))) {
+            sanitized.setLength(sanitized.length() - 1);
+        }
+        sanitized.append("\n\n"); //$NON-NLS-1$
+        appendGsdToolGuidance(sanitized, effectiveTools);
+        return sanitized.toString();
+    }
+
+    private static boolean containsToolToken(String line, String toolName) {
+        if (line == null || toolName == null || toolName.isBlank()) {
+            return false;
+        }
+        return Pattern.compile("(?<![A-Za-z0-9_])" + Pattern.quote(toolName) //$NON-NLS-1$
+                + "(?![A-Za-z0-9_])").matcher(line).find(); //$NON-NLS-1$
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.codepilot1c.core.tools.metadata;
 import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.tools.ToolParameters;
+import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolMeta;
 import com.codepilot1c.core.tools.AbstractTool;
 
@@ -53,10 +54,16 @@ public class ScanMetadataIndexTool extends AbstractTool {
 
     @Override
     protected CompletableFuture<ToolResult> doExecute(ToolParameters params) {
+        return doExecute(params, ToolExecutionContext.unscoped());
+    }
+
+    @Override
+    protected CompletableFuture<ToolResult> doExecute(
+            ToolParameters params, ToolExecutionContext context) {
         return CompletableFuture.supplyAsync(() -> {
             Map<String, Object> parameters = params.getRaw();
             try {
-                String projectName = resolveProjectName(parameters);
+                String projectName = resolveProjectName(parameters, context);
                 if (projectName == null || projectName.isBlank()) {
                     return ToolResult.failure(missingProjectMessage());
                 }
@@ -79,13 +86,14 @@ public class ScanMetadataIndexTool extends AbstractTool {
      * active editor project, otherwise the single open workspace project. Returns {@code null} when
      * the project cannot be determined unambiguously.
      */
-    private String resolveProjectName(Map<String, Object> parameters) {
+    private String resolveProjectName(
+            Map<String, Object> parameters, ToolExecutionContext context) {
         Object raw = parameters.get("projectName"); //$NON-NLS-1$
         String name = raw == null ? null : String.valueOf(raw).trim();
         if (name != null && !name.isBlank()) {
             return name;
         }
-        return ActiveProjectSupport.resolveActiveProjectName();
+        return ActiveProjectSupport.resolveActiveProjectName(context);
     }
 
     private String missingProjectMessage() {

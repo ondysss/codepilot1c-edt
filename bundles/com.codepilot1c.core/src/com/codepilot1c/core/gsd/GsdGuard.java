@@ -49,6 +49,8 @@ public final class GsdGuard {
         checkDependencyGraph(state, violations);
         checkMutationIsolation(state, violations);
         checkProvenanceGuard(state, violations);
+        checkAcceptanceAndShipment(state, violations);
+        checkTransitionHistory(state, violations);
         if (!violations.isEmpty()) {
             throw new GsdGuardException("GSD state invariants violated", violations); //$NON-NLS-1$
         }
@@ -77,6 +79,29 @@ public final class GsdGuard {
         if (state.revision() < GsdState.INITIAL_REVISION) {
             violations.add("revision " + state.revision() + " is negative"); //$NON-NLS-1$ //$NON-NLS-2$
         }
+        if (state.cycleId() == null || state.cycleId().isBlank()) {
+            violations.add("cycleId must not be blank"); //$NON-NLS-1$
+        }
+        Set<String> usedCycleIds = new HashSet<>();
+        for (String usedCycleId : state.usedCycleIds()) {
+            if (usedCycleId == null || usedCycleId.isBlank()) {
+                violations.add("usedCycleIds must contain only non-blank ids"); //$NON-NLS-1$
+            } else if (!usedCycleIds.add(usedCycleId)) {
+                violations.add("duplicate used cycleId: " + usedCycleId); //$NON-NLS-1$
+            }
+        }
+        if (!usedCycleIds.contains(state.cycleId())) {
+            violations.add("usedCycleIds must preserve the current cycleId"); //$NON-NLS-1$
+        }
+        for (GsdTransition transition : state.transitionHistory()) {
+            if (!usedCycleIds.contains(transition.cycleId())) {
+                violations.add("usedCycleIds must preserve transition cycleId: " //$NON-NLS-1$
+                        + transition.cycleId());
+            }
+        }
+        if (state.generation() < GsdState.INITIAL_GENERATION) {
+            violations.add("generation " + state.generation() + " is negative"); //$NON-NLS-1$ //$NON-NLS-2$
+        }
         if (state.phase() == null) {
             violations.add("phase must not be null"); //$NON-NLS-1$
         }
@@ -90,6 +115,8 @@ public final class GsdGuard {
         checkUniqueIds("task", state.tasks().stream().map(GsdTask::id).iterator(), violations); //$NON-NLS-1$
         checkUniqueIds("wave", state.waves().stream().map(GsdWave::id).iterator(), violations); //$NON-NLS-1$
         checkUniqueIds("evidence", state.evidence().stream().map(GsdEvidence::id).iterator(), violations); //$NON-NLS-1$
+        checkUniqueIds("acceptance criterion", //$NON-NLS-1$
+                state.acceptanceCriteria().stream().map(GsdAcceptanceCriterion::id).iterator(), violations);
     }
 
     private static void checkUniqueIds(String kind, java.util.Iterator<String> ids, List<String> violations) {
@@ -163,6 +190,11 @@ public final class GsdGuard {
         for (GsdEvidence e : state.evidence()) {
             if (e.description().isBlank()) {
                 violations.add("evidence " + e.id() + " has blank description"); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+        }
+        for (GsdAcceptanceCriterion criterion : state.acceptanceCriteria()) {
+            if (criterion.description().isBlank()) {
+                violations.add("acceptance criterion " + criterion.id() + " has blank description"); //$NON-NLS-1$ //$NON-NLS-2$
             }
         }
     }
@@ -383,6 +415,113 @@ public final class GsdGuard {
                                 + "with capturedPhase VERIFYING"); //$NON-NLS-1$
                     }
                 }
+            }
+        }
+    }
+
+    private static void checkAcceptanceAndShipment(GsdState state, List<String> violations) {
+        GsdShipment shipment = state.shipment();
+        if (!shipment.emptyRecord()) {
+            if (shipment.id().isBlank()) {
+                violations.add("shipment id must not be blank"); //$NON-NLS-1$
+            }
+            if (shipment.deliveryReference().isBlank()) {
+                violations.add("shipment deliveryReference must not be blank"); //$NON-NLS-1$
+            }
+        }
+        if (shipment.status() == GsdShipmentStatus.COMPLETED && shipment.completedAt() == null) {
+            violations.add("completed shipment requires completedAt"); //$NON-NLS-1$
+        }
+        if (shipment.status() != GsdShipmentStatus.COMPLETED && shipment.completedAt() != null) {
+            violations.add("non-completed shipment must not have completedAt"); //$NON-NLS-1$
+        }
+        boolean legacyClosed = state.phase() == GsdPhase.CLOSED
+                && shipment.status() == GsdShipmentStatus.LEGACY_MIGRATED;
+        if ((state.phase() == GsdPhase.SHIPPING || state.phase() == GsdPhase.CLOSED)
+                && !legacyClosed) {
+            boolean hasRequired = false;
+            for (GsdAcceptanceCriterion criterion : state.acceptanceCriteria()) {
+                if (criterion.required()) {
+                    hasRequired = true;
+                    if (!criterion.passed()) {
+                        violations.add("required acceptance criterion " + criterion.id() //$NON-NLS-1$
+                                + " has not passed"); //$NON-NLS-1$
+                    }
+                }
+            }
+            if (!hasRequired) {
+                violations.add("SHIPPING/CLOSED requires at least one required acceptance criterion"); //$NON-NLS-1$
+            }
+        }
+        if (state.phase() == GsdPhase.CLOSED) {
+            if (!shipment.satisfiesClosure()) {
+                violations.add("phase is CLOSED but shipment is not completed"); //$NON-NLS-1$
+            }
+        }
+        if (shipment.status() == GsdShipmentStatus.LEGACY_MIGRATED
+                && (state.phase() != GsdPhase.CLOSED
+                        || !GsdState.LEGACY_CYCLE_ID.equals(state.cycleId())
+                        || !state.transitionHistory().isEmpty()
+                        || !state.usedCycleIds().equals(List.of(GsdState.LEGACY_CYCLE_ID)))) {
+            violations.add("LEGACY_MIGRATED shipment is valid only for an unmoved CLOSED v1 migration"); //$NON-NLS-1$
+        }
+    }
+
+    private static void checkTransitionHistory(GsdState state, List<String> violations) {
+        long previousRevision = -1L;
+        for (GsdTransition transition : state.transitionHistory()) {
+            if (transition.cycleId().isBlank()) {
+                violations.add("transition cycleId must not be blank"); //$NON-NLS-1$
+            }
+            if (transition.generation() < 0L || transition.revision() < 0L) {
+                violations.add("transition token values must not be negative"); //$NON-NLS-1$
+            }
+            if (transition.fromPhase() == null || transition.toPhase() == null) {
+                violations.add("transition phases must not be null"); //$NON-NLS-1$
+            }
+            if (transition.occurredAt() == null) {
+                violations.add("transition occurredAt must not be null"); //$NON-NLS-1$
+            }
+            boolean forward = (transition.fromPhase() == GsdPhase.DISCOVERY
+                    && transition.toPhase() == GsdPhase.PLANNING)
+                    || (transition.fromPhase() == GsdPhase.PLANNING
+                            && transition.toPhase() == GsdPhase.EXECUTING)
+                    || (transition.fromPhase() == GsdPhase.EXECUTING
+                            && transition.toPhase() == GsdPhase.VERIFYING)
+                    || (transition.fromPhase() == GsdPhase.VERIFYING
+                            && transition.toPhase() == GsdPhase.SHIPPING)
+                    || (transition.fromPhase() == GsdPhase.SHIPPING
+                            && transition.toPhase() == GsdPhase.CLOSED);
+            boolean verificationRollback = transition.fromPhase() == GsdPhase.VERIFYING
+                    && transition.toPhase() == GsdPhase.EXECUTING
+                    && !transition.reason().isBlank();
+            boolean shippingRollback = transition.fromPhase() == GsdPhase.SHIPPING
+                    && (transition.toPhase() == GsdPhase.VERIFYING
+                            || transition.toPhase() == GsdPhase.EXECUTING)
+                    && !transition.reason().isBlank();
+            boolean newCycle = transition.fromPhase() == GsdPhase.CLOSED
+                    && transition.toPhase() == GsdPhase.DISCOVERY
+                    && !transition.reason().isBlank();
+            if (!forward && !verificationRollback && !shippingRollback && !newCycle) {
+                violations.add("illegal transition history entry: " + transition.fromPhase() //$NON-NLS-1$
+                        + " -> " + transition.toPhase()); //$NON-NLS-1$
+            }
+            if (transition.generation() > state.generation()) {
+                violations.add("transition generation is newer than aggregate generation"); //$NON-NLS-1$
+            }
+            if (transition.cycleId().equals(state.cycleId())
+                    && transition.generation() == state.generation()) {
+                if (transition.revision() < previousRevision) {
+                    violations.add("transition history revisions are not monotonic"); //$NON-NLS-1$
+                }
+                previousRevision = transition.revision();
+            }
+        }
+        if (!state.transitionHistory().isEmpty()) {
+            GsdTransition latest = state.transitionHistory()
+                    .get(state.transitionHistory().size() - 1);
+            if (latest.toPhase() != state.phase()) {
+                violations.add("latest transition does not end at current phase " + state.phase()); //$NON-NLS-1$
             }
         }
     }

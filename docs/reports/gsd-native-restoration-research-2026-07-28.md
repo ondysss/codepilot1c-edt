@@ -85,7 +85,8 @@ OSGi/core/UI контрактов CodePilot1C, а не встраиваемым 
 1. Пять отдельных профилей: Discuss, Plan, Execute, Verify, Ship.
 2. Typed project state с monotonic revision вместо session-local mutable JSON.
 3. Атомарная запись, backup/recovery, JVM + OS locks и fail-closed corruption.
-4. Шесть узких provider-neutral tools вместо универсального `gsd_plan`.
+4. Восемь узких provider-neutral tools вместо универсального `gsd_plan`, включая
+   отдельные операции для verification outcome и shipment.
 5. Строгая state machine с entry guards и единственным обоснованным rollback.
 6. Evidence provenance: задача и workflow не закрываются на одном `INFERRED`.
 7. Content caps, Unicode sanitation, secret redaction и injection detection.
@@ -117,3 +118,18 @@ OSGi/core/UI контрактов CodePilot1C, а не встраиваемым 
 - UI чтение не создаёт и не восстанавливает файлы состояния.
 - EDT metadata mutation сохраняет обязательный validation-token flow.
 - Целевые тесты и `mvn -DskipTests package` из корня завершаются успешно.
+
+## Интегрированный контракт SHIPPING (2026-08-21)
+
+Реализованный workflow использует
+`DISCOVERY → PLANNING → EXECUTING → VERIFYING → SHIPPING → CLOSED`.
+`gsd_record_verification_outcome` фиксирует `PASSED`/`FAILED` для persisted acceptance
+criterion только в `VERIFYING`; обязательные criteria должны быть `PASSED` до перехода
+в `SHIPPING`. `gsd_record_shipment` фиксирует delivery result только в `SHIPPING`, не
+принимает `LEGACY_MIGRATED`, требует полный cycle/generation/revision token и не допускает
+замену уже записанного shipment. Exact duplicate с актуальным token — no-op; stale token
+не становится успешным retry.
+
+Все восемь built-in GSD tools регистрируются в `ToolRegistry.registerDefaultTools()`.
+UI-only tools по-прежнему регистрируются динамически из `com.codepilot1c.ui`; зависимости
+Core на UI API для GSD нет.

@@ -11,6 +11,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 import com.codepilot1c.core.agent.AgentConfig;
@@ -48,6 +49,11 @@ public class AgentSessionController {
         void onRemoteEvent(RemoteEvent event);
     }
 
+    @FunctionalInterface
+    interface RunnerFactory {
+        IAgentRunner create(ILlmProvider provider, ToolRegistry registry, String systemPromptAddition);
+    }
+
     private static final VibeLogger.CategoryLogger LOG = VibeLogger.forClass(AgentSessionController.class);
     private static final int MAX_EVENTS = 2_000;
 
@@ -65,22 +71,21 @@ public class AgentSessionController {
     private List<LlmMessage> conversationHistory = new ArrayList<>();
     private IAgentRunner activeRunner;
     private CompletableFuture<AgentResult> activeTask;
+    // Keeps reentrant stop/reset calls from cancelling a runner from its own cleanup callback.
+    private IAgentRunner runnerBeingCleaned;
     private ConfirmationRequiredEvent pendingAgentConfirmation;
     private PendingRemoteAction pendingRemoteAction;
     private AgentState currentState = AgentState.IDLE;
     private String lastErrorMessage;
-
-    private final IAgentEventListener forwardingListener = new IAgentEventListener() {
-        @Override
-        public void onEvent(AgentEvent event) {
-            handleAgentEvent(event);
-        }
-
-        @Override
-        public boolean handlesConfirmations() {
-            return true;
-        }
-    };
+    // A submission may commit only in the reset epoch in which it was prepared.
+    private long resetEpoch;
+    private boolean resetInProgress;
+    private RunnerFactory runnerFactory = LangGraphAgentRunner::new;
+    private Supplier<ToolRegistry> toolRegistrySupplier = ToolRegistry::getInstance;
+    private Supplier<ILlmProvider> providerSupplier =
+            () -> LlmProviderRegistry.getInstance().getActiveProvider();
+    private Function<AgentProfile, AgentConfig> configFactory =
+            profile -> AgentProfileRegistry.getInstance().createConfig(profile);
 
     public static synchronized AgentSessionController getInstance() {
         if (instance == null) {
@@ -126,30 +131,53 @@ public class AgentSessionController {
     }
 
     public RemoteBootstrapResponse buildBootstrap(String clientId, IdeSnapshot ideSnapshot) {
+        String capturedSessionId;
+        String capturedControllerClientId;
+        AgentState capturedState;
+        int historySize;
+        String capturedProfileId;
+        String capturedError;
+        boolean capturedRunning;
+        PendingRemoteAction remoteAction;
+        ConfirmationRequiredEvent agentConfirmation;
         synchronized (lock) {
-            return new RemoteBootstrapResponse(
-                    clientId,
-                    sessionId,
-                    clientId != null && clientId.equals(controllerClientId),
-                    controllerClientId,
-                    payload(
-                            "state", currentState.name(), //$NON-NLS-1$
-                            "running", Boolean.valueOf(isRunning()), //$NON-NLS-1$
-                            "profileId", currentProfileId, //$NON-NLS-1$
-                            "historySize", Integer.valueOf(conversationHistory.size()), //$NON-NLS-1$
-                            "lastError", lastErrorMessage != null ? lastErrorMessage : "" //$NON-NLS-1$ //$NON-NLS-2$
-                    ),
-                    currentPendingConfirmation(),
-                    ideSnapshot,
-                    availableProfiles());
+            capturedSessionId = sessionId;
+            capturedControllerClientId = controllerClientId;
+            capturedState = currentState;
+            historySize = conversationHistory.size();
+            capturedProfileId = currentProfileId;
+            capturedError = lastErrorMessage;
+            capturedRunning = activeRunner != null || activeTask != null;
+            remoteAction = pendingRemoteAction;
+            agentConfirmation = pendingAgentConfirmation;
         }
+        return new RemoteBootstrapResponse(
+                clientId,
+                capturedSessionId,
+                clientId != null && clientId.equals(capturedControllerClientId),
+                capturedControllerClientId,
+                payload(
+                        "state", capturedState.name(), //$NON-NLS-1$
+                        "running", Boolean.valueOf(capturedRunning), //$NON-NLS-1$
+                        "profileId", capturedProfileId, //$NON-NLS-1$
+                        "historySize", Integer.valueOf(historySize), //$NON-NLS-1$
+                        "lastError", capturedError != null ? capturedError : "" //$NON-NLS-1$ //$NON-NLS-2$
+                ),
+                pendingConfirmationPayload(remoteAction, agentConfirmation),
+                ideSnapshot,
+                availableProfiles());
     }
 
     public RemoteCommandResult startNewSession(String prompt, String profileId, String clientId) {
         Objects.requireNonNull(prompt, "prompt"); //$NON-NLS-1$
+        String normalizedProfile = normalizeProfile(profileId);
+        long expectedResetEpoch;
         synchronized (lock) {
             if (!canControl(clientId)) {
                 return leaseConflict();
+            }
+            if (resetInProgress) {
+                return resetAdmissionUnavailable();
             }
             if (isRunning()) {
                 return RemoteCommandResult.error("agent_busy", "Сессия агента уже выполняется"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -157,38 +185,55 @@ public class AgentSessionController {
             sessionId = UUID.randomUUID().toString();
             conversationHistory = new ArrayList<>();
             lastErrorMessage = null;
-            currentProfileId = normalizeProfile(profileId);
+            currentProfileId = normalizedProfile;
+            expectedResetEpoch = resetEpoch;
         }
-        emitRemote("session_reset", payload("reason", "start")); //$NON-NLS-1$ //$NON-NLS-2$
-        return submitPrompt(prompt, currentProfileId, true);
+        emitRemoteIfResetEpoch(expectedResetEpoch,
+                "session_reset", payload("reason", "start")); //$NON-NLS-1$ //$NON-NLS-2$
+        return submitPrompt(prompt, normalizedProfile, true, null, null,
+                expectedResetEpoch).commandResult;
     }
 
     public RemoteCommandResult continueSession(String prompt, String profileId, String clientId) {
         Objects.requireNonNull(prompt, "prompt"); //$NON-NLS-1$
+        String currentProfile;
+        synchronized (lock) {
+            currentProfile = currentProfileId;
+        }
+        String normalizedProfile = normalizeProfile(
+                profileId != null && !profileId.isBlank() ? profileId : currentProfile);
+        long expectedResetEpoch;
         synchronized (lock) {
             if (!canControl(clientId)) {
                 return leaseConflict();
+            }
+            if (resetInProgress) {
+                return resetAdmissionUnavailable();
             }
             if (isRunning()) {
                 return RemoteCommandResult.error("agent_busy", "Сессия агента уже выполняется"); //$NON-NLS-1$ //$NON-NLS-2$
             }
-            currentProfileId = normalizeProfile(profileId != null && !profileId.isBlank() ? profileId : currentProfileId);
+            currentProfileId = normalizedProfile;
+            expectedResetEpoch = resetEpoch;
         }
-        return submitPrompt(prompt, currentProfileId, false);
+        return submitPrompt(prompt, normalizedProfile, false, null, null,
+                expectedResetEpoch).commandResult;
     }
 
     public RemoteCommandResult stop(String clientId) {
+        IAgentRunner runner;
         synchronized (lock) {
             if (!canControl(clientId)) {
                 return leaseConflict();
             }
-            if (activeRunner == null) {
+            if (activeRunner == null || activeRunner == runnerBeingCleaned) {
                 return RemoteCommandResult.error("no_active_run", "Нет активного запуска агента"); //$NON-NLS-1$ //$NON-NLS-2$
             }
-            activeRunner.cancel();
-            emitRemote("agent_stop_requested", payload("clientId", clientId)); //$NON-NLS-1$ //$NON-NLS-2$
-            return RemoteCommandResult.ok("Запрошена остановка агента"); //$NON-NLS-1$
+            runner = activeRunner;
         }
+        runner.cancel();
+        emitRemote("agent_stop_requested", payload("clientId", clientId)); //$NON-NLS-1$ //$NON-NLS-2$
+        return RemoteCommandResult.ok("Запрошена остановка агента"); //$NON-NLS-1$
     }
 
     public RemoteCommandResult approvePending(String confirmationId, String clientId) {
@@ -266,22 +311,26 @@ public class AgentSessionController {
     }
 
     public RemoteCommandResult claimControllerLease(String clientId, boolean force) {
+        boolean ordinaryClaim = false;
         synchronized (lock) {
             if (clientId == null || clientId.isBlank()) {
                 return RemoteCommandResult.error("missing_client", "Нужно указать идентификатор клиента"); //$NON-NLS-1$ //$NON-NLS-2$
             }
             if (controllerClientId == null || controllerClientId.equals(clientId)) {
                 controllerClientId = clientId;
-                emitRemote("lease_changed", payload("controllerClientId", clientId, "mode", "claimed")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                return RemoteCommandResult.ok("Управление закреплено за клиентом", payload("controllerClientId", clientId)); //$NON-NLS-1$ //$NON-NLS-2$
-            }
-            if (!force) {
+                ordinaryClaim = true;
+            } else if (!force) {
                 return leaseConflict();
+            } else {
+                controllerClientId = clientId;
             }
-            controllerClientId = clientId;
         }
-        emitRemote("lease_changed", payload("controllerClientId", clientId, "mode", "force_takeover")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-        return RemoteCommandResult.ok("Управление принудительно передано другому клиенту", payload("controllerClientId", clientId)); //$NON-NLS-1$ //$NON-NLS-2$
+        String mode = ordinaryClaim ? "claimed" : "force_takeover"; //$NON-NLS-1$ //$NON-NLS-2$
+        emitRemote("lease_changed", payload("controllerClientId", clientId, "mode", mode)); //$NON-NLS-1$ //$NON-NLS-2$
+        return RemoteCommandResult.ok(
+                ordinaryClaim ? "Управление закреплено за клиентом" //$NON-NLS-1$
+                        : "Управление принудительно передано другому клиенту", //$NON-NLS-1$
+                payload("controllerClientId", clientId)); //$NON-NLS-1$
     }
 
     public RemoteCommandResult releaseControllerLease(String clientId) {
@@ -303,25 +352,51 @@ public class AgentSessionController {
 
     public CompletableFuture<AgentResult> submitFromDesktop(String prompt, String profileId) {
         Objects.requireNonNull(prompt, "prompt"); //$NON-NLS-1$
+        String currentProfile;
         synchronized (lock) {
+            currentProfile = currentProfileId;
+        }
+        String normalizedProfile = normalizeProfile(
+                profileId != null && !profileId.isBlank() ? profileId : currentProfile);
+        long expectedResetEpoch;
+        synchronized (lock) {
+            if (resetInProgress) {
+                return failedResetAdmission();
+            }
             if (isRunning()) {
                 return CompletableFuture.failedFuture(new IllegalStateException("Agent session is already running")); //$NON-NLS-1$
             }
-            currentProfileId = normalizeProfile(profileId != null && !profileId.isBlank() ? profileId : currentProfileId);
+            currentProfileId = normalizedProfile;
+            expectedResetEpoch = resetEpoch;
         }
-        RemoteCommandResult result = submitPrompt(prompt, currentProfileId, false);
-        if (!result.isOk()) {
-            return CompletableFuture.failedFuture(new IllegalStateException(result.getMessage()));
+        PromptSubmission submission = submitPrompt(prompt, normalizedProfile, false, null, null,
+                expectedResetEpoch);
+        if (!submission.commandResult.isOk()) {
+            return CompletableFuture.failedFuture(
+                    new IllegalStateException(submission.commandResult.getMessage()));
         }
-        synchronized (lock) {
-            return activeTask;
-        }
+        return submission.task;
     }
 
     public CompletableFuture<AgentResult> submitFromDesktopFresh(String prompt, String profileId) {
+        return submitFromDesktopFresh(prompt, profileId, null, null);
+    }
+
+    private CompletableFuture<AgentResult> submitFromDesktopFresh(
+            String prompt, String profileId, String projectPath, String owningSessionId) {
         Objects.requireNonNull(prompt, "prompt"); //$NON-NLS-1$
-        String profileToUse;
+        String currentProfile;
         synchronized (lock) {
+            currentProfile = currentProfileId;
+        }
+        String normalizedProfile = normalizeProfile(
+                profileId != null && !profileId.isBlank() ? profileId : currentProfile);
+        String profileToUse;
+        long expectedResetEpoch;
+        synchronized (lock) {
+            if (resetInProgress) {
+                return failedResetAdmission();
+            }
             if (isRunning()) {
                 return CompletableFuture.failedFuture(new IllegalStateException("Agent session is already running")); //$NON-NLS-1$
             }
@@ -333,41 +408,152 @@ public class AgentSessionController {
             activeTask = null;
             currentState = AgentState.IDLE;
             lastErrorMessage = null;
-            profileToUse = normalizeProfile(profileId != null && !profileId.isBlank() ? profileId : currentProfileId);
+            profileToUse = normalizedProfile;
             currentProfileId = profileToUse;
+            expectedResetEpoch = resetEpoch;
         }
-        emitRemote("session_reset", payload("reason", "desktop_fresh")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-        RemoteCommandResult result = submitPrompt(prompt, profileToUse, true);
-        if (!result.isOk()) {
+        emitRemoteIfResetEpoch(expectedResetEpoch,
+                "session_reset", payload("reason", "desktop_fresh")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        PromptSubmission submission = submitPrompt(
+                prompt, profileToUse, true, projectPath, owningSessionId,
+                expectedResetEpoch);
+        if (!submission.commandResult.isOk()) {
             return CompletableFuture.failedFuture(
-                    new IllegalStateException(result.getCode() + ": " + result.getMessage())); //$NON-NLS-1$
+                    new IllegalStateException(submission.commandResult.getCode() + ": " //$NON-NLS-1$
+                            + submission.commandResult.getMessage()));
         }
-        synchronized (lock) {
-            return activeTask;
-        }
+        return submission.task;
+    }
+
+    /**
+     * Starts a desktop run whose returned cancellation handle owns only the
+     * exact runner created by this submission. This keeps independent UI
+     * clients from cancelling whichever desktop run happens to be global now.
+     */
+    public CompletableFuture<AgentResult> submitFromDesktopFreshScoped(String prompt, String profileId) {
+        return submitFromDesktopFreshScoped(prompt, profileId, null, null);
+    }
+
+    public CompletableFuture<AgentResult> submitFromDesktopFreshScoped(
+            String prompt, String profileId, String projectPath, String owningSessionId) {
+        CompletableFuture<AgentResult> task = submitFromDesktopFresh(
+                prompt, profileId, projectPath, owningSessionId);
+        ScopedTaskFuture<AgentResult> scoped = new ScopedTaskFuture<>(() -> stopFromDesktop(task));
+        task.whenComplete((result, error) -> {
+            if (error != null) {
+                scoped.completeExceptionally(error);
+            } else {
+                scoped.complete(result);
+            }
+        });
+        return scoped;
     }
 
     public void stopFromDesktop() {
+        IAgentRunner runner;
         synchronized (lock) {
-            if (activeRunner != null) {
-                activeRunner.cancel();
+            runner = activeRunner != runnerBeingCleaned ? activeRunner : null;
+        }
+        if (runner != null) {
+            runner.cancel();
+        }
+    }
+
+    private void stopFromDesktop(CompletableFuture<AgentResult> expectedTask) {
+        IAgentRunner runner;
+        synchronized (lock) {
+            runner = activeTask == expectedTask && activeRunner != runnerBeingCleaned
+                    ? activeRunner : null;
+        }
+        if (runner != null) {
+            runner.cancel();
+        }
+    }
+
+    private static final class ScopedTaskFuture<T> extends CompletableFuture<T> {
+
+        private final Runnable cancelAction;
+
+        private ScopedTaskFuture(Runnable cancelAction) {
+            this.cancelAction = cancelAction;
+        }
+
+        @Override
+        public boolean cancel(boolean mayInterruptIfRunning) {
+            boolean cancelled = super.cancel(mayInterruptIfRunning);
+            if (cancelled) {
+                cancelAction.run();
             }
+            return cancelled;
+        }
+    }
+
+    /** Immutable result of one exact controller submission attempt. */
+    private static final class PromptSubmission {
+        private final RemoteCommandResult commandResult;
+        private final CompletableFuture<AgentResult> task;
+
+        private PromptSubmission(RemoteCommandResult commandResult,
+                CompletableFuture<AgentResult> task) {
+            this.commandResult = commandResult;
+            this.task = task;
+        }
+
+        private static PromptSubmission rejected(RemoteCommandResult result) {
+            return new PromptSubmission(result, null);
+        }
+
+        private static PromptSubmission accepted(RemoteCommandResult result,
+                CompletableFuture<AgentResult> task) {
+            return new PromptSubmission(result, task);
         }
     }
 
     public void resetSession(String reason) {
+        IAgentRunner ownedRunner;
+        IAgentRunner runnerToCancel;
+        long ownedResetEpoch;
         synchronized (lock) {
-            if (activeRunner != null) {
-                activeRunner.cancel();
-            }
-            conversationHistory = new ArrayList<>();
-            pendingAgentConfirmation = null;
-            pendingRemoteAction = null;
-            currentState = AgentState.IDLE;
-            lastErrorMessage = null;
-            sessionId = UUID.randomUUID().toString();
+            // This is the reset linearization point: older submissions and events
+            // can no longer acquire or mutate the session slot.
+            ownedResetEpoch = ++resetEpoch;
+            resetInProgress = true;
+            ownedRunner = activeRunner;
+            runnerToCancel = ownedRunner != runnerBeingCleaned ? ownedRunner : null;
         }
-        emitRemote("session_reset", payload("reason", reason != null ? reason : "manual")); //$NON-NLS-1$ //$NON-NLS-2$
+        RuntimeException cancellationFailure = null;
+        try {
+            if (runnerToCancel != null) {
+                runnerToCancel.cancel();
+            }
+        } catch (RuntimeException e) {
+            cancellationFailure = e;
+        }
+
+        RemoteEvent resetEvent = null;
+        synchronized (lock) {
+            if (resetEpoch == ownedResetEpoch) {
+                conversationHistory = new ArrayList<>();
+                pendingAgentConfirmation = null;
+                pendingRemoteAction = null;
+                currentState = AgentState.IDLE;
+                lastErrorMessage = null;
+                sessionId = UUID.randomUUID().toString();
+                // Exact identity prevents a superseded reset from clearing a run
+                // admitted by a newer epoch.
+                if (activeRunner == ownedRunner) {
+                    activeRunner = null;
+                    activeTask = null;
+                }
+                resetEvent = appendRemoteEventLocked("session_reset", payload( //$NON-NLS-1$
+                        "reason", reason != null ? reason : "manual")); //$NON-NLS-1$ //$NON-NLS-2$
+                resetInProgress = false;
+            }
+        }
+        dispatchRemoteEvent(resetEvent);
+        if (cancellationFailure != null) {
+            throw cancellationFailure;
+        }
     }
 
     public String getControllerClientId() {
@@ -389,25 +575,38 @@ public class AgentSessionController {
     }
 
     public boolean isRunning() {
-        return activeRunner != null && activeRunner.isRunning();
+        synchronized (lock) {
+            return activeRunner != null || activeTask != null;
+        }
     }
 
     public Map<String, Object> currentPendingConfirmation() {
+        PendingRemoteAction remoteAction;
+        ConfirmationRequiredEvent agentConfirmation;
         synchronized (lock) {
-            if (pendingRemoteAction != null) {
-                return pendingRemoteAction.toPayload();
-            }
-            if (pendingAgentConfirmation == null) {
-                return Map.of();
-            }
-            return payload(
-                    "scope", "agent_tool", //$NON-NLS-1$ //$NON-NLS-2$
-                    "confirmationId", confirmationId(pendingAgentConfirmation), //$NON-NLS-1$
-                    "toolName", pendingAgentConfirmation.getToolName(), //$NON-NLS-1$
-                    "description", pendingAgentConfirmation.getToolDescription(), //$NON-NLS-1$
-                    "arguments", pendingAgentConfirmation.getArguments() != null ? pendingAgentConfirmation.getArguments() : Map.of(), //$NON-NLS-1$
-                    "destructive", Boolean.valueOf(pendingAgentConfirmation.isDestructive())); //$NON-NLS-1$
+            remoteAction = pendingRemoteAction;
+            agentConfirmation = pendingAgentConfirmation;
         }
+        return pendingConfirmationPayload(remoteAction, agentConfirmation);
+    }
+
+    private Map<String, Object> pendingConfirmationPayload(
+            PendingRemoteAction remoteAction,
+            ConfirmationRequiredEvent agentConfirmation) {
+        if (remoteAction != null) {
+            return remoteAction.toPayload();
+        }
+        if (agentConfirmation == null) {
+            return Map.of();
+        }
+        return payload(
+                "scope", "agent_tool", //$NON-NLS-1$ //$NON-NLS-2$
+                "confirmationId", confirmationId(agentConfirmation), //$NON-NLS-1$
+                "toolName", agentConfirmation.getToolName(), //$NON-NLS-1$
+                "description", agentConfirmation.getToolDescription(), //$NON-NLS-1$
+                "arguments", agentConfirmation.getArguments() != null //$NON-NLS-1$
+                        ? agentConfirmation.getArguments() : Map.of(),
+                "destructive", Boolean.valueOf(agentConfirmation.isDestructive())); //$NON-NLS-1$
     }
 
     public IdeSnapshot captureIdeSnapshot() {
@@ -480,119 +679,254 @@ public class AgentSessionController {
                 "Выполнить команду Eclipse " + commandId, () -> bridge().executeCommand(commandId, parameters)); //$NON-NLS-1$
     }
 
-    private RemoteCommandResult submitPrompt(String prompt, String profileId, boolean startingFreshSession) {
-        ILlmProvider provider = LlmProviderRegistry.getInstance().getActiveProvider();
+    private PromptSubmission submitPrompt(String prompt, String profileId, boolean startingFreshSession,
+            String projectPath, String owningSessionId, long expectedResetEpoch) {
+        ILlmProvider provider = providerSupplier.get();
         if (provider == null || !provider.isConfigured()) {
-            return RemoteCommandResult.error("provider_unavailable", "LLM-провайдер не настроен"); //$NON-NLS-1$ //$NON-NLS-2$
+            return PromptSubmission.rejected(RemoteCommandResult.error(
+                    "provider_unavailable", "LLM-провайдер не настроен")); //$NON-NLS-1$ //$NON-NLS-2$
         }
 
         AgentProfile profile = AgentProfileRegistry.getInstance()
                 .getProfile(profileId)
                 .orElse(AgentProfileRegistry.getInstance().getDefaultProfile());
-        AgentConfig config = AgentProfileRegistry.getInstance().createConfig(profile);
+        AgentConfig baseConfig = configFactory.apply(profile);
+        boolean hasProjectPath = projectPath != null && !projectPath.isBlank();
+        boolean hasOwningSession = owningSessionId != null && !owningSessionId.isBlank();
+        if (hasProjectPath != hasOwningSession) {
+            return PromptSubmission.rejected(RemoteCommandResult.error(
+                    "invalid_execution_identity", //$NON-NLS-1$
+                    "Project and session identity must be supplied together")); //$NON-NLS-1$
+        }
+        AgentConfig config = hasProjectPath
+                ? AgentConfig.builder().from(baseConfig)
+                        .executionIdentity(projectPath, owningSessionId)
+                        .build()
+                : baseConfig;
+        IAgentRunner createdRunner = null;
+        try {
+            ToolRegistry registry = toolRegistrySupplier.get();
+            createdRunner = runnerFactory.create(
+                    provider, registry, baseConfig.getSystemPromptAddition());
+        } catch (RuntimeException e) {
+            return PromptSubmission.rejected(
+                    RemoteCommandResult.error("agent_start_failed", e.getMessage())); //$NON-NLS-1$
+        }
+        IAgentRunner submittedRunner = createdRunner;
+        RunForwardingListener runListener = new RunForwardingListener(submittedRunner);
+        try {
+            submittedRunner.addListener(runListener);
+        } catch (RuntimeException e) {
+            try {
+                cleanupRunner(submittedRunner, runListener);
+            } catch (RuntimeException cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+            }
+            return PromptSubmission.rejected(
+                    RemoteCommandResult.error("agent_start_failed", e.getMessage())); //$NON-NLS-1$
+        }
+
         List<LlmMessage> historySnapshot;
+        boolean accepted;
+        boolean resetPreventedAdmission;
+        String admittedSessionId;
         synchronized (lock) {
-            historySnapshot = new ArrayList<>(conversationHistory);
-            activeRunner = new LangGraphAgentRunner(provider, ToolRegistry.getInstance(), profile.getSystemPromptAddition());
-            activeRunner.addListener(forwardingListener);
-            currentState = AgentState.RUNNING;
+            resetPreventedAdmission = resetInProgress || resetEpoch != expectedResetEpoch;
+            accepted = !resetPreventedAdmission && activeRunner == null && activeTask == null;
+            if (accepted) {
+                historySnapshot = new ArrayList<>(conversationHistory);
+                activeRunner = submittedRunner;
+                currentState = AgentState.RUNNING;
+                admittedSessionId = sessionId;
+                runListener.activate(expectedResetEpoch);
+            } else {
+                historySnapshot = List.of();
+                admittedSessionId = null;
+            }
+        }
+        if (!accepted) {
+            cleanupRunner(submittedRunner, runListener);
+            return PromptSubmission.rejected(resetPreventedAdmission
+                    ? resetAdmissionUnavailable()
+                    : RemoteCommandResult.error(
+                            "agent_busy", "Сессия агента уже выполняется")); //$NON-NLS-1$ //$NON-NLS-2$
         }
 
-        CompletableFuture<AgentResult> future = startingFreshSession
-                ? activeRunner.run(prompt, config)
-                : activeRunner.run(prompt, historySnapshot, config);
-
-        synchronized (lock) {
-            activeTask = future;
+        CompletableFuture<AgentResult> submittedTask;
+        try {
+            submittedTask = startingFreshSession
+                    ? submittedRunner.run(prompt, config)
+                    : submittedRunner.run(prompt, historySnapshot, config);
+        } catch (RuntimeException e) {
+            markRunnerCleanup(submittedRunner);
+            try {
+                cleanupRunner(submittedRunner, runListener);
+            } finally {
+                synchronized (lock) {
+                    if (activeRunner == submittedRunner && activeTask == null) {
+                        activeRunner = null;
+                        if (!resetInProgress && resetEpoch == expectedResetEpoch) {
+                            currentState = AgentState.ERROR;
+                            lastErrorMessage = e.getMessage();
+                        }
+                    }
+                    clearRunnerCleanupLocked(submittedRunner);
+                }
+            }
+            return PromptSubmission.rejected(
+                    RemoteCommandResult.error("agent_start_failed", e.getMessage())); //$NON-NLS-1$
         }
 
-        future.whenComplete((result, error) -> {
-            synchronized (lock) {
-                if (result != null) {
-                    conversationHistory = new ArrayList<>(result.getConversationHistory());
-                    currentState = result.getFinalState();
-                    lastErrorMessage = result.getErrorMessage();
-                } else if (error != null) {
-                    currentState = AgentState.ERROR;
-                    lastErrorMessage = error.getMessage();
+        synchronized (lock) {
+            if (activeRunner == submittedRunner && activeTask == null) {
+                activeTask = submittedTask;
+            }
+        }
+
+        submittedTask.whenComplete((result, error) -> {
+            markRunnerCleanup(submittedRunner);
+            try {
+                cleanupRunner(submittedRunner, runListener);
+            } finally {
+                synchronized (lock) {
+                    if (activeRunner == submittedRunner && activeTask == submittedTask) {
+                        if (!resetInProgress && resetEpoch == expectedResetEpoch) {
+                            if (result != null) {
+                                conversationHistory = new ArrayList<>(result.getConversationHistory());
+                                currentState = result.getFinalState();
+                                lastErrorMessage = result.getErrorMessage();
+                            } else if (error != null) {
+                                currentState = AgentState.ERROR;
+                                lastErrorMessage = error.getMessage();
+                            }
+                        }
+                        activeRunner = null;
+                        activeTask = null;
+                    }
+                    clearRunnerCleanupLocked(submittedRunner);
                 }
-                if (activeRunner != null) {
-                    activeRunner.removeListener(forwardingListener);
-                    activeRunner.dispose();
-                }
-                activeRunner = null;
-                activeTask = null;
             }
         });
 
-        emitRemote(startingFreshSession ? "agent_start_requested" : "agent_input_requested", payload( //$NON-NLS-1$ //$NON-NLS-2$
+        emitRemoteIfResetEpoch(expectedResetEpoch,
+                startingFreshSession ? "agent_start_requested" : "agent_input_requested", payload( //$NON-NLS-1$ //$NON-NLS-2$
                 "profileId", profile.getId(), //$NON-NLS-1$
                 "promptLength", Integer.valueOf(prompt.length()))); //$NON-NLS-1$
 
-        return RemoteCommandResult.accepted("agent_started", "Запуск агента начат", payload( //$NON-NLS-1$ //$NON-NLS-2$
-                "sessionId", getSessionId(), //$NON-NLS-1$
-                "profileId", profile.getId())); //$NON-NLS-1$
+        return PromptSubmission.accepted(
+                RemoteCommandResult.accepted("agent_started", "Запуск агента начат", payload( //$NON-NLS-1$ //$NON-NLS-2$
+                        "sessionId", admittedSessionId, //$NON-NLS-1$
+                        "profileId", profile.getId())), //$NON-NLS-1$
+                submittedTask);
+    }
+
+    private void cleanupRunner(IAgentRunner runner, IAgentEventListener listener) {
+        try {
+            runner.removeListener(listener);
+        } finally {
+            runner.dispose();
+        }
+    }
+
+    private void markRunnerCleanup(IAgentRunner runner) {
+        synchronized (lock) {
+            if (activeRunner == runner) {
+                runnerBeingCleaned = runner;
+            }
+        }
+    }
+
+    private void clearRunnerCleanupLocked(IAgentRunner runner) {
+        if (runnerBeingCleaned == runner) {
+            runnerBeingCleaned = null;
+        }
     }
 
     private void handleAgentEvent(AgentEvent event) {
+        handleAgentEvent(event, null, -1L);
+    }
+
+    private void handleAgentEvent(AgentEvent event, IAgentRunner eventRunner, long runResetEpoch) {
         if (event == null) {
             return;
         }
+
+        String remoteType = null;
+        Map<String, Object> remotePayload = Map.of();
         if (event instanceof ConfirmationRequiredEvent confirmationEvent) {
-            synchronized (lock) {
-                pendingAgentConfirmation = confirmationEvent;
-                currentState = AgentState.WAITING_CONFIRMATION;
-            }
-            emitRemote("confirmation_required", payload( //$NON-NLS-1$
+            remoteType = "confirmation_required"; //$NON-NLS-1$
+            remotePayload = payload(
                     "scope", "agent_tool", //$NON-NLS-1$ //$NON-NLS-2$
                     "confirmationId", confirmationId(confirmationEvent), //$NON-NLS-1$
                     "toolName", confirmationEvent.getToolName(), //$NON-NLS-1$
                     "description", confirmationEvent.getToolDescription(), //$NON-NLS-1$
                     "arguments", confirmationEvent.getArguments() != null ? confirmationEvent.getArguments() : Map.of(), //$NON-NLS-1$
-                    "destructive", Boolean.valueOf(confirmationEvent.isDestructive()))); //$NON-NLS-1$
+                    "destructive", Boolean.valueOf(confirmationEvent.isDestructive())); //$NON-NLS-1$
         } else if (event instanceof AgentStartedEvent startedEvent) {
-            synchronized (lock) {
-                currentState = AgentState.RUNNING;
-                pendingAgentConfirmation = null;
-                lastErrorMessage = null;
-            }
-            emitRemote("agent_started", payload( //$NON-NLS-1$
+            remoteType = "agent_started"; //$NON-NLS-1$
+            remotePayload = payload(
                     "prompt", startedEvent.getPrompt(), //$NON-NLS-1$
-                    "profileId", startedEvent.getConfig() != null ? startedEvent.getConfig().getProfileName() : "")); //$NON-NLS-1$ //$NON-NLS-2$
+                    "profileId", startedEvent.getConfig() != null ? startedEvent.getConfig().getProfileName() : ""); //$NON-NLS-1$ //$NON-NLS-2$
         } else if (event instanceof AgentStepEvent stepEvent) {
-            emitRemote("agent_step", payload( //$NON-NLS-1$
+            remoteType = "agent_step"; //$NON-NLS-1$
+            remotePayload = payload(
                     "step", Integer.valueOf(stepEvent.getStep()), //$NON-NLS-1$
                     "maxSteps", Integer.valueOf(stepEvent.getMaxSteps()), //$NON-NLS-1$
-                    "description", stepEvent.getDescription())); //$NON-NLS-1$
+                    "description", stepEvent.getDescription()); //$NON-NLS-1$
         } else if (event instanceof ToolCallEvent toolCallEvent) {
-            synchronized (lock) {
-                currentState = AgentState.WAITING_TOOL;
-            }
-            emitRemote("tool_call", payload( //$NON-NLS-1$
+            remoteType = "tool_call"; //$NON-NLS-1$
+            remotePayload = payload(
                     "toolName", toolCallEvent.getToolName(), //$NON-NLS-1$
                     "callId", toolCallEvent.getCallId(), //$NON-NLS-1$
                     "arguments", toolCallEvent.getParsedArguments() != null ? toolCallEvent.getParsedArguments() : Map.of(), //$NON-NLS-1$
-                    "requiresConfirmation", Boolean.valueOf(toolCallEvent.isRequiresConfirmation()))); //$NON-NLS-1$
+                    "requiresConfirmation", Boolean.valueOf(toolCallEvent.isRequiresConfirmation())); //$NON-NLS-1$
         } else if (event instanceof ToolResultEvent toolResultEvent) {
-            synchronized (lock) {
-                currentState = AgentState.RUNNING;
-            }
-            emitRemote("tool_result", payload( //$NON-NLS-1$
+            remoteType = "tool_result"; //$NON-NLS-1$
+            remotePayload = payload(
                     "toolName", toolResultEvent.getToolName(), //$NON-NLS-1$
                     "callId", toolResultEvent.getCallId(), //$NON-NLS-1$
                     "success", Boolean.valueOf(toolResultEvent.isSuccess()), //$NON-NLS-1$
                     "executionTimeMs", Long.valueOf(toolResultEvent.getExecutionTimeMs()), //$NON-NLS-1$
                     "content", toolResultEvent.getResult().isSuccess() //$NON-NLS-1$
                             ? toolResultEvent.getResult().getContent()
-                            : toolResultEvent.getResult().getErrorMessage()));
+                            : toolResultEvent.getResult().getErrorMessage());
         } else if (event instanceof StreamChunkEvent streamChunkEvent) {
-            emitRemote(streamChunkEvent.isComplete() ? "stream_complete" : "stream_chunk", payload( //$NON-NLS-1$ //$NON-NLS-2$
+            remoteType = streamChunkEvent.isComplete() ? "stream_complete" : "stream_chunk"; //$NON-NLS-1$ //$NON-NLS-2$
+            remotePayload = payload(
                     "content", streamChunkEvent.getContent(), //$NON-NLS-1$
                     "finishReason", streamChunkEvent.getFinishReason(), //$NON-NLS-1$
-                    "complete", Boolean.valueOf(streamChunkEvent.isComplete()))); //$NON-NLS-1$
+                    "complete", Boolean.valueOf(streamChunkEvent.isComplete())); //$NON-NLS-1$
         } else if (event instanceof AgentCompletedEvent completedEvent) {
             AgentResult result = completedEvent.getResult();
-            synchronized (lock) {
+            remoteType = "agent_completed"; //$NON-NLS-1$
+            remotePayload = payload(
+                    "state", result.getFinalState().name(), //$NON-NLS-1$
+                    "steps", Integer.valueOf(result.getStepsExecuted()), //$NON-NLS-1$
+                    "toolCalls", Integer.valueOf(result.getToolCallsExecuted()), //$NON-NLS-1$
+                    "executionTimeMs", Long.valueOf(result.getExecutionTimeMs()), //$NON-NLS-1$
+                    "finalResponse", result.getFinalResponse() != null ? result.getFinalResponse() : "", //$NON-NLS-1$ //$NON-NLS-2$
+                    "errorMessage", result.getErrorMessage() != null ? result.getErrorMessage() : ""); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+
+        RemoteEvent remoteEvent;
+        synchronized (lock) {
+            if (eventRunner != null && (resetInProgress
+                    || resetEpoch != runResetEpoch || activeRunner != eventRunner)) {
+                return;
+            }
+            if (event instanceof ConfirmationRequiredEvent confirmationEvent) {
+                pendingAgentConfirmation = confirmationEvent;
+                currentState = AgentState.WAITING_CONFIRMATION;
+            } else if (event instanceof AgentStartedEvent) {
+                currentState = AgentState.RUNNING;
+                pendingAgentConfirmation = null;
+                lastErrorMessage = null;
+            } else if (event instanceof ToolCallEvent) {
+                currentState = AgentState.WAITING_TOOL;
+            } else if (event instanceof ToolResultEvent) {
+                currentState = AgentState.RUNNING;
+            } else if (event instanceof AgentCompletedEvent completedEvent) {
+                AgentResult result = completedEvent.getResult();
                 currentState = result.getFinalState();
                 pendingAgentConfirmation = null;
                 if (result.getConversationHistory() != null) {
@@ -600,14 +934,11 @@ public class AgentSessionController {
                 }
                 lastErrorMessage = result.getErrorMessage();
             }
-            emitRemote("agent_completed", payload( //$NON-NLS-1$
-                    "state", result.getFinalState().name(), //$NON-NLS-1$
-                    "steps", Integer.valueOf(result.getStepsExecuted()), //$NON-NLS-1$
-                    "toolCalls", Integer.valueOf(result.getToolCallsExecuted()), //$NON-NLS-1$
-                    "executionTimeMs", Long.valueOf(result.getExecutionTimeMs()), //$NON-NLS-1$
-                    "finalResponse", result.getFinalResponse() != null ? result.getFinalResponse() : "", //$NON-NLS-1$ //$NON-NLS-2$
-                    "errorMessage", result.getErrorMessage() != null ? result.getErrorMessage() : "")); //$NON-NLS-1$ //$NON-NLS-2$
+            remoteEvent = remoteType != null
+                    ? appendRemoteEventLocked(remoteType, remotePayload)
+                    : null;
         }
+        dispatchRemoteEvent(remoteEvent);
 
         for (IAgentEventListener listener : agentListeners) {
             try {
@@ -615,6 +946,29 @@ public class AgentSessionController {
             } catch (Exception e) {
                 LOG.warn("Agent listener failed: %s", e.getMessage()); //$NON-NLS-1$
             }
+        }
+    }
+
+    private final class RunForwardingListener implements IAgentEventListener {
+        private final IAgentRunner runner;
+        private volatile long runResetEpoch = -1L;
+
+        private RunForwardingListener(IAgentRunner runner) {
+            this.runner = runner;
+        }
+
+        private void activate(long epoch) {
+            runResetEpoch = epoch;
+        }
+
+        @Override
+        public void onEvent(AgentEvent event) {
+            handleAgentEvent(event, runner, runResetEpoch);
+        }
+
+        @Override
+        public boolean handlesConfirmations() {
+            return true;
         }
     }
 
@@ -767,6 +1121,18 @@ public class AgentSessionController {
         }
     }
 
+    private RemoteCommandResult resetAdmissionUnavailable() {
+        return RemoteCommandResult.error(
+                "session_reset_in_progress", //$NON-NLS-1$
+                "Сброс сессии выполняется; повторите запрос после его завершения"); //$NON-NLS-1$
+    }
+
+    private CompletableFuture<AgentResult> failedResetAdmission() {
+        RemoteCommandResult result = resetAdmissionUnavailable();
+        return CompletableFuture.failedFuture(new IllegalStateException(
+                result.getCode() + ": " + result.getMessage())); //$NON-NLS-1$
+    }
+
     private String confirmationId(ConfirmationRequiredEvent event) {
         if (event == null || event.getToolCall() == null) {
             return ""; //$NON-NLS-1$
@@ -815,11 +1181,35 @@ public class AgentSessionController {
     private void emitRemote(String type, Map<String, Object> payload) {
         RemoteEvent event;
         synchronized (lock) {
-            event = new RemoteEvent(type, sessionId, nextSequence++, Instant.now(), payload);
-            eventLog.addLast(event);
-            while (eventLog.size() > MAX_EVENTS) {
-                eventLog.removeFirst();
-            }
+            event = appendRemoteEventLocked(type, payload);
+        }
+        dispatchRemoteEvent(event);
+    }
+
+    private void emitRemoteIfResetEpoch(long expectedResetEpoch,
+            String type, Map<String, Object> payload) {
+        RemoteEvent event;
+        synchronized (lock) {
+            event = !resetInProgress && resetEpoch == expectedResetEpoch
+                    ? appendRemoteEventLocked(type, payload)
+                    : null;
+        }
+        dispatchRemoteEvent(event);
+    }
+
+    private RemoteEvent appendRemoteEventLocked(String type, Map<String, Object> payload) {
+        RemoteEvent event = new RemoteEvent(
+                type, sessionId, nextSequence++, Instant.now(), payload);
+        eventLog.addLast(event);
+        while (eventLog.size() > MAX_EVENTS) {
+            eventLog.removeFirst();
+        }
+        return event;
+    }
+
+    private void dispatchRemoteEvent(RemoteEvent event) {
+        if (event == null) {
+            return;
         }
         for (RemoteEventListener listener : remoteListeners) {
             try {

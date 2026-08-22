@@ -15,6 +15,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 import com.codepilot1c.core.gsd.GsdContentRejectedException;
+import com.codepilot1c.core.gsd.GsdAcceptanceCriterion;
 import com.codepilot1c.core.gsd.GsdExecutionKind;
 import com.codepilot1c.core.gsd.GsdState;
 import com.codepilot1c.core.gsd.GsdTask;
@@ -23,6 +24,7 @@ import com.codepilot1c.core.gsd.GsdWave;
 import com.codepilot1c.core.gsd.GsdWorkflowService;
 import com.codepilot1c.core.tools.AbstractTool;
 import com.codepilot1c.core.tools.ToolMeta;
+import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolParameters;
 import com.codepilot1c.core.tools.ToolParameters.ToolParameterException;
 import com.codepilot1c.core.tools.ToolResult;
@@ -54,6 +56,8 @@ public class GsdCreatePlanTool extends AbstractTool {
                   "type": "string",
                   "description": "Absolute path to the project root."
                 },
+                "expected_cycle_id": {"type": "string"},
+                "expected_generation": {"type": "integer"},
                 "expected_revision": {
                   "type": "integer",
                   "description": "Expected revision for optimistic concurrency."
@@ -61,6 +65,21 @@ public class GsdCreatePlanTool extends AbstractTool {
                 "goal": {
                   "type": "string",
                   "description": "The project goal statement."
+                },
+                "acceptance_criteria": {
+                  "type": "array",
+                  "minItems": 1,
+                  "description": "Acceptance criteria; at least one item must have required=true.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {"type": "string"},
+                      "description": {"type": "string"},
+                      "required": {"type": "boolean"}
+                    },
+                    "required": ["id", "description", "required"],
+                    "additionalProperties": false
+                  }
                 },
                 "tasks": {
                   "type": "array",
@@ -94,14 +113,14 @@ public class GsdCreatePlanTool extends AbstractTool {
                   }
                 }
               },
-              "required": ["project_path", "expected_revision", "goal", "tasks", "waves"],
+              "required": ["project_path", "expected_cycle_id", "expected_generation", "expected_revision", "goal", "acceptance_criteria", "tasks", "waves"],
               "additionalProperties": false
             }
             """; //$NON-NLS-1$
 
     @Override
     public String getDescription() {
-        return "Creates a GSD plan by setting the goal, tasks, and waves. " //$NON-NLS-1$
+        return "Creates a GSD plan by setting the goal, acceptance criteria, tasks, and waves. " //$NON-NLS-1$
                 + "Does not change the phase; use gsd_transition for that.";
     }
 
@@ -112,9 +131,17 @@ public class GsdCreatePlanTool extends AbstractTool {
 
     @Override
     protected CompletableFuture<ToolResult> doExecute(ToolParameters params) {
+        return doExecute(params, ToolExecutionContext.unscoped());
+    }
+
+    @Override
+    protected CompletableFuture<ToolResult> doExecute(
+            ToolParameters params, ToolExecutionContext context) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return executeInternal(params);
+                return executeInternal(params, context);
+            } catch (GsdToolSupport.GsdToolIdentityException e) {
+                return GsdToolSupport.identityFailure("gsd_create_plan", e); //$NON-NLS-1$
             } catch (ToolParameterException e) {
                 return ToolResult.failure("Parameter error: " + e.getMessage(), //$NON-NLS-1$
                         GsdWorkflowService.buildResult(false, "gsd_create_plan", 0, null, GsdWorkflowService.ERR_INVALID)); //$NON-NLS-1$
@@ -127,6 +154,9 @@ public class GsdCreatePlanTool extends AbstractTool {
             } catch (GsdContentRejectedException e) {
                 return ToolResult.failure("Content rejected: " + e.getMessage(), //$NON-NLS-1$
                         GsdWorkflowService.buildResult(false, "gsd_create_plan", 0, null, GsdWorkflowService.ERR_SECURITY)); //$NON-NLS-1$
+            } catch (com.codepilot1c.core.gsd.GsdStaleTokenException e) {
+                return ToolResult.failure("Stale concurrency token", //$NON-NLS-1$
+                        GsdWorkflowService.buildResult(false, "gsd_create_plan", 0, null, GsdWorkflowService.ERR_STALE)); //$NON-NLS-1$
             } catch (com.codepilot1c.core.gsd.GsdStaleRevisionException e) {
                 return ToolResult.failure("Stale revision: expected " + e.getExpectedRevision() //$NON-NLS-1$
                                 + ", current " + e.getActualRevision(), //$NON-NLS-1$
@@ -138,8 +168,7 @@ public class GsdCreatePlanTool extends AbstractTool {
                 return ToolResult.failure("GSD state is corrupt: " + e.getMessage(), //$NON-NLS-1$
                         GsdWorkflowService.buildResult(false, "gsd_create_plan", 0, null, GsdWorkflowService.ERR_CORRUPT)); //$NON-NLS-1$
             } catch (IOException e) {
-                return ToolResult.failure("I/O error: " + e.getMessage(), //$NON-NLS-1$
-                        GsdWorkflowService.buildResult(false, "gsd_create_plan", 0, null, GsdWorkflowService.ERR_IO)); //$NON-NLS-1$
+                return GsdToolSupport.ioFailure("gsd_create_plan", "I/O error: ", e); //$NON-NLS-1$ //$NON-NLS-2$
             } catch (RuntimeException e) {
                 return ToolResult.failure("Internal error: " + e.getMessage(), //$NON-NLS-1$
                         GsdWorkflowService.buildResult(false, "gsd_create_plan", 0, null, GsdWorkflowService.ERR_INVALID)); //$NON-NLS-1$
@@ -147,14 +176,22 @@ public class GsdCreatePlanTool extends AbstractTool {
         });
     }
 
-    private ToolResult executeInternal(ToolParameters params) throws IOException {
-        String projectPath = params.requireString("project_path"); //$NON-NLS-1$
-        long expectedRevision = params.requireLong("expected_revision"); //$NON-NLS-1$
+    private ToolResult executeInternal(ToolParameters params, ToolExecutionContext context)
+            throws IOException {
+        GsdToolSupport.requireOnly(params, "project_path", "expected_cycle_id", //$NON-NLS-1$ //$NON-NLS-2$
+                "expected_generation", "expected_revision", "goal", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                "acceptance_criteria", "tasks", "waves"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        String projectPath = GsdToolSupport.requireProject(params, context);
+        var expectedToken = GsdToolSupport.requireToken(params);
         String goal = params.requireString("goal"); //$NON-NLS-1$
 
+        Object rawCriteriaObj = params.getRaw().get("acceptance_criteria"); //$NON-NLS-1$
         Object rawTasksObj = params.getRaw().get("tasks"); //$NON-NLS-1$
         Object rawWavesObj = params.getRaw().get("waves"); //$NON-NLS-1$
 
+        if (!(rawCriteriaObj instanceof List<?>)) {
+            throw new IllegalArgumentException("'acceptance_criteria' must be an array"); //$NON-NLS-1$
+        }
         if (!(rawTasksObj instanceof List<?>)) {
             throw new IllegalArgumentException("'tasks' must be an array"); //$NON-NLS-1$
         }
@@ -162,9 +199,13 @@ public class GsdCreatePlanTool extends AbstractTool {
             throw new IllegalArgumentException("'waves' must be an array"); //$NON-NLS-1$
         }
 
+        List<?> rawCriteria = (List<?>) rawCriteriaObj;
         List<?> rawTasks = (List<?>) rawTasksObj;
         List<?> rawWaves = (List<?>) rawWavesObj;
 
+        if (rawCriteria.isEmpty()) {
+            throw new IllegalArgumentException("acceptance_criteria must not be empty"); //$NON-NLS-1$
+        }
         if (rawTasks.isEmpty()) {
             throw new IllegalArgumentException("tasks must not be empty"); //$NON-NLS-1$
         }
@@ -172,13 +213,17 @@ public class GsdCreatePlanTool extends AbstractTool {
             throw new IllegalArgumentException("waves must not be empty"); //$NON-NLS-1$
         }
 
+        List<GsdAcceptanceCriterion> criteria = parseCriteria(rawCriteria);
+        if (criteria.stream().noneMatch(GsdAcceptanceCriterion::required)) {
+            throw new IllegalArgumentException(
+                    "acceptance_criteria must contain at least one required criterion"); //$NON-NLS-1$
+        }
         List<GsdTask> tasks = parseTasks(rawTasks);
         List<GsdWave> waves = parseWaves(rawWaves);
 
         GsdState state = GsdWorkflowService.createPlan(
-                projectPath, expectedRevision, goal, tasks, waves);
-        JsonObject structured = GsdWorkflowService.buildResult(
-                true, "gsd_create_plan", state.revision(), state.phase(), null); //$NON-NLS-1$
+                projectPath, expectedToken, goal, criteria, tasks, waves);
+        JsonObject structured = GsdToolSupport.stateEnvelope("gsd_create_plan", state); //$NON-NLS-1$
         return ToolResult.success(
                 "Plan created. Phase: " + state.phase() + ", Revision: " + state.revision(), //$NON-NLS-1$ //$NON-NLS-2$
                 structured);
@@ -188,6 +233,46 @@ public class GsdCreatePlanTool extends AbstractTool {
             "id", "title", "execution_kind", "wave_id", "depends_on"); //$NON-NLS-1$
     private static final Set<String> ALLOWED_WAVE_KEYS = Set.of(
             "id", "name", "goal", "task_ids"); //$NON-NLS-1$
+    private static final Set<String> ALLOWED_CRITERION_KEYS = Set.of(
+            "id", "description", "required"); //$NON-NLS-1$
+
+    @SuppressWarnings("unchecked")
+    private List<GsdAcceptanceCriterion> parseCriteria(List<?> rawCriteria) {
+        List<GsdAcceptanceCriterion> criteria = new ArrayList<>();
+        for (int i = 0; i < rawCriteria.size(); i++) {
+            Object raw = rawCriteria.get(i);
+            if (!(raw instanceof Map<?, ?>)) {
+                throw new IllegalArgumentException(
+                        "acceptance_criteria[" + i + "] is not an object"); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            Map<String, Object> values = (Map<String, Object>) raw;
+            for (String key : values.keySet()) {
+                if (!ALLOWED_CRITERION_KEYS.contains(key)) {
+                    throw new IllegalArgumentException(
+                            "acceptance_criteria[" + i + "] has unexpected key '" + key + "'"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                }
+            }
+            Object id = values.get("id"); //$NON-NLS-1$
+            Object description = values.get("description"); //$NON-NLS-1$
+            Object required = values.get("required"); //$NON-NLS-1$
+            if (!(id instanceof String idText) || idText.isBlank()) {
+                throw new IllegalArgumentException(
+                        "acceptance_criteria[" + i + "].id must be a non-blank string"); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            if (!(description instanceof String descriptionText)
+                    || descriptionText.isBlank()) {
+                throw new IllegalArgumentException(
+                        "acceptance_criteria[" + i + "].description must be a non-blank string"); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            if (!(required instanceof Boolean)) {
+                throw new IllegalArgumentException(
+                        "acceptance_criteria[" + i + "].required must be boolean"); //$NON-NLS-1$ //$NON-NLS-2$
+            }
+            criteria.add(new GsdAcceptanceCriterion(
+                    (String) id, (String) description, (Boolean) required));
+        }
+        return criteria;
+    }
 
     @SuppressWarnings("unchecked")
     private List<GsdTask> parseTasks(List<?> rawTasks) {
@@ -230,7 +315,8 @@ public class GsdCreatePlanTool extends AbstractTool {
             // Status is always PENDING for newly created plan tasks.
             GsdTaskStatus status = GsdTaskStatus.PENDING;
 
-            String waveId = safeString(m.get("wave_id")); //$NON-NLS-1$
+            String waveId = optionalNestedString(m.get("wave_id"), //$NON-NLS-1$
+                    "tasks[" + i + "].wave_id"); //$NON-NLS-1$ //$NON-NLS-2$
 
             List<String> dependsOn = safeStringList(m.get("depends_on"), i, "task.depends_on"); //$NON-NLS-1$ //$NON-NLS-2$
 
@@ -268,7 +354,8 @@ public class GsdCreatePlanTool extends AbstractTool {
             }
             String name = (String) nameObj;
 
-            String goal = safeString(m.get("goal")); //$NON-NLS-1$
+            String goal = optionalNestedString(m.get("goal"), //$NON-NLS-1$
+                    "waves[" + i + "].goal"); //$NON-NLS-1$ //$NON-NLS-2$
 
             List<String> taskIds = safeStringList(m.get("task_ids"), i, "wave.task_ids"); //$NON-NLS-1$ //$NON-NLS-2$
 
@@ -278,12 +365,15 @@ public class GsdCreatePlanTool extends AbstractTool {
         return waves;
     }
 
-    /** Returns null if obj is not a string. */
-    private String safeString(Object obj) {
-        if (obj instanceof String) {
-            return (String) obj;
+    /** Returns null when absent and rejects values outside the declared schema. */
+    private String optionalNestedString(Object obj, String field) {
+        if (obj == null) {
+            return null;
         }
-        return null;
+        if (obj instanceof String text) {
+            return text;
+        }
+        throw new IllegalArgumentException(field + " must be a string"); //$NON-NLS-1$
     }
 
     /**

@@ -34,7 +34,8 @@ public class GsdVerificationGuardTest {
     public TemporaryFolder tmp = new TemporaryFolder();
 
     private Path newProject() throws IOException {
-        return tmp.newFolder("project").toPath(); //$NON-NLS-1$
+        return GsdTestSupport.secureProject(
+                tmp.newFolder("project").toPath()); //$NON-NLS-1$
     }
 
     // ---- ExecutionKind defaults and compatibility -------------------------

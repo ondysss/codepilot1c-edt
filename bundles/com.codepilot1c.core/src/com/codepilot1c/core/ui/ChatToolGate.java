@@ -11,13 +11,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
 import com.codepilot1c.core.agent.profiles.AgentProfile;
 import com.codepilot1c.core.agent.profiles.AgentProfileRegistry;
+import com.codepilot1c.core.agent.profiles.DynamicToolCapability;
+import com.codepilot1c.core.agent.profiles.ProfileToolAccess;
 import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.permissions.PermissionDenialPayload;
@@ -27,6 +28,7 @@ import com.codepilot1c.core.permissions.ProfilePermissionGate.GateDecision;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolRegistry;
+import com.codepilot1c.core.tools.ToolRegistry.ToolResolution;
 import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.tools.surface.ToolSurfaceContext;
 
@@ -55,6 +57,8 @@ public final class ChatToolGate {
      * @param action action selected by the gate
      * @param arguments the single parsed argument map for gating, preview and execution
      * @param context scoped execution context
+     * @param resolution exact registry slot authorized by this decision
+     * @param destructive exact effective destructive classification
      * @param denial deterministic payload, non-null only for {@link Action#DENY}
      * @param confirmationUnavailableDenial precomputed payload used if the confirmation sink disappears
      * @param reasonCode machine-readable decision reason or logging marker
@@ -65,6 +69,8 @@ public final class ChatToolGate {
             Action action,
             Map<String, Object> arguments,
             ToolExecutionContext context,
+            ToolResolution resolution,
+            boolean destructive,
             ToolResult denial,
             ToolResult confirmationUnavailableDenial,
             String reasonCode,
@@ -78,9 +84,9 @@ public final class ChatToolGate {
     private final AgentProfile profile;
     private final Supplier<List<PermissionRule>> globalRules;
     private final Function<String, Map<String, Object>> argumentParser;
-    private final Supplier<Set<String>> dynamicToolNames;
     private final BooleanSupplier confirmationSinkAvailable;
     private final BooleanSupplier skipConfirmations;
+    private final ToolExecutionContext executionContext;
 
     /**
      * Creates a chat tool gate with all runtime dependencies supplied by the caller.
@@ -88,7 +94,6 @@ public final class ChatToolGate {
      * @param profile selected chat profile
      * @param globalRules supplier of global permission rules
      * @param argumentParser parser shared with tool execution
-     * @param dynamicToolNames supplier of dynamic tool names retained outside profile allowlists
      * @param confirmationSinkAvailable whether the UI can currently request confirmation
      * @param skipConfirmations whether confirmation is auto-approved by preference
      */
@@ -96,16 +101,31 @@ public final class ChatToolGate {
             AgentProfile profile,
             Supplier<List<PermissionRule>> globalRules,
             Function<String, Map<String, Object>> argumentParser,
-            Supplier<Set<String>> dynamicToolNames,
             BooleanSupplier confirmationSinkAvailable,
             BooleanSupplier skipConfirmations) {
+        this(profile, globalRules, argumentParser,
+                confirmationSinkAvailable, skipConfirmations,
+                ToolExecutionContext.of(profile, 0));
+    }
+
+    /** Creates a gate bound to the immutable execution identity captured for the turn. */
+    public ChatToolGate(
+            AgentProfile profile,
+            Supplier<List<PermissionRule>> globalRules,
+            Function<String, Map<String, Object>> argumentParser,
+            BooleanSupplier confirmationSinkAvailable,
+            BooleanSupplier skipConfirmations,
+            ToolExecutionContext executionContext) {
         this.profile = Objects.requireNonNull(profile, "profile"); //$NON-NLS-1$
         this.globalRules = Objects.requireNonNull(globalRules, "globalRules"); //$NON-NLS-1$
         this.argumentParser = Objects.requireNonNull(argumentParser, "argumentParser"); //$NON-NLS-1$
-        this.dynamicToolNames = Objects.requireNonNull(dynamicToolNames, "dynamicToolNames"); //$NON-NLS-1$
         this.confirmationSinkAvailable = Objects.requireNonNull(
                 confirmationSinkAvailable, "confirmationSinkAvailable"); //$NON-NLS-1$
         this.skipConfirmations = Objects.requireNonNull(skipConfirmations, "skipConfirmations"); //$NON-NLS-1$
+        this.executionContext = Objects.requireNonNull(executionContext, "executionContext"); //$NON-NLS-1$
+        if (!profile.getId().equals(executionContext.parentProfileId())) {
+            throw new IllegalArgumentException("execution context profile must match gate profile"); //$NON-NLS-1$
+        }
     }
 
     /**
@@ -138,7 +158,8 @@ public final class ChatToolGate {
 
     /**
      * Builds the model-facing tool surface from the selected profile.
-     * Dynamic tools remain visible and are still governed by permission rules.
+     * Runtime tools require both a trusted capability classification and the
+     * selected profile's explicit runtime grant.
      *
      * @param registry tool registry
      * @return visible tool definitions
@@ -146,13 +167,12 @@ public final class ChatToolGate {
     public List<ToolDefinition> visibleToolDefinitions(ToolRegistry registry) {
         Objects.requireNonNull(registry, "registry"); //$NON-NLS-1$
         ToolSurfaceContext context = registry.createRuntimeSurfaceContext(profile);
-        Set<String> allowed = profile.getAllowedTools();
-        Set<String> dynamic = dynamicToolNamesSafe();
         List<ToolDefinition> result = new ArrayList<>();
-        for (ITool tool : registry.getAllTools()) {
-            if (!isVisible(tool.getName(), allowed, dynamic)) {
+        for (ToolResolution resolution : registry.getAllToolResolutions()) {
+            if (!ProfileToolAccess.allows(profile, resolution)) {
                 continue;
             }
+            ITool tool = resolution.tool();
             result.add(registry.getToolDefinition(tool, context));
         }
         return List.copyOf(result);
@@ -162,23 +182,27 @@ public final class ChatToolGate {
      * Decides one tool call and parses its arguments exactly once.
      *
      * @param call model tool call
-     * @param tool registered tool, or null for the existing unknown-tool contract
+     * @param resolution exact atomic registry resolution being authorized
      * @return deterministic decision
      */
-    public Decision decide(ToolCall call, ITool tool) {
+    public Decision decide(ToolCall call, ToolResolution resolution) {
         Objects.requireNonNull(call, "call"); //$NON-NLS-1$
+        Objects.requireNonNull(resolution, "resolution"); //$NON-NLS-1$
+        if (!Objects.equals(call.getName(), resolution.name())) {
+            throw new IllegalArgumentException("tool call and resolution names must match"); //$NON-NLS-1$
+        }
         Map<String, Object> arguments = parseSafe(call.getArguments());
-        ToolExecutionContext context = ToolExecutionContext.of(profile, 0);
+        ToolExecutionContext context = executionContext;
         String toolName = call.getName();
+        ITool tool = resolution.tool();
 
         if (tool == null) {
-            return execute(arguments, context, null, "none", null); //$NON-NLS-1$
+            return execute(arguments, context, resolution, false, null, "none", null); //$NON-NLS-1$
         }
 
-        Set<String> allowed = profile.getAllowedTools();
-        if (!isVisible(toolName, allowed, dynamicToolNamesSafe())) {
+        if (!ProfileToolAccess.allows(profile, resolution)) {
             String reasonCode = "tool_not_in_profile"; //$NON-NLS-1$
-            return deny(arguments, context, PermissionDenialPayload.denied(
+            return deny(arguments, context, resolution, false, PermissionDenialPayload.denied(
                     toolName, profile.getId(), null, reasonCode, LAYER_PROFILE, null),
                     reasonCode, LAYER_PROFILE, null);
         }
@@ -188,22 +212,25 @@ public final class ChatToolGate {
         String ruleDescription = gate.rule() != null ? gate.rule().getDescription() : null;
         if (gate.isDenied()) {
             String reasonCode = "denied_by_" + gate.layer() + "_rule"; //$NON-NLS-1$ //$NON-NLS-2$
-            return deny(arguments, context, PermissionDenialPayload.denied(
+            return deny(arguments, context, resolution, false, PermissionDenialPayload.denied(
                     toolName, profile.getId(), gate.resource(), reasonCode,
                     gate.layer(), ruleDescription),
                     reasonCode, gate.layer(), gate.resource());
         }
 
         boolean gateAsk = gate.decision() == GateDecision.ASK;
+        boolean destructive = tool.isDestructive()
+                || resolution.dynamicCapability() == DynamicToolCapability.MUTATING;
         boolean effectiveConfirmation = gateAsk
                 || tool.requiresConfirmation()
-                || tool.isDestructive();
+                || destructive;
         if (!effectiveConfirmation) {
-            return execute(arguments, context, null, gate.layer(), gate.resource());
+            return execute(arguments, context, resolution, destructive,
+                    null, gate.layer(), gate.resource());
         }
 
         if (skipConfirmations.getAsBoolean()) {
-            return execute(arguments, context,
+            return execute(arguments, context, resolution, destructive,
                     "confirmation_skipped_by_preference", gate.layer(), gate.resource()); //$NON-NLS-1$
         }
 
@@ -217,16 +244,27 @@ public final class ChatToolGate {
                 toolName, profile.getId(), unavailableResource, unavailableReason,
                 unavailableLayer, unavailableDescription);
         if (!confirmationSinkAvailable.getAsBoolean()) {
-            return deny(arguments, context, unavailable,
+            return deny(arguments, context, resolution, destructive, unavailable,
                     unavailableReason, unavailableLayer, unavailableResource);
         }
 
         String reasonCode = gateAsk
                 ? "confirmation_required_by_" + gate.layer() + "_rule" //$NON-NLS-1$ //$NON-NLS-2$
                 : "confirmation_required_tool_policy"; //$NON-NLS-1$
-        return new Decision(Action.CONFIRM, arguments, context, null, unavailable,
+        return new Decision(Action.CONFIRM, arguments, context, resolution, destructive,
+                null, unavailable,
                 reasonCode, gateAsk ? gate.layer() : LAYER_TOOL,
                 gateAsk ? gate.resource() : null);
+    }
+
+    /* Package-local compatibility for policy fixtures that use unregistered fake tools. */
+    Decision decide(ToolCall call, ITool fixtureTool) {
+        ToolResolution current = ToolRegistry.getInstance().resolveTool(call.getName());
+        if (fixtureTool == null || current.tool() == fixtureTool) {
+            return decide(call, current);
+        }
+        return decide(call, new ToolResolution(
+                call.getName(), fixtureTool, DynamicToolCapability.NONE, false, null));
     }
 
     /**
@@ -248,11 +286,6 @@ public final class ChatToolGate {
                 && "edit_file".equals(call.getName()); //$NON-NLS-1$
     }
 
-    private boolean isVisible(String toolName, Set<String> allowed, Set<String> dynamic) {
-        return allowed == null || allowed.isEmpty()
-                || allowed.contains(toolName) || dynamic.contains(toolName);
-    }
-
     private Map<String, Object> parseSafe(String arguments) {
         try {
             Map<String, Object> parsed = argumentParser.apply(arguments);
@@ -271,33 +304,30 @@ public final class ChatToolGate {
         }
     }
 
-    private Set<String> dynamicToolNamesSafe() {
-        try {
-            Set<String> names = dynamicToolNames.get();
-            return names != null ? names : Set.of();
-        } catch (Throwable e) {
-            return Set.of();
-        }
-    }
-
     private Decision execute(
             Map<String, Object> arguments,
             ToolExecutionContext context,
+            ToolResolution resolution,
+            boolean destructive,
             String reasonCode,
             String layer,
             String resource) {
-        return new Decision(Action.EXECUTE, arguments, context, null, null,
+        return new Decision(Action.EXECUTE, arguments, context, resolution, destructive,
+                null, null,
                 reasonCode, layer, resource);
     }
 
     private Decision deny(
             Map<String, Object> arguments,
             ToolExecutionContext context,
+            ToolResolution resolution,
+            boolean destructive,
             ToolResult denial,
             String reasonCode,
             String layer,
             String resource) {
-        return new Decision(Action.DENY, arguments, context, denial, null,
+        return new Decision(Action.DENY, arguments, context, resolution, destructive,
+                denial, null,
                 reasonCode, layer, resource);
     }
 

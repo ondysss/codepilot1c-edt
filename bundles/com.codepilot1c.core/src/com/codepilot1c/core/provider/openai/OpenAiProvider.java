@@ -25,6 +25,7 @@ import com.codepilot1c.core.model.ToolCall;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.provider.AbstractLlmProvider;
 import com.codepilot1c.core.provider.LlmProviderException;
+import com.codepilot1c.core.provider.LlmRequestCancellation;
 import com.codepilot1c.core.provider.ProviderCapabilities;
 import com.codepilot1c.core.provider.config.OpenAiUsageParser;
 import com.codepilot1c.core.provider.config.ProviderMessageContentSerializer;
@@ -73,33 +74,40 @@ public class OpenAiProvider extends AbstractLlmProvider {
                 .build();
     }
 
-    private String getApiKey() {
+    protected String getApiKey() {
         return getPreferences().get(VibePreferenceConstants.PREF_OPENAI_API_KEY, ""); //$NON-NLS-1$
     }
 
-    private String getApiUrl() {
+    protected String getApiUrl() {
         return getPreferences().get(VibePreferenceConstants.PREF_OPENAI_API_URL,
                 "https://api.openai.com/v1"); //$NON-NLS-1$
     }
 
-    private String getModel() {
+    protected String getModel() {
         String model = getPreferences().get(VibePreferenceConstants.PREF_OPENAI_MODEL, ""); //$NON-NLS-1$
         // Return fallback if preference is empty (not configured)
         return model.isEmpty() ? "gpt-4o" : model; //$NON-NLS-1$
     }
 
-    private int getMaxTokens() {
+    protected int getMaxTokens() {
         return getPreferences().getInt(VibePreferenceConstants.PREF_OPENAI_MAX_TOKENS, 4096);
     }
 
     @Override
     public CompletableFuture<LlmResponse> complete(LlmRequest request) {
-        resetCancelled();
+        return complete(request, new LlmRequestCancellation());
+    }
+
+    @Override
+    public CompletableFuture<LlmResponse> complete(
+            LlmRequest request, LlmRequestCancellation cancellation) {
+        LlmRequestCancellation requestCancellation = beginRequest(cancellation);
         long startTime = System.currentTimeMillis();
         String correlationId = LogSanitizer.newCorrelationId();
 
         if (!isConfigured()) {
             LOG.warn("[%s] OpenAI API key is not configured", correlationId); //$NON-NLS-1$
+            endRequest(requestCancellation);
             return CompletableFuture.failedFuture(
                     new LlmProviderException("OpenAI API key is not configured")); //$NON-NLS-1$
         }
@@ -113,7 +121,7 @@ public class OpenAiProvider extends AbstractLlmProvider {
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build();
 
-        return sendAsync(httpRequest)
+        return sendAsync(httpRequest, requestCancellation)
                 .thenApply(response -> {
                     LlmResponse llmResponse = parseResponse(response);
                     long duration = System.currentTimeMillis() - startTime;
@@ -124,6 +132,7 @@ public class OpenAiProvider extends AbstractLlmProvider {
                     return llmResponse;
                 })
                 .whenComplete((result, error) -> {
+                    endRequest(requestCancellation);
                     if (error != null) {
                         LOG.error("[%s] OpenAI request failed after %s: %s", //$NON-NLS-1$
                                 correlationId, LogSanitizer.formatDuration(System.currentTimeMillis() - startTime),
@@ -134,13 +143,19 @@ public class OpenAiProvider extends AbstractLlmProvider {
 
     @Override
     public void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer) {
-        resetCancelled();
-        streamCompletionSent = false; // Reset for new stream
-        streamingToolCalls.clear(); // Clear any leftover tool calls
+        streamComplete(request, consumer, new LlmRequestCancellation());
+    }
+
+    @Override
+    public void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer,
+            LlmRequestCancellation cancellation) {
+        LlmRequestCancellation requestCancellation = beginRequest(cancellation);
+        StreamState state = new StreamState();
         long startTime = System.currentTimeMillis();
         String correlationId = LogSanitizer.newCorrelationId();
 
         if (!isConfigured()) {
+            endRequest(requestCancellation);
             LOG.warn("[%s] OpenAI API key is not configured (stream)", correlationId); //$NON-NLS-1$
             throw new LlmProviderException("OpenAI API key is not configured"); //$NON-NLS-1$
         }
@@ -156,19 +171,24 @@ public class OpenAiProvider extends AbstractLlmProvider {
 
         final LlmProviderException[] error = { null };
 
-        sendAsyncStreaming(
-                httpRequest,
-                (line, complete) -> processStreamLine(line, consumer, complete),
-                ex -> {
-                    if (ex instanceof LlmProviderException) {
-                        error[0] = (LlmProviderException) ex;
-                    } else {
-                        error[0] = new LlmProviderException("Failed to stream from OpenAI API", ex); //$NON-NLS-1$
-                    }
-                    LOG.error("[%s] OpenAI stream error: %s", correlationId, error[0].getMessage()); //$NON-NLS-1$
-                    consumer.accept(LlmStreamChunk.error(error[0].getMessage()));
-                }
-        ).join(); // Block here to maintain method contract, but streaming happens async
+        try {
+            sendAsyncStreaming(
+                    httpRequest,
+                    (line, complete) -> processStreamLine(state, line, consumer, complete),
+                    ex -> {
+                        if (ex instanceof LlmProviderException) {
+                            error[0] = (LlmProviderException) ex;
+                        } else {
+                            error[0] = new LlmProviderException("Failed to stream from OpenAI API", ex); //$NON-NLS-1$
+                        }
+                        LOG.error("[%s] OpenAI stream error: %s", correlationId, error[0].getMessage()); //$NON-NLS-1$
+                        consumer.accept(LlmStreamChunk.error(error[0].getMessage()));
+                    },
+                    requestCancellation
+            ).join(); // Block here to maintain method contract, but streaming happens async
+        } finally {
+            endRequest(requestCancellation);
+        }
 
         long duration = System.currentTimeMillis() - startTime;
         if (error[0] != null) {
@@ -178,12 +198,8 @@ public class OpenAiProvider extends AbstractLlmProvider {
         LOG.info("[%s] OpenAI stream completed in %s", correlationId, LogSanitizer.formatDuration(duration)); //$NON-NLS-1$
     }
 
-    // Accumulate tool calls during streaming (they arrive in chunks)
-    private final List<StreamingToolCall> streamingToolCalls = new ArrayList<>();
-    // Track if completion has already been signaled (to avoid double completion)
-    private boolean streamCompletionSent = false;
-
-    private void processStreamLine(String line, Consumer<LlmStreamChunk> consumer, Runnable complete) {
+    void processStreamLine(StreamState state, String line,
+            Consumer<LlmStreamChunk> consumer, Runnable complete) {
         if (!line.startsWith("data: ")) { //$NON-NLS-1$
             return;
         }
@@ -191,17 +207,16 @@ public class OpenAiProvider extends AbstractLlmProvider {
         String data = line.substring(6);
         if ("[DONE]".equals(data)) { //$NON-NLS-1$
             // If completion was already sent (e.g., for tool_calls), just run the callback
-            if (streamCompletionSent) {
-                streamCompletionSent = false; // Reset for next stream
+            if (state.completionSent) {
                 complete.run();
                 return;
             }
 
             // Finalize any accumulated tool calls that weren't sent yet
-            if (!streamingToolCalls.isEmpty()) {
-                List<ToolCall> toolCalls = finalizeStreamingToolCalls();
+            if (!state.toolCalls.isEmpty()) {
+                List<ToolCall> toolCalls = finalizeStreamingToolCalls(state);
                 consumer.accept(LlmStreamChunk.toolCalls(toolCalls));
-                streamingToolCalls.clear();
+                state.toolCalls.clear();
                 consumer.accept(LlmStreamChunk.complete(LlmResponse.FINISH_REASON_TOOL_USE));
             } else {
                 consumer.accept(LlmStreamChunk.complete("stop")); //$NON-NLS-1$
@@ -228,7 +243,7 @@ public class OpenAiProvider extends AbstractLlmProvider {
 
                     // Handle tool calls (streamed incrementally)
                     if (delta.has("tool_calls")) { //$NON-NLS-1$
-                        processStreamingToolCalls(delta.getAsJsonArray("tool_calls")); //$NON-NLS-1$
+                        processStreamingToolCalls(state, delta.getAsJsonArray("tool_calls")); //$NON-NLS-1$
                     }
                 }
 
@@ -236,15 +251,15 @@ public class OpenAiProvider extends AbstractLlmProvider {
                     String reason = choice.get("finish_reason").getAsString(); //$NON-NLS-1$
 
                     // If finish reason is tool_calls, send accumulated tool calls
-                    if ("tool_calls".equals(reason) && !streamingToolCalls.isEmpty()) { //$NON-NLS-1$
-                        List<ToolCall> toolCalls = finalizeStreamingToolCalls();
+                    if ("tool_calls".equals(reason) && !state.toolCalls.isEmpty()) { //$NON-NLS-1$
+                        List<ToolCall> toolCalls = finalizeStreamingToolCalls(state);
                         consumer.accept(LlmStreamChunk.toolCalls(toolCalls));
-                        streamingToolCalls.clear();
+                        state.toolCalls.clear();
                         consumer.accept(LlmStreamChunk.complete(LlmResponse.FINISH_REASON_TOOL_USE));
-                        streamCompletionSent = true; // Mark completion as sent
-                    } else if (!streamCompletionSent) {
+                        state.completionSent = true;
+                    } else if (!state.completionSent) {
                         consumer.accept(LlmStreamChunk.complete(reason));
-                        streamCompletionSent = true;
+                        state.completionSent = true;
                     }
                     // Note: complete.run() will be called on [DONE]
                 }
@@ -254,17 +269,17 @@ public class OpenAiProvider extends AbstractLlmProvider {
         }
     }
 
-    private void processStreamingToolCalls(JsonArray toolCallsDelta) {
+    private void processStreamingToolCalls(StreamState state, JsonArray toolCallsDelta) {
         for (JsonElement element : toolCallsDelta) {
             JsonObject callDelta = element.getAsJsonObject();
             int index = callDelta.get("index").getAsInt(); //$NON-NLS-1$
 
             // Ensure we have space for this index
-            while (streamingToolCalls.size() <= index) {
-                streamingToolCalls.add(new StreamingToolCall());
+            while (state.toolCalls.size() <= index) {
+                state.toolCalls.add(new StreamingToolCall());
             }
 
-            StreamingToolCall tc = streamingToolCalls.get(index);
+            StreamingToolCall tc = state.toolCalls.get(index);
 
             if (callDelta.has("id")) { //$NON-NLS-1$
                 tc.id = callDelta.get("id").getAsString(); //$NON-NLS-1$
@@ -282,9 +297,9 @@ public class OpenAiProvider extends AbstractLlmProvider {
         }
     }
 
-    private List<ToolCall> finalizeStreamingToolCalls() {
+    private List<ToolCall> finalizeStreamingToolCalls(StreamState state) {
         List<ToolCall> result = new ArrayList<>();
-        for (StreamingToolCall stc : streamingToolCalls) {
+        for (StreamingToolCall stc : state.toolCalls) {
             if (stc.id != null && stc.name != null) {
                 result.add(new ToolCall(stc.id, stc.name, stc.arguments.toString()));
             }
@@ -299,6 +314,11 @@ public class OpenAiProvider extends AbstractLlmProvider {
         String id;
         String name;
         StringBuilder arguments = new StringBuilder();
+    }
+
+    static final class StreamState {
+        private final List<StreamingToolCall> toolCalls = new ArrayList<>();
+        private boolean completionSent;
     }
 
     private String buildRequestBody(LlmRequest request, boolean stream) {

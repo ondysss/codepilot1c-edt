@@ -23,6 +23,7 @@ import com.codepilot1c.core.model.LlmResponse;
 import com.codepilot1c.core.model.LlmStreamChunk;
 import com.codepilot1c.core.provider.AbstractLlmProvider;
 import com.codepilot1c.core.provider.LlmProviderException;
+import com.codepilot1c.core.provider.LlmRequestCancellation;
 import com.codepilot1c.core.provider.ProviderCapabilities;
 import com.codepilot1c.core.settings.VibePreferenceConstants;
 import com.google.gson.JsonArray;
@@ -80,19 +81,33 @@ public class OllamaProvider extends AbstractLlmProvider {
 
     @Override
     public CompletableFuture<LlmResponse> complete(LlmRequest request) {
-        resetCancelled();
+        return complete(request, new LlmRequestCancellation());
+    }
+
+    @Override
+    public CompletableFuture<LlmResponse> complete(
+            LlmRequest request, LlmRequestCancellation cancellation) {
+        LlmRequestCancellation requestCancellation = beginRequest(cancellation);
 
         String requestBody = buildRequestBody(request, false);
         HttpRequest httpRequest = createPostRequest(getApiUrl() + "/api/chat") //$NON-NLS-1$
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build();
 
-        return sendAsync(httpRequest).thenApply(this::parseResponse);
+        return sendAsync(httpRequest, requestCancellation)
+                .thenApply(this::parseResponse)
+                .whenComplete((result, error) -> endRequest(requestCancellation));
     }
 
     @Override
     public void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer) {
-        resetCancelled();
+        streamComplete(request, consumer, new LlmRequestCancellation());
+    }
+
+    @Override
+    public void streamComplete(LlmRequest request, Consumer<LlmStreamChunk> consumer,
+            LlmRequestCancellation cancellation) {
+        LlmRequestCancellation requestCancellation = beginRequest(cancellation);
 
         String requestBody = buildRequestBody(request, true);
         HttpRequest httpRequest = createPostRequest(getApiUrl() + "/api/chat") //$NON-NLS-1$
@@ -101,18 +116,23 @@ public class OllamaProvider extends AbstractLlmProvider {
 
         final LlmProviderException[] error = { null };
 
-        sendAsyncStreaming(
-                httpRequest,
-                (line, complete) -> processStreamLine(line, consumer, complete),
-                ex -> {
-                    if (ex instanceof LlmProviderException) {
-                        error[0] = (LlmProviderException) ex;
-                    } else {
-                        error[0] = new LlmProviderException("Failed to stream from Ollama", ex); //$NON-NLS-1$
-                    }
-                    consumer.accept(LlmStreamChunk.error(error[0].getMessage()));
-                }
-        ).join(); // Block here to maintain method contract, but streaming happens async
+        try {
+            sendAsyncStreaming(
+                    httpRequest,
+                    (line, complete) -> processStreamLine(line, consumer, complete),
+                    ex -> {
+                        if (ex instanceof LlmProviderException) {
+                            error[0] = (LlmProviderException) ex;
+                        } else {
+                            error[0] = new LlmProviderException("Failed to stream from Ollama", ex); //$NON-NLS-1$
+                        }
+                        consumer.accept(LlmStreamChunk.error(error[0].getMessage()));
+                    },
+                    requestCancellation
+            ).join(); // Block here to maintain method contract, but streaming happens async
+        } finally {
+            endRequest(requestCancellation);
+        }
 
         if (error[0] != null) {
             throw error[0];

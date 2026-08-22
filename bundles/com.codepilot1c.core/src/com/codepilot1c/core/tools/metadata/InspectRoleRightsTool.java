@@ -10,6 +10,7 @@ import com.codepilot1c.core.tools.AbstractTool;
 import com.codepilot1c.core.tools.ActiveProjectSupport;
 import com.codepilot1c.core.tools.ToolMeta;
 import com.codepilot1c.core.tools.ToolParameters;
+import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolResult;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -57,10 +58,16 @@ public class InspectRoleRightsTool extends AbstractTool {
 
     @Override
     protected CompletableFuture<ToolResult> doExecute(ToolParameters params) {
+        return doExecute(params, ToolExecutionContext.unscoped());
+    }
+
+    @Override
+    protected CompletableFuture<ToolResult> doExecute(
+            ToolParameters params, ToolExecutionContext context) {
         return CompletableFuture.supplyAsync(() -> {
             Map<String, Object> parameters = params.getRaw();
             try {
-                String projectName = resolveProjectName(parameters);
+                String projectName = resolveProjectName(parameters, context);
                 if (projectName == null || projectName.isBlank()) {
                     return ToolResult.failure("project could not be resolved automatically. Open projects: " //$NON-NLS-1$
                             + ActiveProjectSupport.openProjectNames()
@@ -80,12 +87,13 @@ public class InspectRoleRightsTool extends AbstractTool {
         });
     }
 
-    private String resolveProjectName(Map<String, Object> parameters) {
+    private String resolveProjectName(
+            Map<String, Object> parameters, ToolExecutionContext context) {
         String explicit = stringParam(parameters, "project"); //$NON-NLS-1$
         if (explicit != null && !explicit.isBlank()) {
             return explicit;
         }
-        return ActiveProjectSupport.resolveActiveProjectName();
+        return ActiveProjectSupport.resolveActiveProjectName(context);
     }
 
     private String stringParam(Map<String, Object> parameters, String key) {

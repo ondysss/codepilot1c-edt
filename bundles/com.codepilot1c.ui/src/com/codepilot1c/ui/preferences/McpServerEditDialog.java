@@ -441,6 +441,9 @@ public class McpServerEditDialog extends TitleAreaDialog {
 
         if (existingConfig != null) {
             builder.id(existingConfig.getId());
+            // Preserve locally reviewed trust provenance. It is deliberately
+            // not inferred from remote MCP annotations.
+            builder.trustedReadOnlyTools(existingConfig.getTrustedReadOnlyTools());
         }
 
         if (transport == TransportType.STDIO) {

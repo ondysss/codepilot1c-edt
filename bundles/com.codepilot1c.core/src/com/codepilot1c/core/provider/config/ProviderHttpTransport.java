@@ -1,6 +1,5 @@
 package com.codepilot1c.core.provider.config;
 
-import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -22,7 +21,7 @@ final class ProviderHttpTransport {
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString());
     }
 
-    HttpResponse<Stream<String>> sendStreamingLines(HttpRequest request) throws IOException, InterruptedException {
-        return httpClient.send(request, HttpResponse.BodyHandlers.ofLines());
+    CompletableFuture<HttpResponse<Stream<String>>> sendStreamingLinesAsync(HttpRequest request) {
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofLines());
     }
 }

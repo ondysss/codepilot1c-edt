@@ -147,7 +147,7 @@ public class TaskTool extends AbstractTool {
                         : profileRegistry.getExploreProfile();
                 return executeSubagent(
                         prompt, resolvedProfileId, legacyProfile, description,
-                        context.delegationDepth() + 1, null, resolvedProfileId);
+                        context.delegationDepth() + 1, null, resolvedProfileId, context);
             }
 
             AgentCapability required = resolvedProfile != null
@@ -188,7 +188,7 @@ public class TaskTool extends AbstractTool {
             }
             return executeSubagent(
                     prompt, decision.effectiveProfileId(), effectiveProfile, description,
-                    context.delegationDepth() + 1, decision, resolvedProfileId);
+                    context.delegationDepth() + 1, decision, resolvedProfileId, context);
         });
     }
 
@@ -202,7 +202,8 @@ public class TaskTool extends AbstractTool {
             String description,
             int childDepth,
             Decision decision,
-            String routedProfileId) {
+            String routedProfileId,
+            ToolExecutionContext parentContext) {
         logInfo("Запуск подагента [" + profileId + "]: " + description);
 
         // Get provider
@@ -218,7 +219,8 @@ public class TaskTool extends AbstractTool {
         AgentConfig.Builder configBuilder = AgentConfig.builder().from(baseConfig)
                 .systemPromptAddition(buildSubagentSystemPrompt(profile, description))
                 .profileName(profileId)
-                .delegationDepth(childDepth);
+                .delegationDepth(childDepth)
+                .executionIdentity(parentContext.projectPath(), parentContext.sessionId());
 
         if (childDepth >= MAX_DEPTH) {
             configBuilder.disableTool("task"); //$NON-NLS-1$

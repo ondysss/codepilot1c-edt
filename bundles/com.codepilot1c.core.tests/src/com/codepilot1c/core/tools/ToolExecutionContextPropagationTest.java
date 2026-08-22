@@ -17,6 +17,7 @@ import org.junit.Test;
 
 import com.codepilot1c.core.agent.profiles.AgentCapability;
 import com.codepilot1c.core.agent.profiles.PlanAgentProfile;
+import com.codepilot1c.core.agent.AgentConfig;
 import com.codepilot1c.core.model.ToolCall;
 import com.google.gson.Gson;
 
@@ -38,6 +39,37 @@ public class ToolExecutionContextPropagationTest {
         assertTrue(result.isSuccess());
         assertSame(context, tool.context.get());
         assertEquals("approved", tool.parameters.get().get("value")); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    @Test
+    public void perViewProjectAndSessionIdentityCrossRegistryUnchanged() throws Exception {
+        ContextAwareTool tool = new ContextAwareTool();
+        ToolRegistry registry = isolatedRegistry(Map.of(tool.getName(), tool));
+        ToolExecutionContext context = new ToolExecutionContext(
+                "plan", AgentCapability.READ_ONLY, 0, //$NON-NLS-1$
+                "/workspace/project-a", "chat-a"); //$NON-NLS-1$ //$NON-NLS-2$
+
+        registry.execute(new ToolCall("call-1", tool.getName(), "{}"), //$NON-NLS-1$ //$NON-NLS-2$
+                Map.of(), null, null, context).join();
+
+        assertSame(context, tool.context.get());
+        assertTrue(tool.context.get().hasProjectIdentity());
+        assertEquals("/workspace/project-a", tool.context.get().projectPath()); //$NON-NLS-1$
+        assertEquals("chat-a", tool.context.get().sessionId()); //$NON-NLS-1$
+        assertEquals("/workspace/project-a", ActiveProjectSupport.resolveProjectPath(context)); //$NON-NLS-1$
+    }
+
+    @Test
+    public void delegatedAgentConfigPreservesParentTurnIdentity() {
+        AgentConfig parent = AgentConfig.builder()
+                .executionIdentity("/workspace/project-a", "chat-a") //$NON-NLS-1$ //$NON-NLS-2$
+                .build();
+        AgentConfig child = AgentConfig.builder().from(parent)
+                .delegationDepth(1)
+                .build();
+
+        assertEquals("/workspace/project-a", child.getProjectPath()); //$NON-NLS-1$
+        assertEquals("chat-a", child.getSessionId()); //$NON-NLS-1$
     }
 
     @Test

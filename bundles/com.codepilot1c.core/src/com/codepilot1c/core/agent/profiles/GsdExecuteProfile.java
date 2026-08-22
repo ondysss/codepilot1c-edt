@@ -25,23 +25,7 @@ public final class GsdExecuteProfile extends GsdPhaseProfile {
 
     public static final String ID = "gsd-execute"; //$NON-NLS-1$
 
-    private static final Set<String> ALLOWED_TOOLS = extendTools(
-            "gsd_get_state", //$NON-NLS-1$
-            "gsd_update_task", //$NON-NLS-1$
-            "gsd_record_evidence", //$NON-NLS-1$
-            "gsd_transition", //$NON-NLS-1$
-            "edt_validate_request", //$NON-NLS-1$
-            "edit_file", //$NON-NLS-1$
-            "write_file", //$NON-NLS-1$
-            "ensure_module_artifact", //$NON-NLS-1$
-            "create_metadata", //$NON-NLS-1$
-            "create_form", //$NON-NLS-1$
-            "add_metadata_child", //$NON-NLS-1$
-            "update_metadata", //$NON-NLS-1$
-            "mutate_form_model", //$NON-NLS-1$
-            "delete_metadata", //$NON-NLS-1$
-            "remember_fact" //$NON-NLS-1$
-    );
+    private static final Set<String> ALLOWED_TOOLS = GsdProfileCapabilities.allowedTools(ID);
 
     private static final List<PermissionRule> DEFAULT_PERMISSIONS = extendPermissions(
             PermissionRule.allow("gsd_get_state").forAllResources(), //$NON-NLS-1$

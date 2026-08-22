@@ -9,6 +9,8 @@ package com.codepilot1c.ui.diff;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.BooleanSupplier;
 
 import com.codepilot1c.core.diff.InlineDiffUtils;
 import com.codepilot1c.core.diff.LineDiffUtils;
@@ -47,6 +49,7 @@ import org.eclipse.swt.widgets.Table;
 public class DiffReviewDialog extends Dialog {
 
     private final ProposedChangeSet changeSet;
+    private final BooleanSupplier applyAuthorization;
 
     private TableViewer changeListViewer;
     private StyledText beforeText;
@@ -73,8 +76,17 @@ public class DiffReviewDialog extends Dialog {
      * @param changeSet the proposed change set to review
      */
     public DiffReviewDialog(Shell parentShell, ProposedChangeSet changeSet) {
+        this(parentShell, changeSet, () -> true);
+    }
+
+    /** Creates a dialog with a final authorization check before any accepted change is applied. */
+    public DiffReviewDialog(
+            Shell parentShell, ProposedChangeSet changeSet,
+            BooleanSupplier applyAuthorization) {
         super(parentShell);
         this.changeSet = changeSet;
+        this.applyAuthorization = Objects.requireNonNull(
+                applyAuthorization, "applyAuthorization"); //$NON-NLS-1$
         setShellStyle(getShellStyle() | SWT.RESIZE | SWT.MAX);
     }
 
@@ -611,6 +623,14 @@ public class DiffReviewDialog extends Dialog {
         if (!changeSet.hasAcceptedChanges()) {
             // Nothing to apply
             super.cancelPressed();
+            return;
+        }
+
+        if (!applyAuthorization.getAsBoolean()) {
+            for (ProposedChange change : changeSet.getAcceptedChanges()) {
+                change.markFailed();
+            }
+            super.okPressed();
             return;
         }
 

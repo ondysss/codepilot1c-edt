@@ -17,6 +17,7 @@ import com.codepilot1c.core.gsd.GsdState;
 import com.codepilot1c.core.gsd.GsdWorkflowService;
 import com.codepilot1c.core.tools.AbstractTool;
 import com.codepilot1c.core.tools.ToolMeta;
+import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolParameters;
 import com.codepilot1c.core.tools.ToolParameters.ToolParameterException;
 import com.codepilot1c.core.tools.ToolResult;
@@ -24,10 +25,13 @@ import com.google.gson.JsonObject;
 
 /**
  * Transitions the GSD phase. Forward transitions: DISCOVERY → PLANNING → EXECUTING →
- * VERIFYING → CLOSED. Single allowed rollback: VERIFYING → EXECUTING (requires {@code reason}).
+ * VERIFYING → SHIPPING → CLOSED. Allowed rollbacks are VERIFYING → EXECUTING and
+ * SHIPPING → VERIFYING/EXECUTING; every rollback requires {@code reason}.
  *
- * <p>Schema requires {@code project_path}, {@code expected_revision}, {@code target_phase}.
- * {@code reason} is optional except for VERIFYING→EXECUTING rollback where it is required.</p>
+ * <p>Schema requires {@code project_path}, the complete concurrency token
+ * ({@code expected_cycle_id}, {@code expected_generation}, and {@code expected_revision}),
+ * and {@code target_phase}. {@code reason} is optional for forward transitions and
+ * required for every rollback.</p>
  */
 @ToolMeta(
     name = "gsd_transition",
@@ -45,29 +49,31 @@ public class GsdTransitionTool extends AbstractTool {
                   "type": "string",
                   "description": "Absolute path to the project root."
                 },
+                "expected_cycle_id": {"type": "string"},
+                "expected_generation": {"type": "integer"},
                 "expected_revision": {
                   "type": "integer",
                   "description": "Expected revision for optimistic concurrency."
                 },
                 "target_phase": {
                   "type": "string",
-                  "enum": ["DISCOVERY", "PLANNING", "EXECUTING", "VERIFYING", "CLOSED"],
+                  "enum": ["DISCOVERY", "PLANNING", "EXECUTING", "VERIFYING", "SHIPPING", "CLOSED"],
                   "description": "The phase to transition to."
                 },
                 "reason": {
                   "type": "string",
-                  "description": "Required for VERIFYING->EXECUTING rollback: explain why."
+                  "description": "Required for every rollback from VERIFYING or SHIPPING."
                 }
               },
-              "required": ["project_path", "expected_revision", "target_phase"],
+              "required": ["project_path", "expected_cycle_id", "expected_generation", "expected_revision", "target_phase"],
               "additionalProperties": false
             }
             """; //$NON-NLS-1$
 
     @Override
     public String getDescription() {
-        return "Transitions the GSD phase forward (DISCOVERY->PLANNING->EXECUTING->VERIFYING->CLOSED). " //$NON-NLS-1$
-                + "Allows one rollback: VERIFYING->EXECUTING with a required reason.";
+        return "Transitions GSD through DISCOVERY->PLANNING->EXECUTING->VERIFYING->SHIPPING->CLOSED. " //$NON-NLS-1$
+                + "Rollbacks from VERIFYING or SHIPPING require a reason.";
     }
 
     @Override
@@ -77,9 +83,17 @@ public class GsdTransitionTool extends AbstractTool {
 
     @Override
     protected CompletableFuture<ToolResult> doExecute(ToolParameters params) {
+        return doExecute(params, ToolExecutionContext.unscoped());
+    }
+
+    @Override
+    protected CompletableFuture<ToolResult> doExecute(
+            ToolParameters params, ToolExecutionContext context) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return executeInternal(params);
+                return executeInternal(params, context);
+            } catch (GsdToolSupport.GsdToolIdentityException e) {
+                return GsdToolSupport.identityFailure("gsd_transition", e); //$NON-NLS-1$
             } catch (ToolParameterException e) {
                 return ToolResult.failure("Parameter error: " + e.getMessage(), //$NON-NLS-1$
                         GsdWorkflowService.buildResult(false, "gsd_transition", 0, null, GsdWorkflowService.ERR_INVALID)); //$NON-NLS-1$
@@ -89,6 +103,9 @@ public class GsdTransitionTool extends AbstractTool {
             } catch (GsdContentRejectedException e) {
                 return ToolResult.failure("Content rejected: " + e.getMessage(), //$NON-NLS-1$
                         GsdWorkflowService.buildResult(false, "gsd_transition", 0, null, GsdWorkflowService.ERR_SECURITY)); //$NON-NLS-1$
+            } catch (com.codepilot1c.core.gsd.GsdStaleTokenException e) {
+                return ToolResult.failure("Stale concurrency token", //$NON-NLS-1$
+                        GsdWorkflowService.buildResult(false, "gsd_transition", 0, null, GsdWorkflowService.ERR_STALE)); //$NON-NLS-1$
             } catch (com.codepilot1c.core.gsd.GsdStaleRevisionException e) {
                 return ToolResult.failure("Stale revision: expected " + e.getExpectedRevision() //$NON-NLS-1$
                                 + ", current " + e.getActualRevision(), //$NON-NLS-1$
@@ -100,8 +117,7 @@ public class GsdTransitionTool extends AbstractTool {
                 return ToolResult.failure("GSD state is corrupt: " + e.getMessage(), //$NON-NLS-1$
                         GsdWorkflowService.buildResult(false, "gsd_transition", 0, null, GsdWorkflowService.ERR_CORRUPT)); //$NON-NLS-1$
             } catch (IOException e) {
-                return ToolResult.failure("I/O error: " + e.getMessage(), //$NON-NLS-1$
-                        GsdWorkflowService.buildResult(false, "gsd_transition", 0, null, GsdWorkflowService.ERR_IO)); //$NON-NLS-1$
+                return GsdToolSupport.ioFailure("gsd_transition", "I/O error: ", e); //$NON-NLS-1$ //$NON-NLS-2$
             } catch (RuntimeException e) {
                 return ToolResult.failure("Internal error: " + e.getMessage(), //$NON-NLS-1$
                         GsdWorkflowService.buildResult(false, "gsd_transition", 0, null, GsdWorkflowService.ERR_INVALID)); //$NON-NLS-1$
@@ -109,9 +125,12 @@ public class GsdTransitionTool extends AbstractTool {
         });
     }
 
-    private ToolResult executeInternal(ToolParameters params) throws IOException {
-        String projectPath = params.requireString("project_path"); //$NON-NLS-1$
-        long expectedRevision = params.requireLong("expected_revision"); //$NON-NLS-1$
+    private ToolResult executeInternal(ToolParameters params, ToolExecutionContext context)
+            throws IOException {
+        GsdToolSupport.requireOnly(params, "project_path", "expected_cycle_id", //$NON-NLS-1$ //$NON-NLS-2$
+                "expected_generation", "expected_revision", "target_phase", "reason"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+        String projectPath = GsdToolSupport.requireProject(params, context);
+        var expectedToken = GsdToolSupport.requireToken(params);
         String phaseStr = params.requireString("target_phase"); //$NON-NLS-1$
         GsdPhase targetPhase = GsdPhase.fromName(phaseStr);
         if (targetPhase == null) {
@@ -120,12 +139,11 @@ public class GsdTransitionTool extends AbstractTool {
         }
         Map<String, Object> raw = params.getRaw();
         String reason = raw.containsKey("reason") //$NON-NLS-1$
-                ? params.optString("reason", null) : null; //$NON-NLS-1$
+                ? GsdToolSupport.optionalString(params, "reason") : null; //$NON-NLS-1$
 
         GsdState state = GsdWorkflowService.transitionPhase(
-                projectPath, expectedRevision, targetPhase, reason);
-        JsonObject structured = GsdWorkflowService.buildResult(
-                true, "gsd_transition", state.revision(), state.phase(), null); //$NON-NLS-1$
+                projectPath, expectedToken, targetPhase, reason);
+        JsonObject structured = GsdToolSupport.stateEnvelope("gsd_transition", state); //$NON-NLS-1$
         return ToolResult.success(
                 "Phase transitioned to " + state.phase() + ". Revision: " + state.revision(), //$NON-NLS-1$ //$NON-NLS-2$
                 structured);

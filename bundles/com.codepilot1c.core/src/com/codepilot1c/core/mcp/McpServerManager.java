@@ -25,7 +25,6 @@ import com.codepilot1c.core.mcp.model.McpServerState;
 import com.codepilot1c.core.mcp.model.McpTool;
 import com.codepilot1c.core.mcp.transport.IMcpTransport;
 import com.codepilot1c.core.mcp.transport.McpTransportFactory;
-import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
 
 /**
@@ -121,7 +120,7 @@ public class McpServerManager {
             .thenCompose(v -> client.initialize())
             .thenApply(v -> {
                 clients.put(serverId, client);
-                registerToolsFromServer(serverId, client);
+                registerToolsFromServer(config, client);
                 serverStates.put(serverId, McpServerState.RUNNING);
                 notifyStateChanged(config, McpServerState.RUNNING);
                 LOG.info("MCP server '%s' started with %d tools",
@@ -241,14 +240,15 @@ public class McpServerManager {
         return transportFactory.create(config);
     }
 
-    private void registerToolsFromServer(String serverId, McpClient client) {
+    private void registerToolsFromServer(McpServerConfig config, McpClient client) {
         ToolRegistry registry = ToolRegistry.getInstance();
         String prefix = "mcp_" + client.getServerName().replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase() + "_";
 
         // Register initial tools
         for (McpTool mcpTool : client.getTools()) {
-            ITool adapter = new McpToolAdapter(client, mcpTool);
-            registry.registerDynamicTool(adapter);
+            McpToolAdapter adapter = new McpToolAdapter(
+                    client, mcpTool, config.isTrustedReadOnlyTool(mcpTool.getName()));
+            registry.registerDynamicTool(adapter, adapter.getDynamicToolCapability());
             LOG.debug("Registered MCP tool: %s", adapter.getName());
         }
 
@@ -259,8 +259,9 @@ public class McpServerManager {
             registry.unregisterToolsByPrefix(prefix);
             // Register new tools
             for (McpTool mcpTool : newTools) {
-                ITool adapter = new McpToolAdapter(client, mcpTool);
-                registry.registerDynamicTool(adapter);
+                McpToolAdapter adapter = new McpToolAdapter(
+                        client, mcpTool, config.isTrustedReadOnlyTool(mcpTool.getName()));
+                registry.registerDynamicTool(adapter, adapter.getDynamicToolCapability());
                 LOG.debug("Re-registered MCP tool: %s", adapter.getName());
             }
         });

@@ -49,6 +49,7 @@ public final class GsdRefreshCoordinator {
 
     private long generation;
     private Path currentProjectRoot;
+    private boolean disposed;
 
     /**
      * Sets the project root and bumps the generation counter.
@@ -60,6 +61,9 @@ public final class GsdRefreshCoordinator {
      * @param projectRoot the new root; may be {@code null} (no project bound)
      */
     public synchronized void setProjectRoot(Path projectRoot) {
+        if (disposed) {
+            return;
+        }
         this.currentProjectRoot = projectRoot;
         this.generation++;
     }
@@ -81,7 +85,7 @@ public final class GsdRefreshCoordinator {
      * @return a token, or {@code null} if no project root is currently set
      */
     public synchronized RefreshToken beginRefresh() {
-        if (this.currentProjectRoot == null) {
+        if (disposed || this.currentProjectRoot == null) {
             return null;
         }
         this.generation++;
@@ -98,8 +102,26 @@ public final class GsdRefreshCoordinator {
      */
     public synchronized boolean shouldApply(RefreshToken token) {
         Objects.requireNonNull(token, "token"); //$NON-NLS-1$
-        return token.generation == this.generation
+        return !disposed
+                && token.generation == this.generation
                 && rootsEqual(this.currentProjectRoot, token.projectRoot);
+    }
+
+    /**
+     * Invalidates all in-flight work and permanently closes this coordinator.
+     * Repeated disposal is safe.
+     */
+    public synchronized void dispose() {
+        if (!disposed) {
+            disposed = true;
+            currentProjectRoot = null;
+            generation++;
+        }
+    }
+
+    /** @return whether this coordinator has been disposed */
+    public synchronized boolean isDisposed() {
+        return disposed;
     }
 
     /**

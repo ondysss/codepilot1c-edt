@@ -18,7 +18,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 
 import org.eclipse.core.runtime.preferences.IEclipsePreferences;
@@ -40,7 +42,8 @@ import com.google.gson.JsonParser;
 public abstract class AbstractLlmProvider implements ILlmProvider {
 
     protected final Gson gson = new GsonBuilder().create();
-    protected final AtomicBoolean cancelled = new AtomicBoolean(false);
+    private final ConcurrentHashMap<LlmRequestCancellation, AtomicInteger> activeRequests =
+            new ConcurrentHashMap<>();
 
     /**
      * Returns the preferences node for this plugin.
@@ -146,6 +149,14 @@ public abstract class AbstractLlmProvider implements ILlmProvider {
         return getHttpClient().sendAsync(request, HttpResponse.BodyHandlers.ofString());
     }
 
+    /** Sends one non-streaming HTTP request owned by the supplied cancellation scope. */
+    protected CompletableFuture<HttpResponse<String>> sendAsync(
+            HttpRequest request, LlmRequestCancellation cancellation) {
+        CompletableFuture<HttpResponse<String>> future = sendAsync(request);
+        cancellation.onCancel(() -> future.cancel(true));
+        return future;
+    }
+
     /**
      * Sends an HTTP request asynchronously with streaming response.
      * Lines are processed as they arrive without blocking.
@@ -160,9 +171,42 @@ public abstract class AbstractLlmProvider implements ILlmProvider {
             BiConsumer<String, Runnable> lineProcessor,
             java.util.function.Consumer<Throwable> errorHandler) {
 
-        return getHttpClient()
-                .sendAsync(request, HttpResponse.BodyHandlers.ofInputStream())
+        return sendAsyncStreaming(request, lineProcessor, errorHandler, new LlmRequestCancellation());
+    }
+
+    /** Streams one HTTP exchange with request-local cancellation and body ownership. */
+    protected CompletableFuture<Void> sendAsyncStreaming(
+            HttpRequest request,
+            BiConsumer<String, Runnable> lineProcessor,
+            java.util.function.Consumer<Throwable> errorHandler,
+            LlmRequestCancellation cancellation) {
+
+        AtomicReference<InputStream> responseBody = new AtomicReference<>();
+        CompletableFuture<HttpResponse<InputStream>> exchange = getHttpClient()
+                .sendAsync(request, HttpResponse.BodyHandlers.ofInputStream());
+        cancellation.onCancel(() -> {
+            exchange.cancel(true);
+            InputStream body = responseBody.get();
+            if (body != null) {
+                try {
+                    body.close();
+                } catch (IOException ignored) {
+                    // Closing a cancelled stream is best-effort.
+                }
+            }
+        });
+
+        CompletableFuture<Void> processing = exchange
                 .thenAcceptAsync(response -> {
+                    responseBody.set(response.body());
+                    if (cancellation.isCancelled()) {
+                        try {
+                            response.body().close();
+                        } catch (IOException ignored) {
+                            // Cancellation already won; closing is best-effort.
+                        }
+                        return;
+                    }
                     if (!isSuccess(response.statusCode())) {
                         // Read error body and parse structured error
                         try (InputStream is = response.body()) {
@@ -182,22 +226,25 @@ public abstract class AbstractLlmProvider implements ILlmProvider {
                         final boolean[] completed = { false };
                         Runnable completeCallback = () -> completed[0] = true;
 
-                        while (!completed[0] && !isCancelled() && (line = reader.readLine()) != null) {
+                        while (!completed[0] && !cancellation.isCancelled()
+                                && (line = reader.readLine()) != null) {
                             lineProcessor.accept(line, completeCallback);
                         }
                     } catch (IOException e) {
-                        if (!isCancelled()) {
+                        if (!cancellation.isCancelled()) {
                             errorHandler.accept(new LlmProviderException(
                                     "Failed to read stream response", e)); //$NON-NLS-1$
                         }
                     }
                 })
                 .exceptionally(ex -> {
-                    if (!isCancelled()) {
+                    if (!cancellation.isCancelled()) {
                         errorHandler.accept(ex);
                     }
                     return null;
                 });
+        cancellation.onCancel(() -> processing.cancel(true));
+        return processing;
     }
 
     /**
@@ -253,23 +300,30 @@ public abstract class AbstractLlmProvider implements ILlmProvider {
 
     @Override
     public void cancel() {
-        cancelled.set(true);
+        activeRequests.keySet().forEach(LlmRequestCancellation::cancel);
     }
 
-    /**
-     * Resets the cancelled state.
-     */
-    protected void resetCancelled() {
-        cancelled.set(false);
+    /** Registers one provider invocation for legacy provider-wide cancellation. */
+    protected LlmRequestCancellation beginRequest(LlmRequestCancellation cancellation) {
+        LlmRequestCancellation effective = cancellation != null
+                ? cancellation : new LlmRequestCancellation();
+        activeRequests.compute(effective, (ignored, count) -> {
+            if (count == null) {
+                return new AtomicInteger(1);
+            }
+            count.incrementAndGet();
+            return count;
+        });
+        return effective;
     }
 
-    /**
-     * Checks if the operation has been cancelled.
-     *
-     * @return true if cancelled
-     */
-    protected boolean isCancelled() {
-        return cancelled.get();
+    /** Releases one provider invocation without affecting concurrent requests. */
+    protected void endRequest(LlmRequestCancellation cancellation) {
+        if (cancellation == null) {
+            return;
+        }
+        activeRequests.computeIfPresent(cancellation, (ignored, count) ->
+                count.decrementAndGet() <= 0 ? null : count);
     }
 
     @Override

@@ -17,6 +17,8 @@ import java.util.Set;
 import com.codepilot1c.core.agent.prompts.AgentPromptTemplates;
 import com.codepilot1c.core.agent.prompts.PromptProviderRegistry;
 import com.codepilot1c.core.permissions.PermissionRule;
+import com.codepilot1c.core.tools.ITool;
+import com.codepilot1c.core.tools.ToolRegistry;
 
 /**
  * Базовый профиль для strict GSD Native фаз.
@@ -26,49 +28,6 @@ import com.codepilot1c.core.permissions.PermissionRule;
  * Project/EDT/Git мутации запрещены для discuss/plan/verify.</p>
  */
 abstract class GsdPhaseProfile implements AgentProfile {
-
-    protected static final Set<String> BASE_READ_TOOLS;
-
-    static {
-        Set<String> tools = new HashSet<>(Arrays.asList(
-                "read_file", //$NON-NLS-1$
-                "glob", //$NON-NLS-1$
-                "grep", //$NON-NLS-1$
-                "list_files", //$NON-NLS-1$
-                "git_inspect", //$NON-NLS-1$
-                "get_diagnostics", //$NON-NLS-1$
-                "get_bookmarks", //$NON-NLS-1$
-                "get_tasks", //$NON-NLS-1$
-                "edt_content_assist", //$NON-NLS-1$
-                "edt_find_references", //$NON-NLS-1$
-                "edt_metadata_details", //$NON-NLS-1$
-                "scan_metadata_index", //$NON-NLS-1$
-                "edt_get_configuration_properties", //$NON-NLS-1$
-                "edt_get_problem_summary", //$NON-NLS-1$
-                "edt_get_tags", //$NON-NLS-1$
-                "edt_get_objects_by_tags", //$NON-NLS-1$
-                "edt_list_modules", //$NON-NLS-1$
-                "edt_get_module_structure", //$NON-NLS-1$
-                "edt_search_in_code", //$NON-NLS-1$
-                "edt_get_method_call_hierarchy", //$NON-NLS-1$
-                "edt_get_project_call_graph", //$NON-NLS-1$
-                "edt_go_to_definition", //$NON-NLS-1$
-                "edt_get_symbol_info", //$NON-NLS-1$
-                "inspect_form_layout", //$NON-NLS-1$
-                "bsl_symbol_at_position", //$NON-NLS-1$
-                "bsl_type_at_position", //$NON-NLS-1$
-                "bsl_scope_members", //$NON-NLS-1$
-                "bsl_list_methods", //$NON-NLS-1$
-                "bsl_get_method_body", //$NON-NLS-1$
-                "bsl_analyze_method", //$NON-NLS-1$
-                "bsl_module_context", //$NON-NLS-1$
-                "bsl_module_exports", //$NON-NLS-1$
-                "inspect_platform_reference", //$NON-NLS-1$
-                "skill", //$NON-NLS-1$
-                "discover_tools" //$NON-NLS-1$
-        ));
-        BASE_READ_TOOLS = Collections.unmodifiableSet(tools);
-    }
 
     protected static final List<PermissionRule> BASE_READ_PERMISSIONS;
 
@@ -135,14 +94,6 @@ abstract class GsdPhaseProfile implements AgentProfile {
         this.readOnly = readOnly;
     }
 
-    protected static Set<String> extendTools(String... extra) {
-        Set<String> result = new HashSet<>(BASE_READ_TOOLS);
-        if (extra != null) {
-            Collections.addAll(result, extra);
-        }
-        return Collections.unmodifiableSet(result);
-    }
-
     protected static List<PermissionRule> extendPermissions(PermissionRule... extra) {
         List<PermissionRule> result = new ArrayList<>(BASE_READ_PERMISSIONS);
         if (extra != null) {
@@ -197,8 +148,20 @@ abstract class GsdPhaseProfile implements AgentProfile {
     }
 
     @Override
+    public final DynamicToolCapability getDynamicToolGrant() {
+        return DynamicToolCapability.READ_ONLY;
+    }
+
+    @Override
     public String getSystemPromptAddition() {
-        String defaultPrompt = AgentPromptTemplates.buildGsdPhasePrompt(id);
-        return PromptProviderRegistry.getInstance().getSystemPromptAddition(id, defaultPrompt);
+        ToolRegistry registry = ToolRegistry.getInstance();
+        Set<String> effectiveTools = ProfileToolAccess.effectiveToolNames(this, registry);
+        String defaultPrompt = AgentPromptTemplates.buildGsdPhasePrompt(id, effectiveTools);
+        String overridden = PromptProviderRegistry.getInstance()
+                .getSystemPromptAddition(id, defaultPrompt);
+        return AgentPromptTemplates.enforceGsdToolParity(
+                overridden,
+                effectiveTools,
+                registry.getAllTools().stream().map(ITool::getName).toList());
     }
 }
