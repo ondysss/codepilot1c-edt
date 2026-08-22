@@ -19,6 +19,7 @@ import com._1c.g5.v8.dt.core.platform.IConfigurationProvider;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
 import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
 import com.codepilot1c.core.edt.BmObjectHelper;
+import com.codepilot1c.core.edt.metadata.MdObjectFqnResolver;
 import com.codepilot1c.core.edt.metadata.MetadataConfigurationCollections;
 import com.codepilot1c.core.edt.metadata.MetadataKind;
 import com.codepilot1c.core.edt.metadata.MetadataOperationException;
@@ -62,7 +63,11 @@ public class EdtMetadataInspectorService {
                         .setPath(fqn)
                         .setFormatStyle(MetadataNode.FormatStyle.SIMPLE_VALUE)
                         .putProperty("exists", Boolean.FALSE) //$NON-NLS-1$
-                        .putProperty("message", "Object not found"); //$NON-NLS-1$ //$NON-NLS-2$
+                        .putProperty("message", //$NON-NLS-1$
+                                MdObjectFqnResolver.hasCompleteSegmentPairs(fqn.split("\\.")) //$NON-NLS-1$
+                                        ? "Object not found" //$NON-NLS-1$
+                                        : "Malformed FQN: segments after <Type>.<Name> must be marker/name pairs, " //$NON-NLS-1$
+                                                + "e.g. Subsystem.Родитель.Subsystem.Вложенная"); //$NON-NLS-1$
                 nodes.add(missing);
                 continue;
             }
@@ -157,14 +162,15 @@ public class EdtMetadataInspectorService {
         return object.eClass().getName();
     }
 
-    private static final String[] CHILD_CLASS_SUFFIXES = {
-            "Attribute", "TabularSection", "Command", "Form", "Template", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
-            "Dimension", "Resource", "Requisite", "EnumValue", "URLTemplate", "Method", "Operation" //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$
-    };
 
     private MdObject findMdObjectByFqn(Configuration config, String fqn) {
         String[] parts = fqn.split("\\."); //$NON-NLS-1$
-        if (parts.length < 2) {
+        // A dangling odd segment means the FQN is malformed, not that the object is missing.
+        // The previous loop condition (i + 1 < parts.length) walked complete pairs only and
+        // returned whatever had been resolved so far, so Subsystem.Фулфилмент.Инвентаризация
+        // silently answered with the PARENT subsystem and echoed the requested path back as if
+        // it were correct — a wrong answer that looks exactly like a right one.
+        if (!MdObjectFqnResolver.hasCompleteSegmentPairs(parts)) {
             return null;
         }
         MdObject current = findTopLevelObject(config, parts[0], parts[1]);
@@ -173,7 +179,7 @@ public class EdtMetadataInspectorService {
         }
         // Walk nested marker/name pairs, e.g. Document.Foo.Attribute.Bar or Catalog.X.Form.ListForm.
         for (int i = 2; i + 1 < parts.length; i += 2) {
-            current = findChildObject(current, parts[i], parts[i + 1]);
+            current = MdObjectFqnResolver.findNestedChild(current, parts[i], parts[i + 1]);
             if (current == null) {
                 return null;
             }
@@ -205,52 +211,7 @@ public class EdtMetadataInspectorService {
         return null;
     }
 
-    /**
-     * Resolves a nested child object (attribute, tabular section, form, command, template, ...) of
-     * the given parent by a {@code <Marker>.<Name>} pair, so FQNs like
-     * {@code Document.Задача.Attribute.Описание} return the child requisite rather than the owner.
-     */
-    private MdObject findChildObject(MdObject parent, String marker, String childName) {
-        String normalizedMarker = normalizeToken(marker);
-        for (EReference reference : parent.eClass().getEAllReferences()) {
-            if (!reference.isContainment() || !reference.isMany()) {
-                continue;
-            }
-            Object raw = parent.eGet(reference);
-            if (!(raw instanceof Collection<?> collection)) {
-                continue;
-            }
-            for (Object element : collection) {
-                if (!(element instanceof MdObject child) || !childName.equalsIgnoreCase(child.getName())) {
-                    continue;
-                }
-                if (markerMatchesChild(normalizedMarker, reference, child)) {
-                    return child;
-                }
-            }
-        }
-        return null;
-    }
 
-    private boolean markerMatchesChild(String marker, EReference reference, MdObject child) {
-        if (marker.isEmpty()) {
-            return true;
-        }
-        String refName = normalizeToken(reference.getName());
-        if (marker.equals(refName) || marker.equals(singularizeToken(refName))) {
-            return true;
-        }
-        String className = child.eClass().getName();
-        if (marker.equals(normalizeToken(className))) {
-            return true;
-        }
-        for (String suffix : CHILD_CLASS_SUFFIXES) {
-            if (className.endsWith(suffix) && marker.equals(normalizeToken(suffix))) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     private String normalizeToken(String value) {
         if (value == null) {
@@ -268,18 +229,6 @@ public class EdtMetadataInspectorService {
         return sb.toString();
     }
 
-    private String singularizeToken(String value) {
-        if (value == null || value.isBlank()) {
-            return ""; //$NON-NLS-1$
-        }
-        if (value.endsWith("ies")) { //$NON-NLS-1$
-            return value.substring(0, value.length() - 3) + "y"; //$NON-NLS-1$
-        }
-        if (value.endsWith("s") && !value.endsWith("ss")) { //$NON-NLS-1$ //$NON-NLS-2$
-            return value.substring(0, value.length() - 1);
-        }
-        return value;
-    }
 
     private Object formatCollectionValue(Collection<?> collection) {
         if (collection == null || collection.isEmpty()) {
