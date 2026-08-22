@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -62,13 +63,113 @@ import com.codepilot1c.core.edt.metadata.MetadataProjectReadinessChecker;
  */
 public class EdtDcsService {
 
-    private static final String DCS_SCHEMA_NS = "http://g5.1c.ru/v8/dt/data-composition-system/schema"; //$NON-NLS-1$
+    /**
+     * Namespace of the DCS dialect the 1C:Enterprise platform accepts.
+     *
+     * <p>This is the dialect every schema produced by Designer or imported from
+     * a configuration uses, and the only one the platform can read back when the
+     * project is exported into an infobase.</p>
+     */
+    private static final String DCS_PLATFORM_NS = "http://v8.1c.ru/8.1/data-composition-system/schema"; //$NON-NLS-1$
+    /**
+     * Namespace of the EDT design-time dialect this service used to emit.
+     *
+     * <p>Kept for reading: schemas written by earlier builds are still on disk.
+     * Never written for new schemas — the platform rejects the whole
+     * configuration export with an XDTO exception when it meets one.</p>
+     */
+    private static final String DCS_EDT_DT_NS = "http://g5.1c.ru/v8/dt/data-composition-system/schema"; //$NON-NLS-1$
     private static final String XSI_NS = XMLConstants.W3C_XML_SCHEMA_INSTANCE_NS_URI;
     private static final String TEMPLATE_DCS_FILE = "Template.dcs"; //$NON-NLS-1$
     private static final String EMPTY_DCS_XML = """
             <?xml version="1.0" encoding="UTF-8"?>
-            <DataCompositionSchema xmlns="http://g5.1c.ru/v8/dt/data-composition-system/schema" xmlns:schema="http://g5.1c.ru/v8/dt/data-composition-system/schema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+            <DataCompositionSchema xmlns="http://v8.1c.ru/8.1/data-composition-system/schema" xmlns:dcscom="http://v8.1c.ru/8.1/data-composition-system/common" xmlns:dcscor="http://v8.1c.ru/8.1/data-composition-system/core" xmlns:dcsset="http://v8.1c.ru/8.1/data-composition-system/settings" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
             """; //$NON-NLS-1$
+    /** Default data source name generated for a query data set that has none. */
+    private static final String DEFAULT_DATA_SOURCE = "ИсточникДанных"; //$NON-NLS-1$
+
+    /**
+     * On-disk shape of a DCS template.
+     *
+     * <p>Two dialects exist and they differ in more than the namespace: the
+     * platform spells collections in the singular and carries values in child
+     * elements, while the EDT design-time form uses plural names and packs
+     * everything into attributes. Reading has to accept both, because schemas
+     * written by earlier builds are still on disk; writing new schemas must
+     * always produce {@link #PLATFORM}.</p>
+     */
+    private enum DcsDialect {
+        /** Platform dialect: {@code <dataSet><name>X</name></dataSet>}. */
+        PLATFORM(DCS_PLATFORM_NS, "dataSet", "parameter", "calculatedField", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                "settingsVariant", "DataSetQuery", false), //$NON-NLS-1$ //$NON-NLS-2$
+        /** EDT design-time dialect: {@code <dataSets name="X"/>}. */
+        EDT_DT(DCS_EDT_DT_NS, "dataSets", "parameters", "calculatedFields", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                "settingsVariants", "schema:DataCompositionSchemaDataSetQuery", true); //$NON-NLS-1$ //$NON-NLS-2$
+
+        private final String namespaceUri;
+        private final String dataSetElement;
+        private final String parameterElement;
+        private final String calculatedFieldElement;
+        private final String settingsVariantElement;
+        private final String queryDataSetType;
+        private final boolean valuesInAttributes;
+
+        DcsDialect(String namespaceUri, String dataSetElement, String parameterElement,
+                String calculatedFieldElement, String settingsVariantElement,
+                String queryDataSetType, boolean valuesInAttributes) {
+            this.namespaceUri = namespaceUri;
+            this.dataSetElement = dataSetElement;
+            this.parameterElement = parameterElement;
+            this.calculatedFieldElement = calculatedFieldElement;
+            this.settingsVariantElement = settingsVariantElement;
+            this.queryDataSetType = queryDataSetType;
+            this.valuesInAttributes = valuesInAttributes;
+        }
+
+        /**
+         * Detects the dialect of an already parsed schema.
+         *
+         * <p>Falls back to {@link #PLATFORM} for a namespace-less document: a
+         * schema without a namespace is malformed either way, and guessing the
+         * platform keeps a subsequent write on the dialect that can be exported.</p>
+         */
+        static DcsDialect of(Element root) {
+            if (root == null) {
+                return PLATFORM;
+            }
+            return DCS_EDT_DT_NS.equals(root.getNamespaceURI()) ? EDT_DT : PLATFORM;
+        }
+
+        /** Element name holding one node of the given kind. */
+        String elementFor(DcsNodeKind kind) {
+            return switch (kind) {
+                case DATA_SET -> dataSetElement;
+                case PARAMETER -> parameterElement;
+                case CALCULATED_FIELD -> calculatedFieldElement;
+                case SETTINGS_VARIANT -> settingsVariantElement;
+            };
+        }
+    }
+
+    /** Kinds of schema node this service reads and writes. */
+    private enum DcsNodeKind {
+        DATA_SET,
+        PARAMETER,
+        CALCULATED_FIELD,
+        SETTINGS_VARIANT
+    }
+
+    /**
+     * Order of top-level elements required by the platform DCS schema.
+     *
+     * <p>The platform validates the sequence, so a new element cannot simply be
+     * appended to the end of the document: a data set added after a parameter
+     * makes the whole file unreadable.</p>
+     */
+    private static final List<String> PLATFORM_ELEMENT_ORDER = List.of(
+            "dataSource", "dataSet", "calculatedField", "totalField", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            "filterAvailableFields", "groupAvailableFields", "orderAvailableFields", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            "parameter", "template", "nestedDataSet", "settingsVariant"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
 
     private final EdtMetadataGateway gateway;
     private final MetadataProjectReadinessChecker readinessChecker;
@@ -257,6 +358,10 @@ public class EdtDcsService {
             }
             if (template == null) {
                 template = MdClassFactory.eINSTANCE.createTemplate();
+                // A metadata child without a uuid fails EDT validation (SU106)
+                // and the whole project then refuses to export into the
+                // platform format — the schema itself is beside the point.
+                template.setUuid(UUID.randomUUID());
                 template.setName(request.effectiveTemplateName());
                 template.setTemplateType(TemplateType.DATA_COMPOSITION_SCHEMA);
                 templates.templates().add(template);
@@ -871,9 +976,12 @@ public class EdtDcsService {
             if (root == null || !"DataCompositionSchema".equals(localName(root))) { //$NON-NLS-1$
                 return null;
             }
-            return new ExternalDcsSchema(file, safe(template.getName()), nodesFrom(root, "dataSets"), //$NON-NLS-1$
-                    nodesFrom(root, "parameters"), nodesFrom(root, "calculatedFields"), //$NON-NLS-1$ //$NON-NLS-2$
-                    nodesFrom(root, "settingsVariants").size()); //$NON-NLS-1$
+            DcsDialect dialect = DcsDialect.of(root);
+            return new ExternalDcsSchema(file, safe(template.getName()), dialect,
+                    nodesFrom(root, DcsNodeKind.DATA_SET, dialect),
+                    nodesFrom(root, DcsNodeKind.PARAMETER, dialect),
+                    nodesFrom(root, DcsNodeKind.CALCULATED_FIELD, dialect),
+                    nodesFrom(root, DcsNodeKind.SETTINGS_VARIANT, dialect).size());
         } catch (MetadataOperationException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -885,28 +993,43 @@ public class EdtDcsService {
         }
     }
 
-    private List<ExternalDcsNode> nodesFrom(Element root, String elementName) {
+    private List<ExternalDcsNode> nodesFrom(Element root, DcsNodeKind kind, DcsDialect dialect) {
+        String elementName = dialect.elementFor(kind);
         List<ExternalDcsNode> result = new ArrayList<>();
         for (Node child = root.getFirstChild(); child != null; child = child.getNextSibling()) {
             if (child instanceof Element element && elementName.equals(localName(element))) {
                 result.add(new ExternalDcsNode(
-                        elementName,
-                        attr(element, "name"), //$NON-NLS-1$
-                        attr(element, "dataPath"), //$NON-NLS-1$
-                        attr(element, "expression"), //$NON-NLS-1$
-                        attr(element, "query"), //$NON-NLS-1$
-                        attr(element, "dataSource"), //$NON-NLS-1$
-                        attr(element, "presentationExpression"), //$NON-NLS-1$
-                        attr(element, "autoFillAvailableFields"), //$NON-NLS-1$
-                        attr(element, "useQueryGroupIfPossible"), //$NON-NLS-1$
-                        attr(element, "availableAsField"), //$NON-NLS-1$
-                        attr(element, "valueListAllowed"), //$NON-NLS-1$
-                        attr(element, "denyIncompleteValues"), //$NON-NLS-1$
-                        attr(element, "useRestriction"), //$NON-NLS-1$
-                        attr(element, "type"))); //$NON-NLS-1$
+                        kind,
+                        value(element, "name", dialect), //$NON-NLS-1$
+                        value(element, "dataPath", dialect), //$NON-NLS-1$
+                        value(element, "expression", dialect), //$NON-NLS-1$
+                        value(element, "query", dialect), //$NON-NLS-1$
+                        value(element, "dataSource", dialect), //$NON-NLS-1$
+                        value(element, "presentationExpression", dialect), //$NON-NLS-1$
+                        value(element, "autoFillAvailableFields", dialect), //$NON-NLS-1$
+                        value(element, "useQueryGroupIfPossible", dialect), //$NON-NLS-1$
+                        value(element, "availableAsField", dialect), //$NON-NLS-1$
+                        value(element, "valueListAllowed", dialect), //$NON-NLS-1$
+                        value(element, "denyIncompleteValues", dialect), //$NON-NLS-1$
+                        value(element, "useRestriction", dialect), //$NON-NLS-1$
+                        value(element, "type", dialect))); //$NON-NLS-1$
             }
         }
         return result;
+    }
+
+    /** Finds a schema node of the given kind by its identifying value. */
+    private Element findNode(Element root, DcsNodeKind kind, DcsDialect dialect, String key, String wanted) {
+        String elementName = dialect.elementFor(kind);
+        String token = normalize(wanted);
+        for (Node child = root.getFirstChild(); child != null; child = child.getNextSibling()) {
+            if (child instanceof Element element
+                    && elementName.equals(localName(element))
+                    && normalize(value(element, key, dialect)).equals(token)) {
+                return element;
+            }
+        }
+        return null;
     }
 
     private DcsUpsertQueryDatasetResult upsertExternalQueryDataset(
@@ -916,29 +1039,34 @@ public class EdtDcsService {
         try {
             Document document = readDcsDocument(externalSchema.file());
             Element root = document.getDocumentElement();
-            Element dataset = findChildByKey(root, "dataSets", "name", request.normalizedDatasetName()); //$NON-NLS-1$ //$NON-NLS-2$
+            DcsDialect dialect = DcsDialect.of(root);
+            Element dataset = findNode(root, DcsNodeKind.DATA_SET, dialect, "name", //$NON-NLS-1$
+                    request.normalizedDatasetName());
             boolean created = false;
+            // A platform query data set must point at a data source, and the
+            // schema must declare it. Missing either makes the file unreadable.
+            String dataSource = ensureDataSource(document, root, dialect, request.normalizedDataSource());
             if (dataset == null) {
-                dataset = document.createElementNS(DCS_SCHEMA_NS, "dataSets"); //$NON-NLS-1$
-                dataset.setAttributeNS(XSI_NS, "xsi:type", "schema:DataCompositionSchemaDataSetQuery"); //$NON-NLS-1$ //$NON-NLS-2$
-                dataset.setAttribute("name", request.normalizedDatasetName()); //$NON-NLS-1$
-                root.appendChild(dataset);
+                dataset = createNode(document, dialect, DcsNodeKind.DATA_SET);
+                dataset.setAttributeNS(XSI_NS, "xsi:type", dialect.queryDataSetType); //$NON-NLS-1$
+                setValue(dataset, "name", request.normalizedDatasetName(), dialect); //$NON-NLS-1$
+                appendInOrder(root, dataset, dialect);
                 created = true;
             }
-            setOptional(dataset, "query", request.normalizedQuery()); //$NON-NLS-1$
-            setOptional(dataset, "dataSource", request.normalizedDataSource()); //$NON-NLS-1$
-            setOptional(dataset, "autoFillAvailableFields", request.autoFillAvailableFields()); //$NON-NLS-1$
-            setOptional(dataset, "useQueryGroupIfPossible", request.useQueryGroupIfPossible()); //$NON-NLS-1$
+            setValue(dataset, "query", request.normalizedQuery(), dialect); //$NON-NLS-1$
+            setValue(dataset, "dataSource", dataSource, dialect); //$NON-NLS-1$
+            setValue(dataset, "autoFillAvailableFields", request.autoFillAvailableFields(), dialect); //$NON-NLS-1$
+            setValue(dataset, "useQueryGroupIfPossible", request.useQueryGroupIfPossible(), dialect); //$NON-NLS-1$
             writeDcsDocument(externalSchema.file(), document);
             return new DcsUpsertQueryDatasetResult(
                     request.normalizedProjectName(),
                     request.normalizedOwnerFqn(),
-                    attr(dataset, "name"), //$NON-NLS-1$
+                    value(dataset, "name", dialect), //$NON-NLS-1$
                     created,
-                    attr(dataset, "query"), //$NON-NLS-1$
-                    attr(dataset, "dataSource"), //$NON-NLS-1$
-                    boolAttr(dataset, "autoFillAvailableFields", true), //$NON-NLS-1$
-                    boolAttr(dataset, "useQueryGroupIfPossible", true)); //$NON-NLS-1$
+                    value(dataset, "query", dialect), //$NON-NLS-1$
+                    value(dataset, "dataSource", dialect), //$NON-NLS-1$
+                    boolValue(dataset, "autoFillAvailableFields", dialect, true), //$NON-NLS-1$
+                    boolValue(dataset, "useQueryGroupIfPossible", dialect, true)); //$NON-NLS-1$
         } catch (MetadataOperationException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -953,30 +1081,32 @@ public class EdtDcsService {
         try {
             Document document = readDcsDocument(externalSchema.file());
             Element root = document.getDocumentElement();
-            Element parameter = findChildByKey(root, "parameters", "name", request.normalizedParameterName()); //$NON-NLS-1$ //$NON-NLS-2$
+            DcsDialect dialect = DcsDialect.of(root);
+            Element parameter = findNode(root, DcsNodeKind.PARAMETER, dialect, "name", //$NON-NLS-1$
+                    request.normalizedParameterName());
             boolean created = false;
             if (parameter == null) {
-                parameter = document.createElementNS(DCS_SCHEMA_NS, "parameters"); //$NON-NLS-1$
-                parameter.setAttribute("name", request.normalizedParameterName()); //$NON-NLS-1$
-                root.appendChild(parameter);
+                parameter = createNode(document, dialect, DcsNodeKind.PARAMETER);
+                setValue(parameter, "name", request.normalizedParameterName(), dialect); //$NON-NLS-1$
+                appendInOrder(root, parameter, dialect);
                 created = true;
             }
-            setOptional(parameter, "expression", request.normalizedExpression()); //$NON-NLS-1$
-            setOptional(parameter, "availableAsField", request.availableAsField()); //$NON-NLS-1$
-            setOptional(parameter, "valueListAllowed", request.valueListAllowed()); //$NON-NLS-1$
-            setOptional(parameter, "denyIncompleteValues", request.denyIncompleteValues()); //$NON-NLS-1$
-            setOptional(parameter, "useRestriction", request.useRestriction()); //$NON-NLS-1$
+            setValue(parameter, "expression", request.normalizedExpression(), dialect); //$NON-NLS-1$
+            setValue(parameter, "availableAsField", request.availableAsField(), dialect); //$NON-NLS-1$
+            setValue(parameter, "valueListAllowed", request.valueListAllowed(), dialect); //$NON-NLS-1$
+            setValue(parameter, "denyIncompleteValues", request.denyIncompleteValues(), dialect); //$NON-NLS-1$
+            setValue(parameter, "useRestriction", request.useRestriction(), dialect); //$NON-NLS-1$
             writeDcsDocument(externalSchema.file(), document);
             return new DcsUpsertParameterResult(
                     request.normalizedProjectName(),
                     request.normalizedOwnerFqn(),
-                    attr(parameter, "name"), //$NON-NLS-1$
+                    value(parameter, "name", dialect), //$NON-NLS-1$
                     created,
-                    attr(parameter, "expression"), //$NON-NLS-1$
-                    boolAttr(parameter, "availableAsField", true), //$NON-NLS-1$
-                    boolAttr(parameter, "valueListAllowed", false), //$NON-NLS-1$
-                    boolAttr(parameter, "denyIncompleteValues", false), //$NON-NLS-1$
-                    boolAttr(parameter, "useRestriction", false)); //$NON-NLS-1$
+                    value(parameter, "expression", dialect), //$NON-NLS-1$
+                    boolValue(parameter, "availableAsField", dialect, true), //$NON-NLS-1$
+                    boolValue(parameter, "valueListAllowed", dialect, false), //$NON-NLS-1$
+                    boolValue(parameter, "denyIncompleteValues", dialect, false), //$NON-NLS-1$
+                    boolValue(parameter, "useRestriction", dialect, false)); //$NON-NLS-1$
         } catch (MetadataOperationException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -991,24 +1121,26 @@ public class EdtDcsService {
         try {
             Document document = readDcsDocument(externalSchema.file());
             Element root = document.getDocumentElement();
-            Element field = findChildByKey(root, "calculatedFields", "dataPath", request.normalizedDataPath()); //$NON-NLS-1$ //$NON-NLS-2$
+            DcsDialect dialect = DcsDialect.of(root);
+            Element field = findNode(root, DcsNodeKind.CALCULATED_FIELD, dialect, "dataPath", //$NON-NLS-1$
+                    request.normalizedDataPath());
             boolean created = false;
             if (field == null) {
-                field = document.createElementNS(DCS_SCHEMA_NS, "calculatedFields"); //$NON-NLS-1$
-                field.setAttribute("dataPath", request.normalizedDataPath()); //$NON-NLS-1$
-                root.appendChild(field);
+                field = createNode(document, dialect, DcsNodeKind.CALCULATED_FIELD);
+                setValue(field, "dataPath", request.normalizedDataPath(), dialect); //$NON-NLS-1$
+                appendInOrder(root, field, dialect);
                 created = true;
             }
-            setOptional(field, "expression", request.normalizedExpression()); //$NON-NLS-1$
-            setOptional(field, "presentationExpression", request.normalizedPresentationExpression()); //$NON-NLS-1$
+            setValue(field, "expression", request.normalizedExpression(), dialect); //$NON-NLS-1$
+            setValue(field, "presentationExpression", request.normalizedPresentationExpression(), dialect); //$NON-NLS-1$
             writeDcsDocument(externalSchema.file(), document);
             return new DcsUpsertCalculatedFieldResult(
                     request.normalizedProjectName(),
                     request.normalizedOwnerFqn(),
-                    attr(field, "dataPath"), //$NON-NLS-1$
+                    value(field, "dataPath", dialect), //$NON-NLS-1$
                     created,
-                    attr(field, "expression"), //$NON-NLS-1$
-                    attr(field, "presentationExpression")); //$NON-NLS-1$
+                    value(field, "expression", dialect), //$NON-NLS-1$
+                    value(field, "presentationExpression", dialect)); //$NON-NLS-1$
         } catch (MetadataOperationException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -1082,7 +1214,12 @@ public class EdtDcsService {
         try {
             Element root = document.getDocumentElement();
             if (root != null) {
-                root.setAttribute("xmlns:schema", DCS_SCHEMA_NS); //$NON-NLS-1$
+                // Declare only the prefixes the document's own dialect uses:
+                // stamping the EDT design-time prefix onto a platform schema is
+                // what made xsi:type unresolvable and the export fail.
+                if (DcsDialect.of(root) == DcsDialect.EDT_DT) {
+                    root.setAttribute("xmlns:schema", DCS_EDT_DT_NS); //$NON-NLS-1$
+                }
                 root.setAttribute("xmlns:xsi", XSI_NS); //$NON-NLS-1$
             }
             TransformerFactory factory = TransformerFactory.newInstance();
@@ -1139,30 +1276,6 @@ public class EdtDcsService {
         }
     }
 
-    private Element findChildByKey(Element root, String elementName, String key, String value) {
-        String token = normalize(value);
-        for (Node child = root.getFirstChild(); child != null; child = child.getNextSibling()) {
-            if (child instanceof Element element
-                    && elementName.equals(localName(element))
-                    && normalize(attr(element, key)).equals(token)) {
-                return element;
-            }
-        }
-        return null;
-    }
-
-    private void setOptional(Element element, String name, String value) {
-        if (value != null) {
-            element.setAttribute(name, value);
-        }
-    }
-
-    private void setOptional(Element element, String name, Boolean value) {
-        if (value != null) {
-            element.setAttribute(name, Boolean.toString(value.booleanValue()));
-        }
-    }
-
     private String attr(Element element, String name) {
         if ("type".equals(name) && element.hasAttributeNS(XSI_NS, "type")) { //$NON-NLS-1$ //$NON-NLS-2$
             return element.getAttributeNS(XSI_NS, "type"); //$NON-NLS-1$
@@ -1170,13 +1283,134 @@ public class EdtDcsService {
         return element.hasAttribute(name) ? element.getAttribute(name) : ""; //$NON-NLS-1$
     }
 
-    private boolean boolAttr(Element element, String name, boolean defaultValue) {
-        return element.hasAttribute(name) ? Boolean.parseBoolean(element.getAttribute(name)) : defaultValue;
-    }
-
     private String localName(Node node) {
         String local = node.getLocalName();
         return local != null ? local : node.getNodeName();
+    }
+
+    // ─── dialect-aware DOM access ───────────────────────────────────────────
+
+    /**
+     * Reads a named value from a schema node in whichever dialect it is written.
+     *
+     * @param element schema node such as a data set or a parameter
+     * @param name    logical value name, for example {@code query}
+     * @param dialect dialect the owning document is written in
+     * @return the value, or an empty string when absent; never {@code null}
+     */
+    private String value(Element element, String name, DcsDialect dialect) {
+        if (element == null) {
+            return ""; //$NON-NLS-1$
+        }
+        if (dialect.valuesInAttributes) {
+            return attr(element, name);
+        }
+        if ("type".equals(name) && element.hasAttributeNS(XSI_NS, "type")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return element.getAttributeNS(XSI_NS, "type"); //$NON-NLS-1$
+        }
+        Element child = childElement(element, name);
+        return child == null ? "" : safe(child.getTextContent()); //$NON-NLS-1$
+    }
+
+    private boolean boolValue(Element element, String name, DcsDialect dialect, boolean defaultValue) {
+        String raw = value(element, name, dialect);
+        return raw == null || raw.isBlank() ? defaultValue : Boolean.parseBoolean(raw);
+    }
+
+    /** Writes a named value in the dialect of the owning document; {@code null} is a no-op. */
+    private void setValue(Element element, String name, String newValue, DcsDialect dialect) {
+        if (newValue == null) {
+            return;
+        }
+        if (dialect.valuesInAttributes) {
+            element.setAttribute(name, newValue);
+            return;
+        }
+        Element child = childElement(element, name);
+        if (child == null) {
+            child = element.getOwnerDocument().createElementNS(dialect.namespaceUri, name);
+            element.appendChild(child);
+        }
+        child.setTextContent(newValue);
+    }
+
+    private void setValue(Element element, String name, Boolean newValue, DcsDialect dialect) {
+        if (newValue != null) {
+            setValue(element, name, Boolean.toString(newValue.booleanValue()), dialect);
+        }
+    }
+
+    private Element childElement(Element parent, String name) {
+        for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+            if (child instanceof Element element && name.equals(localName(element))) {
+                return element;
+            }
+        }
+        return null;
+    }
+
+    /** Creates an empty schema node of the given kind in the document's dialect. */
+    private Element createNode(Document document, DcsDialect dialect, DcsNodeKind kind) {
+        return document.createElementNS(dialect.namespaceUri, dialect.elementFor(kind));
+    }
+
+    /**
+     * Appends a top-level element where the platform schema expects it.
+     *
+     * <p>The platform validates the element sequence of a schema, so appending
+     * to the end works only by accident. The EDT dialect is order-agnostic and
+     * keeps the plain append.</p>
+     */
+    private void appendInOrder(Element root, Element child, DcsDialect dialect) {
+        if (dialect != DcsDialect.PLATFORM) {
+            root.appendChild(child);
+            return;
+        }
+        int position = PLATFORM_ELEMENT_ORDER.indexOf(localName(child));
+        if (position < 0) {
+            root.appendChild(child);
+            return;
+        }
+        for (Node sibling = root.getFirstChild(); sibling != null; sibling = sibling.getNextSibling()) {
+            if (!(sibling instanceof Element element)) {
+                continue;
+            }
+            int siblingPosition = PLATFORM_ELEMENT_ORDER.indexOf(localName(element));
+            if (siblingPosition > position) {
+                root.insertBefore(child, sibling);
+                return;
+            }
+        }
+        root.appendChild(child);
+    }
+
+    /**
+     * Guarantees the schema has the data source a platform query data set must
+     * reference, and returns its name.
+     *
+     * <p>The EDT dialect carries no separate data source element, so the caller
+     * keeps whatever it was given there.</p>
+     */
+    private String ensureDataSource(Document document, Element root, DcsDialect dialect, String requested) {
+        String name = requested == null || requested.isBlank() ? DEFAULT_DATA_SOURCE : requested;
+        if (dialect != DcsDialect.PLATFORM) {
+            return name;
+        }
+        for (Node child = root.getFirstChild(); child != null; child = child.getNextSibling()) {
+            if (child instanceof Element element && "dataSource".equals(localName(element))) { //$NON-NLS-1$
+                Element existing = childElement(element, "name"); //$NON-NLS-1$
+                return existing == null ? name : safe(existing.getTextContent());
+            }
+        }
+        Element source = document.createElementNS(dialect.namespaceUri, "dataSource"); //$NON-NLS-1$
+        Element sourceName = document.createElementNS(dialect.namespaceUri, "name"); //$NON-NLS-1$
+        sourceName.setTextContent(name);
+        source.appendChild(sourceName);
+        Element sourceType = document.createElementNS(dialect.namespaceUri, "dataSourceType"); //$NON-NLS-1$
+        sourceType.setTextContent("Local"); //$NON-NLS-1$
+        source.appendChild(sourceType);
+        appendInOrder(root, source, dialect);
+        return name;
     }
 
     private DataCompositionSchema extractSchema(BasicTemplate template) {
@@ -1290,6 +1524,7 @@ public class EdtDcsService {
     private record ExternalDcsSchema(
             IFile file,
             String templateName,
+            DcsDialect dialect,
             List<ExternalDcsNode> dataSets,
             List<ExternalDcsNode> parameters,
             List<ExternalDcsNode> calculatedFields,
@@ -1311,7 +1546,7 @@ public class EdtDcsService {
     }
 
     private record ExternalDcsNode(
-            String elementName,
+            DcsNodeKind kind,
             String name,
             String dataPath,
             String expression,
@@ -1327,13 +1562,13 @@ public class EdtDcsService {
             String xsiType
     ) {
         private DcsNodeItem toNodeItem() {
-            return switch (elementName) {
-                case "dataSets" -> new DcsNodeItem("dataset", name, //$NON-NLS-1$ //$NON-NLS-2$
+            return switch (kind) {
+                case DATA_SET -> new DcsNodeItem("dataset", name, //$NON-NLS-1$
                         (xsiType.isBlank() ? "DataCompositionSchemaDataSetQuery" : xsiType) //$NON-NLS-1$
                                 + " query=" + query); //$NON-NLS-1$
-                case "parameters" -> new DcsNodeItem("parameter", name, "expression=" + expression); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                case "calculatedFields" -> new DcsNodeItem("calculated", dataPath, "expression=" + expression); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                default -> new DcsNodeItem(elementName, name, ""); //$NON-NLS-1$
+                case PARAMETER -> new DcsNodeItem("parameter", name, "expression=" + expression); //$NON-NLS-1$ //$NON-NLS-2$
+                case CALCULATED_FIELD -> new DcsNodeItem("calculated", dataPath, "expression=" + expression); //$NON-NLS-1$ //$NON-NLS-2$
+                case SETTINGS_VARIANT -> new DcsNodeItem("variant", name, ""); //$NON-NLS-1$ //$NON-NLS-2$
             };
         }
     }
