@@ -169,7 +169,10 @@ public class EdtExtensionService {
                         "Cannot access configuration in BM transaction", false); //$NON-NLS-1$
             }
 
-            MdObject source = findSourceObject(txConfiguration, sourceRef);
+            MdObject source = ExtensionRootResolver.resolve(txConfiguration, sourceRef);
+            if (source == null) {
+                source = findSourceObject(txConfiguration, sourceRef);
+            }
             if (source == null) {
                 throw new MetadataOperationException(
                         MetadataOperationCode.METADATA_NOT_FOUND,
