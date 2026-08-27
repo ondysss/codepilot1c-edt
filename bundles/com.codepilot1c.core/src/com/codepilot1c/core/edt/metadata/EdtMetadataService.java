@@ -1481,7 +1481,12 @@ public class EdtMetadataService {
             }
             return createGenericChild(txConfiguration, request, transaction, capturedTypes);
         });
-        verifyObjectPersisted(project, childFqn, opId);
+        if (request.childKind() == MetadataChildKind.PREDEFINED_ITEM) {
+            verifyPredefinedItemsPersisted(
+                    project, request.parentFqn(), collectRequestedPredefinedNames(request), opId);
+        } else {
+            verifyObjectPersisted(project, childFqn, opId);
+        }
 
         String templateArtifactPath = null;
         if (request.childKind() == MetadataChildKind.TEMPLATE) {
@@ -5976,6 +5981,9 @@ public class EdtMetadataService {
 
         MetadataChildKind effectiveKind = normalizeChildKind(parent, request.childKind());
         rejectUnsupportedChildKind(parent, effectiveKind);
+        if (effectiveKind == MetadataChildKind.PREDEFINED_ITEM) {
+            return createPredefinedItems(parent, request);
+        }
         return createGenericChildForResolvedParent(
                 configuration,
                 parent,
@@ -5983,6 +5991,125 @@ public class EdtMetadataService {
                 transaction,
                 preResolvedTypes,
                 effectiveKind);
+    }
+
+    /**
+     * Creates predefined items (single or batch) under a catalog-like owner.
+     *
+     * <p>Predefined items bypass the generic child pipeline entirely: they are not
+     * {@link MdObject}s, so neither {@code createChildByFactory} (which returns an
+     * {@code MdObject}) nor {@code addChildToParent} (which looks for a containment list of
+     * {@code MdObject}) has a route for them. See {@link PredefinedItemBuilder}.</p>
+     */
+    private String createPredefinedItems(MdObject parent, AddMetadataChildRequest request) {
+        List<String> created = new ArrayList<>();
+        if (request.hasSingleName()) {
+            EObject item = PredefinedItemBuilder.create(
+                    parent,
+                    toPredefinedDescriptor(request.name(), request.synonym(), request.properties()));
+            LOG.info("createPredefinedItems created parent=%s name=%s code=%s", // $NON-NLS-1$
+                    request.parentFqn(), request.name(), PredefinedItemBuilder.codeOf(item));
+            created.add(request.name());
+        }
+        Object rawChildren = request.properties() == null ? null : request.properties().get("children"); //$NON-NLS-1$
+        for (Map<String, Object> child : asListOfMaps(rawChildren)) {
+            String childName = asString(getMapValueIgnoreCase(child, "name")); //$NON-NLS-1$
+            if (!MetadataNameValidator.isValidName(childName)) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_NAME,
+                        "Invalid predefined item name in children batch: " + childName, false); //$NON-NLS-1$
+            }
+            EObject item = PredefinedItemBuilder.create(
+                    parent,
+                    toPredefinedDescriptor(childName, asString(getMapValueIgnoreCase(child, "synonym")), child)); //$NON-NLS-1$
+            LOG.info("createPredefinedItems created parent=%s name=%s code=%s (batch)", // $NON-NLS-1$
+                    request.parentFqn(), childName, PredefinedItemBuilder.codeOf(item));
+            created.add(childName);
+        }
+        if (created.isEmpty()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_NAME,
+                    "Invalid predefined item name: " + request.name(), false); //$NON-NLS-1$
+        }
+        return buildChildFqn(request.parentFqn(), MetadataChildKind.PREDEFINED_ITEM, created.get(0));
+    }
+
+    /**
+     * Maps tool properties onto a predefined-item descriptor. {@code synonym} falls back to the
+     * item description because a predefined item has no synonym in the model - a caller who passes
+     * {@code synonym} means the visible "Наименование".
+     */
+    private PredefinedItemBuilder.Descriptor toPredefinedDescriptor(
+            String name, String synonym, Map<String, Object> properties) {
+        String description = asString(getMapValueIgnoreCase(properties, "description")); //$NON-NLS-1$
+        if (description == null) {
+            description = asString(getMapValueIgnoreCase(properties, "наименование")); //$NON-NLS-1$
+        }
+        if (description == null) {
+            description = synonym;
+        }
+        boolean codeExplicit = hasMapKeyIgnoreCase(properties, "code"); //$NON-NLS-1$
+        String code = null;
+        if (codeExplicit) {
+            Object rawCode = getMapValueIgnoreCase(properties, "code"); //$NON-NLS-1$
+            code = rawCode == null ? "" : String.valueOf(rawCode); //$NON-NLS-1$
+        }
+        Boolean isFolder = asOptionalBoolean(getMapValueIgnoreCase(properties, "is_folder")); //$NON-NLS-1$
+        if (isFolder == null) {
+            isFolder = asOptionalBoolean(getMapValueIgnoreCase(properties, "isFolder")); //$NON-NLS-1$
+        }
+        String parentItem = asString(getMapValueIgnoreCase(properties, "parent")); //$NON-NLS-1$
+        return new PredefinedItemBuilder.Descriptor(name, description, code, codeExplicit, isFolder, parentItem);
+    }
+
+    /** Names the request asks to create, in creation order. */
+    private List<String> collectRequestedPredefinedNames(AddMetadataChildRequest request) {
+        List<String> names = new ArrayList<>();
+        if (request.hasSingleName()) {
+            names.add(request.name());
+        }
+        Object rawChildren = request.properties() == null ? null : request.properties().get("children"); //$NON-NLS-1$
+        for (Map<String, Object> child : asListOfMaps(rawChildren)) {
+            String childName = asString(getMapValueIgnoreCase(child, "name")); //$NON-NLS-1$
+            if (childName != null) {
+                names.add(childName);
+            }
+        }
+        return names;
+    }
+
+    /**
+     * Post-verify for predefined items. The generic {@code verifyObjectPersisted} resolves an FQN
+     * through {@code resolveByFqn}, which only walks {@code MdObject}s - a predefined item is not
+     * one, so the generic check would report "not found after commit" for an item that was in fact
+     * created.
+     */
+    private void verifyPredefinedItemsPersisted(
+            IProject project, String parentFqn, List<String> names, String opId) {
+        if (names == null || names.isEmpty()) {
+            return;
+        }
+        IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
+        Configuration configuration = configurationProvider.getConfiguration(project);
+        List<String> missing = executeRead(project, tx -> {
+            Configuration txConfiguration = tx.toTransactionObject(configuration);
+            MdObject owner = txConfiguration == null ? null : resolveByFqn(txConfiguration, parentFqn);
+            List<String> absent = new ArrayList<>();
+            for (String name : names) {
+                if (owner == null || PredefinedItemBuilder.findByName(owner, name) == null) {
+                    absent.add(name);
+                }
+            }
+            return absent;
+        });
+        if (!missing.isEmpty()) {
+            LOG.error("[%s] Post-verify failed: predefined items not found under %s: %s", // $NON-NLS-1$
+                    opId, parentFqn, String.join(", ", missing)); //$NON-NLS-1$
+            throw new MetadataOperationException(
+                    MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Predefined items not found after commit: " + String.join(", ", missing), true); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        LOG.debug("[%s] Post-verify passed for predefined items under %s", opId, parentFqn); //$NON-NLS-1$
     }
 
     /**

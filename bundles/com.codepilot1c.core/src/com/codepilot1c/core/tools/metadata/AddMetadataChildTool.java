@@ -42,8 +42,8 @@ public class AddMetadataChildTool extends AbstractTool {
                 },
                 "child_kind": {
                   "type": "string",
-                  "enum": ["Attribute", "Tabular_Section", "Command", "Form", "Template", "Dimension", "Resource", "Requisite", "EnumValue"],
-                  "description": "Kind of new child object. Do not use for top-level objects. Use EnumValue to add a child value to an existing Enum parent (create_metadata cannot create enum values)."
+                  "enum": ["Attribute", "Tabular_Section", "Command", "Form", "Template", "Dimension", "Resource", "Requisite", "EnumValue", "PredefinedItem"],
+                  "description": "Kind of new child object. Do not use for top-level objects. Use EnumValue to add a child value to an existing Enum parent (create_metadata cannot create enum values). Use PredefinedItem to add a predefined element to a catalog / chart of characteristic types / chart of accounts / chart of calculation types."
                 },
                 "name": {
                   "type": "string",
@@ -81,7 +81,7 @@ public class AddMetadataChildTool extends AbstractTool {
                 },
                 "properties": {
                   "type": "object",
-                  "description": "Дополнительные параметры. Для batch: children=[{name,synonym,comment}]"
+                  "description": "Дополнительные параметры. Для batch: children=[{name,synonym,comment}]. Для child_kind=PredefinedItem: description (Наименование; по умолчанию берётся synonym), code (Код; по умолчанию следующий по порядку среди уже заведённых), is_folder (Это группа), parent (имя предопределённой группы для вложения). Значения реквизитов предопределённому элементу не задаются — их в модели метаданных нет."
                 },
                 "validation_token": {
                   "type": "string",

@@ -14,7 +14,8 @@ public enum MetadataChildKind {
     DIMENSION("Dimension"),
     RESOURCE("Resource"),
     REQUISITE("Requisite"),
-    ENUM_VALUE("EnumValue");
+    ENUM_VALUE("EnumValue"),
+    PREDEFINED_ITEM("PredefinedItem");
 
     private final String displayName;
 
@@ -43,6 +44,7 @@ public enum MetadataChildKind {
             case "resource", "ресурс" -> RESOURCE; //$NON-NLS-1$ //$NON-NLS-2$
             case "requisite", "реквизитрегистра" -> REQUISITE; //$NON-NLS-1$ //$NON-NLS-2$
             case "enum_value", "enumvalue", "значениеперечисления" -> ENUM_VALUE; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case "predefined_item", "predefineditem", "predefined", "предопределенныйэлемент", "предопределенный" -> PREDEFINED_ITEM; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
             default -> throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_KIND,
                     "Unsupported child metadata kind: " + value, false); //$NON-NLS-1$
