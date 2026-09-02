@@ -55,6 +55,18 @@ public class McpHostRequestRouter {
     private static final String SERVER_NAME = "CodePilot1C MCP Host"; //$NON-NLS-1$
     private static final String SERVER_VERSION = "1.3.0"; //$NON-NLS-1$
     private static final String COMPAT_PROFILE_ID = "mcp-host"; //$NON-NLS-1$
+
+    /** Tool argument every long-running tool publishes in its own schema. */
+    private static final String TIMEOUT_SECONDS_ARGUMENT = "timeout_s"; //$NON-NLS-1$
+    /** Wait for tools that publish no timeout of their own. */
+    private static final int DEFAULT_DISPATCH_TIMEOUT_SECONDS = 120;
+    /** Ceiling kept for {@code qa_run}, which relied on it before timeout_s was honoured. */
+    private static final String QA_RUN_TOOL = "qa_run"; //$NON-NLS-1$
+    private static final int LEGACY_QA_RUN_DISPATCH_TIMEOUT_SECONDS = 3600;
+    /** Slack so the tool's own timeout fires before the host abandons the dispatch. */
+    private static final int DISPATCH_TIMEOUT_HEADROOM_SECONDS = 60;
+    /** Upper bound so a stray argument cannot pin a dispatch slot indefinitely. */
+    private static final int MAX_DISPATCH_TIMEOUT_SECONDS = 7200;
     /** Global rules remain exclusively in {@link #resolvePermissionDecision}. */
     private static final List<PermissionRule> NO_GLOBAL_RULES = List.of();
     private static final ToolExecutionContext LEGACY_CONTEXT =
@@ -277,7 +289,7 @@ public class McpHostRequestRouter {
 
         ToolResult toolResult;
         try {
-            int timeoutSeconds = "qa_run".equals(toolName) ? 3600 : 120; //$NON-NLS-1$
+            int timeoutSeconds = resolveDispatchTimeoutSeconds(toolName, arguments);
             ToolCall call = new ToolCall(String.valueOf(request.getRawId()), toolName, null);
             var dispatched = registry.getExecutionService().executeIfCurrent(
                     call, arguments, null, null, executionContext, resolution);
@@ -624,6 +636,60 @@ public class McpHostRequestRouter {
             payload.put("exception_message", error.getMessage()); //$NON-NLS-1$
         }
         session.getTraceSession().writeMcpEvent(TraceEventType.MCP_RESPONSE, null, payload);
+    }
+
+    /**
+     * Resolves how long the host waits for a tool before abandoning the dispatch.
+     *
+     * <p>The wait used to be a flat 120 seconds with a single hard-coded exception for
+     * {@code qa_run}. That cap sat <em>below</em> the default the long-running tools declare for
+     * themselves: {@code run_yaxunit_tests} and {@code run_bsl_snippet} document
+     * {@code timeout_s} with a default of 300 seconds. So a caller asking for 1800 got 120, and
+     * even a caller asking for nothing got less than the documented default — the parameter was
+     * advertised in the tool schema and then silently discarded here. Any run longer than two
+     * minutes reported {@code TimeoutException} while the underlying process kept going, which
+     * reads as "the run never started" and invites a retry that spawns a second 1C test client.
+     *
+     * <p>The wait now follows the argument the tool itself publishes. Tools that do not publish
+     * {@code timeout_s} keep the previous ceiling, so nothing silently gains an unbounded wait.
+     *
+     * @param toolName name of the dispatched tool, used only for the legacy fallback ceiling
+     * @param arguments raw tool arguments; may be {@code null}
+     * @return seconds to wait, always positive
+     */
+    static int resolveDispatchTimeoutSeconds(String toolName, Map<String, Object> arguments) {
+        Integer requested = positiveTimeoutSeconds(arguments);
+        if (requested == null) {
+            return QA_RUN_TOOL.equals(toolName)
+                    ? LEGACY_QA_RUN_DISPATCH_TIMEOUT_SECONDS
+                    : DEFAULT_DISPATCH_TIMEOUT_SECONDS;
+        }
+        // The tool enforces timeout_s itself and turns it into a structured answer naming the
+        // run directory and the log. Giving the host the identical deadline makes the two race,
+        // and when the host wins the caller gets a bare TimeoutException instead of that answer.
+        // The headroom lets the tool's own timeout fire first, so the diagnosis survives.
+        long withHeadroom = (long) requested + DISPATCH_TIMEOUT_HEADROOM_SECONDS;
+        return (int) Math.min(withHeadroom, MAX_DISPATCH_TIMEOUT_SECONDS);
+    }
+
+    /**
+     * Reads {@code timeout_s} without judging it.
+     *
+     * <p>Validation belongs to the tool: it answers a malformed value with
+     * {@code INVALID_ARGUMENT} and a message naming the parameter. Rejecting it here would
+     * replace that message with a routing error about a parameter the caller never sees the
+     * host handle. Anything not a positive number therefore falls back to the default wait and
+     * lets the tool speak.
+     */
+    private static Integer positiveTimeoutSeconds(Map<String, Object> arguments) {
+        Object value = arguments == null ? null : arguments.get(TIMEOUT_SECONDS_ARGUMENT);
+        if (value instanceof Number number) {
+            long seconds = number.longValue();
+            if (seconds > 0) {
+                return Integer.valueOf((int) Math.min(seconds, MAX_DISPATCH_TIMEOUT_SECONDS));
+            }
+        }
+        return null;
     }
 
     private record EffectiveToolPolicy(
