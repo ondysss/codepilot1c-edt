@@ -5521,13 +5521,34 @@ public class EdtMetadataService {
         if (kind == ModuleArtifactKind.COMMAND) {
             return "CommandModule.bsl"; //$NON-NLS-1$
         }
+        if (kind == ModuleArtifactKind.RECORD_SET) {
+            return "RecordSetModule.bsl"; //$NON-NLS-1$
+        }
         if ("CommonCommand".equals(className)) { //$NON-NLS-1$
             return "CommandModule.bsl"; //$NON-NLS-1$
         }
         if ("CommonModule".equals(className) || (className != null && className.contains("Form"))) { //$NON-NLS-1$ //$NON-NLS-2$
             return "Module.bsl"; //$NON-NLS-1$
         }
+        if (isRegisterClass(className)) {
+            return "RecordSetModule.bsl"; //$NON-NLS-1$
+        }
         return "ObjectModule.bsl"; //$NON-NLS-1$
+    }
+
+    /**
+     * Registers own a record set module, never an object module.
+     *
+     * <p>Without this branch the AUTO fallback returned {@code ObjectModule.bsl} for every
+     * register, so the tool reported success while creating a file the platform ignores:
+     * a {@code ПередЗаписью} handler placed there never runs. Silently producing a dead
+     * artifact is worse than refusing, so the register classes are named explicitly.</p>
+     */
+    private boolean isRegisterClass(String className) {
+        return "InformationRegister".equals(className) //$NON-NLS-1$
+                || "AccumulationRegister".equals(className) //$NON-NLS-1$
+                || "AccountingRegister".equals(className) //$NON-NLS-1$
+                || "CalculationRegister".equals(className); //$NON-NLS-1$
     }
 
     private String mapTopFolder(String topKind) {

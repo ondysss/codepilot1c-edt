@@ -234,7 +234,7 @@ final class ToolSurfaceSchemaNormalizer {
                         },
                         "module_kind": {
                           "type": "string",
-                          "enum": ["auto", "object", "objectmodule", "object_module", "manager", "managermodule", "manager_module", "module", "form", "formmodule", "form_module"],
+                          "enum": ["auto", "object", "objectmodule", "object_module", "manager", "managermodule", "manager_module", "module", "form", "formmodule", "form_module", "recordset", "record_set", "recordsetmodule", "record_set_module"],
                           "description": "Requested module artifact kind; aliases are accepted case-insensitively."
                         },
                         "create_if_missing": {

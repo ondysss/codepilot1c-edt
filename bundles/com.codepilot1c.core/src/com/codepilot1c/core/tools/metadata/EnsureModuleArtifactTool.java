@@ -39,7 +39,7 @@ public class EnsureModuleArtifactTool extends AbstractTool {
                 },
                 "module_kind": {
                   "type": "string",
-                  "description": "Какой модуль материализовать: auto|object|manager|module"
+                  "description": "Какой модуль материализовать: auto|object|manager|module|command|recordset. У регистров модуль набора записей, а не объекта: auto определяет это сам."
                 },
                 "create_if_missing": {
                   "type": "boolean",
