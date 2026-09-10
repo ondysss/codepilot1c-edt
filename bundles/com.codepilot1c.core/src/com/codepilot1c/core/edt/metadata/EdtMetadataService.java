@@ -7410,6 +7410,36 @@ public class EdtMetadataService {
         // Enum-typed: fullTextSearch / indexing on DbObjectAttribute ----------
         applyFullTextSearch(feature, properties);
         applyIndexing(feature, properties);
+        // Boolean: mainFilter on information register dimensions --------------
+        applyMainFilter(feature, properties);
+    }
+
+    /**
+     * Applies {@code mainFilter} to an information register dimension.
+     *
+     * <p>The flag lives on the dimension class only, so it is resolved through the EMF
+     * feature instead of a typed setter. Without this the property was silently dropped:
+     * the child was created with the right type and no main filter.</p>
+     */
+    private void applyMainFilter(BasicFeature feature, Map<String, Object> properties) {
+        Boolean mainFilter = firstParsedBoolean(
+                getMapValueIgnoreCase(properties, "mainFilter"), //$NON-NLS-1$
+                getMapValueIgnoreCase(properties, "main_filter")); //$NON-NLS-1$
+        if (mainFilter == null) {
+            return;
+        }
+        EStructuralFeature emfFeature = feature.eClass().getEStructuralFeature("mainFilter"); //$NON-NLS-1$
+        if (emfFeature == null) {
+            LOG.warn("applyBasicFeatureCreateProperties: mainFilter not applicable for %s", //$NON-NLS-1$
+                    feature.eClass().getName());
+            return;
+        }
+        try {
+            feature.eSet(emfFeature, mainFilter);
+        } catch (RuntimeException e) {
+            LOG.warn("applyBasicFeatureCreateProperties: failed to apply mainFilter=%s: %s", //$NON-NLS-1$
+                    mainFilter, e.getMessage());
+        }
     }
 
     private void applyFillChecking(BasicFeature feature, Map<String, Object> properties) {
@@ -11001,10 +11031,9 @@ public class EdtMetadataService {
     }
 
     private void addTopLevelObject(Configuration configuration, MetadataKind kind, MdObject object) {
-        // In EDT model, top-level typed collections may be backed by generic content.
-        // First, ensure generic content link exists.
-        addMdObjectIfMissing(configuration.getContent(), object);
-
+        // Configuration.content is not the registration list: EDT itself never writes
+        // <content> into Configuration.mdo (it belongs to subsystems), and an extra entry
+        // there is plain noise in the diff. The typed collection below is the registration.
         switch (kind) {
             case CATALOG -> configuration.getCatalogs().add((com._1c.g5.v8.dt.metadata.mdclass.Catalog) object);
             case DOCUMENT -> configuration.getDocuments().add((Document) object);

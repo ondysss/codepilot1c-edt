@@ -102,8 +102,11 @@ public class EnsureModuleArtifactTool extends AbstractTool {
             try {
                 String projectName = getString(parameters, "project"); //$NON-NLS-1$
                 String objectFqn = getString(parameters, "object_fqn", "objectFqn"); //$NON-NLS-1$ //$NON-NLS-2$
-                ModuleArtifactKind moduleKind = ModuleArtifactKind.fromString(
-                        getString(parameters, "module_kind", "moduleType", "moduleKind")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                // Pass the module kind through as received: a substituted AUTO looks like an
+                // explicit value and suppresses the inference from the FQN suffix, so the
+                // normalized payload no longer matches the one the token was minted over.
+                String moduleKindArgument =
+                        getString(parameters, "module_kind", "moduleType", "moduleKind"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                 boolean createIfMissing = getBoolean(parameters, true, "create_if_missing", "createIfMissing"); //$NON-NLS-1$ //$NON-NLS-2$
                 String initialContent = getString(parameters, "initial_content", "initialContent"); //$NON-NLS-1$ //$NON-NLS-2$
                 String validationToken = getString(parameters, "validation_token", "validationToken"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -111,7 +114,7 @@ public class EnsureModuleArtifactTool extends AbstractTool {
                 Map<String, Object> normalizedPayload = validationService.normalizeEnsureModuleArtifactPayload(
                         projectName,
                         objectFqn,
-                        moduleKind.name(),
+                        moduleKindArgument,
                         Boolean.valueOf(createIfMissing),
                         initialContent);
                 Map<String, Object> validatedPayload = validationService.consumeToken(
