@@ -5590,6 +5590,31 @@ public class EdtMetadataService {
         };
     }
 
+    /**
+     * Приводит вид из FQN к тому написанию, которое понимает {@link #mapTopFolder}.
+     *
+     * <p>Резолверы принимают больше вариантов, чем эта таблица: русские имена
+     * ({@code Справочник.Контрагенты}) и - в проекте внешних объектов - {@code Обработка}
+     * с {@code Отчет} как синонимы внешних. Каталог у них свой, и без приведения путь вёл бы
+     * в {@code src/DataProcessors}, где файла нет.</p>
+     */
+    private String canonicalTopKind(IProject project, String topKind) {
+        String canonical;
+        try {
+            canonical = MetadataKind.fromString(topKind).getFqnPrefix();
+        } catch (MetadataOperationException e) {
+            canonical = topKind;
+        }
+        if (tryResolveExternalProject(project) == null) {
+            return canonical;
+        }
+        return switch (normalizeToken(canonical)) {
+            case "dataprocessor" -> "ExternalDataProcessor"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "report" -> "ExternalReport"; //$NON-NLS-1$ //$NON-NLS-2$
+            default -> canonical;
+        };
+    }
+
     private String tryMapTopFolder(String topKind) {
         try {
             return mapTopFolder(topKind);
@@ -5752,7 +5777,7 @@ public class EdtMetadataService {
                         MetadataOperationCode.INVALID_FORM_USAGE,
                         "Invalid owner FQN for form materialization: " + ownerFqn, false); //$NON-NLS-1$
             }
-            String topFolder = tryMapTopFolder(topKind);
+            String topFolder = tryMapTopFolder(canonicalTopKind(project, topKind));
             if (topFolder == null) {
                 throw new MetadataOperationException(
                         MetadataOperationCode.INVALID_FORM_USAGE,
@@ -6766,11 +6791,7 @@ public class EdtMetadataService {
             if (owner == null || ownerUri == null) {
                 return null;
             }
-            String resourcePath = toProjectRelativePath(project, ownerUri);
-            if (isUsableMetadataResourcePath(resourcePath) && resourcePath.toLowerCase(Locale.ROOT).endsWith(".mdo")) { //$NON-NLS-1$
-                return resourcePath;
-            }
-            return null;
+            return asOwnerMdoPath(toProjectRelativePath(project, ownerUri));
         }
         IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
         Configuration configuration = configurationProvider.getConfiguration(project);
@@ -6787,8 +6808,22 @@ public class EdtMetadataService {
             if (owner == null || ownerUri == null) {
                 return null;
             }
-            return toProjectRelativePath(project, ownerUri);
+            return asOwnerMdoPath(toProjectRelativePath(project, ownerUri));
         });
+    }
+
+    /**
+     * Принимает путь, только если он и правда указывает на дескриптор владельца.
+     *
+     * <p>URI объекта в BM файлом не является: {@code toProjectRelativePath} отдаёт для него
+     * хвост вроде {@code DataProcessor.Имя}, и без этой проверки ожидание материализации формы
+     * ждало бы файл в корне проекта - а он там не появится никогда. Отказ здесь означает, что
+     * путь вызывающий соберёт из типа и имени сам.</p>
+     */
+    private String asOwnerMdoPath(String resourcePath) {
+        return isUsableMetadataResourcePath(resourcePath)
+                && resourcePath.toLowerCase(Locale.ROOT).endsWith(".mdo") //$NON-NLS-1$
+                        ? resourcePath : null;
     }
 
     private MdObject findTopLevel(Configuration configuration, String type, String name) {
