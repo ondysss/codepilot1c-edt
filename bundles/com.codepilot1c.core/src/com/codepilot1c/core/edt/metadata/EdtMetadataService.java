@@ -147,6 +147,7 @@ import com._1c.g5.v8.dt.moxel.Rect;
 import com._1c.g5.v8.dt.moxel.Row;
 import com._1c.g5.v8.dt.moxel.RowsArea;
 import com._1c.g5.v8.dt.moxel.SpreadsheetDocument;
+import com.codepilot1c.core.edit.LineSeparators;
 import com.codepilot1c.core.edt.forms.BslHandlerStubGenerator;
 import com.codepilot1c.core.edt.forms.BslHandlerStubGenerator.TargetContext;
 import com.codepilot1c.core.edt.forms.BslHandlerStubWriter;
@@ -4820,6 +4821,7 @@ public class EdtMetadataService {
                     "Failed to create module folders: " + candidates.get(0), true, e); //$NON-NLS-1$
         }
         String content = request.initialContent() != null ? request.initialContent() : ""; //$NON-NLS-1$
+        content = LineSeparators.alignTo(targetFile, content);
         try (ByteArrayInputStream source = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8))) {
             if (targetFile.exists()) {
                 targetFile.setContents(source, IResource.FORCE, null);
