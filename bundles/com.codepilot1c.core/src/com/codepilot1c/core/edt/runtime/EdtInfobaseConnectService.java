@@ -703,6 +703,30 @@ public class EdtInfobaseConnectService {
         }
     }
 
+    /**
+     * Reads the infobase UUID EDT bound to the created standalone server module.
+     *
+     * <p>{@code StandaloneServerInfobase} exposed {@code getInfobaseId()} up to EDT 2025.2; the
+     * accessor is absent from 2026.1 onwards, where the module keeps no infobase UUID at all.
+     * Reading it reflectively keeps the precise UUID lookup on the releases that still publish it
+     * and falls back to the name lookup below on the releases that removed it, instead of pinning
+     * the plug-in to a single EDT line.</p>
+     *
+     * @param standaloneInfobase EDT module to read, never {@code null} here
+     * @return the bound UUID, or {@code null} when this EDT release does not expose one
+     */
+    private static UUID readStandaloneInfobaseUuid(StandaloneServerInfobase standaloneInfobase) {
+        try {
+            Method accessor = standaloneInfobase.getClass().getMethod("getInfobaseId"); //$NON-NLS-1$
+            Object value = accessor.invoke(standaloneInfobase);
+            return value instanceof UUID uuid ? uuid : null;
+        } catch (NoSuchMethodException e) {
+            return null;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return null;
+        }
+    }
+
     private InfobaseReference resolveBoundReference(StandaloneServerInfobase standaloneInfobase,
             InfobaseReference fallback) {
         if (standaloneInfobase == null) {
@@ -710,8 +734,9 @@ public class EdtInfobaseConnectService {
         }
         try {
             IInfobaseManager manager = gateway.getInfobaseManager();
-            if (standaloneInfobase.getInfobaseId() != null) {
-                return manager.findInfobaseByUuid(standaloneInfobase.getInfobaseId()).orElse(fallback);
+            UUID boundUuid = readStandaloneInfobaseUuid(standaloneInfobase);
+            if (boundUuid != null) {
+                return manager.findInfobaseByUuid(boundUuid).orElse(fallback);
             }
             if (standaloneInfobase.getName() != null) {
                 return manager.findInfobaseByName(standaloneInfobase.getName()).orElse(fallback);
