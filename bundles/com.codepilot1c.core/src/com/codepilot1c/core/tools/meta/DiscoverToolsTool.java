@@ -12,11 +12,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
+import com.codepilot1c.core.mcp.host.McpToolVisibility;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.tools.AbstractTool;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolMeta;
 import com.codepilot1c.core.tools.ToolParameters;
+import com.codepilot1c.core.tools.ToolExecutionContext;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.tools.surface.BuiltinToolTaxonomy;
@@ -106,6 +108,12 @@ public class DiscoverToolsTool extends AbstractTool {
 
     @Override
     protected CompletableFuture<ToolResult> doExecute(ToolParameters params) {
+        return doExecute(params, ToolExecutionContext.unscoped());
+    }
+
+    @Override
+    protected CompletableFuture<ToolResult> doExecute(
+            ToolParameters params, ToolExecutionContext context) {
         Map<String, Object> p = params.getRaw();
         String categoryName = p.get("category") != null //$NON-NLS-1$
                 ? String.valueOf(p.get("category")) : null; //$NON-NLS-1$
@@ -130,27 +138,19 @@ public class DiscoverToolsTool extends AbstractTool {
         }
 
         // Collect tools for this category
-        List<ToolSummary> toolSummaries = new ArrayList<>();
-        ToolSurfaceContext surfaceContext = toolRegistry.createRuntimeSurfaceContext(
-                ToolSurfaceContext.defaultProfile());
-
-        for (ToolRegistry.ToolResolution resolution
-                : toolRegistry.getModelFacingToolResolutions()) {
-            ITool tool = resolution.tool();
-            ToolCategory toolCategory = BuiltinToolTaxonomy.categoryOf(tool);
-            if (toolCategory == category) {
-                ToolDefinition def = toolRegistry.getToolDefinition(tool, surfaceContext);
-                toolSummaries.add(new ToolSummary(
-                        def.getName(),
-                        def.getDescription(),
-                        def.getParametersSchema() != null));
-            }
-        }
+        Discovered discovered = collect(category, visibilityFor(context));
+        List<ToolSummary> toolSummaries = discovered.tools();
 
         if (toolSummaries.isEmpty()) {
-            return CompletableFuture.completedFuture(
-                    ToolResult.success("No tools found for category: " + categoryName + //$NON-NLS-1$
-                            ". This category may not be available in the current workspace.")); //$NON-NLS-1$
+            // "Нет в этой рабочей области" и "снято настройкой" - разные вещи, и первое
+            // сбивает с толку: инструменты есть, просто их не отдают.
+            String message = discovered.hiddenByPolicy() > 0
+                    ? "No tools available for category " + categoryName + ": all " //$NON-NLS-1$ //$NON-NLS-2$
+                            + discovered.hiddenByPolicy()
+                            + " are hidden by the MCP host policy (exposedTools or session profile)." //$NON-NLS-1$
+                    : "No tools found for category " + categoryName //$NON-NLS-1$
+                            + ": this category may not be available in the current workspace."; //$NON-NLS-1$
+            return CompletableFuture.completedFuture(ToolResult.success(message));
         }
 
         // Build response
@@ -158,6 +158,9 @@ public class DiscoverToolsTool extends AbstractTool {
         result.addProperty("category", categoryName); //$NON-NLS-1$
         result.addProperty("tools_count", toolSummaries.size()); //$NON-NLS-1$
         result.addProperty("status", "discovered"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (discovered.hiddenByPolicy() > 0) {
+            result.addProperty("hidden_by_policy", discovered.hiddenByPolicy()); //$NON-NLS-1$
+        }
 
         JsonArray toolsArray = new JsonArray();
         for (ToolSummary summary : toolSummaries) {
@@ -175,6 +178,51 @@ public class DiscoverToolsTool extends AbstractTool {
                 ToolResult.success(GSON.toJson(result)));
     }
 
-    private record ToolSummary(String name, String description, boolean hasParameters) {
+    /**
+     * Инструменты категории, видимые вызывающему.
+     *
+     * <p>Список должен совпадать с тем, что отдаёт tools/list: снятое политикой
+     * exposedTools позвать нельзя, а ответ обещал обратное - "You can call them directly".
+     */
+    Discovered collect(ToolCategory category, McpToolVisibility visibility) {
+        List<ToolSummary> summaries = new ArrayList<>();
+        int hidden = 0;
+        ToolSurfaceContext surfaceContext = toolRegistry.createRuntimeSurfaceContext(
+                ToolSurfaceContext.defaultProfile());
+
+        for (ToolRegistry.ToolResolution resolution
+                : toolRegistry.getModelFacingToolResolutions()) {
+            ITool tool = resolution.tool();
+            if (BuiltinToolTaxonomy.categoryOf(tool) != category) {
+                continue;
+            }
+            if (visibility != null && !visibility.isVisible(resolution)) {
+                hidden++;
+                continue;
+            }
+            ToolDefinition def = toolRegistry.getToolDefinition(tool, surfaceContext);
+            summaries.add(new ToolSummary(
+                    def.getName(),
+                    def.getDescription(),
+                    def.getParametersSchema() != null));
+        }
+        return new Discovered(summaries, hidden);
+    }
+
+    /** Найденные инструменты и сколько их скрыла политика. */
+    record Discovered(List<ToolSummary> tools, int hiddenByPolicy) { }
+
+    // Настройки хоста касаются только вызовов снаружи, а признак "снаружи" даёт контекст:
+    // чат EDT и его подагенты приходят с путём проекта и идентификатором сессии, клиент MCP -
+    // без них. По полю session это определять нельзя: DiscoverToolsTool живёт в общем реестре
+    // одним экземпляром, и сессию, выставленную чатом однажды, увидели бы и вызовы снаружи.
+    private McpToolVisibility visibilityFor(ToolExecutionContext context) {
+        if (context != null && context.hasProjectIdentity()) {
+            return null;
+        }
+        return McpToolVisibility.fromHostConfig();
+    }
+
+    record ToolSummary(String name, String description, boolean hasParameters) {
     }
 }

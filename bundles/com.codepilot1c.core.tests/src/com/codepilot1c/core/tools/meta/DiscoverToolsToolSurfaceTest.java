@@ -12,10 +12,14 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.junit.Test;
 
+import com.codepilot1c.core.mcp.host.McpToolExposurePolicy;
+import com.codepilot1c.core.mcp.host.McpToolVisibility;
 import com.codepilot1c.core.model.ToolDefinition;
 import com.codepilot1c.core.tools.ITool;
 import com.codepilot1c.core.tools.ToolRegistry;
 import com.codepilot1c.core.tools.ToolResult;
+import com.codepilot1c.core.tools.surface.DeferredToolSet;
+import com.codepilot1c.core.tools.surface.ToolCategory;
 import com.codepilot1c.core.tools.surface.ToolSurfaceAugmentor;
 import com.codepilot1c.core.tools.surface.ToolSurfaceContext;
 import com.codepilot1c.core.tools.surface.ToolSurfaceContributor;
@@ -51,6 +55,52 @@ public class DiscoverToolsToolSurfaceTest {
         JsonObject payload = JsonParser.parseString(result.getContent()).getAsJsonObject();
         JsonObject discovered = payload.getAsJsonArray("tools").get(0).getAsJsonObject(); //$NON-NLS-1$
         assertEquals("Raw description [effective]", discovered.get("description").getAsString()); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    /**
+     * Выдача discover_tools должна совпадать с tools/list: снятое политикой exposedTools
+     * позвать нельзя, а ответ обещал "You can call them directly".
+     */
+    @Test
+    public void discoveryHidesWhatTheHostPolicyDoesNotExpose() throws Exception {
+        ToolRegistry registry = createIsolatedRegistry();
+        registry.register(new WorkspaceTool());
+        DiscoverToolsTool tool = new DiscoverToolsTool(registry);
+        ToolCategory workspace = DeferredToolSet.resolveCategory("workspace"); //$NON-NLS-1$
+
+        DiscoverToolsTool.Discovered видимые = tool.collect(workspace, видимость(true));
+        DiscoverToolsTool.Discovered скрытые = tool.collect(workspace, видимость(false));
+
+        assertEquals(1, видимые.tools().size());
+        assertEquals(0, видимые.hiddenByPolicy());
+        assertTrue(скрытые.tools().isEmpty());
+        assertEquals(1, скрытые.hiddenByPolicy());
+    }
+
+    // У политики три метода, поэтому лямбдой её не подменить: разрешение или запрет
+    // отвечает на все три, а нужен только isExposed.
+    private static McpToolVisibility видимость(boolean exposed) {
+        return new McpToolVisibility(политика(exposed), null, false);
+    }
+
+    private static McpToolExposurePolicy политика(boolean exposed) {
+        return new McpToolExposurePolicy() {
+
+            @Override
+            public boolean isExposed(String toolName) {
+                return exposed;
+            }
+
+            @Override
+            public boolean requiresConfirmation(String toolName, Map<String, Object> args) {
+                return false;
+            }
+
+            @Override
+            public boolean isDestructive(String toolName) {
+                return false;
+            }
+        };
     }
 
     private static ToolRegistry createIsolatedRegistry() throws Exception {
