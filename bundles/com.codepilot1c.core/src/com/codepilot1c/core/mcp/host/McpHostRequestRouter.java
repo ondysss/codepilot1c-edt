@@ -383,18 +383,12 @@ public class McpHostRequestRouter {
         ToolRegistry registry = ToolRegistry.getInstance();
         ToolSurfaceContext surfaceContext = registry.createRuntimeSurfaceContext(
                 sessionProfile != null ? sessionProfile : ToolSurfaceContext.defaultProfile());
+        McpToolVisibility visibility =
+                new McpToolVisibility(exposurePolicy, sessionProfile, profileGateEnabled);
         for (ToolResolution resolution : registry.getModelFacingToolResolutions()) {
             ITool tool = resolution.tool();
-            if (!exposurePolicy.isExposed(tool.getName())) {
+            if (!visibility.isVisible(resolution)) {
                 continue;
-            }
-            if (profileGateEnabled) {
-                if (sessionProfile == null) {
-                    continue;
-                }
-                if (!ProfileToolAccess.allows(sessionProfile, resolution)) {
-                    continue;
-                }
             }
             var effectiveTool = registry.getToolDefinition(tool, surfaceContext);
             Map<String, Object> item = new HashMap<>();
