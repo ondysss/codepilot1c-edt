@@ -14,6 +14,8 @@ import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.core.runtime.Plugin;
 import org.eclipse.core.runtime.Status;
+import org.eclipse.emf.common.util.URI;
+import org.eclipse.xtext.resource.IResourceServiceProvider;
 import org.osgi.framework.BundleContext;
 import org.osgi.util.tracker.ServiceTracker;
 
@@ -65,6 +67,9 @@ public class VibeCorePlugin extends Plugin {
     private static ILog logger;
     private static final long EDT_SERVICE_WAIT_STEP_MS = 1000L;
     private static final long EDT_SERVICE_WAIT_TOTAL_MS = 30000L;
+    // После старта ждать незарегистрированный сервис незачем: он уже не появится.
+    private static final long EDT_SERVICE_WAIT_AFTER_STARTUP_MS = 2000L;
+    private static final long EDT_STARTUP_GRACE_MS = 120000L;
     private HttpClientFactory httpClientFactory;
     private ServiceTracker<IConfigurationProvider, IConfigurationProvider> configurationProviderTracker;
     private ServiceTracker<IBmModelManager, IBmModelManager> bmModelManagerTracker;
@@ -89,9 +94,12 @@ public class VibeCorePlugin extends Plugin {
     private ServiceTracker<IStandaloneServerService, IStandaloneServerService> standaloneServerServiceTracker;
     private ServiceTracker<IRemoteWorkbenchBridge, IRemoteWorkbenchBridge> remoteWorkbenchBridgeTracker;
 
+    private volatile long startedAtMs = System.currentTimeMillis();
+
     @Override
     public void start(BundleContext context) throws Exception {
         super.start(context);
+        startedAtMs = System.currentTimeMillis();
         plugin = this;
         logger = Platform.getLog(getClass());
 
@@ -377,8 +385,41 @@ public class VibeCorePlugin extends Plugin {
         return getTrackedService(derivedDataManagerProviderTracker, "IDerivedDataManagerProvider"); //$NON-NLS-1$
     }
 
+    /**
+     * Провайдер наборов ресурсов Xtext, знающий о BM.
+     *
+     * <p>EDT не публикует его OSGi-сервисом, поэтому трекер его не дожидается: каждый вызов
+     * досиживал {@link #EDT_SERVICE_WAIT_TOTAL_MS} и отдавал отказ, после чего чтение уходило
+     * на standalone-набор. Отсюда 30 секунд на любое обращение к модели BSL и пустые
+     * featureEntries: у standalone-набора нет контекста BM, а значит и межмодульных ссылок.
+     *
+     * <p>Берём его из инжектора Xtext по языковому провайдеру .bsl. Трекер остаётся первым:
+     * если сервис всё же зарегистрирован, он дешевле.
+     */
     public BmAwareResourceSetProvider getResourceSetProvider() {
+        BmAwareResourceSetProvider tracked = resourceSetProviderTracker == null
+                ? null
+                : resourceSetProviderTracker.getService();
+        if (tracked != null) {
+            return tracked;
+        }
+
+        BmAwareResourceSetProvider injected = injectedResourceSetProvider();
+        if (injected != null) {
+            return injected;
+        }
         return getTrackedService(resourceSetProviderTracker, "BmAwareResourceSetProvider"); //$NON-NLS-1$
+    }
+
+    private BmAwareResourceSetProvider injectedResourceSetProvider() {
+        try {
+            IResourceServiceProvider provider = IResourceServiceProvider.Registry.INSTANCE
+                    .getResourceServiceProvider(URI.createURI("dummy:/dummy.bsl")); //$NON-NLS-1$
+            return provider == null ? null : provider.get(BmAwareResourceSetProvider.class);
+        } catch (RuntimeException | LinkageError e) {
+            logWarn("Cannot obtain BmAwareResourceSetProvider from the Xtext injector", e); //$NON-NLS-1$
+            return null;
+        }
     }
 
     public ITopObjectFqnGenerator getTopObjectFqnGenerator() {
@@ -452,9 +493,21 @@ public class VibeCorePlugin extends Plugin {
         if (service != null) {
             return service;
         }
+        // Долгое ожидание нужно только на старте EDT, пока сервисы ещё регистрируются. Дальше
+        // отсутствие сервиса означает, что его не публикуют вовсе, и ждать его тридцать секунд
+        // на каждом вызове - чистая задержка: так BmAwareResourceSetProvider тихо стоил 30 с
+        // каждому обращению к модели BSL.
+        long budgetMs = System.currentTimeMillis() - startedAtMs < EDT_STARTUP_GRACE_MS
+                ? EDT_SERVICE_WAIT_TOTAL_MS
+                : EDT_SERVICE_WAIT_AFTER_STARTUP_MS;
+        // Информационно, а не предупреждением: сервис, которого нет в первую миллисекунду,
+        // обычно приходит в следующую, и предупреждение о каждом таком ожидании засоряет
+        // журнал. Предупреждение остаётся там, где ожидание кончилось ничем.
+        logInfo("Waiting for EDT service (up to " + budgetMs + " ms): " + serviceName); //$NON-NLS-1$ //$NON-NLS-2$
+
         long waitedMs = 0L;
-        while (waitedMs < EDT_SERVICE_WAIT_TOTAL_MS) {
-            long waitSliceMs = Math.min(EDT_SERVICE_WAIT_STEP_MS, EDT_SERVICE_WAIT_TOTAL_MS - waitedMs);
+        while (waitedMs < budgetMs) {
+            long waitSliceMs = Math.min(EDT_SERVICE_WAIT_STEP_MS, budgetMs - waitedMs);
             try {
                 service = tracker.waitForService(waitSliceMs);
                 if (service != null) {
@@ -471,7 +524,7 @@ public class VibeCorePlugin extends Plugin {
                 return null;
             }
         }
-        logWarn("EDT service not available after wait (" + EDT_SERVICE_WAIT_TOTAL_MS + " ms): " + serviceName); //$NON-NLS-1$ //$NON-NLS-2$
+        logWarn("EDT service not available after wait (" + budgetMs + " ms): " + serviceName); //$NON-NLS-1$ //$NON-NLS-2$
         return tracker.getService();
     }
 
