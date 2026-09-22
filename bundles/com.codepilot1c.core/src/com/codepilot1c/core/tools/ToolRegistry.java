@@ -197,6 +197,8 @@ public class ToolRegistry {
         defaults.add(new ScanMetadataIndexTool());
         defaults.add(new InspectRoleRightsTool());
         defaults.add(new MutateRoleRightsTool());
+        defaults.add(new InspectCommandInterfaceTool());
+        defaults.add(new MutateCommandInterfaceTool());
         defaults.add(new GetConfigurationPropertiesTool());
         defaults.add(new GetProblemSummaryTool());
         defaults.add(new GetTagsTool());

@@ -165,7 +165,7 @@ final class ToolSurfaceSchemaNormalizer {
                         },
                         "allow_metadata_descriptor_edit": {
                           "type": "boolean",
-                          "description": "Emergency override for direct .mdo edits when BM APIs cannot be used."
+                          "description": "Emergency override for direct .mdo and command interface .cmi edits when BM APIs cannot be used; for .cmi prefer inspect_command_interface/mutate_command_interface."
                         }
                       },
                       "required": ["path"],
@@ -207,7 +207,7 @@ final class ToolSurfaceSchemaNormalizer {
                         },
                         "operation": {
                           "type": "string",
-                          "enum": ["create_metadata", "create_form", "apply_form_recipe", "external_manage", "external_create_report", "external_create_processing", "extension_manage", "extension_create_project", "extension_adopt_object", "extension_set_property_state", "dcs_manage", "dcs_create_main_schema", "dcs_upsert_query_dataset", "dcs_upsert_parameter", "dcs_upsert_calculated_field", "add_metadata_child", "ensure_module_artifact", "update_metadata", "delete_metadata", "mutate_form_model", "mutate_role_rights", "render_template"],
+                          "enum": ["create_metadata", "create_form", "apply_form_recipe", "external_manage", "external_create_report", "external_create_processing", "extension_manage", "extension_create_project", "extension_adopt_object", "extension_set_property_state", "dcs_manage", "dcs_create_main_schema", "dcs_upsert_query_dataset", "dcs_upsert_parameter", "dcs_upsert_calculated_field", "add_metadata_child", "ensure_module_artifact", "update_metadata", "delete_metadata", "mutate_form_model", "mutate_role_rights", "mutate_command_interface", "render_template"],
                           "description": "Target mutating tool that will consume the issued validation_token."
                         },
                         "payload": {

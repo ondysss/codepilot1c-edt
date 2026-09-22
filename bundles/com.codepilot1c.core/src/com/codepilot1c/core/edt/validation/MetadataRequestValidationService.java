@@ -11,6 +11,7 @@ import org.eclipse.core.resources.IProject;
 
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
 
+import com.codepilot1c.core.edt.cmi.CommandInterfaceFragments;
 import com.codepilot1c.core.edt.forms.CreateFormRequest;
 import com.codepilot1c.core.edt.forms.FormRecipeMode;
 import com.codepilot1c.core.edt.forms.FormRecipeRequest;
@@ -929,6 +930,34 @@ public class MetadataRequestValidationService {
         return payload;
     }
 
+    public Map<String, Object> normalizeMutateCommandInterfacePayload(
+            String projectName,
+            String ownerFqn,
+            List<Map<String, Object>> operations
+    ) {
+        if (projectName == null || projectName.isBlank()) {
+            throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_NAME,
+                    "project is required", false); //$NON-NLS-1$
+        }
+        String owner = CommandInterfaceFragments.normalizeOwnerFqn(ownerFqn);
+        if (operations == null || operations.isEmpty()) {
+            throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_NAME,
+                    "operations must contain at least one operation", false); //$NON-NLS-1$
+        }
+        List<Map<String, Object>> normalizedOperations = new ArrayList<>();
+        for (Map<String, Object> operation : operations) {
+            Map<String, Object> normalized = new LinkedHashMap<>();
+            normalized.put("op", CommandInterfaceFragments.requireKnownOperation( //$NON-NLS-1$
+                    operation == null ? null : operation.get("op"))); //$NON-NLS-1$
+            normalizedOperations.add(normalized);
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("project", projectName); //$NON-NLS-1$
+        payload.put("owner_fqn", owner); //$NON-NLS-1$
+        payload.put("operations", normalizedOperations); //$NON-NLS-1$
+        return payload;
+    }
+
     public Map<String, Object> normalizeRenderTemplatePayload(
             String projectName,
             String templateFqn,
@@ -1388,6 +1417,14 @@ public class MetadataRequestValidationService {
                         asString(request.payload().get("role")), //$NON-NLS-1$
                         asListOfMaps(request.payload().get("operations"))); //$NON-NLS-1$
                 checks.add("Операция mutate_role_rights валидирована по обязательным полям."); //$NON-NLS-1$
+                yield payload;
+            }
+            case MUTATE_COMMAND_INTERFACE -> {
+                Map<String, Object> payload = normalizeMutateCommandInterfacePayload(
+                        coalesceProject(request.projectName(), request.payload()),
+                        asString(request.payload().get("owner_fqn")), //$NON-NLS-1$
+                        asListOfMaps(request.payload().get("operations"))); //$NON-NLS-1$
+                checks.add("Операция mutate_command_interface валидирована: владелец и имена операций."); //$NON-NLS-1$
                 yield payload;
             }
             case RENDER_TEMPLATE -> {

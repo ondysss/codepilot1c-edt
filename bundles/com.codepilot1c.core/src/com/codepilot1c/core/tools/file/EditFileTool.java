@@ -87,7 +87,7 @@ public class EditFileTool extends AbstractTool {
                     },
                     "allow_metadata_descriptor_edit": {
                         "type": "boolean",
-                        "description": "Аварийный override: разрешить редактирование .mdo (не рекомендуется, используйте только когда BM API не покрывает кейс)."
+                        "description": "Аварийный override: разрешить редактирование .mdo и командного интерфейса .cmi (не рекомендуется, используйте только когда BM API не покрывает кейс; для .cmi есть inspect_command_interface/mutate_command_interface)."
                     }
                 },
                 "required": ["path"]
@@ -153,6 +153,14 @@ public class EditFileTool extends AbstractTool {
                                 "Для аварийного обхода передайте allow_metadata_descriptor_edit=true."); //$NON-NLS-1$
                     }
                     LOG.warn("edit_file: аварийный override .mdo включен для %s", normalizedPath); //$NON-NLS-1$
+                }
+                if (EdtModelFileGuard.isCommandInterfacePath(normalizedPath)) {
+                    if (!allowMetadataDescriptorEdit) {
+                        LOG.warn("edit_file: заблокирована прямая правка командного интерфейса без override: %s", normalizedPath); //$NON-NLS-1$
+                        return ToolResult.failure(
+                                EdtModelFileGuard.commandInterfaceRefusal("allow_metadata_descriptor_edit")); //$NON-NLS-1$
+                    }
+                    LOG.warn("edit_file: аварийный override .cmi включен для %s", normalizedPath); //$NON-NLS-1$
                 }
 
                 // FORM/DCS/TEMPLATE artifacts are structured EDT files and must be changed through semantic tools.

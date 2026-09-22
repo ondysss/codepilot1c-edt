@@ -34,7 +34,7 @@ public class EdtValidateRequestTool extends AbstractTool {
                 },
                 "operation": {
                   "type": "string",
-                  "enum": ["create_metadata", "create_form", "apply_form_recipe", "external_manage", "external_create_report", "external_create_processing", "extension_manage", "extension_create_project", "extension_adopt_object", "extension_set_property_state", "dcs_manage", "dcs_create_main_schema", "dcs_upsert_query_dataset", "dcs_upsert_parameter", "dcs_upsert_calculated_field", "add_metadata_child", "ensure_module_artifact", "update_metadata", "delete_metadata", "mutate_form_model", "mutate_role_rights", "render_template"],
+                  "enum": ["create_metadata", "create_form", "apply_form_recipe", "external_manage", "external_create_report", "external_create_processing", "extension_manage", "extension_create_project", "extension_adopt_object", "extension_set_property_state", "dcs_manage", "dcs_create_main_schema", "dcs_upsert_query_dataset", "dcs_upsert_parameter", "dcs_upsert_calculated_field", "add_metadata_child", "ensure_module_artifact", "update_metadata", "delete_metadata", "mutate_form_model", "mutate_role_rights", "mutate_command_interface", "render_template"],
                   "description": "Имя mutating tool. Для composite tools external_manage, extension_manage и dcs_manage command указывай только внутри payload.command."
                 },
                 "payload": {
