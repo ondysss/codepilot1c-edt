@@ -4714,6 +4714,7 @@ public class EdtMetadataService {
 
         String targetFqn = request.targetFqn();
         ensureNoIncomingReferences(project, configuration, targetFqn, request.force());
+        List<String> cleanup = new ArrayList<>();
         executeWrite(project, transaction -> {
             Configuration txConfiguration = transaction.toTransactionObject(configuration);
             if (txConfiguration == null) {
@@ -4732,6 +4733,7 @@ public class EdtMetadataService {
                         MetadataOperationCode.METADATA_DELETE_CONFLICT,
                         "Metadata object has nested children. Use recursive=true: " + targetFqn, false); //$NON-NLS-1$
             }
+            cleanup.addAll(dropMembershipsAndRights(txConfiguration, target));
             removeMetadataObject(txConfiguration, targetFqn, target);
             return null;
         });
@@ -4751,7 +4753,67 @@ public class EdtMetadataService {
                 "DELETE", //$NON-NLS-1$
                 extractNameFromFqn(targetFqn),
                 targetFqn,
-                "Metadata object deleted successfully"); //$NON-NLS-1$
+                cleanup.isEmpty()
+                        ? "Metadata object deleted successfully" //$NON-NLS-1$
+                        : "Metadata object deleted successfully; cleaned up: " + String.join(", ", cleanup)); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    /**
+     * Removes the memberships that would otherwise outlive the deleted object: its rights entries in
+     * roles and its place in subsystem content lists.
+     *
+     * <p>Without this, {@code force=true} left the model holding rights on an object that no longer
+     * exists: {@code inspect_role_rights} skips unresolvable entries, {@code clear_object} answers
+     * METADATA_NOT_FOUND, and a role flag mutation does not rewrite the file — so the dangling entry
+     * survived in {@code .rights} and was found only by an external gate (measured 2026-09-22:
+     * three constants deleted, three rights entries left behind in one role). Cleaning membership
+     * is what the deletion means; it is not a
+     * refactoring of code that references the object, and nothing else is silently rewritten.</p>
+     *
+     * @return human-readable notes about what was cleaned (empty when nothing referenced the object)
+     */
+    private List<String> dropMembershipsAndRights(Configuration txConfiguration, MdObject txTarget) {
+        List<String> notes = new ArrayList<>();
+        List<String> roles = new ArrayList<>();
+        for (com._1c.g5.v8.dt.metadata.mdclass.Role role : txConfiguration.getRoles()) {
+            if (!(role.getRights() instanceof com._1c.g5.v8.dt.rights.model.RoleDescription description)) {
+                continue;
+            }
+            com._1c.g5.v8.dt.rights.model.ObjectRights entry = com._1c.g5.v8.dt.rights.model.util.RightsModelUtil
+                    .filterObjectRightsByEObjectFastly(txTarget, description);
+            if (entry != null && description.getRights().remove(entry)) {
+                roles.add(role.getName());
+            }
+        }
+        if (!roles.isEmpty()) {
+            notes.add("rights in roles " + String.join(", ", roles)); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        List<String> subsystems = new ArrayList<>();
+        collectSubsystemsRecursively(txConfiguration.getSubsystems(), subsystem -> {
+            if (subsystem.getContent().remove(txTarget)) {
+                subsystems.add(subsystem.getName());
+            }
+        });
+        if (!subsystems.isEmpty()) {
+            notes.add("content of subsystems " + String.join(", ", subsystems)); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        return notes;
+    }
+
+    /** Walks a subsystem tree, nested subsystems included, applying {@code visitor} to each node. */
+    private void collectSubsystemsRecursively(
+            Collection<com._1c.g5.v8.dt.metadata.mdclass.Subsystem> subsystems,
+            java.util.function.Consumer<com._1c.g5.v8.dt.metadata.mdclass.Subsystem> visitor) {
+        if (subsystems == null) {
+            return;
+        }
+        for (com._1c.g5.v8.dt.metadata.mdclass.Subsystem subsystem : subsystems) {
+            if (subsystem == null) {
+                continue;
+            }
+            visitor.accept(subsystem);
+            collectSubsystemsRecursively(subsystem.getSubsystems(), visitor);
+        }
     }
 
     public ModuleArtifactResult ensureModuleArtifact(EnsureModuleArtifactRequest request) {
@@ -10468,19 +10530,30 @@ public class EdtMetadataService {
         return Double.isFinite(doubleValue) && Math.rint(doubleValue) == doubleValue;
     }
 
+    /**
+     * Tells whether the object owns nested METADATA objects (attributes, forms, templates, commands,
+     * enum values and the like) — the case {@code recursive=true} exists to confirm.
+     *
+     * <p>Counting every containment feature made the guard meaningless: a synonym, a comment string
+     * or the help section are containment children too, so {@code delete_metadata} refused a bare
+     * FunctionalOption — an object that cannot own a single nested metadata object — until the caller
+     * passed {@code recursive=true}. A guard that fires on everything teaches the caller to pass the
+     * override always, which is exactly what it was meant to prevent (measured 2026-09-22).</p>
+     */
     private boolean hasNestedMetadataChildren(MdObject target) {
         for (EStructuralFeature feature : target.eClass().getEAllStructuralFeatures()) {
             if (!(feature instanceof EReference reference) || !reference.isContainment()) {
                 continue;
             }
+            Object raw = target.eGet(feature);
             if (feature.isMany()) {
-                Object raw = target.eGet(feature);
-                if (raw instanceof Collection<?> collection && !collection.isEmpty()) {
+                if (raw instanceof Collection<?> collection
+                        && collection.stream().anyMatch(MdObject.class::isInstance)) {
                     return true;
                 }
                 continue;
             }
-            if (target.eGet(feature) != null) {
+            if (raw instanceof MdObject) {
                 return true;
             }
         }
@@ -11001,10 +11074,14 @@ public class EdtMetadataService {
     }
 
     private void addTopLevelObject(Configuration configuration, MetadataKind kind, MdObject object) {
-        // In EDT model, top-level typed collections may be backed by generic content.
-        // First, ensure generic content link exists.
-        addMdObjectIfMissing(configuration.getContent(), object);
-
+        // NOT into configuration.getContent(): that list is the 8.1 compatibility leftover — the
+        // membership of objects in the ROOT NODE of the old subsystem tree ("Состав" of the
+        // configuration, cleared and hidden by the platform once 8.1 compatibility is off; the EDT
+        // metamodel marks it "not support"). Typed collections are not backed by it: a stock BSP
+        // 3.1.12 and the vendor configuration both ship thousands of objects with <Content/> empty.
+        // The former "ensure generic content link exists" line quietly grew that legacy list by one
+        // entry per created object — 155 of them in wms.tnext by 2026-09-22, invisible in EDT
+        // metadata comparison (CONFIGURATION__CONTENT is excluded there) and visible only in git.
         switch (kind) {
             case CATALOG -> configuration.getCatalogs().add((com._1c.g5.v8.dt.metadata.mdclass.Catalog) object);
             case DOCUMENT -> configuration.getDocuments().add((Document) object);

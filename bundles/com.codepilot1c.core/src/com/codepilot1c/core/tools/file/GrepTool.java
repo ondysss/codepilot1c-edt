@@ -17,6 +17,10 @@ import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
+import java.nio.file.InvalidPathException;
+import java.nio.file.PathMatcher;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -123,6 +127,13 @@ public class GrepTool extends AbstractTool {
                 return ToolResult.failure("Invalid regex pattern: " + e.getMessage()); //$NON-NLS-1$
             }
 
+            PathMatcher fileMatcher;
+            try {
+                fileMatcher = compileFilePattern(filePattern);
+            } catch (IllegalArgumentException e) {
+                return ToolResult.failure("Invalid file_pattern: " + e.getMessage()); //$NON-NLS-1$
+            }
+
             try {
                 IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
                 List<IContainer> searchRoots = new ArrayList<>();
@@ -148,7 +159,7 @@ public class GrepTool extends AbstractTool {
 
                 List<SearchMatch> matches = new ArrayList<>();
                 for (IContainer searchRoot : searchRoots) {
-                    searchInContainer(searchRoot, searchPattern, filePattern, contextLines, matches);
+                    searchInContainer(searchRoot, searchPattern, fileMatcher, contextLines, matches);
                 }
 
                 return formatResults(patternStr, matches);
@@ -231,7 +242,7 @@ public class GrepTool extends AbstractTool {
     }
 
     private void searchInContainer(IContainer container, Pattern pattern,
-                                   String filePattern, int contextLines,
+                                   PathMatcher fileMatcher, int contextLines,
                                    List<SearchMatch> matches) throws CoreException {
         if (matches.size() >= MAX_RESULTS) {
             return;
@@ -242,7 +253,7 @@ public class GrepTool extends AbstractTool {
             IProject[] projects = ((IWorkspaceRoot) container).getProjects();
             for (IProject project : projects) {
                 if (project.isOpen()) {
-                    searchInContainer(project, pattern, filePattern, contextLines, matches);
+                    searchInContainer(project, pattern, fileMatcher, contextLines, matches);
                 }
             }
             return;
@@ -255,31 +266,62 @@ public class GrepTool extends AbstractTool {
             }
 
             if (member instanceof IContainer) {
-                searchInContainer((IContainer) member, pattern, filePattern, contextLines, matches);
+                searchInContainer((IContainer) member, pattern, fileMatcher, contextLines, matches);
             } else if (member instanceof IFile) {
                 IFile file = (IFile) member;
-                if (matchesFilePattern(file.getName(), filePattern)) {
+                if (matchesFilePattern(file.getName(), fileMatcher)) {
                     searchInFile(file, pattern, contextLines, matches);
                 }
             }
         }
     }
 
-    private boolean matchesFilePattern(String name, String pattern) {
+    /**
+     * Default file set of a bare grep: text sources plus EDT descriptors. Every extension missing
+     * from this list turns a bare search into a silent false negative — "0 matches" reads as proof
+     * of absence. Omitting {@code .mdo}/{@code .form} hid metadata and form descriptors; omitting
+     * {@code .rights} hid role rights, and on 2026-09-22 that cost a wrong "no references" verdict:
+     * a role granting Read/View on three constants was invisible to the search, and the constants
+     * were deleted as unused (the dangling rights entries were found later by a repository gate).
+     */
+    static final List<String> DEFAULT_EXTENSIONS = List.of(
+            ".bsl", ".os", ".java", ".xml", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            ".mdo", ".form", ".dcs", ".dcss", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            ".rights", ".cmi", ".hpwa"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+
+    /**
+     * Compiles {@code file_pattern} into a glob matcher; {@code null} means "use the default set".
+     *
+     * <p>The former conversion replaced {@code .}, {@code *} and {@code ?} by hand and passed every
+     * other regex metacharacter through unescaped, so a perfectly ordinary glob such as
+     * {@code *.{form,mdo\}} died with {@code PatternSyntaxException: Illegal repetition} instead of
+     * matching. The platform glob matcher understands braces, character classes and escaping, and
+     * rejects a broken pattern with a message the caller can act on.</p>
+     *
+     * @throws IllegalArgumentException if the pattern is not a valid glob
+     */
+    static PathMatcher compileFilePattern(String pattern) {
         if (pattern == null || pattern.isEmpty()) {
-            // Default to common code files plus EDT descriptors. Omitting .mdo/.form made a bare
-            // grep silently skip every metadata and form descriptor in an EDT workspace and answer
-            // "0 matches" — a false negative that reads as proof of absence.
-            return name.endsWith(".bsl") || name.endsWith(".os") ||  //$NON-NLS-1$ //$NON-NLS-2$
-                   name.endsWith(".java") || name.endsWith(".xml") || //$NON-NLS-1$ //$NON-NLS-2$
-                   name.endsWith(".mdo") || name.endsWith(".form") || //$NON-NLS-1$ //$NON-NLS-2$
-                   name.endsWith(".dcs") || name.endsWith(".dcss"); //$NON-NLS-1$ //$NON-NLS-2$
+            return null;
         }
-        String regex = pattern
-                .replace(".", "\\.") //$NON-NLS-1$ //$NON-NLS-2$
-                .replace("*", ".*") //$NON-NLS-1$ //$NON-NLS-2$
-                .replace("?", "."); //$NON-NLS-1$ //$NON-NLS-2$
-        return name.matches(regex);
+        try {
+            // PatternSyntaxException is an IllegalArgumentException itself, so one catch covers both
+            // the malformed-glob and the unsupported-syntax cases.
+            return FileSystems.getDefault().getPathMatcher("glob:" + pattern); //$NON-NLS-1$
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(pattern + " — " + e.getMessage(), e); //$NON-NLS-1$
+        }
+    }
+
+    static boolean matchesFilePattern(String name, PathMatcher matcher) {
+        if (matcher == null) {
+            return DEFAULT_EXTENSIONS.stream().anyMatch(name::endsWith);
+        }
+        try {
+            return matcher.matches(Paths.get(name));
+        } catch (InvalidPathException e) {
+            return false;
+        }
     }
 
     private void searchInFile(IFile file, Pattern pattern, int contextLines,
