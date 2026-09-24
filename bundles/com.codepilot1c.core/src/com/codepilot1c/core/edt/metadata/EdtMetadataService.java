@@ -115,6 +115,7 @@ import com._1c.g5.v8.dt.mcore.TypeDescription;
 import com._1c.g5.v8.dt.mcore.TypeItem;
 import com._1c.g5.v8.dt.mcore.util.McoreUtil;
 import com._1c.g5.v8.dt.metadata.common.ApplicationUsePurpose;
+import com._1c.g5.v8.dt.metadata.mdclass.AbstractForm;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicFeature;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicForm;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicTemplate;
@@ -10603,33 +10604,137 @@ public class EdtMetadataService {
                 return IncomingReferences.empty();
             }
 
+            EObject owner = topMetadataOwner(target);
             int total = 0;
             LinkedHashSet<String> samples = new LinkedHashSet<>();
-            for (IBmCrossReference reference : references) {
-                if (reference == null) {
-                    continue;
+            // Derived data of the owner is walked through, not counted: see isDerivedDataOf.
+            java.util.ArrayDeque<Collection<IBmCrossReference>> pending = new java.util.ArrayDeque<>();
+            Set<IBmObject> walkedDerived = Collections.newSetFromMap(new IdentityHashMap<>());
+            pending.add(references);
+            while (!pending.isEmpty()) {
+                for (IBmCrossReference reference : pending.poll()) {
+                    if (reference == null) {
+                        continue;
+                    }
+                    EStructuralFeature feature = reference.getFeature();
+                    if (feature instanceof EReference eReference && eReference.isContainment()) {
+                        continue;
+                    }
+                    IBmObject source = reference.getObject();
+                    if (source == null || EcoreUtil.isAncestor(target, source)) {
+                        continue;
+                    }
+                    if (isDerivedDataOf(source, owner)) {
+                        if (!walkedDerived.add(source)) {
+                            continue;
+                        }
+                        Collection<IBmCrossReference> throughDerived =
+                                walkedDerived.size() <= DERIVED_REFERENCE_WALK_LIMIT
+                                        ? resolveIncomingReferencesStrict(tx, source)
+                                        : null;
+                        if (throughDerived != null) {
+                            pending.add(throughDerived);
+                            continue;
+                        }
+                        // Could not see who refers to the derived object: count it, as before the fix.
+                    }
+                    total++;
+                    if (samples.size() >= sampleLimit) {
+                        continue;
+                    }
+                    String sourceFqn = resolveTopObjectFqn(source);
+                    if (sourceFqn.isBlank()) {
+                        sourceFqn = source.eClass().getName();
+                    }
+                    String featureName = feature != null ? feature.getName() : "reference"; //$NON-NLS-1$
+                    samples.add(sourceFqn + "#" + featureName); //$NON-NLS-1$
                 }
-                EStructuralFeature feature = reference.getFeature();
-                if (feature instanceof EReference eReference && eReference.isContainment()) {
-                    continue;
-                }
-                IBmObject source = reference.getObject();
-                if (source == null || source == targetObject) {
-                    continue;
-                }
-                total++;
-                if (samples.size() >= sampleLimit) {
-                    continue;
-                }
-                String sourceFqn = resolveTopObjectFqn(source);
-                if (sourceFqn.isBlank()) {
-                    sourceFqn = source.eClass().getName();
-                }
-                String featureName = feature != null ? feature.getName() : "reference"; //$NON-NLS-1$
-                samples.add(sourceFqn + "#" + featureName); //$NON-NLS-1$
             }
             return new IncomingReferences(total, List.copyOf(samples));
         });
+    }
+
+    /** Upper bound on derived objects walked through for one delete: a guard, not an expected size. */
+    private static final int DERIVED_REFERENCE_WALK_LIMIT = 512;
+
+    /**
+     * The top metadata object that owns {@code target}: the document for its attribute or tabular section
+     * attribute, the object itself for a top-level object.
+     */
+    private static EObject topMetadataOwner(MdObject target) {
+        EObject owner = target;
+        while (owner.eContainer() instanceof MdObject parent && !(parent instanceof Configuration)) {
+            owner = parent;
+        }
+        return owner;
+    }
+
+    /**
+     * Tells whether {@code source} is data EDT derives from {@code owner} rather than something a developer
+     * wrote: it lies under {@code owner} below at least one TRANSIENT containment feature.
+     *
+     * <p>EDT infers such data from the model and never serializes it: the object's own fields
+     * ({@code FieldSource.fields} → {@code DerivedField.source}), the database view
+     * ({@code dbViewDefs} → {@code DbViewFieldDef.mdObject}/{@code presentationSource} and the field's
+     * {@code MdObjectReferenceTypeDescription.mdObject}) and the produced types' context
+     * ({@code MdType.type} → {@code DerivedProperty.source}). Every attribute has them from the moment it is
+     * created, so counting them as incoming references made {@code delete_metadata} without {@code force}
+     * refuse to delete a freshly created attribute: six references, all of them from its own document
+     * (measured 2026-09-23, EDT 2025.2.3).</p>
+     *
+     * <p>A derived object is not skipped, it is walked through: developer-written references to an
+     * attribute usually point to its derived field ({@code inputByString}, {@code dataLockFields},
+     * {@code ChoiceParameterLink.field}, {@code TypeLink.field} refer to {@code mcore.Field}), so whoever
+     * refers to the derived object is what is counted. Derived data of another top object is not ours to
+     * judge and still counts, as before.</p>
+     *
+     * <p>The owner's forms count as the owner: a form model is a separate BM top object, linked to its
+     * metadata form by {@code AbstractForm.mdForm}, and its inferred data ({@code Form.fields} →
+     * {@code DerivedField.source}, {@code formContext}) points to the owner's attributes the same way. Once EDT
+     * re-derives the form (after update_metadata on the owner, for one) that gave
+     * {@code …Form.<Форма>.Form#source} and refused to delete a fresh attribute. The resolved objects of a
+     * written data path ({@code AbstractDataPath.objects}) are transient too, but they resolve what the
+     * developer wrote — a form field bound to {@code Объект.<Реквизит>} — so they are never derived data.</p>
+     */
+    private static boolean isDerivedDataOf(EObject source, EObject owner) {
+        boolean belowTransientContainment = false;
+        EObject current = source;
+        while (current != null) {
+            if (current == owner) {
+                return belowTransientContainment;
+            }
+            if (current instanceof AbstractDataPath) {
+                return false;
+            }
+            EStructuralFeature containment = current.eContainmentFeature();
+            if (containment != null && containment.isTransient()) {
+                belowTransientContainment = true;
+            }
+            EObject container = current.eContainer();
+            if (container == null && current instanceof AbstractForm formModel) {
+                container = formModel.getMdForm();
+            }
+            current = container;
+        }
+        return false;
+    }
+
+    /**
+     * Incoming references to a derived object, or {@code null} when they cannot be read: the caller then
+     * counts the reference to the derived object itself instead of silently treating it as unreferenced.
+     */
+    private Collection<IBmCrossReference> resolveIncomingReferencesStrict(IBmTransaction transaction, IBmObject target) {
+        try {
+            Collection<IBmCrossReference> references = transaction.getReferences(EcoreUtil.getURI(target));
+            return references != null ? references : List.of();
+        } catch (RuntimeException e) {
+            try {
+                IBmEngine engine = target.bmGetEngine();
+                return engine != null ? engine.getBackReferences(target) : null;
+            } catch (RuntimeException ignored) {
+                return null;
+            }
+        }
     }
 
     private Collection<IBmCrossReference> resolveIncomingReferences(IBmTransaction transaction, IBmObject target) {
