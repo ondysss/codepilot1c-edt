@@ -6100,7 +6100,7 @@ public class EdtMetadataService {
                     configuration,
                     child,
                     effectiveKind,
-                    request.properties(),
+                    withoutKeysIgnoreCase(request.properties(), "children", "attributes"), //$NON-NLS-1$ //$NON-NLS-2$
                     preResolvedTypes,
                     transaction,
                     request.parentFqn(),
@@ -7233,7 +7233,7 @@ public class EdtMetadataService {
                         configuration,
                         child,
                         kind,
-                        childProperties,
+                        withoutKeysIgnoreCase(childProperties, "name", "synonym", "comment"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                         preResolvedTypes,
                         transaction,
                         parentFqn,
@@ -7398,10 +7398,27 @@ public class EdtMetadataService {
         if (!(child instanceof BasicFeature feature)) {
             return;
         }
+        Map<String, Object> createProperties = normalizeBasicFeatureCreateProperties(properties, kind, childName);
         if (feature.getType() != null && !feature.getType().getTypes().isEmpty()) {
             return;
         }
-        Object requestedTypeValue = properties == null ? null : getMapValueIgnoreCase(properties, "type"); //$NON-NLS-1$
+        Object requestedTypeValue = getMapValueIgnoreCase(createProperties, "type"); //$NON-NLS-1$
+        if (requestedTypeValue instanceof Map<?, ?> typeMap) {
+            Object foldedType = getMapValueIgnoreCase(typeMap, "type"); //$NON-NLS-1$
+            if (foldedType instanceof List<?>) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                        "add_metadata_child: flat type qualifiers cannot be applied to a composite type " + foldedType //$NON-NLS-1$
+                                + " of " + childName + "; qualify each item instead, e.g. [\"String(50)\", \"Number(10,2)\"]", //$NON-NLS-1$ //$NON-NLS-2$
+                        false);
+            }
+            if (foldedType == null && isKindWithRequiredType(kind)) {
+                // Only qualifiers were given ({"length":50}): they refine the default type, not replace it.
+                Map<String, Object> withDefaultType = new LinkedHashMap<>(asMap(typeMap));
+                withDefaultType.put("type", DEFAULT_BASIC_FEATURE_TYPE); //$NON-NLS-1$
+                requestedTypeValue = withDefaultType;
+            }
+        }
         TypeSpec requestedSpec = requestedTypeValue == null ? null : normalizeTypeSpec(requestedTypeValue);
         String requestedType = requestedSpec == null ? null : requestedSpec.typeQuery();
         String typeToApply = requestedType != null ? requestedType
@@ -7427,7 +7444,69 @@ public class EdtMetadataService {
                 ? requestedSpec
                 : TypeSpec.of(typeToApply);
         setAttributeType(feature, typeItem, effectiveSpec, transaction);
-        applyBasicFeatureCreateProperties(feature, properties);
+        applyBasicFeatureCreateProperties(feature, createProperties);
+    }
+
+    /** Lower-case keys {@link #applyBasicFeatureCreateProperties} and its helpers read, besides {@code type}. */
+    private static final Set<String> BASIC_FEATURE_CREATE_PROPERTY_KEYS = Set.of(
+            "type", //$NON-NLS-1$
+            "multiline", "multi_line", //$NON-NLS-1$ //$NON-NLS-2$
+            "passwordmode", "password_mode", //$NON-NLS-1$ //$NON-NLS-2$
+            "marknegatives", "mark_negatives", //$NON-NLS-1$ //$NON-NLS-2$
+            "mask", //$NON-NLS-1$
+            "fillchecking", "fill_checking", //$NON-NLS-1$ //$NON-NLS-2$
+            "datahistory", "data_history", //$NON-NLS-1$ //$NON-NLS-2$
+            "fulltextsearch", "full_text_search", //$NON-NLS-1$ //$NON-NLS-2$
+            "indexing"); //$NON-NLS-1$
+
+    /**
+     * Folds flat type qualifiers of an add-child payload into {@code type} and refuses every key nobody reads.
+     * Before this check an unknown key (a typo such as {@code lenght}, or {@code synonym} of a single child, which is a
+     * top-level parameter) was dropped silently and the child was created with defaults. Callers strip the keys that
+     * belong to the request envelope: {@code children}/{@code attributes} of the single child, {@code name}/
+     * {@code synonym}/{@code comment} of a batch entry.
+     */
+    private Map<String, Object> normalizeBasicFeatureCreateProperties(
+            Map<String, Object> properties, MetadataChildKind kind, String childName) {
+        if (properties == null || properties.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> folded = foldFlatTypeQualifierKeys(properties);
+        List<String> unknownKeys = new ArrayList<>();
+        for (String key : folded.keySet()) {
+            if (key == null || !BASIC_FEATURE_CREATE_PROPERTY_KEYS.contains(key.toLowerCase(Locale.ROOT))) {
+                unknownKeys.add(key);
+            }
+        }
+        if (!unknownKeys.isEmpty()) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                    "add_metadata_child: unknown properties key(s) " + unknownKeys //$NON-NLS-1$
+                            + " for " + kind + " " + childName //$NON-NLS-1$ //$NON-NLS-2$
+                            + ". Supported: type (\"String\", \"String(50)\" or {type, stringQualifiers}), length, fixed," //$NON-NLS-1$
+                            + " precision, scale, nonNegative, dateFractions, stringQualifiers, numberQualifiers," //$NON-NLS-1$
+                            + " dateQualifiers, multiLine, passwordMode, markNegatives, mask, fillChecking, dataHistory," //$NON-NLS-1$
+                            + " fullTextSearch, indexing; a children[] entry also takes name, synonym, comment." //$NON-NLS-1$
+                            + " Synonym and comment of a single child are top-level parameters.", //$NON-NLS-1$
+                    false);
+        }
+        return folded;
+    }
+
+    private static Map<String, Object> withoutKeysIgnoreCase(Map<String, Object> map, String... keys) {
+        if (map == null || map.isEmpty()) {
+            return map;
+        }
+        Map<String, Object> copy = new LinkedHashMap<>(map);
+        copy.keySet().removeIf(key -> {
+            for (String excluded : keys) {
+                if (excluded.equalsIgnoreCase(key)) {
+                    return true;
+                }
+            }
+            return false;
+        });
+        return copy;
     }
 
     private void applyBasicFeatureCreateProperties(BasicFeature feature, Map<String, Object> properties) {
@@ -7725,11 +7804,22 @@ public class EdtMetadataService {
         if (rawSetChanges == null || rawSetChanges.isEmpty()) {
             return Map.of();
         }
-        Map<String, Object> normalized = new LinkedHashMap<>(rawSetChanges);
         if (!(target instanceof BasicFeature)) {
-            return normalized;
+            return new LinkedHashMap<>(rawSetChanges);
         }
+        return foldFlatTypeQualifierKeys(rawSetChanges);
+    }
 
+    /**
+     * Folds flat type-qualifier keys of a BasicFeature payload ({@code length}, {@code fixed}, {@code precision},
+     * {@code scale}, {@code nonNegative}, {@code dateFractions}, top-level or {@code type.}-prefixed
+     * {@code stringQualifiers}/{@code numberQualifiers}/{@code dateQualifiers}, {@code type.*} paths) into the
+     * {@code type} value, so that {@link #normalizeTypeSpec(Object)} sees them. Shared by {@code update_metadata}
+     * ({@code changes.set}) and {@code add_metadata_child} ({@code properties}); before the add-child path used it,
+     * {@code properties={"type":"String","length":50}} silently produced String(150).
+     */
+    private Map<String, Object> foldFlatTypeQualifierKeys(Map<String, Object> rawSetChanges) {
+        Map<String, Object> normalized = new LinkedHashMap<>(rawSetChanges);
         Map<String, Object> typePatch = new LinkedHashMap<>();
         List<String> consumedKeys = new ArrayList<>();
         for (Map.Entry<String, Object> entry : rawSetChanges.entrySet()) {
@@ -7773,7 +7863,7 @@ public class EdtMetadataService {
                 consumedKeys.add(key);
                 continue;
             }
-            if (key.equalsIgnoreCase("type.stringQualifiers")) { //$NON-NLS-1$
+            if (key.equalsIgnoreCase("type.stringQualifiers") || key.equalsIgnoreCase("stringQualifiers")) { //$NON-NLS-1$ //$NON-NLS-2$
                 Map<String, Object> nested = asMap(entry.getValue());
                 if (!nested.isEmpty()) {
                     @SuppressWarnings("unchecked")
@@ -7785,7 +7875,7 @@ public class EdtMetadataService {
                 consumedKeys.add(key);
                 continue;
             }
-            if (key.equalsIgnoreCase("type.numberQualifiers")) { //$NON-NLS-1$
+            if (key.equalsIgnoreCase("type.numberQualifiers") || key.equalsIgnoreCase("numberQualifiers")) { //$NON-NLS-1$ //$NON-NLS-2$
                 Map<String, Object> nested = asMap(entry.getValue());
                 if (!nested.isEmpty()) {
                     @SuppressWarnings("unchecked")
@@ -7797,7 +7887,7 @@ public class EdtMetadataService {
                 consumedKeys.add(key);
                 continue;
             }
-            if (key.equalsIgnoreCase("type.dateQualifiers")) { //$NON-NLS-1$
+            if (key.equalsIgnoreCase("type.dateQualifiers") || key.equalsIgnoreCase("dateQualifiers")) { //$NON-NLS-1$ //$NON-NLS-2$
                 Map<String, Object> nested = asMap(entry.getValue());
                 if (!nested.isEmpty()) {
                     @SuppressWarnings("unchecked")
@@ -9636,7 +9726,7 @@ public class EdtMetadataService {
                 asMap(getMapValueIgnoreCase(root, "dateQualifiers")), //$NON-NLS-1$
                 asMap(getMapValueIgnoreCase(nestedTypeMap, "dateQualifiers"))); //$NON-NLS-1$
 
-        Integer stringLength = firstParsedInteger(
+        Integer stringLength = firstQualifierInteger("length", //$NON-NLS-1$
                 getMapValueIgnoreCase(stringQualifiers, "length"), //$NON-NLS-1$
                 getMapValueIgnoreCase(root, "stringLength"), //$NON-NLS-1$
                 getMapValueIgnoreCase(nestedTypeMap, "stringLength"), //$NON-NLS-1$
@@ -9647,7 +9737,7 @@ public class EdtMetadataService {
                 getMapValueIgnoreCase(root, "stringFixed"), //$NON-NLS-1$
                 getMapValueIgnoreCase(nestedTypeMap, "stringFixed")); //$NON-NLS-1$
 
-        Integer numberPrecision = firstParsedInteger(
+        Integer numberPrecision = firstQualifierInteger("precision", //$NON-NLS-1$
                 getMapValueIgnoreCase(numberQualifiers, "precision"), //$NON-NLS-1$
                 getMapValueIgnoreCase(numberQualifiers, "digits"), //$NON-NLS-1$
                 getMapValueIgnoreCase(numberQualifiers, "length"), //$NON-NLS-1$
@@ -9656,7 +9746,7 @@ public class EdtMetadataService {
                 getMapValueIgnoreCase(nestedTypeMap, "precision"), //$NON-NLS-1$
                 getMapValueIgnoreCase(nestedTypeMap, "digits"), //$NON-NLS-1$
                 inline == null ? null : inline.numberPrecision());
-        Integer numberScale = firstParsedInteger(
+        Integer numberScale = firstQualifierInteger("scale", //$NON-NLS-1$
                 getMapValueIgnoreCase(numberQualifiers, "scale"), //$NON-NLS-1$
                 getMapValueIgnoreCase(numberQualifiers, "fractionDigits"), //$NON-NLS-1$
                 getMapValueIgnoreCase(root, "scale"), //$NON-NLS-1$
@@ -9773,6 +9863,48 @@ public class EdtMetadataService {
             }
         }
         return null;
+    }
+
+    /**
+     * First present qualifier value, parsed strictly: an integral number in any JSON shape ({@code 50}, {@code 50.0},
+     * {@code "50"}, {@code "50.0"}, {@code {"value":50}}) is accepted, anything else is refused. Unlike
+     * {@link #firstParsedInteger(Object...)} an unparsable value does not fall through to the next alternative or to
+     * the default, so {@code "length":"abc"} or {@code 50.5} can no longer end up as String(150).
+     */
+    private Integer firstQualifierInteger(String qualifier, Object... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Object value : values) {
+            if (value != null) {
+                return parseQualifierInteger(qualifier, value);
+            }
+        }
+        return null;
+    }
+
+    private Integer parseQualifierInteger(String qualifier, Object value) {
+        Object raw = value;
+        if (raw instanceof Map<?, ?> map && map.get("value") != null && map.get("value") != raw) { //$NON-NLS-1$ //$NON-NLS-2$
+            raw = map.get("value"); //$NON-NLS-1$
+        }
+        if (raw instanceof Integer integer && integer.intValue() >= 0) {
+            return integer;
+        }
+        if (raw instanceof Number || raw instanceof CharSequence) {
+            try {
+                int parsed = new BigDecimal(String.valueOf(raw).trim()).stripTrailingZeros().intValueExact();
+                if (parsed >= 0) {
+                    return Integer.valueOf(parsed);
+                }
+            } catch (NumberFormatException | ArithmeticException e) {
+                // falls through to the refusal below
+            }
+        }
+        throw new MetadataOperationException(
+                MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                "Type qualifier '" + qualifier + "' must be a non-negative integer (50 or 50.0), got: " + value, //$NON-NLS-1$ //$NON-NLS-2$
+                false);
     }
 
     private Boolean firstParsedBoolean(Object... values) {

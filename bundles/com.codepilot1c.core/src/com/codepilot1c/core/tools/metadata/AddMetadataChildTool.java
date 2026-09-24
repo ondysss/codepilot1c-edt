@@ -94,7 +94,7 @@ public class AddMetadataChildTool extends AbstractTool {
                 },
                 "properties": {
                   "type": "object",
-                  "description": "Дополнительные параметры. Для batch: children=[{name,synonym,comment}]"
+                  "description": "Дополнительные параметры. Для batch: children=[{name,synonym,comment}]. Для Attribute/Dimension/Resource/Requisite: type (String, String(50) или объект type+stringQualifiers), length, fixed, precision, scale, nonNegative, dateFractions, stringQualifiers, numberQualifiers, dateQualifiers (целые: 50 и 50.0), multiLine, passwordMode, markNegatives, mask, fillChecking, dataHistory, fullTextSearch, indexing; неизвестный ключ отклоняется (INVALID_PROPERTY_VALUE), а не теряется."
                 },
                 "validation_token": {
                   "type": "string",
