@@ -230,8 +230,14 @@ public class EdtRoleRightsService {
         }
         ObjectRights objectRights = RightsModelUtil.getOrCreateObjectRights(txObject, roleDescription);
         RightValue defaultValue = RightsModelUtil.getDefaultRightValue(txObject, txRole);
+        RightValue before = currentRightValue(objectRights, right, defaultValue);
         RightsModelUtil.changeObjectRight(value, defaultValue, objectRights, right);
-        applied.add("set " + right.getName() + "=" + value.getName()); //$NON-NLS-1$ //$NON-NLS-2$
+        applied.add("set " + right.getName() + "=" + value.getName() //$NON-NLS-1$ //$NON-NLS-2$
+                + " (was " + before.getName() + ")"); //$NON-NLS-1$ //$NON-NLS-2$
+        // Same dependency rules as the EDT role editor: set pulls in the rights it requires (Update -> Read),
+        // unset revokes the rights that depend on it (Read -> Update, View, Edit, ...). The cascade is not
+        // reversible: set Read does not bring back what unset Read revoked. Only dependencies whose value
+        // actually changed are reported, with the previous value, so the caller can restore them explicitly.
         Set<RightName> dependencies = value == RightValue.SET
                 ? RightsModelUtil.getCheckDependeces(right)
                 : RightsModelUtil.getUncheckDependeces(right);
@@ -239,11 +245,21 @@ public class EdtRoleRightsService {
             for (RightName dependencyName : dependencies) {
                 Right dependency = findRight(available, dependencyName.getName());
                 if (dependency != null) {
+                    RightValue dependencyBefore = currentRightValue(objectRights, dependency, defaultValue);
                     RightsModelUtil.changeObjectRight(value, defaultValue, objectRights, dependency);
-                    applied.add("  +dep " + dependency.getName() + "=" + value.getName()); //$NON-NLS-1$ //$NON-NLS-2$
+                    if (dependencyBefore != value) {
+                        applied.add("  +dep " + dependency.getName() + "=" + value.getName() //$NON-NLS-1$ //$NON-NLS-2$
+                                + " (was " + dependencyBefore.getName() + ")"); //$NON-NLS-1$ //$NON-NLS-2$
+                    }
                 }
             }
         }
+    }
+
+    /** Effective value of a right on the object: the explicit entry, or the role default when there is none. */
+    private static RightValue currentRightValue(ObjectRights objectRights, Right right, RightValue defaultValue) {
+        ObjectRight explicit = RightsModelUtil.filterObjectRightByRight(right, objectRights.getRights());
+        return explicit != null && explicit.getValue() != null ? explicit.getValue() : defaultValue;
     }
 
     private void applyFlags(RoleDescription roleDescription, Map<String, Object> operation, List<String> applied) {
