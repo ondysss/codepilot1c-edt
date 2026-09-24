@@ -63,6 +63,7 @@ import com._1c.g5.v8.dt.core.platform.IV8Project;
 import com._1c.g5.v8.dt.form.model.AbstractDataPath;
 import com._1c.g5.v8.dt.form.model.AbstractFormAttribute;
 import com._1c.g5.v8.dt.form.model.Button;
+import com._1c.g5.v8.dt.form.model.CommandBarHolder;
 import com._1c.g5.v8.dt.form.model.CommandHandler;
 import com._1c.g5.v8.dt.form.model.DataPath;
 import com._1c.g5.v8.dt.form.model.DynamicListExtInfo;
@@ -95,6 +96,7 @@ import com._1c.g5.v8.dt.form.model.UsualGroupExtInfo;
 import com._1c.g5.v8.dt.form.model.UsualGroupRepresentation;
 import com._1c.g5.v8.dt.form.model.FormItem;
 import com._1c.g5.v8.dt.form.model.FormItemContainer;
+import com._1c.g5.v8.dt.form.model.FormStandardCommandSource;
 import com._1c.g5.v8.dt.form.model.Table;
 import com._1c.g5.v8.dt.form.model.Titled;
 import com._1c.g5.v8.dt.form.model.Visible;
@@ -102,6 +104,8 @@ import com._1c.g5.v8.dt.mcore.Command;
 import com._1c.g5.v8.dt.mcore.CommandGroup;
 import com._1c.g5.v8.dt.form.service.item.FormNewItemDescriptor;
 import com._1c.g5.v8.dt.form.service.item.IFormItemManagementService;
+import com._1c.g5.v8.dt.form.service.item.IFormItemMovementService;
+import com._1c.g5.v8.dt.form.service.naming.IFormItemNamingService;
 import com._1c.g5.v8.dt.mcore.DateQualifiers;
 import com._1c.g5.v8.dt.mcore.DateFractions;
 import com._1c.g5.v8.dt.mcore.Event;
@@ -160,6 +164,7 @@ import com.codepilot1c.core.edt.forms.EventHandlerTargetResolver.ResolvedEvent;
 import com.codepilot1c.core.edt.forms.ExtendedMethodCallTypeResolver;
 import com.codepilot1c.core.edt.forms.FormHandlerRegionResolver;
 import com.codepilot1c.core.edt.forms.FormItemInformationEventCatalog;
+import com.codepilot1c.core.edt.forms.FormItemTree;
 import com.codepilot1c.core.edt.forms.FormModuleRegion;
 import com.codepilot1c.core.edt.forms.FormOwnerStrategy;
 import com.codepilot1c.core.edt.forms.FormRecipeMode;
@@ -170,6 +175,7 @@ import com.codepilot1c.core.edt.forms.FormRecipePartialFailureException.Rollback
 import com.codepilot1c.core.edt.forms.FormRecipePartialFailureException.SerializedModelState;
 import com.codepilot1c.core.edt.forms.FormRecipeRequest;
 import com.codepilot1c.core.edt.forms.FormRecipeResult;
+import com.codepilot1c.core.edt.forms.FormStandardCommandExclusions;
 import com.codepilot1c.core.edt.forms.HandlerStubReport;
 import com.codepilot1c.core.edt.forms.FormUsage;
 import com.codepilot1c.core.edt.forms.HandlerStubKind;
@@ -1533,6 +1539,10 @@ public class EdtMetadataService {
             Form formModel, List<Map<String, Object>> operations, List<PendingStub> pendingStubs) {
         List<String> summaries = new ArrayList<>();
         IFormItemManagementService itemManagementService = resolveOptionalFormItemManagementService();
+        IFormItemMovementService itemMovementService = resolveOptionalFormItemMovementService();
+        IFormItemNamingService itemNamingService = itemManagementService != null
+                ? resolveOptionalFormItemNamingService()
+                : null;
         int operationIndex = 1;
         for (Map<String, Object> operation : operations) {
             String rawOp = asString(operation.get("op")); //$NON-NLS-1$
@@ -1570,6 +1580,7 @@ public class EdtMetadataService {
                             groupType,
                             index,
                             itemManagementService);
+                    applyRequestedItemName(group, parentContainer, formModel, name, itemNamingService);
                     Map<String, Object> effectiveSet = stripMapKeysIgnoreCase(set, "name", "title", "group_type"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                     if (!effectiveSet.isEmpty()) {
                         applyFormPropertySet(group, effectiveSet);
@@ -1602,6 +1613,7 @@ public class EdtMetadataService {
                             fieldDataPathValue,
                             index,
                             itemManagementService);
+                    applyRequestedItemName(field, parentContainer, formModel, name, itemNamingService);
                     Map<String, Object> effectiveSet = stripMapKeysIgnoreCase(set, "name", "title"); //$NON-NLS-1$ //$NON-NLS-2$
                     if (!effectiveSet.isEmpty()) {
                         applyFormPropertySet(field, effectiveSet);
@@ -1632,6 +1644,7 @@ public class EdtMetadataService {
                             dataPathValue,
                             index,
                             itemManagementService);
+                    applyRequestedItemName(table, parentContainer, formModel, name, itemNamingService);
                     Map<String, Object> set = extractAddFieldSet(operation);
                     Map<String, Object> effectiveSet = stripMapKeysIgnoreCase(
                             set, "name", "title", "type", "data_path", "datapath"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
@@ -1659,6 +1672,7 @@ public class EdtMetadataService {
                 }
                 case "removeitem", "deleteitem" -> {
                     FormItem item = resolveRequiredItem(formModel, operation);
+                    rejectStructuralPart(item, "removed"); //$NON-NLS-1$
                     FormItemContainer parent = findParentContainer(formModel, item);
                     if (parent == null) {
                         throw new MetadataOperationException(
@@ -1670,6 +1684,7 @@ public class EdtMetadataService {
                 }
                 case "moveitem" -> {
                     FormItem item = resolveRequiredItem(formModel, operation);
+                    rejectStructuralPart(item, "moved"); //$NON-NLS-1$
                     FormItemContainer source = findParentContainer(formModel, item);
                     if (source == null) {
                         throw new MetadataOperationException(
@@ -1677,9 +1692,10 @@ public class EdtMetadataService {
                                 "Cannot move root form container item", false); //$NON-NLS-1$
                     }
                     FormItemContainer target = resolveTargetContainer(formModel, operation);
-                    source.getItems().remove(item);
-                    insertItemIntoContainer(target, item, asOptionalInteger(operation.get("index"), "index")); //$NON-NLS-1$ //$NON-NLS-2$
-                    summaries.add("move_item[" + operationIndex + "]: id=" + item.getId()); //$NON-NLS-1$ //$NON-NLS-2$
+                    moveFormItem(item, source, target,
+                            asOptionalInteger(operation.get("index"), "index"), itemMovementService); //$NON-NLS-1$ //$NON-NLS-2$
+                    summaries.add("move_item[" + operationIndex + "]: id=" + item.getId() //$NON-NLS-1$ //$NON-NLS-2$
+                            + (item instanceof Button button ? ", type=" + button.getType().getName() : "")); //$NON-NLS-1$ //$NON-NLS-2$
                 }
                 case "addcommand", "createcommand" -> {
                     String name = asString(getMapValueIgnoreCase(operation, "name")); //$NON-NLS-1$
@@ -1743,6 +1759,7 @@ public class EdtMetadataService {
                             resolvedCommand,
                             index,
                             itemManagementService);
+                    applyRequestedItemName(button, parentContainer, formModel, name, itemNamingService);
                     Map<String, Object> set = extractOperationSet(operation);
                     Map<String, Object> effectiveSet = stripMapKeysIgnoreCase(set, "name", "title", "command_name", "command"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
                     if (!effectiveSet.isEmpty()) {
@@ -2292,13 +2309,87 @@ public class EdtMetadataService {
         return set;
     }
 
-    private IFormItemManagementService resolveOptionalFormItemManagementService() {
+    /** Package-private so that tests can substitute EDT's item service; production resolves it from the form bundle. */
+    IFormItemManagementService resolveOptionalFormItemManagementService() {
         try {
             Bundle formBundle = requireBundle(FORM_BUNDLE_ID);
             Object injector = resolveFormInjector(formBundle);
             return (IFormItemManagementService) resolveInjectorService(injector, IFormItemManagementService.class);
         } catch (MetadataOperationException | ReflectiveOperationException e) {
             LOG.warn("IFormItemManagementService unavailable, using legacy form item creation path: %s", //$NON-NLS-1$
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    /** EDT's naming service for form items; package-private for the same test substitution. */
+    IFormItemNamingService resolveOptionalFormItemNamingService() {
+        try {
+            Bundle formBundle = requireBundle(FORM_BUNDLE_ID);
+            Object injector = resolveFormInjector(formBundle);
+            return (IFormItemNamingService) resolveInjectorService(injector, IFormItemNamingService.class);
+        } catch (MetadataOperationException | ReflectiveOperationException e) {
+            LOG.warn("IFormItemNamingService unavailable, requested names are set directly: %s", //$NON-NLS-1$
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Gives a new item the name the caller asked for.
+     *
+     * <p>EDT's item service does not always use the descriptor name: a command button is named after
+     * its command ({@code ФормаОбновить} in the form command bar, {@code Обновить} elsewhere), whatever
+     * name was requested (FormItemManagementService.addButton, EDT 2025.2.3). The tool reported the
+     * button as created while a following move_item/set_item by the requested name answered "Form item
+     * not found". EDT's naming service renames the item together with its dependent parts (the extended
+     * tooltip) and keeps the name unique; without it the name is set directly.</p>
+     */
+    private void applyRequestedItemName(FormItem item, FormItemContainer parent, Form formModel, String name,
+            IFormItemNamingService namingService) {
+        if (item == null || name == null || name.isBlank() || name.equals(item.getName())) {
+            return;
+        }
+        // rename, not setUniqueNameWithChildren: the latter applies EDT's naming convention and turned
+        // КнопкаОбновить into ФормаКнопкаОбновить inside the form command bar (EDT 2025.2.3).
+        // rename sets exactly the requested name, renames the dependent parts (extended tooltip, context
+        // menu) after it and refuses a name another item already has.
+        if (namingService != null) {
+            try {
+                namingService.rename(name, item);
+                return;
+            } catch (IllegalArgumentException e) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_ALREADY_EXISTS,
+                        "Cannot name the new " + item.eClass().getName() + " '" + name + "': " + e.getMessage(), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                        false);
+            } catch (RuntimeException e) {
+                LOG.warn("IFormItemNamingService rename failed for %s, setting the name directly: %s", //$NON-NLS-1$
+                        name, e.getMessage());
+            }
+        }
+        FormItem holder = FormItemTree.find(formModel, null, name);
+        if (holder != null && holder != item) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.METADATA_ALREADY_EXISTS,
+                    "Form item name is already used: " + name + " (" + FormItemTree.describe(holder) + ")", //$NON-NLS-1$ //$NON-NLS-2$
+                    false);
+        }
+        item.setName(name);
+    }
+
+    /**
+     * EDT's own item movement service — the one its form editor uses for drag and drop. Besides
+     * re-parenting it converts the item to what the new container accepts (button and group kinds,
+     * table column data paths) and refuses moves the platform does not allow.
+     */
+    private IFormItemMovementService resolveOptionalFormItemMovementService() {
+        try {
+            Bundle formBundle = requireBundle(FORM_BUNDLE_ID);
+            Object injector = resolveFormInjector(formBundle);
+            return (IFormItemMovementService) resolveInjectorService(injector, IFormItemMovementService.class);
+        } catch (MetadataOperationException | ReflectiveOperationException e) {
+            LOG.warn("IFormItemMovementService unavailable, using manual form item move: %s", //$NON-NLS-1$
                     e.getMessage());
             return null;
         }
@@ -2455,9 +2546,10 @@ public class EdtMetadataService {
         if (command != null) {
             button.setCommandName(command);
         }
-        // Resolve button type
+        // An explicit kind is honoured; otherwise the container decides, as it does in EDT: a
+        // command-bar button outside a bar is marker SU107 just like a usual button inside one.
         ManagedFormButtonType buttonType = resolveButtonType(operation);
-        button.setType(buttonType);
+        button.setType(buttonType != null ? buttonType : FormItemTree.defaultButtonType(parentContainer));
         insertItemIntoContainer(parentContainer, button, index);
         return button;
     }
@@ -2486,6 +2578,7 @@ public class EdtMetadataService {
         return maxId + 1;
     }
 
+    /** Explicitly requested button kind, or {@code null} when the caller left it to the container. */
     private ManagedFormButtonType resolveButtonType(Map<String, Object> operation) {
         String typeStr = asString(getMapValueIgnoreCase(operation, "button_type")); //$NON-NLS-1$
         if (typeStr == null) {
@@ -2500,7 +2593,7 @@ public class EdtMetadataService {
                 default -> ManagedFormButtonType.COMMAND_BAR_BUTTON;
             };
         }
-        return ManagedFormButtonType.COMMAND_BAR_BUTTON;
+        return null;
     }
 
     private FormNewItemDescriptor buildFormNewItemDescriptor(Map<String, Object> operation, String name) {
@@ -2817,9 +2910,12 @@ public class EdtMetadataService {
     }
 
     /**
-     * Resolves the parent container for add_button. If no parent is specified,
-     * automatically finds the top-level COMMAND_BAR group instead of defaulting
-     * to the form root (which would create a standalone button outside any bar).
+     * Resolves the parent container for add_button. If no parent is specified, the button goes to
+     * the form's own auto command bar ({@code ФормаКоманднаяПанель}).
+     *
+     * <p>The earlier default looked for a command-bar group among {@code getItems()}, where the auto
+     * command bar never is: it lives in {@code CommandBarHolder.autoCommandBar}. The search found
+     * nothing on a regular form and the button fell through to the form root, below the groups.</p>
      */
     private FormItemContainer resolveButtonParentContainer(Form formModel, Map<String, Object> operation) {
         // Check if parent is explicitly specified
@@ -2837,30 +2933,7 @@ public class EdtMetadataService {
         if (parentItemId != null || parentItemName != null) {
             return resolveTargetContainer(formModel, operation);
         }
-        // No parent specified — find the top-level COMMAND_BAR automatically
-        FormGroup commandBar = findTopLevelCommandBar(formModel);
-        if (commandBar != null) {
-            return commandBar;
-        }
-        // Fallback to form root
-        return formModel;
-    }
-
-    /**
-     * Finds the first top-level COMMAND_BAR or AUTO_COMMAND_BAR group in the form.
-     */
-    private FormGroup findTopLevelCommandBar(FormItemContainer container) {
-        if (container == null) {
-            return null;
-        }
-        for (FormItem item : container.getItems()) {
-            if (item instanceof FormGroup group
-                    && (group.getType() == ManagedFormGroupType.COMMAND_BAR
-                            || group.getType() == ManagedFormGroupType.AUTO_COMMAND_BAR)) {
-                return group;
-            }
-        }
-        return null;
+        return FormItemTree.defaultButtonContainer(formModel);
     }
 
     private FormItem resolveRequiredItem(Form formModel, Map<String, Object> operation) {
@@ -2887,47 +2960,19 @@ public class EdtMetadataService {
         return item;
     }
 
+    /**
+     * Finds an item anywhere in the form, including structural parts outside {@code getItems()}:
+     * the auto command bars of the form and its tables, context menus, extended tooltips.
+     */
     private FormItem findFormItem(FormItemContainer container, Integer id, String name) {
-        if (container == null) {
-            return null;
-        }
-        for (FormItem item : container.getItems()) {
-            if (item == null) {
-                continue;
-            }
-            if (id != null && item.getId() == id.intValue()) {
-                return item;
-            }
-            if (name != null && ((Object) item) instanceof NamedElement namedElement
-                    && name.equalsIgnoreCase(namedElement.getName())) {
-                return item;
-            }
-            if (item instanceof FormItemContainer nestedContainer) {
-                FormItem nested = findFormItem(nestedContainer, id, name);
-                if (nested != null) {
-                    return nested;
-                }
-            }
-        }
-        return null;
+        return FormItemTree.find(container, id, name);
     }
 
     private FormItemContainer findParentContainer(FormItemContainer container, FormItem target) {
-        if (container == null || target == null) {
+        if (container == null || target == null || !EcoreUtil.isAncestor(container, target)) {
             return null;
         }
-        for (FormItem item : container.getItems()) {
-            if (item == target) {
-                return container;
-            }
-            if (item instanceof FormItemContainer nestedContainer) {
-                FormItemContainer nestedParent = findParentContainer(nestedContainer, target);
-                if (nestedParent != null) {
-                    return nestedParent;
-                }
-            }
-        }
-        return null;
+        return FormItemTree.itemsOwner(target);
     }
 
     private void insertItemIntoContainer(FormItemContainer container, FormItem item, Integer index) {
@@ -2941,18 +2986,80 @@ public class EdtMetadataService {
         container.getItems().add(index.intValue(), item);
     }
 
-    private int nextFormItemId(FormItemContainer container) {
-        int maxId = 0;
-        for (FormItem item : container.getItems()) {
-            if (item == null) {
-                continue;
-            }
-            maxId = Math.max(maxId, item.getId());
-            if (item instanceof FormItemContainer nestedContainer) {
-                maxId = Math.max(maxId, nextFormItemId(nestedContainer));
-            }
+    /**
+     * An auto command bar, a context menu, an extended tooltip or an addition is part of its owner:
+     * it is reachable for set_item and as a parent, but detaching it would leave the owner broken.
+     * Without this guard removal was a silent no-op — the part is not in its owner's getItems().
+     */
+    private void rejectStructuralPart(FormItem item, String action) {
+        if (FormItemTree.isStructuralPart(item)) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    FormItemTree.describe(item) + " is a structural part of " //$NON-NLS-1$
+                            + describeOwner(item.eContainer()) + " and cannot be " + action //$NON-NLS-1$
+                            + "; configure it with set_item (e.g. visible, autoFill) or add items into it", //$NON-NLS-1$
+                    false);
         }
-        return maxId + 1;
+    }
+
+    private String describeOwner(EObject owner) {
+        if (owner instanceof FormItem ownerItem) {
+            return FormItemTree.describe(ownerItem);
+        }
+        return owner == null ? "<none>" : owner.eClass().getName(); //$NON-NLS-1$
+    }
+
+    /**
+     * Moves an item into another container (or to another position in the same one).
+     *
+     * <p>EDT's movement service is preferred: it applies the conversions a move implies and returns
+     * {@code false} for a move the platform does not allow (a filled usual group into a command bar,
+     * a field into a button group). Such a refusal is reported, never ignored. The manual path is a
+     * fallback for an environment without the form bundle; it converts at least the button kind,
+     * because a usual button inside a command bar is marker SU107.</p>
+     */
+    private void moveFormItem(FormItem item, FormItemContainer source, FormItemContainer target, Integer index,
+            IFormItemMovementService movementService) {
+        if (target == item || EcoreUtil.isAncestor(item, target)) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Cannot move " + FormItemTree.describe(item) + " into itself or into its own descendant", false); //$NON-NLS-1$ //$NON-NLS-2$
+        }
+        if (movementService != null) {
+            int limit = source == target ? target.getItems().size() - 1 : target.getItems().size();
+            boolean toEnd = index == null || index.intValue() < 0 || index.intValue() > limit;
+            boolean moved;
+            try {
+                moved = toEnd
+                        ? movementService.moveToEnd(item, target)
+                        : movementService.move(item, target, index.intValue());
+            } catch (MetadataOperationException e) {
+                throw e;
+            } catch (RuntimeException e) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "EDT refused to move " + FormItemTree.describe(item) + " into " //$NON-NLS-1$ //$NON-NLS-2$
+                                + describeOwner(target) + ": " + e.getMessage(), //$NON-NLS-1$
+                        false,
+                        e);
+            }
+            if (!moved && item.eContainer() != target) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "EDT does not allow moving " + FormItemTree.describe(item) + " into " //$NON-NLS-1$ //$NON-NLS-2$
+                                + describeOwner(target), false);
+            }
+            return;
+        }
+        source.getItems().remove(item);
+        insertItemIntoContainer(target, item, index);
+        if (item instanceof Button button) {
+            FormItemTree.fitButtonType(button, target);
+        }
+    }
+
+    private int nextFormItemId(FormItemContainer container) {
+        return FormItemTree.nextItemId(container);
     }
 
     private void applyFormPropertySet(EObject target, Map<String, Object> set) {
@@ -3035,6 +3142,15 @@ public class EdtMetadataService {
             return;
         }
         field.setDataPath(toDataPath(value, "data_path")); //$NON-NLS-1$
+    }
+
+    private void applyDataPathReferenceValue(EObject target, EReference reference, Object value, String fieldName) {
+        if (value == null || (value instanceof String text && text.isBlank())
+                || (value instanceof Collection<?> collection && collection.isEmpty())) {
+            target.eSet(reference, null);
+            return;
+        }
+        target.eSet(reference, toDataPath(value, fieldName));
     }
 
     private void applyUserVisibleValue(Visible visible, Object value, String fieldName) {
@@ -4085,8 +4201,13 @@ public class EdtMetadataService {
                 + "For set_item use item_id:<id> (NOT id). " //$NON-NLS-1$
                 + "For move_item use parent_item_id:<id> or parent_item_name:\"<name>\" (NOT parent_id or parent). " //$NON-NLS-1$
                 + "For commands: {op:\"add_command\", name:\"CmdName\", action:\"HandlerProc\", title:\"Button Title\"}, " //$NON-NLS-1$
-                + "then {op:\"add_button\", name:\"BtnName\", command_name:\"CmdName\"} — parent defaults to existing CommandBar. " //$NON-NLS-1$
+                + "then {op:\"add_button\", name:\"BtnName\", command_name:\"CmdName\"} — parent defaults to the form auto command bar " //$NON-NLS-1$
+                + "(the AutoCommandBar node above, ФормаКоманднаяПанель, id -1); a table's AutoCommandBar node is a valid parent too. " //$NON-NLS-1$
                 + "DO NOT create a new CommandBar group — the form already has one. DO NOT use add_group for command bars. " //$NON-NLS-1$
+                + "move_item into or out of a command bar converts the button kind (usual <-> command bar) the way EDT does. " //$NON-NLS-1$
+                + "Hide standard commands with set_form_props (form) or set_item (table) set:{excludedCommands:[\"Write\",\"Delete\"]} — " //$NON-NLS-1$
+                + "names in English or Russian, the list replaces the current one. " //$NON-NLS-1$
+                + "Page/usual group title from data: set_item set:{titleDataPath:\"Объект.Товары.RowsCount\"}, \"\" clears. " //$NON-NLS-1$
                 + "Inside a Table parent, Boolean columns must use field_type=\"INPUT_FIELD\" (the platform draws a checkmark automatically); " //$NON-NLS-1$
                 + "CHECK_BOX_FIELD/RADIO_BUTTON_FIELD/PROGRESS_BAR_FIELD/TRACK_BAR_FIELD are rejected by SU107 in Tables. " //$NON-NLS-1$
                 + "For form-level events: {op:\"add_event_handler\", target:\"form\", event:\"<eventName>\", handler_name:\"...\"}. " //$NON-NLS-1$
@@ -4158,8 +4279,24 @@ public class EdtMetadataService {
             InspectFormLayoutRequest request,
             FormInspectState state) {
         List<InspectFormLayoutResult.FormItemNode> result = new ArrayList<>();
-        if (container == null || container.getItems().isEmpty()) {
+        if (container == null) {
             return result;
+        }
+
+        // The auto command bar of the form or of a table is not in getItems(): it is held by
+        // CommandBarHolder.autoCommandBar. Without this node the bar and the buttons inside it were
+        // invisible, and nothing told the caller that ФормаКоманднаяПанель is a valid parent.
+        // It is listed first, with indexInParent -1 because it has no position in getItems().
+        if (container instanceof CommandBarHolder holder && holder.getAutoCommandBar() != null) {
+            if (state.limitReached()) {
+                state.markTruncated();
+                return result;
+            }
+            InspectFormLayoutResult.FormItemNode barNode = buildFormItemNode(
+                    holder.getAutoCommandBar(), parentId, parentPath, -1, depth, request, state);
+            if (barNode != null) {
+                result.add(barNode);
+            }
         }
 
         int index = 0;
@@ -4172,86 +4309,102 @@ public class EdtMetadataService {
                 state.markTruncated();
                 break;
             }
-            state.incrementVisited();
-
-            Boolean visible = asOptionalBoolean(readFeatureValue(item, "visible")); //$NON-NLS-1$
-            if (!request.includeInvisible() && Boolean.FALSE.equals(visible)) {
-                index++;
-                continue;
+            InspectFormLayoutResult.FormItemNode node = buildFormItemNode(
+                    item, parentId, parentPath, index, depth, request, state);
+            if (node != null) {
+                result.add(node);
             }
-
-            String name = ((Object) item) instanceof NamedElement namedElement ? namedElement.getName() : null;
-            String safeName = safeForPath(name != null && !name.isBlank() ? name : item.eClass().getName());
-            String path = parentPath + "/" + item.getId() + ":" + safeName; //$NON-NLS-1$ //$NON-NLS-2$
-            Map<String, String> title = request.includeTitles() && item instanceof Titled titled
-                    ? copyTitleMap(titled)
-                    : Map.of();
-            Boolean enabled = asOptionalBoolean(readFeatureValue(item, "enabled")); //$NON-NLS-1$
-            Boolean readOnly = item instanceof FormField
-                    ? asOptionalBoolean(readFeatureValue(item, "readOnly")) //$NON-NLS-1$
-                    : null;
-            String dataPath = item instanceof FormField
-                    ? dataPathToString(readFeatureValue(item, "dataPath")) //$NON-NLS-1$
-                    : null;
-            String fieldType = item instanceof FormField
-                    ? stringifyFeatureValue(readFeatureValue(item, "type")) //$NON-NLS-1$
-                    : null;
-            Map<String, Object> properties = request.includeProperties()
-                    ? collectScalarProperties(item, request.includeTitles())
-                    : Map.of();
-
-            List<InspectFormLayoutResult.FormItemNode> children = List.of();
-            if (item instanceof FormItemContainer nestedContainer) {
-                if (depth + 1 <= request.effectiveMaxDepth()) {
-                    children = collectFormItemNodes(
-                            nestedContainer,
-                            Integer.valueOf(item.getId()),
-                            path,
-                            depth + 1,
-                            request,
-                            state);
-                } else if (!nestedContainer.getItems().isEmpty()) {
-                    state.markTruncated();
-                }
-            }
-
-            // Enrich kind with group type (COMMAND_BAR, USUAL_GROUP, etc.) so LLMs
-            // can distinguish the real command bar from regular groups.
-            String kind = item.eClass().getName();
-            if (item instanceof FormGroup formGroup && formGroup.getType() != null) {
-                kind = kind + ":" + formGroup.getType().getName(); //$NON-NLS-1$
-            }
-            // For buttons, include the command reference in kind
-            String commandRef = null;
-            if (item instanceof Button buttonItem && buttonItem.getCommandName() != null) {
-                Command cmd = buttonItem.getCommandName();
-                if (cmd instanceof NamedElement namedCmd) {
-                    commandRef = namedCmd.getName();
-                }
-            }
-            List<InspectFormLayoutResult.EventHandlerInfo> eventHandlers =
-                    collectEventHandlerInfosForTarget(item);
-
-            result.add(new InspectFormLayoutResult.FormItemNode(
-                    item.getId(),
-                    parentId,
-                    index,
-                    path,
-                    name,
-                    kind,
-                    title,
-                    visible,
-                    enabled,
-                    readOnly,
-                    dataPath,
-                    fieldType,
-                    commandRef,
-                    eventHandlers,
-                    properties,
-                    children));
             index++;
         }
         return result;
+    }
+
+    /** Builds one inspect node with its subtree, or {@code null} when the item is filtered out as invisible. */
+    private InspectFormLayoutResult.FormItemNode buildFormItemNode(
+            FormItem item,
+            Integer parentId,
+            String parentPath,
+            int indexInParent,
+            int depth,
+            InspectFormLayoutRequest request,
+            FormInspectState state) {
+        state.incrementVisited();
+
+        Boolean visible = asOptionalBoolean(readFeatureValue(item, "visible")); //$NON-NLS-1$
+        if (!request.includeInvisible() && Boolean.FALSE.equals(visible)) {
+            return null;
+        }
+
+        String name = ((Object) item) instanceof NamedElement namedElement ? namedElement.getName() : null;
+        String safeName = safeForPath(name != null && !name.isBlank() ? name : item.eClass().getName());
+        String path = parentPath + "/" + item.getId() + ":" + safeName; //$NON-NLS-1$ //$NON-NLS-2$
+        Map<String, String> title = request.includeTitles() && item instanceof Titled titled
+                ? copyTitleMap(titled)
+                : Map.of();
+        Boolean enabled = asOptionalBoolean(readFeatureValue(item, "enabled")); //$NON-NLS-1$
+        Boolean readOnly = item instanceof FormField
+                ? asOptionalBoolean(readFeatureValue(item, "readOnly")) //$NON-NLS-1$
+                : null;
+        String dataPath = item instanceof FormField
+                ? dataPathToString(readFeatureValue(item, "dataPath")) //$NON-NLS-1$
+                : null;
+        String fieldType = item instanceof FormField
+                ? stringifyFeatureValue(readFeatureValue(item, "type")) //$NON-NLS-1$
+                : null;
+        Map<String, Object> properties = request.includeProperties()
+                ? collectScalarProperties(item, request.includeTitles())
+                : Map.of();
+
+        List<InspectFormLayoutResult.FormItemNode> children = List.of();
+        if (item instanceof FormItemContainer nestedContainer) {
+            boolean hasAutoCommandBar = item instanceof CommandBarHolder holder && holder.getAutoCommandBar() != null;
+            if (depth + 1 <= request.effectiveMaxDepth()) {
+                children = collectFormItemNodes(
+                        nestedContainer,
+                        Integer.valueOf(item.getId()),
+                        path,
+                        depth + 1,
+                        request,
+                        state);
+            } else if (!nestedContainer.getItems().isEmpty() || hasAutoCommandBar) {
+                state.markTruncated();
+            }
+        }
+
+        // Enrich kind with group type (COMMAND_BAR, USUAL_GROUP, etc.) so LLMs
+        // can distinguish the real command bar from regular groups.
+        String kind = item.eClass().getName();
+        if (item instanceof FormGroup formGroup && formGroup.getType() != null) {
+            kind = kind + ":" + formGroup.getType().getName(); //$NON-NLS-1$
+        }
+        // For buttons, include the command reference in kind
+        String commandRef = null;
+        if (item instanceof Button buttonItem && buttonItem.getCommandName() != null) {
+            Command cmd = buttonItem.getCommandName();
+            if (cmd instanceof NamedElement namedCmd) {
+                commandRef = namedCmd.getName();
+            }
+        }
+        List<InspectFormLayoutResult.EventHandlerInfo> eventHandlers =
+                collectEventHandlerInfosForTarget(item);
+
+        return new InspectFormLayoutResult.FormItemNode(
+                item.getId(),
+                parentId,
+                indexInParent,
+                path,
+                name,
+                kind,
+                title,
+                visible,
+                enabled,
+                readOnly,
+                dataPath,
+                fieldType,
+                commandRef,
+                eventHandlers,
+                properties,
+                children);
     }
 
     private List<InspectFormLayoutResult.FormCommandNode> collectFormCommandNodes(Form formModel) {
@@ -4452,6 +4605,18 @@ public class EdtMetadataService {
                     return;
                 }
             }
+            // Same for groups: ext-info properties (titleDataPath, group=Horizontal, representation,
+            // throughAlign, ...) live on FormGroup.getExtInfo() (UsualGroupExtInfo, PageGroupExtInfo
+            // etc.), not on the FormGroup EObject itself.
+            if (target instanceof FormGroup formGroup) {
+                ensureFormGroupExtInfo(formGroup);
+                GroupExtInfo groupExtInfo = formGroup.getExtInfo();
+                if (groupExtInfo != null
+                        && resolveStructuralFeatureIgnoreCase(groupExtInfo, fieldName) != null) {
+                    applySimpleFeatureValue(groupExtInfo, fieldName, value);
+                    return;
+                }
+            }
             throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_CHANGE,
                     "Unknown form property: " + fieldName, false); //$NON-NLS-1$
@@ -4462,6 +4627,21 @@ public class EdtMetadataService {
             }
             if ("uservisible".equals(normalizeToken(reference.getName())) && target instanceof Visible visible) { //$NON-NLS-1$
                 applyUserVisibleValue(visible, value, fieldName);
+                return;
+            }
+            // excludedCommands of a form or a table: names are resolved against the source's own
+            // computed standard commands. The generic refusal below rejected the whole batch, and
+            // the only way to hide "Write"/"Delete" left was hand-editing Form.form.
+            if (target instanceof FormStandardCommandSource source
+                    && FormStandardCommandExclusions.isExcludedCommands(reference)) {
+                FormStandardCommandExclusions.apply(source, value, fieldName);
+                return;
+            }
+            // A data path held by reference (titleDataPath of a page or usual group, and its
+            // relatives) takes the same dotted form as a field's dataPath; an empty value clears it.
+            if (!reference.isMany() && reference.isContainment()
+                    && AbstractDataPath.class.isAssignableFrom(reference.getEReferenceType().getInstanceClass())) {
+                applyDataPathReferenceValue(target, reference, value, fieldName);
                 return;
             }
             throw new MetadataOperationException(
@@ -6822,11 +7002,7 @@ public class EdtMetadataService {
             if (owner == null || ownerUri == null) {
                 return null;
             }
-            String resourcePath = toProjectRelativePath(project, ownerUri);
-            if (isUsableMetadataResourcePath(resourcePath) && resourcePath.toLowerCase(Locale.ROOT).endsWith(".mdo")) { //$NON-NLS-1$
-                return resourcePath;
-            }
-            return null;
+            return ownerMdoPathFromUri(project, ownerUri);
         }
         IConfigurationProvider configurationProvider = gateway.getConfigurationProvider();
         Configuration configuration = configurationProvider.getConfiguration(project);
@@ -6843,8 +7019,26 @@ public class EdtMetadataService {
             if (owner == null || ownerUri == null) {
                 return null;
             }
-            return toProjectRelativePath(project, ownerUri);
+            return ownerMdoPathFromUri(project, ownerUri);
         });
+    }
+
+    /**
+     * Project-relative path of an owner .mdo taken from its object URI, or {@code null} when the URI
+     * does not point at one.
+     *
+     * <p>An object created in the current EDT session has a BM URI, not a file one: its path is the
+     * FQN ({@code Document.X}). The configuration branch used that string as the file to poll, never
+     * found it, and create_form answered FORM_MATERIALIZATION_TIMEOUT after the full wait although the
+     * form was created and exported (measured 2026-09-15). {@code null} lets the caller fall back to
+     * the {@code src/<Kind>/<Name>/<Name>.mdo} path, as the external-object branch always did.</p>
+     */
+    String ownerMdoPathFromUri(IProject project, URI ownerUri) {
+        String resourcePath = toProjectRelativePath(project, ownerUri);
+        if (isUsableMetadataResourcePath(resourcePath) && resourcePath.toLowerCase(Locale.ROOT).endsWith(".mdo")) { //$NON-NLS-1$
+            return resourcePath;
+        }
+        return null;
     }
 
     private MdObject findTopLevel(Configuration configuration, String type, String name) {

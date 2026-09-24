@@ -49,7 +49,7 @@ public class MutateFormModelTool extends AbstractTool {
                       "op": {
                         "type": "string",
                         "enum": ["set_form_props", "add_group", "add_field", "add_table", "add_command", "add_button", "set_item", "remove_item", "move_item", "add_event_handler", "set_event_handler", "remove_event_handler"],
-                        "description": "Visual form operation. add_field creates a simple UI field; add_table creates a Table item and, with data_path to a ValueTable/ValueTree/tabular attribute, auto-generates its columns. Neither creates the form attribute — create attributes with apply_form_recipe first."
+                        "description": "Visual form operation. add_field creates a simple UI field; add_table creates a Table item and, with data_path to a ValueTable/ValueTree/tabular attribute, auto-generates its columns. Neither creates the form attribute — create attributes with apply_form_recipe first. add_button without a parent goes to the form auto command bar (ФормаКоманднаяПанель). move_item accepts an auto command bar (of the form or of a table) as parent and converts the button kind the way EDT does (usual button <-> command bar button); a move EDT does not allow is rejected. An auto command bar itself can be configured with set_item but not removed or moved. add_event_handler generates the BSL stub with the directive EDT's form editor uses: &НаСервере for *AtServer, OnComposeResult and AfterComposeResult events, &НаСервереБезКонтекста for a dynamic list OnGetDataAtServer, &НаКлиенте otherwise."
                       },
                       "data_path": {
                         "type": "string",
@@ -61,7 +61,7 @@ public class MutateFormModelTool extends AbstractTool {
                       },
                       "set": {
                         "type": "object",
-                        "description": "Properties for the existing form, item, or attribute patch. type here changes visual widget type unless patching form attributes."
+                        "description": "Properties for the existing form, item, or attribute patch. type here changes visual widget type unless patching form attributes. excludedCommands (set_form_props for the form, set_item for a table): list of standard command names in English or Russian, resolved against the commands EDT computed for that form or table; the list replaces the current exclusions, [] clears them, an unknown name rejects the operation. titleDataPath (set_item on a page or usual group): dotted data path such as Объект.Товары.RowsCount; empty string clears it."
                       },
                       "name": {
                         "type": "string",
@@ -69,11 +69,11 @@ public class MutateFormModelTool extends AbstractTool {
                       },
                       "parent_item_id": {
                         "type": "integer",
-                        "description": "Id of the parent container (group/table) from inspect_form_layout. Defaults to the form root."
+                        "description": "Id of the parent container (group, table, auto command bar) from inspect_form_layout; the form auto command bar is id -1. Defaults to the form root, for add_button to the form auto command bar."
                       },
                       "parent_item_name": {
                         "type": "string",
-                        "description": "Parent container by name — alternative to parent_item_id. Use it to target an item created earlier in this SAME operations batch (e.g. a group from a prior add_group) whose id is not yet known."
+                        "description": "Parent container by name — alternative to parent_item_id, e.g. ФормаКоманднаяПанель or <Table>КоманднаяПанель. Use it to target an item created earlier in this SAME operations batch (e.g. a group from a prior add_group) whose id is not yet known."
                       },
                       "item_id": {
                         "type": "integer",

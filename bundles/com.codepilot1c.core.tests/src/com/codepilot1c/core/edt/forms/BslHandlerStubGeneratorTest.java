@@ -73,6 +73,77 @@ public class BslHandlerStubGeneratorTest {
         assertEquals("&НаКлиенте", stub.directive()); //$NON-NLS-1$
     }
 
+    /**
+     * 2026-09-14: {@code add_event_handler} and form creation wrote {@code ПриСозданииНаСервере}
+     * and {@code ПриЧтенииНаСервере} under {@code &НаКлиенте}. EDT diagnostics stay silent on such a
+     * module, and the form fails only when it is opened. The EDT event model does not mark server
+     * form events as server-only, so the environments cannot decide; EDT's own form editor
+     * ({@code GotoEventHandlerHandler.getProceduresParameters}) decides by the event name.
+     */
+    @Test
+    public void serverFormEventsGetAtServerWhenEnvironmentsAreUnset() {
+        for (String[] names : new String[][] {
+                {"OnCreateAtServer", "ПриСозданииНаСервере"}, //$NON-NLS-1$ //$NON-NLS-2$
+                {"OnReadAtServer", "ПриЧтенииНаСервере"}, //$NON-NLS-1$ //$NON-NLS-2$
+                {"BeforeWriteAtServer", "ПередЗаписьюНаСервере"}, //$NON-NLS-1$ //$NON-NLS-2$
+                {"OnWriteAtServer", "ПриЗаписиНаСервере"}, //$NON-NLS-1$ //$NON-NLS-2$
+                {"AfterWriteAtServer", "ПослеЗаписиНаСервере"}, //$NON-NLS-1$ //$NON-NLS-2$
+                {"FillCheckProcessingAtServer", "ОбработкаПроверкиЗаполненияНаСервере"}, //$NON-NLS-1$ //$NON-NLS-2$
+                {"OnLoadDataFromSettingsAtServer", "ПриЗагрузкеДанныхИзНастроекНаСервере"}}) { //$NON-NLS-1$ //$NON-NLS-2$
+            Event event = createEvent(names[0], names[1]);
+            event.setServerCallWithContextNotAllowed(false);
+            // environments left unset: exactly the state in which the old derivation fell back to client
+
+            BslHandlerStubGenerator.StubText stub = generator.generate(event, names[1], ScriptVariant.RUSSIAN);
+
+            assertEquals(names[0], "&НаСервере", stub.directive()); //$NON-NLS-1$
+        }
+    }
+
+    @Test
+    public void serverFormEventGetsAtServerEvenWhenEnvironmentsIncludeClients() {
+        Event event = createEvent("OnCreateAtServer", "ПриСозданииНаСервере"); //$NON-NLS-1$ //$NON-NLS-2$
+        event.setServerCallWithContextNotAllowed(false);
+        event.setEnvironments(Environments.ALL);
+        event.getParamSet().add(createParamSet(
+                createParameter("Cancel", "Отказ", true), //$NON-NLS-1$ //$NON-NLS-2$
+                createParameter("StandardProcessing", "СтандартнаяОбработка", true))); //$NON-NLS-1$ //$NON-NLS-2$
+
+        BslHandlerStubGenerator.StubText ru = generator.generate(event, "ПриСозданииНаСервере", ScriptVariant.RUSSIAN); //$NON-NLS-1$
+        BslHandlerStubGenerator.StubText en = generator.generate(event, "OnCreateAtServer", ScriptVariant.ENGLISH); //$NON-NLS-1$
+
+        assertEquals("&НаСервере", ru.procedureText().split("\n", -1)[0]); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue(ru.procedureText().contains("Процедура ПриСозданииНаСервере(Отказ, СтандартнаяОбработка)")); //$NON-NLS-1$
+        assertEquals("&AtServer", en.directive()); //$NON-NLS-1$
+    }
+
+    @Test
+    public void composeResultEventsGetAtServer() {
+        for (String[] names : new String[][] {
+                {"OnComposeResult", "ПриКомпоновкеРезультата"}, //$NON-NLS-1$ //$NON-NLS-2$
+                {"AfterComposeResult", "ПослеКомпоновкиРезультата"}}) { //$NON-NLS-1$ //$NON-NLS-2$
+            Event event = createEvent(names[0], names[1]);
+
+            assertEquals(names[0], "&НаСервере", //$NON-NLS-1$
+                    generator.generate(event, names[1], ScriptVariant.RUSSIAN).directive());
+        }
+    }
+
+    @Test
+    public void dynamicListOnGetDataAtServerGetsNoContextEvenWithoutTheFlag() {
+        Type dynamicListTableExtension = McoreFactory.eINSTANCE.createType();
+        dynamicListTableExtension.setName("FormTableExtensionForDynamicList"); //$NON-NLS-1$
+        Event event = createEvent("OnGetDataAtServer", "ПриПолученииДанныхНаСервере"); //$NON-NLS-1$ //$NON-NLS-2$
+        event.setServerCallWithContextNotAllowed(false);
+        dynamicListTableExtension.getEvents().add(event);
+
+        BslHandlerStubGenerator.StubText stub = generator.generate(
+                event, "СписокПриПолученииДанныхНаСервере", ScriptVariant.RUSSIAN, //$NON-NLS-1$
+                BslHandlerStubGenerator.TargetContext.VISUAL_ITEM);
+
+        assertEquals("&НаСервереБезКонтекста", stub.directive()); //$NON-NLS-1$
+    }
+
     @Test
     public void directiveLiteralRendersRuAndEnSpellingsForAtServerNoContext() {
         Event event = createEvent("OnGetDataAtServer", "ПриПолученииДанныхНаСервере"); //$NON-NLS-1$ //$NON-NLS-2$

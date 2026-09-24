@@ -27,15 +27,29 @@ import com._1c.g5.v8.dt.metadata.mdclass.ScriptVariant;
  * has no {@code Event}; a managed-form command is always a client procedure with the
  * platform-defined command parameter, so its directive and signature are explicit.</p>
  *
- * <p>The directive is derived ONLY from {@link Event#isServerCallWithContextNotAllowed()}
- * and {@link Event#environments()} — never from the event name or any name-suffix
- * heuristic (STUB-02). This class MUST NOT import any workbench-UI-tier event/directive
- * type (core-independent-of-UI rule), and MUST NOT reference any extension
- * (Расширения) construct — that is Phase 8.</p>
+ * <p>The directive follows the rule of EDT's own form editor
+ * ({@code GotoEventHandlerHandler.getProceduresParameters}, EDT 2025.2.3): an event whose
+ * name ends with {@code AtServer}, and {@code OnComposeResult}/{@code AfterComposeResult},
+ * get {@code &AtServer} — except {@code OnGetDataAtServer} of a dynamic-list table, which
+ * gets {@code &AtServerNoContext}; every other event is a client event.</p>
+ *
+ * <p>STUB-02 originally forbade the name and derived the directive from
+ * {@link Event#environments()} alone. The EDT event model does not mark server form
+ * events as server-only, so {@code OnCreateAtServer} and {@code OnReadAtServer} came out
+ * as {@code &AtClient} stubs (measured 2026-09-14): EDT diagnostics stay silent on such a
+ * module and the form fails only when it is opened. {@link Event#isServerCallWithContextNotAllowed()}
+ * and server-only environments are still honoured for events the name rule does not
+ * cover. This class MUST NOT import any workbench-UI-tier event/directive type
+ * (core-independent-of-UI rule), and MUST NOT reference any extension (Расширения)
+ * construct — that is Phase 8.</p>
  */
 public class BslHandlerStubGenerator {
 
     private static final String ON_GET_DATA_AT_SERVER = "OnGetDataAtServer"; //$NON-NLS-1$
+    private static final String AT_SERVER_SUFFIX = "AtServer"; //$NON-NLS-1$
+    /** Server events whose names do not carry the {@code AtServer} suffix. */
+    private static final java.util.Set<String> SERVER_EVENTS_WITHOUT_SUFFIX =
+            java.util.Set.of("OnComposeResult", "AfterComposeResult"); //$NON-NLS-1$ //$NON-NLS-2$
     private static final String DYNAMIC_LIST_TABLE_EXTENSION_TYPE =
             "FormTableExtensionForDynamicList"; //$NON-NLS-1$
 
@@ -102,22 +116,20 @@ public class BslHandlerStubGenerator {
     }
 
     /**
-     * Resolves the client/server directive per STUB-02/STUB-04.
+     * Resolves the client/server directive.
      *
-     * <p>Checks {@link Event#isServerCallWithContextNotAllowed()} FIRST — if {@code true},
-     * the directive is unconditionally {@code AT_SERVER_NO_CONTEXT}, no {@link Environments}
-     * inspection at all. Otherwise derives from {@link Event#environments()} (the convenience
-     * accessor, mirroring {@code BslSemanticService}'s null-safety precedent exactly — falls
-     * back to {@link Environments#ALL} when unset, never NPEs): server-capable and NOT
-     * all-clients-capable yields {@code AT_SERVER}; every other case (client-only, mixed,
-     * unset/ALL) yields {@code AT_CLIENT}.</p>
-     *
-     * <p>No event-name-suffix branch exists anywhere in this method — this is a hard
-     * requirement of STUB-02.</p>
+     * <p>Order: {@link Event#isServerCallWithContextNotAllowed()} or a dynamic-list
+     * {@code OnGetDataAtServer} yields {@code AT_SERVER_NO_CONTEXT}; a server event by EDT's
+     * name rule yields {@code AT_SERVER}; otherwise {@link Event#environments()} decides
+     * (falls back to {@link Environments#ALL} when unset, never NPEs): server-capable and NOT
+     * all-clients-capable yields {@code AT_SERVER}, every other case {@code AT_CLIENT}.</p>
      */
     private Directive resolveDirective(Event event) {
-        if (event.isServerCallWithContextNotAllowed()) {
+        if (event.isServerCallWithContextNotAllowed() || isOnGetDataAtServer(event)) {
             return Directive.AT_SERVER_NO_CONTEXT;
+        }
+        if (isServerEventByName(event)) {
+            return Directive.AT_SERVER;
         }
         Environments envs = event.environments();
         if (envs == null || envs.isEmpty()) {
@@ -180,6 +192,12 @@ public class BslHandlerStubGenerator {
             return null;
         }
         return paramSets.get(0);
+    }
+
+    /** EDT's form-editor rule: {@code *AtServer}, {@code OnComposeResult}, {@code AfterComposeResult}. */
+    private boolean isServerEventByName(Event event) {
+        String name = event == null ? null : event.getName();
+        return name != null && (name.endsWith(AT_SERVER_SUFFIX) || SERVER_EVENTS_WITHOUT_SUFFIX.contains(name));
     }
 
     private boolean isOnGetDataAtServer(Event event) {
