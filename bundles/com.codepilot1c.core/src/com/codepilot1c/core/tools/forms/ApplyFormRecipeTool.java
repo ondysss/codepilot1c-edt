@@ -62,8 +62,8 @@ public class ApplyFormRecipeTool extends AbstractTool {
                 },
                 "usage": {
                   "type": "string",
-                  "enum": ["OBJECT", "LIST", "CHOICE", "AUXILIARY", "object", "list", "choice", "auxiliary"],
-                  "description": "Роль формы"
+                  "enum": ["OBJECT", "RECORD", "LIST", "CHOICE", "AUXILIARY", "object", "record", "list", "choice", "auxiliary"],
+                  "description": "Роль формы: OBJECT/RECORD/LIST/CHOICE/AUXILIARY. RECORD — форма записи регистра сведений (defaultRecordForm); OBJECT у регистра сведений означает то же."
                 },
                 "managed": {
                   "type": "boolean",

@@ -50,6 +50,7 @@ public final class FormOwnerStrategy {
         }
         return switch (usage) {
             case OBJECT -> "setDefaultObjectForm"; //$NON-NLS-1$
+            case RECORD -> "setDefaultRecordForm"; //$NON-NLS-1$
             case LIST -> "setDefaultListForm"; //$NON-NLS-1$
             case CHOICE -> "setDefaultChoiceForm"; //$NON-NLS-1$
             case AUXILIARY -> null;

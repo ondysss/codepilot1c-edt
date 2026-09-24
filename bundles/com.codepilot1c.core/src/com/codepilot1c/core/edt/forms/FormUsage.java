@@ -7,9 +7,14 @@ import com.codepilot1c.core.edt.metadata.MetadataOperationException;
 
 /**
  * Semantic role of a managed form for a metadata owner.
+ *
+ * <p>{@link #RECORD} is the record form of an information register ({@code defaultRecordForm}): the register has no
+ * object form, and the EDT form generator builds a record form (dimensions and resources of one record) only for
+ * this role. {@link #OBJECT} requested for an information register is resolved to it.</p>
  */
 public enum FormUsage {
     OBJECT,
+    RECORD,
     LIST,
     CHOICE,
     AUXILIARY;
@@ -21,6 +26,7 @@ public enum FormUsage {
         String normalized = value.trim().toLowerCase(Locale.ROOT);
         return switch (normalized) {
             case "object", "item", "element", "формаэлемента" -> OBJECT; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            case "record", "формазаписи", "запись" -> RECORD; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             case "list", "формасписка" -> LIST; //$NON-NLS-1$ //$NON-NLS-2$
             case "choice", "формавыбора" -> CHOICE; //$NON-NLS-1$ //$NON-NLS-2$
             case "auxiliary", "aux", "additional", "дополнительная", "default" -> AUXILIARY; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$

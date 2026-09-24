@@ -59,8 +59,8 @@ public class AddMetadataChildTool extends AbstractTool {
                 },
                 "form_usage": {
                   "type": "string",
-                  "enum": ["OBJECT", "LIST", "CHOICE", "AUXILIARY", "object", "list", "choice", "auxiliary"],
-                  "description": "Роль формы (используется при child_kind=Form)"
+                  "enum": ["OBJECT", "RECORD", "LIST", "CHOICE", "AUXILIARY", "object", "record", "list", "choice", "auxiliary"],
+                  "description": "Роль формы (используется при child_kind=Form). RECORD — форма записи регистра сведений (defaultRecordForm); OBJECT у регистра сведений означает то же. У перечисления и регистров накопления, бухгалтерии, расчёта формы объекта нет — OBJECT отклоняется."
                 },
                 "managed": {
                   "type": "boolean",
@@ -273,17 +273,17 @@ public class AddMetadataChildTool extends AbstractTool {
             putIfPresent(merged, "template_type", parameters.get("template_type")); //$NON-NLS-1$ //$NON-NLS-2$
             return merged;
         }
-        if (!"form".equals(normalizedKind)) { //$NON-NLS-1$
+        // One list and one kind check with the validate step: the token has to carry exactly this merge.
+        if (!MetadataRequestValidationService.isFormChildKind(childKindValue)) {
             return baseProperties;
         }
         Map<String, Object> merged = new LinkedHashMap<>();
         if (baseProperties != null && !baseProperties.isEmpty()) {
             merged.putAll(baseProperties);
         }
-        putIfPresent(merged, "form_usage", parameters.get("form_usage")); //$NON-NLS-1$ //$NON-NLS-2$
-        putIfPresent(merged, "managed", parameters.get("managed")); //$NON-NLS-1$ //$NON-NLS-2$
-        putIfPresent(merged, "set_as_default", parameters.get("set_as_default")); //$NON-NLS-1$ //$NON-NLS-2$
-        putIfPresent(merged, "wait_ms", parameters.get("wait_ms")); //$NON-NLS-1$ //$NON-NLS-2$
+        for (String formOption : MetadataRequestValidationService.ADD_CHILD_FORM_OPTIONS) {
+            putIfPresent(merged, formOption, parameters.get(formOption));
+        }
         return merged;
     }
 

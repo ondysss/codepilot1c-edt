@@ -44,8 +44,8 @@ public class CreateFormTool extends AbstractTool {
                 },
                 "usage": {
                   "type": "string",
-                  "enum": ["OBJECT", "LIST", "CHOICE", "AUXILIARY", "object", "list", "choice", "auxiliary"],
-                  "description": "Роль формы: OBJECT/LIST/CHOICE/AUXILIARY"
+                  "enum": ["OBJECT", "RECORD", "LIST", "CHOICE", "AUXILIARY", "object", "record", "list", "choice", "auxiliary"],
+                  "description": "Роль формы: OBJECT/RECORD/LIST/CHOICE/AUXILIARY. RECORD — форма записи регистра сведений (defaultRecordForm); OBJECT у регистра сведений означает то же. У перечисления и регистров накопления, бухгалтерии, расчёта формы объекта нет — OBJECT отклоняется."
                 },
                 "managed": {
                   "type": "boolean",

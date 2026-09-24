@@ -115,6 +115,7 @@ import com._1c.g5.v8.dt.mcore.TypeDescription;
 import com._1c.g5.v8.dt.mcore.TypeItem;
 import com._1c.g5.v8.dt.mcore.util.McoreUtil;
 import com._1c.g5.v8.dt.metadata.common.ApplicationUsePurpose;
+import com._1c.g5.v8.dt.metadata.mdclass.AbstractForm;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicFeature;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicForm;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicTemplate;
@@ -1154,9 +1155,9 @@ public class EdtMetadataService {
             effectiveName = resolveEffectiveFormName(ownerFqn, requestedName, effectiveUsage);
             formFqn = ownerFqn + ".Form." + effectiveName; //$NON-NLS-1$
         }
-        FormUsage usageForDefault = effectiveUsage != null
-                ? effectiveUsage
-                : resolveEffectiveFormUsage(ownerFqn, effectiveName, usage);
+        // Fitted to the owner in every path, also when form_fqn names the form: OBJECT of an information
+        // register binds its record form.
+        FormUsage usageForDefault = resolveEffectiveFormUsage(ownerFqn, effectiveName, effectiveUsage);
 
         LOG.info("[%s] applyFormRecipe START project=%s form=%s mode=%s attributes=%d layoutOps=%d", //$NON-NLS-1$
                 opId,
@@ -5643,15 +5644,23 @@ public class EdtMetadataService {
                 waitMs);
     }
 
+    /**
+     * The role a new form gets: the requested one, else the one its name suggests, else the owner's usual one.
+     *
+     * <p>The role is fitted to the owner: an information register has a record form, not an object
+     * form, so OBJECT resolves to RECORD there ({@code defaultRecordForm}, EDT generator type RECORD). A role the
+     * owner does not have is refused with a plain explanation before anything is created when it was requested
+     * explicitly; a role only guessed from the form name falls back to the owner's usual one.</p>
+     */
     private FormUsage resolveEffectiveFormUsage(String ownerFqn, String requestedName, FormUsage requestedUsage) {
+        String ownerType = topKindFromFqn(ownerFqn);
         if (requestedUsage != null) {
-            return requestedUsage;
+            return fitUsageToOwner(ownerType, requestedUsage, true);
         }
-        FormUsage fromName = detectUsageFromName(requestedName);
+        FormUsage fromName = fitUsageToOwner(ownerType, detectUsageFromName(requestedName), false);
         if (fromName != null) {
             return fromName;
         }
-        String ownerType = topKindFromFqn(ownerFqn);
         if (ownerType == null) {
             return FormUsage.AUXILIARY;
         }
@@ -5659,6 +5668,52 @@ public class EdtMetadataService {
             case "catalog", "document", "task", "businessprocess", "dataprocessor", "report", "externalreport", "externaldataprocessor" -> FormUsage.OBJECT; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$ //$NON-NLS-8$
             case "enum", "informationregister", "accumulationregister", "accountingregister", "calculationregister" -> FormUsage.LIST; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
             default -> FormUsage.AUXILIARY;
+        };
+    }
+
+    /**
+     * Fits a form role to the owner kind (the FQN head): OBJECT of an information register is its RECORD form;
+     * RECORD elsewhere and OBJECT of an owner with list forms only are refused when {@code explicit}, dropped
+     * (null, so the owner's usual role applies) when the role was only guessed from the form name.
+     */
+    private FormUsage fitUsageToOwner(String ownerType, FormUsage usage, boolean explicit) {
+        if (usage == null || ownerType == null) {
+            return usage;
+        }
+        String owner = normalizeToken(ownerType);
+        boolean informationRegister = "informationregister".equals(owner); //$NON-NLS-1$
+        if (usage == FormUsage.OBJECT && informationRegister) {
+            return FormUsage.RECORD;
+        }
+        if (usage == FormUsage.RECORD && !informationRegister) {
+            if (!explicit) {
+                return null;
+            }
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_FORM_USAGE,
+                    "Form usage RECORD (форма записи, defaultRecordForm) есть только у регистра сведений; у " //$NON-NLS-1$
+                            + ownerType + " основная форма объекта задаётся usage OBJECT", false); //$NON-NLS-1$
+        }
+        if (usage == FormUsage.OBJECT && ownerHasListFormsOnly(owner)) {
+            if (!explicit) {
+                return null;
+            }
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_FORM_USAGE,
+                    "Form usage OBJECT не поддерживается для " + ownerType //$NON-NLS-1$
+                            + ": у него нет формы объекта или записи, только формы списка" //$NON-NLS-1$
+                            + ("enum".equals(owner) ? " и выбора (usage LIST, CHOICE)" : " (usage LIST)") //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                            + " и вспомогательные (AUXILIARY). Форма записи (RECORD) есть только у регистра сведений", //$NON-NLS-1$
+                    false);
+        }
+        return usage;
+    }
+
+    /** Owners whose default form roles in the EDT model are list (and choice) forms only. */
+    private static boolean ownerHasListFormsOnly(String normalizedOwnerType) {
+        return switch (normalizedOwnerType) {
+            case "enum", "accumulationregister", "accountingregister", "calculationregister" -> true; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+            default -> false;
         };
     }
 
@@ -5672,6 +5727,9 @@ public class EdtMetadataService {
         }
         if (normalized.contains("списка") || normalized.contains("list")) { //$NON-NLS-1$ //$NON-NLS-2$
             return FormUsage.LIST;
+        }
+        if (normalized.contains("записи") || normalized.contains("record")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return FormUsage.RECORD;
         }
         if (normalized.contains("элемента") || normalized.contains("объекта") || normalized.contains("object")) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
             return FormUsage.OBJECT;
@@ -5702,6 +5760,9 @@ public class EdtMetadataService {
         }
         if (usage == FormUsage.CHOICE) {
             return "ФормаВыбора"; //$NON-NLS-1$
+        }
+        if (usage == FormUsage.RECORD) {
+            return "ФормаЗаписи"; //$NON-NLS-1$
         }
         if (usage == FormUsage.OBJECT) {
             if ("catalog".equals(normalizeToken(ownerType))) { //$NON-NLS-1$
@@ -6443,6 +6504,7 @@ public class EdtMetadataService {
     private Object resolveFormGeneratorType(MdObject owner, FormUsage usage, Class<?> formTypeClass) {
         String typeName = switch (usage) {
             case OBJECT -> "OBJECT"; //$NON-NLS-1$
+            case RECORD -> "RECORD"; //$NON-NLS-1$
             case LIST -> "LIST"; //$NON-NLS-1$
             case CHOICE -> "CHOICE"; //$NON-NLS-1$
             case AUXILIARY -> inferAuxiliaryFormType(owner);
@@ -10614,7 +10676,7 @@ public class EdtMetadataService {
                     continue;
                 }
                 IBmObject source = reference.getObject();
-                if (source == null || source == targetObject) {
+                if (source == null || isOwnContentOf(source, target)) {
                     continue;
                 }
                 total++;
@@ -10630,6 +10692,29 @@ public class EdtMetadataService {
             }
             return new IncomingReferences(total, List.copyOf(samples));
         });
+    }
+
+    /**
+     * Tells whether {@code source} is part of {@code target} itself and goes away with it: {@code target} is its
+     * containment ancestor, or the form model it lies in belongs to {@code target}.
+     *
+     * <p>A form model is a separate BM top object linked to its metadata form by {@code AbstractForm.mdForm}, so
+     * containment alone never reaches the form: deleting a form without {@code force} was refused by its own
+     * content, {@code …Form.<Name>.Form#mdForm}.</p>
+     */
+    private static boolean isOwnContentOf(EObject source, EObject target) {
+        EObject current = source;
+        while (current != null) {
+            if (current == target) {
+                return true;
+            }
+            EObject container = current.eContainer();
+            if (container == null && current instanceof AbstractForm formModel) {
+                container = formModel.getMdForm();
+            }
+            current = container;
+        }
+        return false;
     }
 
     private Collection<IBmCrossReference> resolveIncomingReferences(IBmTransaction transaction, IBmObject target) {

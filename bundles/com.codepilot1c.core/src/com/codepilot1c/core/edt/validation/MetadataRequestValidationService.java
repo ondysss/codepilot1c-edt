@@ -216,6 +216,28 @@ public class MetadataRequestValidationService {
             HttpServiceChildProperties.HTTP_METHOD,
             HttpServiceChildProperties.HANDLER);
 
+    /**
+     * Top-level {@code add_metadata_child} options of a form child ({@code child_kind=Form}), folded into
+     * {@code properties} by the tool and by the validate step alike. Without them in the token the mutation applied
+     * a payload without the form role: {@code form_usage=OBJECT} of an information register form was
+     * lost and the form came out as a list form. The top-level value wins over a {@code properties} entry here, as
+     * in the tool.
+     */
+    public static final List<String> ADD_CHILD_FORM_OPTIONS = List.of(
+            "form_usage", //$NON-NLS-1$
+            "managed", //$NON-NLS-1$
+            "set_as_default", //$NON-NLS-1$
+            "wait_ms"); //$NON-NLS-1$
+
+    /** Whether {@code childKindValue} names a form child; an unparseable kind is left to the canonical validation. */
+    public static boolean isFormChildKind(String childKindValue) {
+        try {
+            return MetadataChildKind.fromString(childKindValue) == MetadataChildKind.FORM;
+        } catch (MetadataOperationException e) {
+            return false;
+        }
+    }
+
     public Map<String, Object> normalizeAddChildPayload(
             String projectName,
             String parentFqn,
@@ -1363,6 +1385,14 @@ public class MetadataRequestValidationService {
                     Object value = request.payload().get(topLevel);
                     if (value != null && !childProps.containsKey(topLevel)) {
                         childProps.put(topLevel, value);
+                    }
+                }
+                if (isFormChildKind(asString(request.payload().get("child_kind")))) { //$NON-NLS-1$
+                    for (String formOption : ADD_CHILD_FORM_OPTIONS) {
+                        Object value = request.payload().get(formOption);
+                        if (value != null && !(value instanceof String text && text.isBlank())) {
+                            childProps.put(formOption, value);
+                        }
                     }
                 }
                 Map<String, Object> payload = normalizeAddChildPayload(

@@ -55,7 +55,7 @@ public class QaPrepareFormContextTool extends AbstractTool {
                 },
                 "usage": {
                   "type": "string",
-                  "enum": ["OBJECT", "LIST", "CHOICE", "AUXILIARY", "object", "list", "choice", "auxiliary"],
+                  "enum": ["OBJECT", "RECORD", "LIST", "CHOICE", "AUXILIARY", "object", "record", "list", "choice", "auxiliary"],
                   "description": "Роль формы для подготовки QA контекста"
                 },
                 "form_name": {
@@ -255,6 +255,10 @@ public class QaPrepareFormContextTool extends AbstractTool {
         }
         if (usage == FormUsage.CHOICE) {
             return "ФормаВыбора"; //$NON-NLS-1$
+        }
+        if (usage == FormUsage.RECORD || usage == FormUsage.OBJECT
+                && "informationregister".equals(normalizeToken(ownerType))) { //$NON-NLS-1$
+            return "ФормаЗаписи"; //$NON-NLS-1$
         }
         if (usage == FormUsage.OBJECT) {
             if ("catalog".equals(normalizeToken(ownerType))) { //$NON-NLS-1$
