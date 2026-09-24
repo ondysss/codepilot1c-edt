@@ -1,6 +1,7 @@
 package com.codepilot1c.core.edt.forms;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import com.codepilot1c.core.edt.metadata.MetadataOperationCode;
@@ -44,15 +45,26 @@ public final class FormOwnerStrategy {
         return method;
     }
 
-    public String resolveDefaultSetter(FormUsage usage) {
-        if (usage == null || usage == FormUsage.AUXILIARY) {
-            return null;
+    /**
+     * Default-form setters for the usage, in the order to try them; the first one the owner class has wins.
+     *
+     * <p>The object role lives in a different feature depending on the owner: {@code defaultObjectForm}
+     * (catalog, document, chart of characteristic types, business process, task, exchange plan),
+     * {@code defaultRecordForm} (information register) or {@code defaultForm} (data processor, report and
+     * their external counterparts). Resolving it to {@code setDefaultObjectForm} alone refused the main form
+     * of a data processor or a report.</p>
+     *
+     * @return setter names, empty when the usage binds no default form
+     */
+    public List<String> resolveDefaultSetters(FormUsage usage) {
+        if (usage == null) {
+            return List.of();
         }
         return switch (usage) {
-            case OBJECT -> "setDefaultObjectForm"; //$NON-NLS-1$
-            case LIST -> "setDefaultListForm"; //$NON-NLS-1$
-            case CHOICE -> "setDefaultChoiceForm"; //$NON-NLS-1$
-            case AUXILIARY -> null;
+            case OBJECT -> List.of("setDefaultObjectForm", "setDefaultRecordForm", "setDefaultForm"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            case LIST -> List.of("setDefaultListForm"); //$NON-NLS-1$
+            case CHOICE -> List.of("setDefaultChoiceForm"); //$NON-NLS-1$
+            case AUXILIARY -> List.of();
         };
     }
 }

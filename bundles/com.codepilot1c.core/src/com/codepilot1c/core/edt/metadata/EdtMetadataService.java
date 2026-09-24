@@ -460,7 +460,7 @@ public class EdtMetadataService {
             }
             populateFormContent(project, transaction, owner, form, txConfiguration, capturedUsage, opId);
             ensureUuidsRecursively(form, opId, formFqn);
-            if (capturedBindAsDefault && !isExternalMetadataOwner(owner)) {
+            if (capturedBindAsDefault) {
                 bindDefaultForm(owner, form, capturedUsage, opId);
             }
             ensureUuidsRecursively(owner, opId, request.ownerFqn());
@@ -5723,14 +5723,16 @@ public class EdtMetadataService {
     }
 
     private boolean resolveDefaultBinding(Boolean requestedSetAsDefault, FormUsage usage, String ownerFqn, boolean externalProject) {
-        if (externalProject) {
+        if (usage == null || usage == FormUsage.AUXILIARY) {
             return false;
         }
         String ownerType = normalizeToken(topKindFromFqn(ownerFqn));
-        if ("externalreport".equals(ownerType) || "externaldataprocessor".equals(ownerType)) { //$NON-NLS-1$ //$NON-NLS-2$
-            return false;
-        }
-        if (usage == FormUsage.AUXILIARY) {
+        boolean externalOwner = externalProject
+                || "externalreport".equals(ownerType) || "externaldataprocessor".equals(ownerType); //$NON-NLS-1$ //$NON-NLS-2$
+        // An external data processor or report has a single default role, its main form (defaultForm).
+        // Other roles bind nothing there, as before; the object role used to be skipped as well only
+        // because it was resolved to setDefaultObjectForm, which these owners do not have.
+        if (externalOwner && usage != FormUsage.OBJECT) {
             return false;
         }
         return requestedSetAsDefault == null || requestedSetAsDefault.booleanValue();
@@ -6257,11 +6259,19 @@ public class EdtMetadataService {
     }
 
     private void bindDefaultForm(MdObject owner, MdObject form, FormUsage usage, String opId) {
-        String setter = formOwnerStrategy.resolveDefaultSetter(usage);
-        if (setter == null) {
+        List<String> setters = formOwnerStrategy.resolveDefaultSetters(usage);
+        if (setters.isEmpty()) {
             return;
         }
-        Method targetMethod = findCompatibleSetter(owner.getClass(), setter, form.getClass());
+        String setter = null;
+        Method targetMethod = null;
+        for (String candidate : setters) {
+            targetMethod = findCompatibleSetter(owner.getClass(), candidate, form.getClass());
+            if (targetMethod != null) {
+                setter = candidate;
+                break;
+            }
+        }
         if (targetMethod == null) {
             throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_FORM_USAGE,
@@ -6595,14 +6605,6 @@ public class EdtMetadataService {
 
     private IBmPlatformTransaction asPlatformTransaction(IBmTransaction transaction) {
         return transaction instanceof IBmPlatformTransaction platformTransaction ? platformTransaction : null;
-    }
-
-    private boolean isExternalMetadataOwner(MdObject owner) {
-        if (owner == null || owner.eClass() == null) {
-            return false;
-        }
-        String className = owner.eClass().getName();
-        return "ExternalReport".equals(className) || "ExternalDataProcessor".equals(className); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private Object resolveFormInjector(Bundle formBundle) throws ReflectiveOperationException {
