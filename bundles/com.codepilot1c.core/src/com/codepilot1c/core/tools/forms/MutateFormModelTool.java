@@ -48,8 +48,8 @@ public class MutateFormModelTool extends AbstractTool {
                     "properties": {
                       "op": {
                         "type": "string",
-                        "enum": ["set_form_props", "add_group", "add_field", "add_table", "add_command", "add_button", "set_item", "remove_item", "move_item", "add_event_handler", "set_event_handler", "remove_event_handler"],
-                        "description": "Visual form operation. add_field creates a simple UI field; add_table creates a Table item and, with data_path to a ValueTable/ValueTree/tabular attribute, auto-generates its columns. Neither creates the form attribute — create attributes with apply_form_recipe first."
+                        "enum": ["set_form_props", "add_group", "add_field", "add_table", "add_command", "add_button", "set_item", "remove_item", "move_item", "set_auto_command_bar", "set_excluded_commands", "add_event_handler", "set_event_handler", "remove_event_handler"],
+                        "description": "Visual form operation. add_field creates a simple UI field; add_table creates a Table item and, with data_path to a ValueTable/ValueTree/tabular attribute, auto-generates its columns. Neither creates the form attribute — create attributes with apply_form_recipe first. The built-in list/table command bar (autoCommandBar) and its excludedCommands are reference-backed state outside items[] — inspect_form_layout surfaces them as commandBars[]. Do NOT use set_form_props/set_item for autoCommandBar/excludedCommands (rejected as unsupported reference updates) and do NOT add_group a fake CommandBar — use set_auto_command_bar (auto_fill) and set_excluded_commands (excluded_commands, mode) instead, targeting item_id/item_name of the Table or target:'form' for the form root."
                       },
                       "data_path": {
                         "type": "string",
@@ -77,7 +77,25 @@ public class MutateFormModelTool extends AbstractTool {
                       },
                       "item_id": {
                         "type": "integer",
-                        "description": "Target item id for set_item/remove_item/move_item (from inspect_form_layout)."
+                        "description": "Target item id for set_item/remove_item/move_item/set_auto_command_bar/set_excluded_commands (from inspect_form_layout)."
+                      },
+                      "item_name": {
+                        "type": "string",
+                        "description": "Target item by name for set_item/set_auto_command_bar/set_excluded_commands — alternative to item_id."
+                      },
+                      "auto_fill": {
+                        "type": "boolean",
+                        "description": "For set_auto_command_bar: enables/disables automatic population of the target's built-in command bar (autoCommandBar.autoFill) with standard commands."
+                      },
+                      "excluded_commands": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "For set_excluded_commands: explicit array of standard command names to hide from the target's built-in command bar — see inspect_form_layout commandBars[].availableCommands for valid names. An explicitly empty array with mode=replace clears exclusions; omitted or non-array values are rejected. Combine with mode."
+                      },
+                      "mode": {
+                        "type": "string",
+                        "enum": ["replace", "add", "remove"],
+                        "description": "For set_excluded_commands: replace (default) overwrites the excluded list, add appends to it, remove removes from it."
                       },
                       "event": {
                         "type": "string",
@@ -94,7 +112,7 @@ public class MutateFormModelTool extends AbstractTool {
                       },
                       "target": {
                         "type": "string",
-                        "description": "For event ops: 'form' for form-level events, or omit and pass item_id/item_name for a field/table event."
+                        "description": "For event ops and set_auto_command_bar/set_excluded_commands: 'form' targets the form root, or omit and pass item_id/item_name for a field/table/list item."
                       }
                     },
                     "required": ["op"],

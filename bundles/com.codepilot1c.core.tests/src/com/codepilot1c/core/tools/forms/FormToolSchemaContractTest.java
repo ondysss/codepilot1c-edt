@@ -117,4 +117,18 @@ public class FormToolSchemaContractTest {
         assertTrue(text.contains("CHANGE_AND_VALIDATE")); //$NON-NLS-1$
         assertTrue(text.contains("Defaults to BEFORE")); //$NON-NLS-1$
     }
+
+    @Test
+    public void mutateFormModelSchemaExposesCommandBarOpsAndWarnsAgainstSetFormPropsAndFakeGroups() {
+        JsonObject schema = JsonParser.parseString(new MutateFormModelTool().getParameterSchema()).getAsJsonObject();
+        String text = schema.toString();
+
+        assertTrue(text.contains("set_auto_command_bar")); //$NON-NLS-1$
+        assertTrue(text.contains("set_excluded_commands")); //$NON-NLS-1$
+        assertTrue(text.contains("auto_fill")); //$NON-NLS-1$
+        assertTrue(text.contains("excluded_commands")); //$NON-NLS-1$
+        assertTrue(text.contains("commandBars")); //$NON-NLS-1$
+        assertTrue(text.contains("Do NOT use set_form_props/set_item for autoCommandBar/excludedCommands")); //$NON-NLS-1$
+        assertTrue(text.contains("do NOT add_group a fake CommandBar")); //$NON-NLS-1$
+    }
 }

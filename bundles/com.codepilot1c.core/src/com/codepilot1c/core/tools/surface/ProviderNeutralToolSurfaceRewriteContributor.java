@@ -70,12 +70,16 @@ public final class ProviderNeutralToolSurfaceRewriteContributor implements ToolS
             case "ensure_module_artifact" -> "Ensure that a metadata-owned BSL module artifact exists and return its path. Use it after edt_validate_request and before edit_file or write_file when changing object-owned module code."; //$NON-NLS-1$
             case "update_metadata" -> "Применяет изменения свойств через BM API. Формат: {\"set\":{\"field\":\"value\"}}. Для EventSubscription.source: {\"set\":{\"source\":{\"types\":[\"TaskObject.X\"]}}}. НЕ используй: subsystems, name. После изменений запусти диагностику."; //$NON-NLS-1$
             case "mutate_form_model" -> "Изменяет форму через operations:[{op:...}]. " //$NON-NLS-1$
-                    + "op: add_field|add_group|add_command|add_button|set_item|remove_item|move_item|set_form_props. " //$NON-NLS-1$
+                    + "op: add_field|add_group|add_command|add_button|set_item|remove_item|move_item|set_form_props|set_auto_command_bar|set_excluded_commands. " //$NON-NLS-1$
                     + "add_field: ОБЯЗАТЕЛЬНО name+data_path, field_type=LABEL_FIELD|INPUT_FIELD. " //$NON-NLS-1$
                     + "add_command: name+action(обработчик)+title; процедура action создаётся автоматически, не пиши её отдельно через write_file. add_button: name+command_name(ссылка на команду), parent автоматически=CommandBar. " //$NON-NLS-1$
                     + "set_item: ОБЯЗАТЕЛЬНО item_id(число) ИЛИ item_name(строка) + set:{...}. НЕ используй id или name вместо item_id/item_name. " //$NON-NLS-1$
                     + "Родитель: parent_item_id(число) ИЛИ parent_item_name(строка). НЕ используй parent_id или parent. " //$NON-NLS-1$
                     + "Сначала вызови inspect_form_layout чтобы узнать ID элементов. " //$NON-NLS-1$
+                    + "Встроенная командная панель списка/таблицы (autoCommandBar) и excludedCommands видны в inspect_form_layout как commandBars[], а НЕ в items[]. " //$NON-NLS-1$
+                    + "НЕ используй set_form_props/set_item для autoCommandBar/excludedCommands (reference update отклоняется) и НЕ создавай add_group как фейковую CommandBar. " //$NON-NLS-1$
+                    + "op: set_auto_command_bar: item_id/item_name(или target:'form')+auto_fill(boolean). " //$NON-NLS-1$
+                    + "op: set_excluded_commands: item_id/item_name(или target:'form')+excluded_commands(список имён из commandBars[].availableCommands)+mode(replace|add|remove, по умолчанию replace). " //$NON-NLS-1$
                     + "op: add_event_handler|set_event_handler|remove_event_handler: event(имя события EN/RU)+" //$NON-NLS-1$
                     + "target('form' для формы, иначе item_id/item_name)+handler_name(опционально, иначе {Item}{EventEn})+" //$NON-NLS-1$
                     + "call_type(только для расширений: BEFORE|AFTER|OVERRIDE|CHANGE_AND_VALIDATE, по умолчанию BEFORE). " //$NON-NLS-1$

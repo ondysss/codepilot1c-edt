@@ -96,6 +96,23 @@ public class ProviderNeutralToolSurfaceContributorTest {
     }
 
     @Test
+    public void providerNeutralRewriteWarnsAgainstSetFormPropsForCommandBar() {
+        ToolDefinition mutateFormModel = ToolSurfaceAugmentor.defaultAugmentor().augment(
+                new StubTool("mutate_form_model", "raw", "{\"type\":\"object\"}"), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                ToolSurfaceContext.builder()
+                        .builtIn(true)
+                        .category(ToolCategory.METADATA_MUTATION)
+                        .profile(ToolSurfaceContext.defaultProfile())
+                        .build());
+
+        String description = mutateFormModel.getDescription();
+        assertTrue(description.contains("set_auto_command_bar")); //$NON-NLS-1$
+        assertTrue(description.contains("set_excluded_commands")); //$NON-NLS-1$
+        assertTrue(description.contains("autoCommandBar")); //$NON-NLS-1$
+        assertTrue(description.contains("commandBars")); //$NON-NLS-1$
+    }
+
+    @Test
     public void overrideCatalogContainsOnlyRegisteredProviderNeutralTools() throws Exception {
         ProviderNeutralToolSurfaceRewriteContributor contributor =
                 new ProviderNeutralToolSurfaceRewriteContributor();

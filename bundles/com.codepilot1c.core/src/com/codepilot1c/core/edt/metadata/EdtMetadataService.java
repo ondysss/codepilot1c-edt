@@ -93,8 +93,12 @@ import com._1c.g5.v8.dt.form.model.PagesGroupExtInfo;
 import com._1c.g5.v8.dt.form.model.PopupGroupExtInfo;
 import com._1c.g5.v8.dt.form.model.UsualGroupExtInfo;
 import com._1c.g5.v8.dt.form.model.UsualGroupRepresentation;
+import com._1c.g5.v8.dt.form.model.AutoCommandBar;
+import com._1c.g5.v8.dt.form.model.CommandBarHolder;
 import com._1c.g5.v8.dt.form.model.FormItem;
 import com._1c.g5.v8.dt.form.model.FormItemContainer;
+import com._1c.g5.v8.dt.form.model.FormStandardCommand;
+import com._1c.g5.v8.dt.form.model.FormStandardCommandSource;
 import com._1c.g5.v8.dt.form.model.Table;
 import com._1c.g5.v8.dt.form.model.Titled;
 import com._1c.g5.v8.dt.form.model.Visible;
@@ -1403,6 +1407,8 @@ public class EdtMetadataService {
                     state);
             String mutationHint = buildFormMutationHint(request.formFqn());
             List<InspectFormLayoutResult.FormCommandNode> commandNodes = collectFormCommandNodes(formModel);
+            List<InspectFormLayoutResult.CommandBarNode> commandBarNodes = collectCommandBarNodes(
+                    formModel, "/" + safeForPath(basicForm.getName()), request); //$NON-NLS-1$
             return new InspectFormLayoutResult(
                     request.projectName(),
                     request.formFqn(),
@@ -1412,7 +1418,8 @@ public class EdtMetadataService {
                     state.truncated(),
                     mutationHint,
                     nodes,
-                    commandNodes);
+                    commandNodes,
+                    commandBarNodes);
         });
 
         LOG.info("[%s] inspectFormLayout SUCCESS in %s form=%s items=%d truncated=%s", //$NON-NLS-1$
@@ -1549,6 +1556,67 @@ public class EdtMetadataService {
                     }
                     applyFormPropertySet(formModel, set);
                     summaries.add("set_form_props[" + operationIndex + "]"); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                case "setautocommandbar" -> {
+                    CommandBarHolder holder = resolveCommandBarHolder(
+                            formModel, operation, "set_auto_command_bar"); //$NON-NLS-1$
+                    AutoCommandBar autoCommandBar = holder.getAutoCommandBar();
+                    if (autoCommandBar == null) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                                "Target has no autoCommandBar to configure", false); //$NON-NLS-1$
+                    }
+                    Object autoFillValue = getMapValueIgnoreCase(operation, "auto_fill"); //$NON-NLS-1$
+                    if (autoFillValue == null) {
+                        Map<String, Object> set = asMap(operation.get("set")); //$NON-NLS-1$
+                        autoFillValue = getMapValueIgnoreCase(set, "auto_fill"); //$NON-NLS-1$
+                    }
+                    if (autoFillValue == null) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                                "set_auto_command_bar operation requires 'auto_fill' boolean", false); //$NON-NLS-1$
+                    }
+                    autoCommandBar.setAutoFill(asBoolean(autoFillValue));
+                    summaries.add("set_auto_command_bar[" + operationIndex + "]: auto_fill=" //$NON-NLS-1$ //$NON-NLS-2$
+                            + autoCommandBar.isAutoFill());
+                }
+                case "setexcludedcommands" -> {
+                    CommandBarHolder holder = resolveCommandBarHolder(
+                            formModel, operation, "set_excluded_commands"); //$NON-NLS-1$
+                    if (!(holder instanceof FormStandardCommandSource source)) {
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                                "Target does not expose standard commands to exclude", false); //$NON-NLS-1$
+                    }
+                    Object modeValue = getMapValueIgnoreCase(operation, "mode"); //$NON-NLS-1$
+                    String mode = modeValue != null ? normalizeToken(asString(modeValue)) : "replace"; //$NON-NLS-1$
+                    List<String> requestedNames = extractRequiredExcludedCommandNames(operation);
+                    if (requestedNames.isEmpty() && !"replace".equals(mode)) { //$NON-NLS-1$
+                        throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                                "set_excluded_commands operation requires non-empty 'excluded_commands' list for mode=" //$NON-NLS-1$
+                                        + mode, false);
+                    }
+                    List<FormStandardCommand> resolved = resolveStandardCommandsByName(source, requestedNames);
+                    switch (mode) {
+                        case "add" -> { //$NON-NLS-1$
+                            for (FormStandardCommand command : resolved) {
+                                if (!source.getExcludedCommands().contains(command)) {
+                                    source.getExcludedCommands().add(command);
+                                }
+                            }
+                        }
+                        case "remove" -> source.getExcludedCommands().removeAll(resolved); //$NON-NLS-1$
+                        case "replace" -> { //$NON-NLS-1$
+                            source.getExcludedCommands().clear();
+                            source.getExcludedCommands().addAll(resolved);
+                        }
+                        default -> throw new MetadataOperationException(
+                                MetadataOperationCode.INVALID_METADATA_CHANGE,
+                                "Unsupported set_excluded_commands mode: " + mode, false); //$NON-NLS-1$
+                    }
+                    summaries.add("set_excluded_commands[" + operationIndex + "]: mode=" + mode //$NON-NLS-1$ //$NON-NLS-2$
+                            + ", count=" + resolved.size()); //$NON-NLS-1$
                 }
                 case "addgroup", "creategroup" -> {
                     FormItemContainer parentContainer = resolveTargetContainer(formModel, operation);
@@ -2887,6 +2955,83 @@ public class EdtMetadataService {
         return item;
     }
 
+    /**
+     * Resolves the {@link CommandBarHolder} target for {@code set_auto_command_bar}/
+     * {@code set_excluded_commands}: {@code target=="form"} (or no item reference at all)
+     * targets the form root's own built-in command bar; otherwise item_id/item_name must
+     * resolve to a {@code CommandBarHolder} item (e.g. a list form's {@code Table}).
+     */
+    private CommandBarHolder resolveCommandBarHolder(Form formModel, Map<String, Object> operation, String opName) {
+        String target = asString(getMapValueIgnoreCase(operation, "target")); //$NON-NLS-1$
+        boolean explicitFormTarget = target != null && "form".equalsIgnoreCase(target); //$NON-NLS-1$
+        Integer itemId = asOptionalInteger(getMapValueIgnoreCase(operation, "item_id"), "item_id"); //$NON-NLS-1$ //$NON-NLS-2$
+        String itemName = asString(getMapValueIgnoreCase(operation, "item_name")); //$NON-NLS-1$
+        boolean noItemReference = itemId == null && itemName == null;
+        if (explicitFormTarget || (noItemReference && target == null)) {
+            return formModel;
+        }
+        FormItem item = resolveRequiredItem(formModel, operation);
+        if (!(item instanceof CommandBarHolder holder)) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    opName + " target is not a command-bar holder (expected the form root or a Table): id=" //$NON-NLS-1$
+                            + itemId + ", name=" + itemName, false); //$NON-NLS-1$
+        }
+        return holder;
+    }
+
+    private List<FormStandardCommand> resolveStandardCommandsByName(
+            FormStandardCommandSource source, List<String> names) {
+        List<FormStandardCommand> resolved = new ArrayList<>();
+        for (String name : names) {
+            FormStandardCommand match = null;
+            for (FormStandardCommand candidate : source.getCommands()) {
+                if (candidate != null && name.equalsIgnoreCase(candidate.getName())) {
+                    match = candidate;
+                    break;
+                }
+            }
+            if (match == null) {
+                throw new MetadataOperationException(
+                        MetadataOperationCode.METADATA_NOT_FOUND,
+                        "Standard command not found: \"" + name + "\". Available: " //$NON-NLS-1$ //$NON-NLS-2$
+                                + collectStandardCommandNames(source.getCommands()), false);
+            }
+            resolved.add(match);
+        }
+        return resolved;
+    }
+
+    private List<String> extractRequiredExcludedCommandNames(Map<String, Object> operation) {
+        Object value;
+        if (hasMapKeyIgnoreCase(operation, "excluded_commands")) { //$NON-NLS-1$
+            value = getMapValueIgnoreCase(operation, "excluded_commands"); //$NON-NLS-1$
+        } else {
+            Map<String, Object> set = asMap(operation.get("set")); //$NON-NLS-1$
+            if (!hasMapKeyIgnoreCase(set, "excluded_commands")) { //$NON-NLS-1$
+                throw new MetadataOperationException(
+                        MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "set_excluded_commands operation requires explicit 'excluded_commands' array", false); //$NON-NLS-1$
+            }
+            value = getMapValueIgnoreCase(set, "excluded_commands"); //$NON-NLS-1$
+        }
+        if (!(value instanceof List<?> list)) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "set_excluded_commands operation requires 'excluded_commands' to be an array", false); //$NON-NLS-1$
+        }
+        List<String> names = new ArrayList<>();
+        for (Object entry : list) {
+            if (entry != null) {
+                String name = asString(entry);
+                if (name != null && !name.isBlank()) {
+                    names.add(name);
+                }
+            }
+        }
+        return names;
+    }
+
     private FormItem findFormItem(FormItemContainer container, Integer id, String name) {
         if (container == null) {
             return null;
@@ -4007,6 +4152,7 @@ public class EdtMetadataService {
                     MetadataOperationCode.INVALID_METADATA_CHANGE,
                     "Operation requires \"op\" field. Valid values: add_field, add_table, add_group, add_command, " //$NON-NLS-1$
                             + "add_button, set_item, remove_item, move_item, set_form_props, " //$NON-NLS-1$
+                            + "set_auto_command_bar, set_excluded_commands, " //$NON-NLS-1$
                             + "add_event_handler, set_event_handler, remove_event_handler", false); //$NON-NLS-1$
         }
 
@@ -4092,7 +4238,13 @@ public class EdtMetadataService {
                 + "For form-level events: {op:\"add_event_handler\", target:\"form\", event:\"<eventName>\", handler_name:\"...\"}. " //$NON-NLS-1$
                 + "For a field/table event: {op:\"add_event_handler\", item_id:<id>, event:\"<eventName>\"} — omit handler_name for a deterministic default. " //$NON-NLS-1$
                 + "set_event_handler upserts the same (target,event) pair; remove_event_handler removes it. " //$NON-NLS-1$
+                + "The built-in list/table command bar (autoCommandBar) and its excludedCommands are shown as commandBars[] above, NOT inside items[]. " //$NON-NLS-1$
+                + "DO NOT use set_form_props/set_item for autoCommandBar or excludedCommands — those are rejected as unsupported reference updates. " //$NON-NLS-1$
+                + "Use {op:\"set_auto_command_bar\", item_id:<table id> (or target:\"form\"), auto_fill:true|false} to toggle autofill, " //$NON-NLS-1$
+                + "and {op:\"set_excluded_commands\", item_id:<table id> (or target:\"form\"), excluded_commands:[\"CommandName\", ...], mode:\"replace\"|\"add\"|\"remove\"} " //$NON-NLS-1$
+                + "to hide standard commands — command names come from commandBars[].availableCommands. " //$NON-NLS-1$
                 + "Valid ops: add_field, add_table, add_group, add_command, add_button, set_item, remove_item, move_item, set_form_props, " //$NON-NLS-1$
+                + "set_auto_command_bar, set_excluded_commands, " //$NON-NLS-1$
                 + "add_event_handler, set_event_handler, remove_event_handler."; //$NON-NLS-1$
     }
 
@@ -4275,6 +4427,98 @@ public class EdtMetadataService {
                     actionName));
         }
         return result;
+    }
+
+    /**
+     * Surfaces built-in, reference-backed command bar state (autoCommandBar/excludedCommands)
+     * that {@link #collectFormItemNodes} cannot see, because {@code CommandBarHolder.autoCommandBar}
+     * lives outside {@code FormItemContainer.getItems()}. Scans the form root and every
+     * {@code CommandBarHolder} item reachable from it (e.g. a list form's {@code Table}).
+     * Only {@code AUTO_COMMAND_BAR} is reported here: an explicit {@code COMMAND_BAR} FormGroup
+     * is already visible as an ordinary {@link InspectFormLayoutResult.FormItemNode}.
+     */
+    private List<InspectFormLayoutResult.CommandBarNode> collectCommandBarNodes(
+            Form formModel, String formRootPath, InspectFormLayoutRequest request) {
+        List<InspectFormLayoutResult.CommandBarNode> result = new ArrayList<>();
+        if (formModel == null) {
+            return result;
+        }
+        appendCommandBarNode(formModel, null, null, "FORM", formRootPath, request, result); //$NON-NLS-1$
+        collectCommandBarNodesRecursive(formModel, formRootPath, request, result);
+        return result;
+    }
+
+    private void collectCommandBarNodesRecursive(
+            FormItemContainer container,
+            String parentPath,
+            InspectFormLayoutRequest request,
+            List<InspectFormLayoutResult.CommandBarNode> result) {
+        if (container == null) {
+            return;
+        }
+        for (FormItem item : container.getItems()) {
+            if (item == null) {
+                continue;
+            }
+            String name = item instanceof NamedElement namedElement ? namedElement.getName() : null;
+            String safeName = safeForPath(name != null && !name.isBlank() ? name : item.eClass().getName());
+            String path = parentPath + "/" + item.getId() + ":" + safeName; //$NON-NLS-1$ //$NON-NLS-2$
+            if (item instanceof CommandBarHolder holder) {
+                appendCommandBarNode(holder, Integer.valueOf(item.getId()), name, item.eClass().getName(), path, request, result);
+            }
+            if (item instanceof FormItemContainer nestedContainer) {
+                collectCommandBarNodesRecursive(nestedContainer, path, request, result);
+            }
+        }
+    }
+
+    private void appendCommandBarNode(
+            CommandBarHolder holder,
+            Integer ownerItemId,
+            String ownerItemName,
+            String ownerKind,
+            String ownerPath,
+            InspectFormLayoutRequest request,
+            List<InspectFormLayoutResult.CommandBarNode> result) {
+        AutoCommandBar autoCommandBar = holder.getAutoCommandBar();
+        List<String> excludedCommands = holder instanceof FormStandardCommandSource source
+                ? collectStandardCommandNames(source.getExcludedCommands())
+                : List.of();
+        List<String> availableCommands = holder instanceof FormStandardCommandSource source
+                ? collectStandardCommandNames(source.getCommands())
+                : List.of();
+        if (autoCommandBar == null && excludedCommands.isEmpty() && availableCommands.isEmpty()) {
+            return;
+        }
+        Boolean autoFill = autoCommandBar != null ? Boolean.valueOf(autoCommandBar.isAutoFill()) : null;
+        List<InspectFormLayoutResult.FormItemNode> items = List.of();
+        if (autoCommandBar != null && !autoCommandBar.getItems().isEmpty()) {
+            FormInspectState barState = new FormInspectState(request.effectiveMaxItems());
+            items = collectFormItemNodes(
+                    autoCommandBar, ownerItemId, ownerPath + "/autoCommandBar", 0, request, barState); //$NON-NLS-1$
+        }
+        result.add(new InspectFormLayoutResult.CommandBarNode(
+                ownerItemId,
+                ownerItemName,
+                ownerKind,
+                "AUTO_COMMAND_BAR", //$NON-NLS-1$
+                autoFill,
+                excludedCommands,
+                availableCommands,
+                items));
+    }
+
+    private List<String> collectStandardCommandNames(List<FormStandardCommand> commands) {
+        if (commands == null || commands.isEmpty()) {
+            return List.of();
+        }
+        List<String> names = new ArrayList<>();
+        for (FormStandardCommand command : commands) {
+            if (command != null && command.getName() != null && !command.getName().isBlank()) {
+                names.add(command.getName());
+            }
+        }
+        return names;
     }
 
     private Map<String, Object> collectScalarProperties(EObject object, boolean includeTitles) {

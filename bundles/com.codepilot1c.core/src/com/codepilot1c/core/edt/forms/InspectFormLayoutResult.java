@@ -15,10 +15,11 @@ public record InspectFormLayoutResult(
         boolean truncated,
         String mutationHint,
         List<FormItemNode> items,
-        List<FormCommandNode> commands
+        List<FormCommandNode> commands,
+        List<CommandBarNode> commandBars
 ) {
     /**
-     * Constructor without mutationHint and commands for backward compatibility.
+     * Constructor without mutationHint, commands and commandBars for backward compatibility.
      */
     public InspectFormLayoutResult(
             String projectName,
@@ -28,11 +29,11 @@ public record InspectFormLayoutResult(
             int totalItems,
             boolean truncated,
             List<FormItemNode> items) {
-        this(projectName, formFqn, formName, formProperties, totalItems, truncated, null, items, List.of());
+        this(projectName, formFqn, formName, formProperties, totalItems, truncated, null, items, List.of(), List.of());
     }
 
     /**
-     * Constructor without commands for backward compatibility.
+     * Constructor without commands and commandBars for backward compatibility.
      */
     public InspectFormLayoutResult(
             String projectName,
@@ -43,7 +44,23 @@ public record InspectFormLayoutResult(
             boolean truncated,
             String mutationHint,
             List<FormItemNode> items) {
-        this(projectName, formFqn, formName, formProperties, totalItems, truncated, mutationHint, items, List.of());
+        this(projectName, formFqn, formName, formProperties, totalItems, truncated, mutationHint, items, List.of(), List.of());
+    }
+
+    /**
+     * Constructor without commandBars for backward compatibility.
+     */
+    public InspectFormLayoutResult(
+            String projectName,
+            String formFqn,
+            String formName,
+            Map<String, Object> formProperties,
+            int totalItems,
+            boolean truncated,
+            String mutationHint,
+            List<FormItemNode> items,
+            List<FormCommandNode> commands) {
+        this(projectName, formFqn, formName, formProperties, totalItems, truncated, mutationHint, items, commands, List.of());
     }
 
     /**
@@ -132,6 +149,25 @@ public record InspectFormLayoutResult(
             String name,
             Map<String, String> title,
             String action
+    ) {
+    }
+
+    /**
+     * Built-in, reference-backed command bar state discovered on the form root or a
+     * {@code CommandBarHolder} item (e.g. a list {@code Table}). Distinct from ordinary
+     * {@link FormItemNode} entries because {@code autoCommandBar}/{@code excludedCommands}
+     * are EReferences outside {@code FormItemContainer.getItems()} and are rejected by the
+     * generic set_form_props/set_item reflection path.
+     */
+    public record CommandBarNode(
+            Integer ownerItemId,
+            String ownerItemName,
+            String ownerKind,
+            String kind,
+            Boolean autoFill,
+            List<String> excludedCommands,
+            List<String> availableCommands,
+            List<FormItemNode> items
     ) {
     }
 }

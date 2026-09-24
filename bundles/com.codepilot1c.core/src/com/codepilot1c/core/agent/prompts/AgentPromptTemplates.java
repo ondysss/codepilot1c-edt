@@ -178,7 +178,8 @@ public final class AgentPromptTemplates {
             sb.append("5. Для структурных правок элементов формы используй mutate_form_model. Для декларативных сценариев (создание/изменение формы + реквизиты + макет) используй apply_form_recipe.\n"); //$NON-NLS-1$
             sb.append("   - apply_form_recipe: mode=create|update|upsert, form_fqn или owner_fqn+name, attributes[], layout[].\n"); //$NON-NLS-1$
             sb.append("   - attributes[]: name/id, action=create|update|upsert|remove, type=String(50)|Number(15,2)|CatalogRef.X, и свойства.\n"); //$NON-NLS-1$
-            sb.append("   - layout[]: операции как в mutate_form_model (add_group/add_field/set_item/remove_item/move_item/set_form_props).\n"); //$NON-NLS-1$
+            sb.append("   - layout[]: операции как в mutate_form_model (add_group/add_field/set_item/remove_item/move_item/set_form_props/set_auto_command_bar/set_excluded_commands).\n"); //$NON-NLS-1$
+            sb.append("   - Встроенная командная панель списка/таблицы (autoCommandBar) и excludedCommands видны в inspect_form_layout как commandBars[]. НЕ используй set_form_props для autoCommandBar/excludedCommands и НЕ создавай add_group как фейковую CommandBar — используй set_auto_command_bar/set_excluded_commands.\n"); //$NON-NLS-1$
             sb.append("6. Для форм в текущем EDT-формате данные хранятся в owner .mdo, не используй ensure_module_artifact для Form FQN.\n"); //$NON-NLS-1$
             sb.append("7. Для диагностики формы проверяй не только error/warning в файле, но и runtime/check-маркеры по проекту.\n"); //$NON-NLS-1$
             sb.append("8. После изменений формы обязательно делай get_diagnostics(scope=file) и get_diagnostics(scope=project, include_runtime_markers=true).\n\n"); //$NON-NLS-1$
