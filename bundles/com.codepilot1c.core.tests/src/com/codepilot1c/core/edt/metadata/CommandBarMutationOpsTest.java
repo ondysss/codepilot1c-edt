@@ -23,6 +23,7 @@ import com._1c.g5.v8.dt.form.model.FormFactory;
 import com._1c.g5.v8.dt.form.model.FormField;
 import com._1c.g5.v8.dt.form.model.FormStandardCommand;
 import com._1c.g5.v8.dt.form.model.Table;
+import com._1c.g5.v8.dt.platform.model.PlatformPicture;
 
 import com.codepilot1c.core.edt.forms.EventHandlerCatalog;
 import com.codepilot1c.core.edt.forms.EventHandlerTargetResolver;
@@ -320,6 +321,47 @@ public class CommandBarMutationOpsTest {
         assertEquals(command, button.getCommandName());
     }
 
+    @Test
+    public void addButtonWithoutParentTargetsFormBuiltInAutoCommandBar() throws Exception {
+        Form form = FormFactory.eINSTANCE.createForm();
+        AutoCommandBar autoBar = FormFactory.eINSTANCE.createAutoCommandBar();
+        form.setAutoCommandBar(autoBar);
+        FormCommand command = FormFactory.eINSTANCE.createFormCommand();
+        command.setName("Run"); //$NON-NLS-1$
+        form.getFormCommands().add(command);
+
+        Map<String, Object> operation = new LinkedHashMap<>();
+        operation.put("op", "add_button"); //$NON-NLS-1$ //$NON-NLS-2$
+        operation.put("name", "FormRunButton"); //$NON-NLS-1$ //$NON-NLS-2$
+        operation.put("command_name", "Run"); //$NON-NLS-1$ //$NON-NLS-2$
+
+        applyFormModelOperations(form, List.of(operation));
+
+        assertTrue("form root items must stay untouched; button belongs to form autoCommandBar", //$NON-NLS-1$
+                form.getItems().isEmpty());
+        assertEquals(1, autoBar.getItems().size());
+        assertTrue(autoBar.getItems().get(0) instanceof Button);
+        Button button = (Button) autoBar.getItems().get(0);
+        assertEquals("FormRunButton", button.getName()); //$NON-NLS-1$
+        assertEquals(command, button.getCommandName());
+    }
+
+    @Test
+    public void addCommandStoresStdPictureName() throws Exception {
+        Form form = FormFactory.eINSTANCE.createForm();
+        Map<String, Object> operation = commandOperation("Run", "RunAction"); //$NON-NLS-1$ //$NON-NLS-2$
+        operation.put("picture", "StdPicture.ExecuteTask"); //$NON-NLS-1$ //$NON-NLS-2$
+
+        applyFormModelOperations(form, List.of(operation));
+
+        assertEquals(1, form.getFormCommands().size());
+        FormCommand command = form.getFormCommands().get(0);
+        assertTrue(command.getPicture() instanceof PlatformPicture);
+        PlatformPicture picture = (PlatformPicture) command.getPicture();
+        assertEquals("ExecuteTask", picture.getName()); //$NON-NLS-1$
+        assertEquals("StdPicture.ExecuteTask", picture.getUrl()); //$NON-NLS-1$
+    }
+
     // --- regression: generic reference rejection is unaffected ------------------
 
     @Test
@@ -375,6 +417,16 @@ public class CommandBarMutationOpsTest {
         FormStandardCommand command = FormFactory.eINSTANCE.createFormStandardCommand();
         command.setName(name);
         return command;
+    }
+
+    private static Map<String, Object> commandOperation(String name, String action) {
+        Map<String, Object> operation = new LinkedHashMap<>();
+        operation.put("op", "add_command"); //$NON-NLS-1$ //$NON-NLS-2$
+        operation.put("name", name); //$NON-NLS-1$
+        if (action != null) {
+            operation.put("action", action); //$NON-NLS-1$
+        }
+        return operation;
     }
 
     private static Map<String, Object> opSetAutoCommandBar(

@@ -97,6 +97,14 @@ public class MutateFormModelTool extends AbstractTool {
                         "enum": ["replace", "add", "remove"],
                         "description": "For set_excluded_commands: replace (default) overwrites the excluded list, add appends to it, remove removes from it."
                       },
+                      "shortcut": {
+                        "type": "string",
+                        "description": "For add_command: optional command keyboard shortcut persisted on the FormCommand."
+                      },
+                      "picture": {
+                        "type": "string",
+                        "description": "For add_command: optional platform/common picture reference such as StdPicture.ExecuteTask; persisted on the FormCommand."
+                      },
                       "event": {
                         "type": "string",
                         "description": "Event name (EN or RU) for add_event_handler/set_event_handler/remove_event_handler; validated at runtime against the item's allowed events."

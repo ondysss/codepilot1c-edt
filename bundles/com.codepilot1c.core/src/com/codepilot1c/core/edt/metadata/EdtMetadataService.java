@@ -134,6 +134,8 @@ import com._1c.g5.v8.dt.metadata.mdclass.BasicCommand;
 import com._1c.g5.v8.dt.platform.core.typeinfo.TypeDescriptionInfoWithTypeInfo;
 import com._1c.g5.v8.dt.platform.core.typeinfo.TypeInfo;
 import com._1c.g5.v8.dt.platform.core.typeinfo.TypeProviderService;
+import com._1c.g5.v8.dt.platform.model.PlatformFactory;
+import com._1c.g5.v8.dt.platform.model.PlatformPicture;
 import com._1c.g5.v8.dt.metadata.mdclass.ScriptVariant;
 import com._1c.g5.v8.dt.metadata.mdclass.MdClassPackage;
 import com._1c.g5.v8.dt.metadata.mdclass.MdClassFactory;
@@ -2492,8 +2494,36 @@ public class EdtMetadataService {
         if (modifiesStoredData instanceof Boolean b) {
             formCommand.setModifiesStoredData(b.booleanValue());
         }
+        Object shortcut = firstNonNull(
+                getMapValueIgnoreCase(operation, "shortcut"), //$NON-NLS-1$
+                getMapValueIgnoreCase(set, "shortcut")); //$NON-NLS-1$
+        String shortcutText = asString(shortcut);
+        if (shortcutText != null && !shortcutText.isBlank()) {
+            formCommand.setShortcut(shortcutText.trim());
+        }
+        Object picture = firstNonNull(
+                getMapValueIgnoreCase(operation, "picture"), //$NON-NLS-1$
+                getMapValueIgnoreCase(set, "picture")); //$NON-NLS-1$
+        String pictureText = asString(picture);
+        if (pictureText != null && !pictureText.isBlank()) {
+            formCommand.setPicture(toPlatformPicture(pictureText));
+        }
         formModel.getFormCommands().add(formCommand);
         return formCommand;
+    }
+
+    private PlatformPicture toPlatformPicture(String pictureName) {
+        String normalized = pictureName.trim();
+        String simpleName = normalized;
+        int dot = simpleName.lastIndexOf('.');
+        if (dot >= 0 && dot + 1 < simpleName.length()) {
+            simpleName = simpleName.substring(dot + 1);
+        }
+        PlatformPicture picture = PlatformFactory.eINSTANCE.createPlatformPicture();
+        picture.setName(simpleName);
+        picture.setNameRu(simpleName);
+        picture.setUrl(normalized);
+        return picture;
     }
 
     private Button addButtonItem(
@@ -2507,10 +2537,14 @@ public class EdtMetadataService {
         FormNewItemDescriptor descriptor = buildFormNewItemDescriptor(operation, name);
         if (itemManagementService != null && command != null) {
             try {
+                Button button;
                 if (index != null && index.intValue() >= 0 && index.intValue() <= parentContainer.getItems().size()) {
-                    return itemManagementService.addButton(parentContainer, index.intValue(), command, null, formModel, descriptor);
+                    button = itemManagementService.addButton(parentContainer, index.intValue(), command, null, formModel, descriptor);
+                } else {
+                    button = itemManagementService.addButton(parentContainer, command, null, formModel, descriptor);
                 }
-                return itemManagementService.addButton(parentContainer, command, null, formModel, descriptor);
+                applyRequestedButtonIdentity(button, operation, name);
+                return button;
             } catch (Exception e) {
                 LOG.warn("IFormItemManagementService.addButton() failed, using manual path: %s", e.getMessage()); //$NON-NLS-1$
             }
@@ -2528,6 +2562,17 @@ public class EdtMetadataService {
         button.setType(buttonType);
         insertItemIntoContainer(parentContainer, button, index);
         return button;
+    }
+
+    private void applyRequestedButtonIdentity(Button button, Map<String, Object> operation, String name) {
+        if (button == null) {
+            return;
+        }
+        button.setName(name);
+        Object title = getMapValueIgnoreCase(operation, "title"); //$NON-NLS-1$
+        if (title != null) {
+            applyTitleValue(button, title);
+        }
     }
 
     private FormCommand findFormCommandByName(Form formModel, String name) {
@@ -2908,6 +2953,9 @@ public class EdtMetadataService {
                 return holder.getAutoCommandBar();
             }
             return explicitParent;
+        }
+        if (formModel.getAutoCommandBar() != null) {
+            return formModel.getAutoCommandBar();
         }
         // No parent specified — find the top-level COMMAND_BAR automatically
         FormGroup commandBar = findTopLevelCommandBar(formModel);
@@ -4234,9 +4282,9 @@ public class EdtMetadataService {
                 + "For a ValueTable/ValueTree attribute use {op:\"add_table\", name:\"...\", data_path:\"<attr>\"} to auto-generate its columns. " //$NON-NLS-1$
                 + "For set_item use item_id:<id> (NOT id). " //$NON-NLS-1$
                 + "For move_item use parent_item_id:<id> or parent_item_name:\"<name>\" (NOT parent_id or parent). " //$NON-NLS-1$
-                + "For commands: {op:\"add_command\", name:\"CmdName\", action:\"HandlerProc\", title:\"Button Title\"}, " //$NON-NLS-1$
-                + "then {op:\"add_button\", name:\"BtnName\", command_name:\"CmdName\"}. For a built-in list/table autoCommandBar, pass parent_item_id:<table id>; " //$NON-NLS-1$
-                + "CodePilot will place the button inside the table's autoCommandBar instead of the table item tree. " //$NON-NLS-1$
+                + "For commands: {op:\"add_command\", name:\"CmdName\", action:\"HandlerProc\", title:\"Button Title\", picture:\"StdPicture.ExecuteTask\"}, " //$NON-NLS-1$
+                + "then {op:\"add_button\", name:\"BtnName\", command_name:\"CmdName\"}. For a built-in form command bar, omit parent; for a built-in list/table autoCommandBar, pass parent_item_id:<table id>; " //$NON-NLS-1$
+                + "CodePilot will place the button inside the target autoCommandBar instead of the ordinary item tree. " //$NON-NLS-1$
                 + "DO NOT create a new CommandBar group — the form already has one. DO NOT use add_group for command bars. " //$NON-NLS-1$
                 + "Inside a Table parent, Boolean columns must use field_type=\"INPUT_FIELD\" (the platform draws a checkmark automatically); " //$NON-NLS-1$
                 + "CHECK_BOX_FIELD/RADIO_BUTTON_FIELD/PROGRESS_BAR_FIELD/TRACK_BAR_FIELD are rejected by SU107 in Tables. " //$NON-NLS-1$
