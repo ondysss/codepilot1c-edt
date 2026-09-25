@@ -16,7 +16,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com._1c.g5.v8.dt.form.model.AutoCommandBar;
+import com._1c.g5.v8.dt.form.model.Button;
 import com._1c.g5.v8.dt.form.model.Form;
+import com._1c.g5.v8.dt.form.model.FormCommand;
 import com._1c.g5.v8.dt.form.model.FormFactory;
 import com._1c.g5.v8.dt.form.model.FormField;
 import com._1c.g5.v8.dt.form.model.FormStandardCommand;
@@ -287,6 +289,35 @@ public class CommandBarMutationOpsTest {
             assertEquals(MetadataOperationCode.INVALID_METADATA_CHANGE, e.getCode());
             assertTrue(e.getMessage().contains("command-bar holder")); //$NON-NLS-1$
         }
+    }
+
+    // --- add_button into built-in command bar -----------------------------------
+
+    @Test
+    public void addButtonWithTableParentTargetsBuiltInAutoCommandBar() throws Exception {
+        Form form = FormFactory.eINSTANCE.createForm();
+        Table table = createListTable(form, 1, "List"); //$NON-NLS-1$
+        AutoCommandBar autoBar = FormFactory.eINSTANCE.createAutoCommandBar();
+        table.setAutoCommandBar(autoBar);
+        FormCommand command = FormFactory.eINSTANCE.createFormCommand();
+        command.setName("Run"); //$NON-NLS-1$
+        form.getFormCommands().add(command);
+
+        Map<String, Object> operation = new LinkedHashMap<>();
+        operation.put("op", "add_button"); //$NON-NLS-1$ //$NON-NLS-2$
+        operation.put("parent_item_id", Integer.valueOf(1)); //$NON-NLS-1$
+        operation.put("name", "RunButton"); //$NON-NLS-1$ //$NON-NLS-2$
+        operation.put("command_name", "Run"); //$NON-NLS-1$ //$NON-NLS-2$
+
+        applyFormModelOperations(form, List.of(operation));
+
+        assertTrue("table children must stay untouched; button belongs to autoCommandBar", //$NON-NLS-1$
+                table.getItems().isEmpty());
+        assertEquals(1, autoBar.getItems().size());
+        assertTrue(autoBar.getItems().get(0) instanceof Button);
+        Button button = (Button) autoBar.getItems().get(0);
+        assertEquals("RunButton", button.getName()); //$NON-NLS-1$
+        assertEquals(command, button.getCommandName());
     }
 
     // --- regression: generic reference rejection is unaffected ------------------

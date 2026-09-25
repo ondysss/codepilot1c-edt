@@ -69,7 +69,7 @@ public class MutateFormModelTool extends AbstractTool {
                       },
                       "parent_item_id": {
                         "type": "integer",
-                        "description": "Id of the parent container (group/table) from inspect_form_layout. Defaults to the form root."
+                        "description": "Id of the parent container from inspect_form_layout. For add_button, passing the id of a Table/list that has commandBars[].kind=AUTO_COMMAND_BAR places the button into that built-in autoCommandBar; otherwise it targets the resolved container."
                       },
                       "parent_item_name": {
                         "type": "string",

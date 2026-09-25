@@ -2903,7 +2903,11 @@ public class EdtMetadataService {
             parentItemName = asString(getMapValueIgnoreCase(operation, "parent")); //$NON-NLS-1$
         }
         if (parentItemId != null || parentItemName != null) {
-            return resolveTargetContainer(formModel, operation);
+            FormItemContainer explicitParent = resolveTargetContainer(formModel, operation);
+            if (explicitParent instanceof CommandBarHolder holder && holder.getAutoCommandBar() != null) {
+                return holder.getAutoCommandBar();
+            }
+            return explicitParent;
         }
         // No parent specified — find the top-level COMMAND_BAR automatically
         FormGroup commandBar = findTopLevelCommandBar(formModel);
@@ -4231,7 +4235,8 @@ public class EdtMetadataService {
                 + "For set_item use item_id:<id> (NOT id). " //$NON-NLS-1$
                 + "For move_item use parent_item_id:<id> or parent_item_name:\"<name>\" (NOT parent_id or parent). " //$NON-NLS-1$
                 + "For commands: {op:\"add_command\", name:\"CmdName\", action:\"HandlerProc\", title:\"Button Title\"}, " //$NON-NLS-1$
-                + "then {op:\"add_button\", name:\"BtnName\", command_name:\"CmdName\"} — parent defaults to existing CommandBar. " //$NON-NLS-1$
+                + "then {op:\"add_button\", name:\"BtnName\", command_name:\"CmdName\"}. For a built-in list/table autoCommandBar, pass parent_item_id:<table id>; " //$NON-NLS-1$
+                + "CodePilot will place the button inside the table's autoCommandBar instead of the table item tree. " //$NON-NLS-1$
                 + "DO NOT create a new CommandBar group — the form already has one. DO NOT use add_group for command bars. " //$NON-NLS-1$
                 + "Inside a Table parent, Boolean columns must use field_type=\"INPUT_FIELD\" (the platform draws a checkmark automatically); " //$NON-NLS-1$
                 + "CHECK_BOX_FIELD/RADIO_BUTTON_FIELD/PROGRESS_BAR_FIELD/TRACK_BAR_FIELD are rejected by SU107 in Tables. " //$NON-NLS-1$
