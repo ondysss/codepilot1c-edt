@@ -8183,6 +8183,12 @@ public class EdtMetadataService {
                     MetadataOperationCode.INVALID_METADATA_CHANGE,
                     "Changing uuid is not supported", false); //$NON-NLS-1$
         }
+        // ScheduledJob.schedule is an @ExternalProperty transient reference: the generic path below
+        // rejects it as read-only, the value lives in its own top object (Schedule.schedule).
+        if (ScheduledJobScheduleApplier.isScheduleField(target, fieldName)) {
+            applyScheduledJobSchedule((com._1c.g5.v8.dt.metadata.mdclass.ScheduledJob) target, value, transaction);
+            return;
+        }
         if ("methodName".equalsIgnoreCase(fieldName) //$NON-NLS-1$
                 && target != null
                 && "ScheduledJob".equals(target.eClass().getName()) //$NON-NLS-1$
@@ -8251,6 +8257,52 @@ public class EdtMetadataService {
 
         Object converted = convertAttributeValue(attribute, value);
         target.eSet(eFeature, converted);
+    }
+
+    /**
+     * Sets {@code ScheduledJob.schedule} (the {@code Schedule.schedule} file) with "replace" semantics,
+     * see {@link ScheduledJobScheduleApplier}. An existing schedule is rewritten in place; a missing one
+     * is attached as a BM top object with a generated external-property FQN before the reference is
+     * bound — the pattern of {@code Role.rights} and {@code BasicForm.form}. The value is parsed before
+     * anything is attached, so a refused value leaves no orphan top object.
+     */
+    private void applyScheduledJobSchedule(com._1c.g5.v8.dt.metadata.mdclass.ScheduledJob job, Object value,
+            IBmPlatformTransaction transaction) {
+        com._1c.g5.v8.dt.schedule.model.Schedule existing = job.getSchedule();
+        // A job without Schedule.schedule does not return null: EDT hands out an unresolved proxy to the
+        // expected external object. Editing the proxy persists nothing (live probe: success reported,
+        // no file on disk), so a proxy means "no schedule yet".
+        if (existing != null && !existing.eIsProxy()) {
+            ScheduledJobScheduleApplier.fill(existing, value);
+            LOG.info("applyScheduledJobSchedule: rewrote existing schedule of %s", job.getName()); //$NON-NLS-1$
+            return;
+        }
+        com._1c.g5.v8.dt.schedule.model.Schedule created = ScheduledJobScheduleApplier.newDefaultSchedule();
+        ScheduledJobScheduleApplier.fill(created, value);
+        if (!(created instanceof IBmObject createdBm)) {
+            throw new MetadataOperationException(MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Created Schedule is not a BM object", false); //$NON-NLS-1$
+        }
+        IBmNamespace namespace = job instanceof IBmObject jobBm ? jobBm.bmGetNamespace() : null;
+        if (namespace == null || transaction == null) {
+            throw new MetadataOperationException(MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Scheduled job is not attached to a BM transaction: " + job.getName(), false); //$NON-NLS-1$
+        }
+        String externalFqn = gateway.getTopObjectFqnGenerator()
+                .generateExternalPropertyFqn(job, MdClassPackage.Literals.SCHEDULED_JOB__SCHEDULE);
+        if (externalFqn == null || externalFqn.isBlank()) {
+            throw new MetadataOperationException(MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Cannot generate external FQN for ScheduledJob.schedule", false); //$NON-NLS-1$
+        }
+        transaction.attachTopObject(namespace, createdBm, externalFqn);
+        Object attached = transaction.getTopObjectByFqn(namespace, externalFqn);
+        if (!(attached instanceof com._1c.g5.v8.dt.schedule.model.Schedule schedule)) {
+            throw new MetadataOperationException(MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Attached Schedule is not resolvable: " + externalFqn, false); //$NON-NLS-1$
+        }
+        job.setSchedule(schedule);
+        LOG.info("applyScheduledJobSchedule: attached new schedule %s (previous: %s)", externalFqn, //$NON-NLS-1$
+                existing == null ? "none" : "unresolved proxy"); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private boolean applyCommandGroupValue(MdObject target, EReference reference, Object value, String platformVersion) {
@@ -10082,6 +10134,9 @@ public class EdtMetadataService {
             }
             names.add(feature.getName());
         }
+        if (target instanceof com._1c.g5.v8.dt.metadata.mdclass.ScheduledJob) {
+            names.add(ScheduledJobScheduleApplier.FIELD_NAME);
+        }
         Collections.sort(names, String.CASE_INSENSITIVE_ORDER);
         return names;
     }
@@ -10091,6 +10146,12 @@ public class EdtMetadataService {
             throw new MetadataOperationException(
                     MetadataOperationCode.INVALID_METADATA_CHANGE,
                     "Cannot unset required field: uuid", false); //$NON-NLS-1$
+        }
+        if (ScheduledJobScheduleApplier.isScheduleField(target, fieldName)) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Removing a scheduled job schedule is not supported: set a new one with set.schedule " //$NON-NLS-1$
+                            + "or turn the job off with set.use=false", false); //$NON-NLS-1$
         }
         String resolvedFieldName = normalizeMetadataFieldAlias(fieldName);
         EStructuralFeature feature = resolveFeatureIgnoreCase(target, resolvedFieldName);

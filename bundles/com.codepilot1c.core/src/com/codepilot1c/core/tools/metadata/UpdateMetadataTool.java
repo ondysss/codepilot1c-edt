@@ -40,7 +40,7 @@ public class UpdateMetadataTool extends AbstractTool {
                 },
                 "changes": {
                   "type": "object",
-                  "description": "Property changes for an existing object: {set:{...}, unset:[...], children_ops:[...]}. children_ops only supports rename/delete/set on EXISTING children (op: rename|delete|set). To CREATE a new child use add_metadata_child; to mutate form layout use mutate_form_model. For EventSubscription.source use set.source as a TypeDescription string or {types:[...]}."
+                  "description": "Property changes for an existing object: {set:{...}, unset:[...], children_ops:[...]}. children_ops only supports rename/delete/set on EXISTING children (op: rename|delete|set). To CREATE a new child use add_metadata_child; to mutate form layout use mutate_form_model. For EventSubscription.source use set.source as a TypeDescription string or {types:[...]}. For ScheduledJob use set.schedule as an object (Schedule.schedule, replaces the whole schedule; omitted fields take EDT defaults), e.g. {repeatPeriodInDay:300, daysRepeatPeriod:1}; keys: beginDate/endDate YYYY-MM-DD, beginTime/endTime/completionTime HH:MM:SS, daysRepeatPeriod, repeatPeriodInDay, repeatPause, completionInterval, weeksPeriod, weekDays [Mon..Sun or 1..7], weekDayInMonth, dayInMonth, months [Jan..Dec or 1..12], dailySchedules [{beginTime,...}]."
                 },
                 "validation_token": {
                   "type": "string",

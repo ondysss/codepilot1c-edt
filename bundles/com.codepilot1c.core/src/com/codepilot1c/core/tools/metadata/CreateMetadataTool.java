@@ -103,7 +103,7 @@ public class CreateMetadataTool extends AbstractTool {
                 },
                 "properties": {
                   "type": "object",
-                  "description": "Дополнительные свойства нового объекта. Используйте update_metadata, если объект уже существует."
+                  "description": "Дополнительные свойства нового объекта. Используйте update_metadata, если объект уже существует. ScheduledJob: schedule — объект расписания (Schedule.schedule), напр. {\\"repeatPeriodInDay\\":300,\\"daysRepeatPeriod\\":1}; неуказанные поля — умолчания EDT."
                 },
                 "validation_token": {
                   "type": "string",
