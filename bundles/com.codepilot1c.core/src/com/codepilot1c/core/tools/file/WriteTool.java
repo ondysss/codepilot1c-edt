@@ -206,6 +206,12 @@ public class WriteTool extends AbstractTool {
                     "Пример: create_metadata(kind=\"Catalog\", name=\"Контрагенты\", synonym=\"Контрагенты\")");
         }
 
+        // The command interface is an EDT model as well; write_file has no emergency override for it.
+        if (EdtModelFileGuard.isCommandInterfacePath(normalizedPath)) {
+            logWarning("[WRITE_FILE] ✗ ЗАБЛОКИРОВАНО: Попытка перезаписать командный интерфейс (.cmi) напрямую: " + normalizedPath);
+            return ToolResult.failure(EdtModelFileGuard.commandInterfaceRefusal(null));
+        }
+
         // FORM/DCS/TEMPLATE artifacts are structured EDT files and must be changed through semantic tools.
         if (isStructuredEdtArtifactPath(normalizedPath)) {
             logWarning("═══════════════════════════════════════════════════════════════");
