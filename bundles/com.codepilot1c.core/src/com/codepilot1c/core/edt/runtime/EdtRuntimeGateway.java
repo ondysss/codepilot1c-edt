@@ -78,6 +78,38 @@ public class EdtRuntimeGateway {
         return service;
     }
 
+    /** The explicit extension reload must bypass wrappers that expand an update to other projects. */
+    public SynchronizationLease acquireNativeInfobaseSynchronizationManager() throws Exception {
+        VibeCorePlugin plugin = requirePlugin();
+        BundleContext context = plugin.getBundle().getBundleContext();
+        String name = "com._1c.g5.v8.dt.platform.services.core.infobases.sync.IInfobaseSynchronizationManager";
+        ServiceReference<?>[] references = context.getServiceReferences(name, null);
+        if (references != null) {
+            for (ServiceReference<?> reference : references) {
+                if (isNativeSynchronizationProvider(reference)) {
+                    Object service = context.getService(reference);
+                    if (service != null) {
+                        return new SynchronizationLease(context, reference, service);
+                    }
+                }
+            }
+        }
+        throw serviceUnavailable("Native IInfobaseSynchronizationManager");
+    }
+
+    static boolean isNativeSynchronizationProvider(ServiceReference<?> reference) {
+        return reference != null && reference.getBundle() != null
+                && "com._1c.g5.v8.dt.platform.services.core".equals(reference.getBundle().getSymbolicName());
+    }
+
+    public record SynchronizationLease(BundleContext context, ServiceReference<?> reference,
+            Object service) implements AutoCloseable {
+        @Override
+        public void close() {
+            context.ungetService(reference);
+        }
+    }
+
     public IRuntimeComponentManager getRuntimeComponentManager() {
         VibeCorePlugin plugin = requirePlugin();
         IRuntimeComponentManager service = plugin.getRuntimeComponentManager();

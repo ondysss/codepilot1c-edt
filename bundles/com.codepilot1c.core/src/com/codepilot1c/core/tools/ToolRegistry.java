@@ -345,6 +345,7 @@ public class ToolRegistry {
         // AnalyzeToolErrorTool, EdtUpdateInfobaseTool, EdtLaunchAppTool
         // are now dispatched through EdtDiagnosticsTool
         defaults.add(new com.codepilot1c.core.tools.workspace.UpdateInfobaseStatusTool());
+        defaults.add(new com.codepilot1c.core.tools.workspace.EdtUpdateExtensionTool());
         defaults.add(new QaRunTool());
         defaults.add(new QaPrepareFormContextTool());
         defaults.add(new QaPlanScenarioTool());
