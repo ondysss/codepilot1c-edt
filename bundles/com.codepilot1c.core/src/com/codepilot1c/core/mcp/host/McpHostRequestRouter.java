@@ -239,6 +239,7 @@ public class McpHostRequestRouter {
             return ok(request, toolError("Unknown tool: " + toolName)); //$NON-NLS-1$
         }
 
+        boolean allowedByExplicitProfileRule = false;
         if (profileGateEnabled) {
             if (sessionProfile == null) {
                 return denyByProfile(request, session, toolName, arguments, null,
@@ -256,6 +257,7 @@ public class McpHostRequestRouter {
                         "denied_by_" + gate.layer() + "_rule", //$NON-NLS-1$ //$NON-NLS-2$
                         gate.layer(), ruleDescription);
             }
+            allowedByExplicitProfileRule = gate.decision() == ProfilePermissionGate.GateDecision.ALLOW;
             if (gate.decision() == ProfilePermissionGate.GateDecision.ASK) {
                 if (hasScopedValidationTokenConfirmation(resolution, arguments)) {
                     // A validation-token tool verifies and consumes its one-time token in its
@@ -278,8 +280,12 @@ public class McpHostRequestRouter {
         }
 
         EffectiveToolPolicy effectivePolicy = effectiveToolPolicy(resolution, arguments);
-        if (effectivePolicy.requiresConfirmation()
-                && !hasScopedValidationTokenConfirmation(resolution, arguments)) {
+        boolean hostPolicyAllowsBuiltInMutation = decision == PermissionDecision.ALLOW
+                && !resolution.dynamic();
+        boolean confirmationSatisfied = hostPolicyAllowsBuiltInMutation
+                || (allowedByExplicitProfileRule && !resolution.dynamic())
+                || hasScopedValidationTokenConfirmation(resolution, arguments);
+        if (effectivePolicy.requiresConfirmation() && !confirmationSatisfied) {
             return denyConfirmationUnavailable(request, session, toolName, arguments);
         }
 

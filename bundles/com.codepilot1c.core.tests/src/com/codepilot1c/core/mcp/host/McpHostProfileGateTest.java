@@ -464,6 +464,37 @@ public class McpHostProfileGateTest {
         assertEquals(0, tool.calls);
     }
 
+
+    @Test
+    public void explicitProfileAllowAdmitsBuiltInMutatingToolWithoutValidationToken() {
+        CapturingTool tool = register(new CapturingTool("workspace_import_project", true)); //$NON-NLS-1$
+        String profileId = registerProfile(Set.of(tool.getName()),
+                List.of(PermissionRule.allow(tool.getName()).forAllResources()), false);
+
+        McpMessage response = router(McpHostConfig.MutationPolicy.ALLOW, profileId)
+                .route(call(tool.getName(), Map.of("refresh", Boolean.TRUE)), session()); //$NON-NLS-1$
+
+        assertFalse(text(response), isToolError(response));
+        assertEquals(1, tool.calls);
+    }
+
+    @Test
+    public void profileAllowDoesNotAdmitDynamicMutatingToolWithoutValidationToken() {
+        CapturingTool tool = new CapturingTool("mcp_dynamic_profile_allow", false); //$NON-NLS-1$
+        registry.registerDynamicTool(tool, DynamicToolCapability.MUTATING);
+        String profileId = registerProfile(Set.of(),
+                List.of(PermissionRule.allow(tool.getName()).forAllResources()), false,
+                DynamicToolCapability.MUTATING);
+
+        McpMessage response = router(McpHostConfig.MutationPolicy.ALLOW, profileId)
+                .route(call(tool.getName(), Map.of()), session());
+
+        assertTrue(text(response), isToolError(response));
+        assertEquals("confirmation_unavailable_tool_policy", //$NON-NLS-1$
+                structuredContent(response).get("reason_code").getAsString()); //$NON-NLS-1$
+        assertEquals(0, tool.calls);
+    }
+
     @Test
     public void mutationPolicyDenyIsNotWeakenedByProfileAllow() {
         CapturingTool tool = register(new CapturingTool("strict_policy_deny", true)); //$NON-NLS-1$
