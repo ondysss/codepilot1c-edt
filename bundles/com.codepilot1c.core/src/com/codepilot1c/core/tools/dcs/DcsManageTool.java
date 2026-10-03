@@ -107,15 +107,15 @@ public class DcsManageTool extends AbstractTool {
                 },
                 "data_source": {
                   "type": "string",
-                  "description": "(upsert_dataset) Data source name"
+                  "description": "Data source name. In platform XML, matches without case sensitivity or creates a Local source. Omitted: preserve the existing dataset source; for a new dataset use the first source or ИсточникДанных."
                 },
                 "auto_fill_available_fields": {
                   "type": "boolean",
-                  "description": "(upsert_dataset) Auto fill flag"
+                  "description": "Auto fill available fields. In platform XML, false writes autoFillFields=false; true removes the element (default true); omitted leaves the value unchanged and migrates the legacy autoFillAvailableFields element. EDT design-time keeps its autoFillAvailableFields attribute."
                 },
                 "use_query_group_if_possible": {
                   "type": "boolean",
-                  "description": "(upsert_dataset) Use query group flag"
+                  "description": "Use query grouping when possible. In platform XML, false writes useQueryGroupIfPossible=false; true removes the element (default true); omitted leaves the value unchanged. EDT design-time keeps the attribute."
                 },
                 "parameter_name": {
                   "type": "string",
