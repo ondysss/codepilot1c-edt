@@ -20,7 +20,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 
 /**
- * Polls the status of a background {@code edt_update_infobase} job
+ * Polls the status of a background {@code edt_update_infobase} or {@code edt_update_extension} job
  * started via {@code async=true}.
  */
 @ToolMeta(
@@ -40,7 +40,7 @@ public class UpdateInfobaseStatusTool extends AbstractTool {
               "properties": {
                 "job_id": {
                   "type": "string",
-                  "description": "Job id returned by edt_update_infobase when async=true"
+                  "description": "Job id returned by edt_update_infobase or edt_update_extension when async=true"
                 }
               },
               "required": ["job_id"]

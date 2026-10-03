@@ -639,6 +639,36 @@ public class EdtRuntimeService {
         }
     }
 
+    public boolean reloadExtension(IProject extension, InfobaseReference infobase, boolean keepConnected,
+            boolean allowConflictOverride, IProgressMonitor monitor) throws Exception {
+        IProgressMonitor usedMonitor = monitor != null ? monitor : new NullProgressMonitor();
+        try (EdtRuntimeGateway.SynchronizationLease lease = gateway.acquireNativeInfobaseSynchronizationManager()) {
+            Object manager = lease.service();
+            ClassLoader loader = manager.getClass().getClassLoader();
+            Class<?> callbackType = Class.forName(
+                    "com._1c.g5.v8.dt.platform.services.core.infobases.sync.IInfobaseUpdateCallback", true, loader);
+            Object callback = Proxy.newProxyInstance(callbackType.getClassLoader(), new Class<?>[] {callbackType},
+                    (proxy, method, args) -> handleExtensionUpdateCallback(proxy, method, args, allowConflictOverride));
+            return EdtExtensionReloadInvoker.reload(manager, extension, infobase, callback, keepConnected, usedMonitor);
+        }
+    }
+
+    static Object handleExtensionUpdateCallback(Object proxy, Method method, Object[] args, boolean allowOverride) {
+        if ("resolveInfobaseChanges".equals(method.getName()) || "onInfobaseChanges".equals(method.getName())) {
+            if (!allowOverride) {
+                throw new EdtToolException(EdtToolErrorCode.UPDATE_FAILED,
+                        "The infobase extension has conflicting changes; review them before retrying with allow_conflict_override=true");
+            }
+            Object resolved = invokeConflictOverride(args);
+            if (resolved == null || !method.getReturnType().isInstance(resolved)) {
+                throw new EdtToolException(EdtToolErrorCode.UPDATE_FAILED,
+                        "EDT could not resolve the extension conflict; no successful override was reported");
+            }
+            return resolved;
+        }
+        return handleUpdateCallback(proxy, method, args);
+    }
+
     public void applyAccessSettings(RuntimeExecutionCommandBuilder builder, AccessSettings settings) {
         if (builder == null || settings == null) {
             return;
