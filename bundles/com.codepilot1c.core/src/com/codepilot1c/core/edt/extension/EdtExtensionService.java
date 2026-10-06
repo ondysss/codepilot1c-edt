@@ -7,6 +7,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.nio.file.Path;
 
 import org.eclipse.core.resources.IProject;
@@ -16,6 +17,7 @@ import org.eclipse.emf.common.util.EMap;
 import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.EReference;
 import org.eclipse.emf.ecore.EStructuralFeature;
+import org.eclipse.emf.ecore.util.EcoreUtil;
 
 import com._1c.g5.v8.bm.core.IBmObject;
 import com._1c.g5.v8.bm.core.IBmPlatformTransaction;
@@ -26,6 +28,7 @@ import com._1c.g5.v8.dt.metadata.mdclass.CompatibilityMode;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
 import com._1c.g5.v8.dt.metadata.mdclass.MdClassFactory;
 import com._1c.g5.v8.dt.metadata.mdclass.MdObject;
+import com._1c.g5.v8.dt.metadata.mdclass.ObjectBelonging;
 import com._1c.g5.v8.dt.metadata.mdclass.extension.type.MdPropertyState;
 import com._1c.g5.v8.dt.platform.version.Version;
 import com.codepilot1c.core.edt.BmObjectHelper;
@@ -252,7 +255,23 @@ public class EdtExtensionService {
         }
         Path projectPath = request.effectiveProjectPath(defaultContainer);
 
+        Configuration baseConfiguration = gateway.getConfigurationProvider().getConfiguration(baseProject);
+        if (baseConfiguration == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.METADATA_NOT_FOUND,
+                    "Base configuration is unavailable for project: " + baseProjectName, false); //$NON-NLS-1$
+        }
+
         Configuration configuration = MdClassFactory.eINSTANCE.createConfiguration();
+        configuration.setUuid(UUID.randomUUID());
+        configuration.setObjectBelonging(ObjectBelonging.ADOPTED);
+        // Platform import requires the configuration's internal type declarations.
+        // Reuse class identities, giving the extension its own object identities.
+        configuration.getContainedObjects().addAll(EcoreUtil.copyAll(baseConfiguration.getContainedObjects()));
+        configuration.getContainedObjects().forEach(object -> object.setObjectId(UUID.randomUUID()));
+        // The model factory may default to a platform newer than this project supports.
+        // Root compatibility and extension compatibility are independent settings.
+        configuration.setCompatibilityMode(baseConfiguration.getCompatibilityMode());
         configuration.setName(request.effectiveConfigurationName());
         configuration.setConfigurationExtensionPurpose(request.effectivePurpose());
         CompatibilityMode compatibilityMode = request.effectiveCompatibilityMode();
