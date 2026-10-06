@@ -9602,11 +9602,12 @@ public class EdtMetadataService {
                     MetadataOperationCode.INVALID_PROPERTY_VALUE,
                     "Type value cannot be null", false); //$NON-NLS-1$
         }
-        InlineTypeSpec inline = parseInlineTypeSpec(value);
         Map<String, Object> root = asMap(value);
         Object rootType = getMapValueIgnoreCase(root, "type"); //$NON-NLS-1$
         Object typeCarrier = rootType != null ? rootType : value;
         String typeQuery = normalizeTypeLookupQuery(typeCarrier);
+        // Flat qualifier folding may wrap an inline literal in a type map.
+        InlineTypeSpec inline = parseInlineTypeSpec(typeQuery);
         if ((typeQuery == null || typeQuery.isBlank()) && inline != null) {
             typeQuery = inline.typeQuery();
         }
