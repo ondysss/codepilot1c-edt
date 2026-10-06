@@ -389,15 +389,20 @@ public class EdtInfobaseConnectService {
             // Copy the existing entry's UUID onto the in-memory reference so downstream calls
             // (storeSettings, associate) target the already-registered row.
             UUID existingUuid = existing.get().getUuid();
-            if (existingUuid != null && reference.getUuid() == null) {
-                reference.setUuid(existingUuid);
+            if (existingUuid == null) {
+                // A local UUID would not repair the persisted row: association lookup would
+                // still be unable to resolve it. Do not silently create another identity.
+                throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
+                        "Registered infobase has no UUID; repair its persisted ID before reconnecting: "
+                                + reference.getName()); //$NON-NLS-1$
             }
-            if (reference.getUuid() == null) {
-                // Defense-in-depth: existing entry had no UUID either — assign a fresh one so
-                // storeSettings doesn't NPE.
-                reference.setUuid(UUID.randomUUID());
-            }
+            reference.setUuid(existingUuid);
             return;
+        }
+        // EDT persists the supplied UUID verbatim; add() does not generate it. Assign it
+        // before saving so the launcher registry and project association share one identity.
+        if (reference.getUuid() == null) {
+            reference.setUuid(UUID.randomUUID());
         }
         try {
             manager.add(reference, null);
@@ -406,11 +411,6 @@ public class EdtInfobaseConnectService {
                     ? e.getMessage() : e.getClass().getSimpleName();
             throw new EdtToolException(EdtToolErrorCode.EDT_SERVICE_UNAVAILABLE,
                     "Failed to register infobase reference: " + detail, e); //$NON-NLS-1$
-        }
-        // manager.add() normally populates the UUID; if it didn't, assign one locally so the
-        // subsequent storeSettings call has a non-null key.
-        if (reference.getUuid() == null) {
-            reference.setUuid(UUID.randomUUID());
         }
     }
 
@@ -528,8 +528,10 @@ public class EdtInfobaseConnectService {
 
     protected boolean associate(IProject project, InfobaseReference reference, boolean setPrimary) {
         IInfobaseAssociationManager associationManager = gateway.getInfobaseAssociationManager();
-        InfobaseAssociationSettings settings = InfobaseAssociationSettings.alreadySynchronized();
+        InfobaseAssociationContext context;
         try {
+            context = gateway.getInfobaseAssociationContext(project);
+            InfobaseAssociationSettings settings = InfobaseAssociationSettings.alreadySynchronized(context);
             associationManager.associate(project, reference, settings);
         } catch (InfobaseAssociationException e) {
             String detail = e.getMessage() != null && !e.getMessage().isBlank()
@@ -539,7 +541,7 @@ public class EdtInfobaseConnectService {
         }
         if (setPrimary) {
             try {
-                associationManager.setDefaultInfobase(project, reference, InfobaseAssociationContext.empty());
+                associationManager.setDefaultInfobase(project, reference, context);
             } catch (InfobaseAssociationException e) {
                 String detail = e.getMessage() != null && !e.getMessage().isBlank()
                         ? e.getMessage() : e.getClass().getSimpleName();
