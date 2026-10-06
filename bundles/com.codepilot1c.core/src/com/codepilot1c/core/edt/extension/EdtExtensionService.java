@@ -252,7 +252,17 @@ public class EdtExtensionService {
         }
         Path projectPath = request.effectiveProjectPath(defaultContainer);
 
+        Configuration baseConfiguration = gateway.getConfigurationProvider().getConfiguration(baseProject);
+        if (baseConfiguration == null) {
+            throw new MetadataOperationException(
+                    MetadataOperationCode.METADATA_NOT_FOUND,
+                    "Base configuration is unavailable for project: " + baseProjectName, false); //$NON-NLS-1$
+        }
+
         Configuration configuration = MdClassFactory.eINSTANCE.createConfiguration();
+        // The model factory may default to a platform newer than this project supports.
+        // Root compatibility and extension compatibility are independent settings.
+        configuration.setCompatibilityMode(baseConfiguration.getCompatibilityMode());
         configuration.setName(request.effectiveConfigurationName());
         configuration.setConfigurationExtensionPurpose(request.effectivePurpose());
         CompatibilityMode compatibilityMode = request.effectiveCompatibilityMode();
