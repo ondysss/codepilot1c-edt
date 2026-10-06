@@ -25,6 +25,7 @@ import org.eclipse.core.runtime.NullProgressMonitor;
 
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.impl.RuntimeExecutionCommandBuilder;
 import com._1c.g5.v8.dt.platform.services.model.InfobaseReference;
+import com.codepilot1c.core.edt.runtime.EdtLaunchConfigurationService;
 import com.codepilot1c.core.edt.runtime.EdtProjectResolver;
 import com.codepilot1c.core.edt.runtime.EdtRuntimeService;
 import com.codepilot1c.core.edt.runtime.EdtToolErrorCode;
@@ -149,6 +150,16 @@ public class RunYaxunitTestsTool extends AbstractTool {
             long startTime = System.currentTimeMillis();
             try {
                 InfobaseReference infobase = projectResolver.resolveInfobase(projectName, workspaceRoot);
+                var launchConfig = new EdtLaunchConfigurationService()
+                        .resolveRuntimeClientConfiguration(projectName, workspaceRoot);
+                String versionMask = null;
+                if (launchConfig != null && !launchConfig.runtimeInstallationUseAuto()) {
+                    versionMask = launchConfig.runtimeVersion();
+                    if (versionMask == null || versionMask.isBlank()) {
+                        throw new EdtToolException(EdtToolErrorCode.RUNTIME_VERSION_NOT_FOUND,
+                                "EDT launch configuration does not define runtime version"); //$NON-NLS-1$
+                    }
+                }
                 junitXmlFile = resolveJunitXmlFile(runDir, junitXmlPath);
                 ensureParentDirectory(junitXmlFile);
 
@@ -177,7 +188,8 @@ public class RunYaxunitTestsTool extends AbstractTool {
                         false,
                         true,
                         false,
-                        logFile);
+                        logFile,
+                        versionMask);
                 commandBuilder.startupOption(buildStartupOption(paramsFile));
 
                 ProcessBuilder processBuilder = commandBuilder.toProcessBuilder();
