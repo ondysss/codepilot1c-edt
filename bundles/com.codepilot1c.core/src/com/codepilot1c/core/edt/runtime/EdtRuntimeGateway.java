@@ -7,6 +7,9 @@ import org.eclipse.core.resources.ResourcesPlugin;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAccessManager;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationManager;
 import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseManager;
+import com._1c.g5.v8.dt.platform.services.core.infobases.IInfobaseAssociationContextProvider;
+import com._1c.g5.v8.dt.platform.services.core.infobases.InfobaseAssociationContext;
+import com._1c.g5.v8.dt.platform.services.core.infobases.InfobaseAssociationException;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.environments.IResolvableRuntimeInstallationManager;
 import com._1c.g5.v8.dt.platform.services.core.runtimes.execution.IRuntimeComponentManager;
 import com.codepilot1c.core.internal.VibeCorePlugin;
@@ -49,6 +52,29 @@ public class EdtRuntimeGateway {
             throw serviceUnavailable("IInfobaseManager"); //$NON-NLS-1$
         }
         return service;
+    }
+
+    /** Resolve the same context used by EDT's getAssociation(project), including Git branches. */
+    public InfobaseAssociationContext getInfobaseAssociationContext(IProject project)
+            throws InfobaseAssociationException {
+        BundleContext context = requirePlugin().getBundle().getBundleContext();
+        if (context == null) {
+            throw serviceUnavailable("BundleContext"); //$NON-NLS-1$
+        }
+        ServiceReference<IInfobaseAssociationContextProvider> reference =
+                context.getServiceReference(IInfobaseAssociationContextProvider.class);
+        if (reference == null) {
+            throw serviceUnavailable("IInfobaseAssociationContextProvider"); //$NON-NLS-1$
+        }
+        IInfobaseAssociationContextProvider provider = context.getService(reference);
+        if (provider == null) {
+            throw serviceUnavailable("IInfobaseAssociationContextProvider"); //$NON-NLS-1$
+        }
+        try {
+            return provider.get(project);
+        } finally {
+            context.ungetService(reference);
+        }
     }
 
     public IStandaloneServerService getStandaloneServerService() {
