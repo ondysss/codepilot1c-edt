@@ -893,7 +893,7 @@ public class EdtDiagnosticsCollector {
             Set<String> seen) {
 
         try {
-            IMarker[] markers = file.findMarkers(null, true, IResource.DEPTH_ZERO);
+            IMarker[] markers = file.findMarkers(IMarker.PROBLEM, true, IResource.DEPTH_ZERO);
             LOG.debug("Found %d markers for file %s", markers.length, filePath); //$NON-NLS-1$
 
             for (IMarker marker : markers) {
@@ -946,7 +946,7 @@ public class EdtDiagnosticsCollector {
                 : null;
 
         try {
-            IMarker[] markers = project.findMarkers(null, true, IResource.DEPTH_INFINITE);
+            IMarker[] markers = project.findMarkers(IMarker.PROBLEM, true, IResource.DEPTH_INFINITE);
             LOG.debug("Found %d workspace markers for project %s", markers.length, project.getName()); //$NON-NLS-1$
 
             int preLimit = getSoftScanLimit(query.maxItems(), 5);
