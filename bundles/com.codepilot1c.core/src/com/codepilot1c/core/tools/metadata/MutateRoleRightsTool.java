@@ -46,6 +46,9 @@ public class MutateRoleRightsTool extends AbstractTool {
                       "object_fqn": {"type": "string", "description": "For set_right/clear_object: top object FQN like Catalog.Организации or Document.ЗаказПокупателя."},
                       "right": {"type": "string", "description": "Right name, English or Russian: Read/Чтение, Insert/Добавление, Update/Изменение, Delete/Удаление, View/Просмотр, Edit/Редактирование. For set_config_right: Administration, DataAdministration, ThinClient, WebClient, etc."},
                       "value": {"type": "string", "description": "set or allow to grant; unset or deny to revoke. Check-dependencies (e.g. Update needs Read) are applied automatically."},
+                      "set_for_new_objects": {"type": "boolean", "description": "set_flags: grant rights to newly added objects by default."},
+                      "set_for_attributes_by_default": {"type": "boolean", "description": "set_flags: set rights for attributes and tabular sections by default."},
+                      "independent_rights_of_child_objects": {"type": "boolean", "description": "set_flags: independent rights of subordinate objects."},
                       "restrictions": {
                         "type": "array", "minItems": 1,
                         "description": "replace_rls only. Full replacement; include exactly one rule with fields:[] for the other fields, including newly added fields. Field-specific rules are allowed only for Read. Use canonical field names or Russian aliases returned in availableRlsFields. Condition syntax and actual permissions must subsequently be checked by EDT/platform; this tool does not claim query validation.",
@@ -57,10 +60,7 @@ public class MutateRoleRightsTool extends AbstractTool {
                           },
                           "required": ["fields", "condition"], "additionalProperties": false
                         }
-                      },
-                      "set_for_new_objects": {"type": "boolean", "description": "set_flags: grant rights to newly added objects by default."},
-                      "set_for_attributes_by_default": {"type": "boolean", "description": "set_flags: set rights for attributes and tabular sections by default."},
-                      "independent_rights_of_child_objects": {"type": "boolean", "description": "set_flags: independent rights of subordinate objects."}
+                      }
                     },
                     "required": ["op"],
                     "additionalProperties": true
