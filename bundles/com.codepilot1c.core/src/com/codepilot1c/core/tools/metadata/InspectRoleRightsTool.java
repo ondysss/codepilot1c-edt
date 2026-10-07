@@ -48,7 +48,7 @@ public class InspectRoleRightsTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Читает права роли 1С: права по объектам (SET/UNSET/PROVIDED), RLS и флаги по умолчанию."; //$NON-NLS-1$
+        return "Читает права роли 1С, полные условия RLS и списки полей, доступные имена полей (availableRlsFields), флаги по умолчанию. Пустой fields в условии означает остальные поля."; //$NON-NLS-1$
     }
 
     @Override

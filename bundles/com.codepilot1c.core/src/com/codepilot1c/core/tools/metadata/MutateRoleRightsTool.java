@@ -21,7 +21,7 @@ import com.google.gson.Gson;
 
 /**
  * Mutates a 1C role's access rights (object rights + configuration/administrative rights + default
- * flags) via the EDT rights model and validation-token flow. RLS is out of scope (phase 2).
+ * flags and record/field restrictions) via the EDT rights model and validation-token flow.
  */
 @ToolMeta(name = "mutate_role_rights", category = "metadata", mutating = true,
         requiresValidationToken = true, tags = {"workspace", "edt"})
@@ -42,10 +42,22 @@ public class MutateRoleRightsTool extends AbstractTool {
                   "items": {
                     "type": "object",
                     "properties": {
-                      "op": {"type": "string", "enum": ["set_right", "set_config_right", "set_flags", "clear_object"], "description": "set_right: grant/revoke a right on a metadata object; set_config_right: a configuration/administrative right; set_flags: role default flags; clear_object: drop all explicit rights of one object."},
+                      "op": {"type": "string", "enum": ["set_right", "set_config_right", "set_flags", "clear_object", "replace_rls", "clear_rls"], "description": "replace_rls replaces every restriction of one already granted data right atomically. clear_rls explicitly removes those restrictions without changing the grant. Other ops change grants or flags."},
                       "object_fqn": {"type": "string", "description": "For set_right/clear_object: top object FQN like Catalog.Организации or Document.ЗаказПокупателя."},
                       "right": {"type": "string", "description": "Right name, English or Russian: Read/Чтение, Insert/Добавление, Update/Изменение, Delete/Удаление, View/Просмотр, Edit/Редактирование. For set_config_right: Administration, DataAdministration, ThinClient, WebClient, etc."},
                       "value": {"type": "string", "description": "set or allow to grant; unset or deny to revoke. Check-dependencies (e.g. Update needs Read) are applied automatically."},
+                      "restrictions": {
+                        "type": "array", "minItems": 1,
+                        "description": "replace_rls only. Full replacement; include exactly one rule with fields:[] for the other fields, including newly added fields. Field-specific rules are allowed only for Read. Use canonical field names or Russian aliases returned in availableRlsFields. Condition syntax and actual permissions must subsequently be checked by EDT/platform; this tool does not claim query validation.",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "fields": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}, "description": "[] means other, unlisted fields. A field can belong to only one rule."},
+                            "condition": {"type": "string", "minLength": 1, "description": "1C access restriction query, for example WHERE Participant = &CurrentUser or ГДЕ ЛОЖЬ."}
+                          },
+                          "required": ["fields", "condition"], "additionalProperties": false
+                        }
+                      },
                       "set_for_new_objects": {"type": "boolean", "description": "set_flags: grant rights to newly added objects by default."},
                       "set_for_attributes_by_default": {"type": "boolean", "description": "set_flags: set rights for attributes and tabular sections by default."},
                       "independent_rights_of_child_objects": {"type": "boolean", "description": "set_flags: independent rights of subordinate objects."}
@@ -75,7 +87,7 @@ public class MutateRoleRightsTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Меняет права роли 1С (по объектам, конфигурации, флаги) через модель прав EDT; RLS — отдельно."; //$NON-NLS-1$
+        return "Меняет права роли 1С и ограничения записей/полей через модель EDT. replace_rls заменяет условия, clear_rls явно снимает их. Требует validation_token и последующей проверки."; //$NON-NLS-1$
     }
 
     @Override

@@ -14,6 +14,8 @@ import com._1c.g5.v8.bm.core.IBmNamespace;
 import com._1c.g5.v8.bm.core.IBmObject;
 import com._1c.g5.v8.bm.core.IBmPlatformTransaction;
 import com._1c.g5.v8.bm.core.IBmTransaction;
+import com._1c.g5.v8.dt.metadata.dbview.DbViewFieldDef;
+import com._1c.g5.v8.dt.metadata.dbview.util.DbViewUtil;
 import com._1c.g5.v8.dt.metadata.mdclass.AbstractRoleDescription;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
 import com._1c.g5.v8.dt.metadata.mdclass.MdClassPackage;
@@ -26,6 +28,7 @@ import com._1c.g5.v8.dt.rights.model.RestrictionTemplate;
 import com._1c.g5.v8.dt.rights.model.Right;
 import com._1c.g5.v8.dt.rights.model.RightValue;
 import com._1c.g5.v8.dt.rights.model.RightsFactory;
+import com._1c.g5.v8.dt.rights.model.Rls;
 import com._1c.g5.v8.dt.rights.model.RoleDescription;
 import com._1c.g5.v8.dt.rights.model.util.RightName;
 import com._1c.g5.v8.dt.rights.model.util.RightsModelUtil;
@@ -46,7 +49,7 @@ import com.codepilot1c.core.logging.VibeLogger;
  * {@code RightValue} SET/UNSET/PROVIDED, plus optional RLS), three default flags, and RLS templates.
  * Mutation runs through {@link EdtMetadataService#mutateTopObjectAndExport} (BM write transaction +
  * filesystem export) and resolves rights via {@link IRightInfosService} and {@code RightsModelUtil};
- * RLS (per-record restrictions) is intentionally out of scope here (phase 2).</p>
+ * RLS is replaced atomically using the same derived fields as the native EDT role editor.</p>
  */
 public class EdtRoleRightsService {
 
@@ -136,9 +139,19 @@ public class EdtRoleRightsService {
                 String value = objectRight.getValue() == null ? "UNSET" : objectRight.getValue().getName(); //$NON-NLS-1$
                 boolean hasRls = objectRight.getRestrictionsByCondition() != null
                         && !objectRight.getRestrictionsByCondition().isEmpty();
-                rights.add(new RightView(right.getName(), safeNameRu(right), value, hasRls));
+                List<RestrictionView> restrictions = new ArrayList<>();
+                for (Rls restriction : objectRight.getRestrictionsByCondition()) {
+                    restrictions.add(new RestrictionView(
+                            restriction.getFields().stream().map(field -> RlsRules.fieldName(field, false)).toList(),
+                            restriction.getCondition()));
+                }
+                rights.add(new RightView(right.getName(), safeNameRu(right), value, hasRls, restrictions));
             }
-            objects.add(new ObjectRightsView(objectFqn, resolveObjectKind(objectRights.getObject()), rights));
+            List<FieldView> availableFields = rlsFieldIndex(objectRights.getObject()).values().stream()
+                    .distinct().map(field -> new FieldView(RlsRules.fieldName(field, false),
+                            RlsRules.fieldName(field, true))).toList();
+            objects.add(new ObjectRightsView(objectFqn, resolveObjectKind(objectRights.getObject()), rights,
+                    availableFields));
         }
         return new RoleRightsSnapshot(projectName, roleFqn, role.getName(), true,
                 roleDescription.isSetForNewObjects(), roleDescription.isSetForAttributesByDefault(),
@@ -151,7 +164,7 @@ public class EdtRoleRightsService {
 
     /**
      * Applies a batch of rights operations to a role (BM write transaction + filesystem export).
-     * Supported ops: {@code set_right}, {@code set_config_right}, {@code set_flags}, {@code clear_object}.
+     * Supported ops: rights, flags, and explicit {@code replace_rls}/{@code clear_rls}.
      */
     public MutateResult mutateRoleRights(String projectName, String role, List<Map<String, Object>> operations) {
         IProject project = requireProject(projectName);
@@ -199,6 +212,41 @@ public class EdtRoleRightsService {
                         asString(operation.get("right")), operation.get("value"), applied); //$NON-NLS-1$ //$NON-NLS-2$
             }
             case "set_flags" -> applyFlags(roleDescription, operation, applied); //$NON-NLS-1$
+            case "replace_rls", "clear_rls" -> { //$NON-NLS-1$ //$NON-NLS-2$
+                String rightName = asString(operation.get("right")); //$NON-NLS-1$
+                if (rightName == null || rightName.isBlank()) {
+                    throw new MetadataOperationException(MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                            "right is required for RLS operations", false); //$NON-NLS-1$
+                }
+                MdObject canonical = resolveTopObjectByFqn(configuration, asString(operation.get("object_fqn"))); //$NON-NLS-1$
+                EObject txObject = transaction.toTransactionObject(canonical);
+                Right right = findRight(rightInfos.getEClassRights(txObject, txObject.eClass()),
+                        rightName);
+                if (right == null) {
+                    throw unsupportedRightException(projectName, roleFqn, txObject,
+                            asString(operation.get("right")), rightInfos.getEClassRights(txObject, txObject.eClass())); //$NON-NLS-1$
+                }
+                Map<String, DbViewFieldDef> fields = rlsFieldIndex(txObject);
+                if (fields.isEmpty() || !Set.of("Read", "Insert", "Update", "Delete").contains(right.getName())) { //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+                    throw new MetadataOperationException(MetadataOperationCode.INVALID_PROPERTY_VALUE,
+                            "Target does not support this data access restriction", false); //$NON-NLS-1$
+                }
+                ObjectRights objectRights = RightsModelUtil.filterObjectRightsByEObjectFastly(txObject, roleDescription);
+                ObjectRight entry = objectRights == null ? null
+                        : RightsModelUtil.filterObjectRightByRight(right, objectRights.getRights());
+                if ("clear_rls".equals(type)) { //$NON-NLS-1$
+                    int previous = entry == null ? 0 : entry.getRestrictionsByCondition().size();
+                    if (entry != null) {
+                        entry.getRestrictionsByCondition().clear();
+                    }
+                    applied.add("clear_rls " + operation.get("object_fqn") + "." + right.getName() //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                            + " (was " + previous + " restrictions)"); //$NON-NLS-1$ //$NON-NLS-2$
+                } else {
+                    RlsRules.replace(entry, operation.get("restrictions"), fields); //$NON-NLS-1$
+                    applied.add("replace_rls " + operation.get("object_fqn") + "." + right.getName() //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                            + "=" + entry.getRestrictionsByCondition().size() + " restrictions"); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+            }
             case "clear_object" -> { //$NON-NLS-1$
                 String objectFqn = asString(operation.get("object_fqn")); //$NON-NLS-1$
                 MdObject canonical = resolveTopObjectByFqn(configuration, objectFqn);
@@ -211,8 +259,13 @@ public class EdtRoleRightsService {
             }
             default -> throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_NAME,
                     "Unknown op: '" + type //$NON-NLS-1$
-                            + "' (use set_right, set_config_right, set_flags, clear_object)", false); //$NON-NLS-1$
+                            + "' (use set_right, set_config_right, set_flags, clear_object, replace_rls, clear_rls)", false); //$NON-NLS-1$
         }
+    }
+
+    private static Map<String, DbViewFieldDef> rlsFieldIndex(EObject object) {
+        List<DbViewFieldDef> fields = DbViewUtil.getRlsFields(object);
+        return RlsRules.fieldIndex(fields == null ? List.of() : fields);
     }
 
     private void setRightOnObject(String projectName, String roleFqn, RoleDescription roleDescription, Role txRole, EObject txObject,
@@ -521,12 +574,19 @@ public class EdtRoleRightsService {
     }
 
     /** Rights set on one metadata object within a role. */
-    public record ObjectRightsView(String objectFqn, String objectKind, List<RightView> rights) {
+    public record ObjectRightsView(String objectFqn, String objectKind, List<RightView> rights,
+            List<FieldView> availableRlsFields) {
     }
 
     /** A single right entry: English/Russian name, value (SET/UNSET/PROVIDED), and RLS presence. */
-    public record RightView(String name, String nameRu, String value, boolean hasRls) {
+    public record RightView(String name, String nameRu, String value, boolean hasRls,
+            List<RestrictionView> restrictions) {
     }
+
+    /** Empty fields are the native "other fields" restriction, not unrestricted access. */
+    public record RestrictionView(List<String> fields, String condition) { }
+
+    public record FieldView(String name, String nameRu) { }
 
     /** Result of a {@link #mutateRoleRights} batch. */
     public record MutateResult(String project, String roleFqn, int operationsApplied, List<String> details) {
