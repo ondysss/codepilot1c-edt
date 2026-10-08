@@ -105,15 +105,21 @@ import com._1c.g5.v8.dt.form.service.item.IFormItemManagementService;
 import com._1c.g5.v8.dt.mcore.DateQualifiers;
 import com._1c.g5.v8.dt.mcore.DateFractions;
 import com._1c.g5.v8.dt.mcore.Event;
+import com._1c.g5.v8.dt.mcore.Field;
+import com._1c.g5.v8.dt.mcore.FieldSource;
 import com._1c.g5.v8.dt.mcore.McoreFactory;
 import com._1c.g5.v8.dt.mcore.McorePackage;
 import com._1c.g5.v8.dt.mcore.NamedElement;
 import com._1c.g5.v8.dt.mcore.NumberQualifiers;
 import com._1c.g5.v8.dt.mcore.NumberValue;
 import com._1c.g5.v8.dt.mcore.StringQualifiers;
+import com._1c.g5.v8.dt.mcore.SourceType;
 import com._1c.g5.v8.dt.mcore.TypeDescription;
 import com._1c.g5.v8.dt.mcore.TypeItem;
 import com._1c.g5.v8.dt.mcore.util.McoreUtil;
+import com._1c.g5.v8.dt.md.resource.StandardAttributeUtil;
+import com._1c.g5.v8.dt.metadata.mdclass.StandardAttribute;
+import com._1c.g5.v8.dt.platform.version.Version;
 import com._1c.g5.v8.dt.metadata.common.ApplicationUsePurpose;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicFeature;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicForm;
@@ -4555,7 +4561,8 @@ public class EdtMetadataService {
                         "Cannot access configuration in BM transaction", false); //$NON-NLS-1$
             }
             StandardAttributeTarget standardAttribute =
-                    resolveStandardAttributeTarget(txConfiguration, request.targetFqn());
+                    resolveStandardAttributeTarget(txConfiguration, request.targetFqn(),
+                            () -> gateway.resolvePlatformVersion(project));
             if (standardAttribute != null) {
                 applyStandardAttributeChanges(standardAttribute, request.changes());
                 persistenceFqn[0] = standardAttribute.parentFqn();
@@ -6881,6 +6888,11 @@ public class EdtMetadataService {
      * to the regular metadata path.</p>
      */
     private StandardAttributeTarget resolveStandardAttributeTarget(Configuration configuration, String fqn) {
+        return resolveStandardAttributeTarget(configuration, fqn, null);
+    }
+
+    private StandardAttributeTarget resolveStandardAttributeTarget(Configuration configuration, String fqn,
+            Supplier<Version> versionSupplier) {
         if (fqn == null || fqn.isBlank()) {
             return null;
         }
@@ -6936,6 +6948,26 @@ public class EdtMetadataService {
                 }
             }
         }
+        if (versionSupplier != null && parent instanceof FieldSource fieldSource) {
+            for (Field field : fieldSource.getFields()) {
+                if (field.getSourceTypes().contains(SourceType.STANDARD_FIELDS)
+                        && canonicalAttributeToken(field.getName()).equals(canonicalRequested)) {
+                    Version version = versionSupplier.get();
+                    if (version == null) {
+                        throw new MetadataOperationException(MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                                "Cannot resolve platform version for standard attribute: " + fqn, false); //$NON-NLS-1$
+                    }
+                    // Same native default factory used by the EDT standard-attribute editor.
+                    // It preserves version-dependent fill values and other platform defaults.
+                    StandardAttribute attribute = StandardAttributeUtil.getDefault(field, version);
+                    @SuppressWarnings("unchecked")
+                    List<StandardAttribute> attributes = (List<StandardAttribute>) rawValues;
+                    attributes.add(attribute);
+                    return new StandardAttributeTarget(parent, parentFqn, attribute, attribute.getName());
+                }
+            }
+        }
+
         // The list of what IS there beats a bare "not found": standard attributes only materialize
         // in .mdo once customized, and RU/EN spelling differs per object kind.
         throw new MetadataOperationException(
