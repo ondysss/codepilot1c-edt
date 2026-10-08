@@ -4029,12 +4029,11 @@ public class EdtMetadataService {
     }
 
     /**
-     * Pre-flight check: certain {@code field_type} values (CHECK_BOX_FIELD,
+     * Pre-flight check: certain {@code field_type} values (
      * RADIO_BUTTON_FIELD, PROGRESS_BAR_FIELD, TRACK_BAR_FIELD) are flagged by the
      * 1C platform with diagnostic SU107 ("Illegal extension type for field type")
-     * when they appear inside a Table.  Boolean cells render via
-     * {@code INPUT_FIELD} automatically, so converting/replacing those is what the
-     * agent ultimately wants.  Surface a clear message before the BM transaction
+     * when they appear inside a Table. Checkbox columns are supported
+     * with their matching CheckBoxFieldExtInfo; do not reject those.  Surface a clear message before the BM transaction
      * fires.
      */
     private void rejectTableIncompatibleFieldType(
@@ -4087,8 +4086,8 @@ public class EdtMetadataService {
                 + "For commands: {op:\"add_command\", name:\"CmdName\", action:\"HandlerProc\", title:\"Button Title\"}, " //$NON-NLS-1$
                 + "then {op:\"add_button\", name:\"BtnName\", command_name:\"CmdName\"} — parent defaults to existing CommandBar. " //$NON-NLS-1$
                 + "DO NOT create a new CommandBar group — the form already has one. DO NOT use add_group for command bars. " //$NON-NLS-1$
-                + "Inside a Table parent, Boolean columns must use field_type=\"INPUT_FIELD\" (the platform draws a checkmark automatically); " //$NON-NLS-1$
-                + "CHECK_BOX_FIELD/RADIO_BUTTON_FIELD/PROGRESS_BAR_FIELD/TRACK_BAR_FIELD are rejected by SU107 in Tables. " //$NON-NLS-1$
+                + "Inside a Table parent, use field_type=\"CHECK_BOX_FIELD\" for Boolean checkbox columns; INPUT_FIELD is also supported as an input control. " //$NON-NLS-1$
+                + "RADIO_BUTTON_FIELD/PROGRESS_BAR_FIELD/TRACK_BAR_FIELD are rejected by the table-field preflight check. " //$NON-NLS-1$
                 + "For form-level events: {op:\"add_event_handler\", target:\"form\", event:\"<eventName>\", handler_name:\"...\"}. " //$NON-NLS-1$
                 + "For a field/table event: {op:\"add_event_handler\", item_id:<id>, event:\"<eventName>\"} — omit handler_name for a deterministic default. " //$NON-NLS-1$
                 + "set_event_handler upserts the same (target,event) pair; remove_event_handler removes it. " //$NON-NLS-1$
