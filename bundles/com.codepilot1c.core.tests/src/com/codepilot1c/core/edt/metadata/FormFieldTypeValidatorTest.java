@@ -18,13 +18,13 @@ public class FormFieldTypeValidatorTest {
     // --- isIncompatibleWithTableParent --------------------------------------
 
     @Test
-    public void rejectsCheckBoxFieldInAllSeparatorVariants() {
-        assertTrue(FormFieldTypeValidator.isIncompatibleWithTableParent("CHECK_BOX_FIELD")); //$NON-NLS-1$
-        assertTrue(FormFieldTypeValidator.isIncompatibleWithTableParent("CheckBoxField")); //$NON-NLS-1$
-        assertTrue(FormFieldTypeValidator.isIncompatibleWithTableParent("checkboxfield")); //$NON-NLS-1$
-        assertTrue(FormFieldTypeValidator.isIncompatibleWithTableParent("check-box-field")); //$NON-NLS-1$
-        assertTrue(FormFieldTypeValidator.isIncompatibleWithTableParent("CHECK BOX FIELD")); //$NON-NLS-1$
-        assertTrue(FormFieldTypeValidator.isIncompatibleWithTableParent(" check_box_field ")); //$NON-NLS-1$
+    public void acceptsCheckBoxFieldInAllSeparatorVariants() {
+        assertFalse(FormFieldTypeValidator.isIncompatibleWithTableParent("CHECK_BOX_FIELD")); //$NON-NLS-1$
+        assertFalse(FormFieldTypeValidator.isIncompatibleWithTableParent("CheckBoxField")); //$NON-NLS-1$
+        assertFalse(FormFieldTypeValidator.isIncompatibleWithTableParent("checkboxfield")); //$NON-NLS-1$
+        assertFalse(FormFieldTypeValidator.isIncompatibleWithTableParent("check-box-field")); //$NON-NLS-1$
+        assertFalse(FormFieldTypeValidator.isIncompatibleWithTableParent("CHECK BOX FIELD")); //$NON-NLS-1$
+        assertFalse(FormFieldTypeValidator.isIncompatibleWithTableParent(" check_box_field ")); //$NON-NLS-1$
     }
 
     @Test
@@ -57,9 +57,9 @@ public class FormFieldTypeValidatorTest {
     // --- tableIncompatibleFieldTypeMessage ----------------------------------
 
     @Test
-    public void messageEchoesRawFieldTypeAndPointsToInputField() {
-        String msg = FormFieldTypeValidator.tableIncompatibleFieldTypeMessage("CHECK_BOX_FIELD", "PricingTablePayment"); //$NON-NLS-1$ //$NON-NLS-2$
-        assertTrue("must echo raw field_type:\n" + msg, msg.contains("CHECK_BOX_FIELD")); //$NON-NLS-1$ //$NON-NLS-2$
+    public void messageEchoesRawFieldTypeAndPointsToSupportedControls() {
+        String msg = FormFieldTypeValidator.tableIncompatibleFieldTypeMessage("RADIO_BUTTON_FIELD", "PricingTablePayment"); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue("must echo raw field_type:\n" + msg, msg.contains("RADIO_BUTTON_FIELD")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("must mention SU107:\n" + msg, msg.contains("SU107")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("must point to INPUT_FIELD:\n" + msg, msg.contains("INPUT_FIELD")); //$NON-NLS-1$ //$NON-NLS-2$
         assertTrue("must mention Table parent:\n" + msg, msg.contains("Table")); //$NON-NLS-1$ //$NON-NLS-2$
@@ -69,10 +69,10 @@ public class FormFieldTypeValidatorTest {
 
     @Test
     public void messageOmitsFieldNameWhenBlank() {
-        String msg = FormFieldTypeValidator.tableIncompatibleFieldTypeMessage("CHECK_BOX_FIELD", null); //$NON-NLS-1$
+        String msg = FormFieldTypeValidator.tableIncompatibleFieldTypeMessage("RADIO_BUTTON_FIELD", null); //$NON-NLS-1$
         assertFalse("must not include 'field name=' when field name is null:\n" + msg, //$NON-NLS-1$
                 msg.contains("field name=")); //$NON-NLS-1$
-        msg = FormFieldTypeValidator.tableIncompatibleFieldTypeMessage("CHECK_BOX_FIELD", "  "); //$NON-NLS-1$ //$NON-NLS-2$
+        msg = FormFieldTypeValidator.tableIncompatibleFieldTypeMessage("RADIO_BUTTON_FIELD", "  "); //$NON-NLS-1$ //$NON-NLS-2$
         assertFalse("must not include 'field name=' when field name is blank:\n" + msg, //$NON-NLS-1$
                 msg.contains("field name=")); //$NON-NLS-1$
     }
@@ -81,11 +81,10 @@ public class FormFieldTypeValidatorTest {
     public void messageRoundTripIsStableForSnapshotsOfCommonCase() {
         // Pin the exact wording so a refactor cannot drift the agent-facing
         // language without an explicit test update.
-        String msg = FormFieldTypeValidator.tableIncompatibleFieldTypeMessage("CHECK_BOX_FIELD", "Active"); //$NON-NLS-1$ //$NON-NLS-2$
-        assertEquals("field_type 'CHECK_BOX_FIELD' is not allowed inside a Table parent (field name='Active'):" //$NON-NLS-1$
+        String msg = FormFieldTypeValidator.tableIncompatibleFieldTypeMessage("RADIO_BUTTON_FIELD", "Active"); //$NON-NLS-1$ //$NON-NLS-2$
+        assertEquals("field_type 'RADIO_BUTTON_FIELD' is not allowed inside a Table parent (field name='Active'):" //$NON-NLS-1$
                 + " the 1C platform rejects it with SU107 'Illegal extension type for field type'." //$NON-NLS-1$
-                + " Use field_type=\"INPUT_FIELD\" — Boolean cells render as a checkmark automatically," //$NON-NLS-1$
-                + " choice cells render as a dropdown, and so on.", //$NON-NLS-1$
+                + " Use INPUT_FIELD, or CHECK_BOX_FIELD for a Boolean checkbox column.", //$NON-NLS-1$
                 msg);
     }
 }
