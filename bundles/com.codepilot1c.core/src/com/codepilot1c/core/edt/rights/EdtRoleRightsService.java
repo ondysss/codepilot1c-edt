@@ -226,6 +226,13 @@ public class EdtRoleRightsService {
         Set<Right> available = rightInfos.getEClassRights(txObject, eClass);
         Right right = findRight(available, rightName.trim());
         if (right == null) {
+            // Legacy/imported rights can outlive EDT's list of assignable rights (notably
+            // configuration rights in extensions). Revocation must be able to clean only
+            // those explicit entries; granting or revoking an unknown name still fails.
+            ObjectRights existing = RightsModelUtil.filterObjectRightsByEObjectFastly(txObject, roleDescription);
+            if (removeUnavailableRightEntries(existing, rightName.trim(), value, applied)) {
+                return;
+            }
             throw unsupportedRightException(projectName, roleFqn, txObject, rightName, available);
         }
         ObjectRights objectRights = RightsModelUtil.getOrCreateObjectRights(txObject, roleDescription);
@@ -488,6 +495,25 @@ public class EdtRoleRightsService {
                     "Project not found: " + projectName, false); //$NON-NLS-1$
         }
         return project;
+    }
+
+    private boolean removeUnavailableRightEntries(ObjectRights existing, String name,
+            RightValue value, List<String> applied) {
+        if (value != RightValue.UNSET || existing == null) {
+            return false;
+        }
+        boolean removed = false;
+        for (ObjectRight entry : new ArrayList<>(existing.getRights())) {
+            Right right = entry.getRight();
+            if (right != null && (name.equalsIgnoreCase(right.getName())
+                    || name.equalsIgnoreCase(safeNameRu(right)))) {
+                existing.getRights().remove(entry);
+                applied.add("remove unavailable " + right.getName() + " (was " //$NON-NLS-1$ //$NON-NLS-2$
+                        + (entry.getValue() == null ? "UNSET" : entry.getValue().getName()) + ")"); //$NON-NLS-1$ //$NON-NLS-2$
+                removed = true;
+            }
+        }
+        return removed;
     }
 
     private static String asString(Object value) {
