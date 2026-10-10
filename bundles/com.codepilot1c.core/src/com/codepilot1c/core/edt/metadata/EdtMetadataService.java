@@ -1232,27 +1232,30 @@ public class EdtMetadataService {
             }
             Form formModel = resolveManagedFormModel(basicForm, applyFormFqn);
             applyFormRootPropertiesIfNeeded(basicForm, request);
-            FormAttributeRecipeStats stats = hasAttributes
-                    ? applyFormAttributeRecipe(formModel, request.attributes(), mode, transaction, preResolvedTypes, txConfiguration)
-                    : new FormAttributeRecipeStats();
-            List<String> summaries = hasLayoutOps
-                    ? applyFormModelOperations(formModel, request.layoutOperations(), pendingStubs)
-                    : List.of();
-            if (Boolean.TRUE.equals(request.setAsDefault())) {
-                boolean bindDefault = resolveDefaultBinding(Boolean.TRUE, usageForDefault, applyOwnerFqn, externalProject);
-                if (bindDefault) {
-                    MdObject owner = resolveOwnerForMutation(project, transaction, txConfiguration, applyOwnerFqn);
-                    if (owner == null) {
-                        throw new MetadataOperationException(
-                                MetadataOperationCode.METADATA_PARENT_NOT_FOUND,
-                                "Owner not found for default form binding: " + applyOwnerFqn, false); //$NON-NLS-1$
+            try (FormRecipeDataSourceCache cache = FormRecipeDataSourceCache.open(formModel, hasAttributes)) {
+                FormAttributeRecipeStats stats = hasAttributes
+                        ? applyFormAttributeRecipe(formModel, request.attributes(), mode, transaction, preResolvedTypes, txConfiguration)
+                        : new FormAttributeRecipeStats();
+                cache.refresh();
+                List<String> summaries = hasLayoutOps
+                        ? applyFormModelOperations(formModel, request.layoutOperations(), pendingStubs)
+                        : List.of();
+                if (Boolean.TRUE.equals(request.setAsDefault())) {
+                    boolean bindDefault = resolveDefaultBinding(Boolean.TRUE, usageForDefault, applyOwnerFqn, externalProject);
+                    if (bindDefault) {
+                        MdObject owner = resolveOwnerForMutation(project, transaction, txConfiguration, applyOwnerFqn);
+                        if (owner == null) {
+                            throw new MetadataOperationException(
+                                    MetadataOperationCode.METADATA_PARENT_NOT_FOUND,
+                                    "Owner not found for default form binding: " + applyOwnerFqn, false); //$NON-NLS-1$
+                        }
+                        bindDefaultForm(owner, basicForm, usageForDefault, opId);
+                        ensureUuidsRecursively(owner, opId, applyOwnerFqn);
                     }
-                    bindDefaultForm(owner, basicForm, usageForDefault, opId);
-                    ensureUuidsRecursively(owner, opId, applyOwnerFqn);
                 }
+                ensureUuidsRecursively(basicForm, opId, applyFormFqn);
+                return new FormRecipeApplyResult(stats, summaries);
             }
-            ensureUuidsRecursively(basicForm, opId, applyFormFqn);
-            return new FormRecipeApplyResult(stats, summaries);
         });
 
         String topLevelFqn = extractTopLevelFqn(formFqn);
