@@ -120,6 +120,7 @@ import com._1c.g5.v8.dt.metadata.mdclass.BasicForm;
 import com._1c.g5.v8.dt.metadata.mdclass.BasicTemplate;
 import com._1c.g5.v8.dt.metadata.mdclass.Configuration;
 import com._1c.g5.v8.dt.metadata.mdclass.DataProcessor;
+import com._1c.g5.v8.dt.metadata.mdclass.DefaultDataLockControlMode;
 import com._1c.g5.v8.dt.metadata.mdclass.Document;
 import com._1c.g5.v8.dt.metadata.mdclass.FormType;
 import com._1c.g5.v8.dt.metadata.mdclass.HTTPMethod;
@@ -362,7 +363,7 @@ public class EdtMetadataService {
                     txConfiguration,
                     txObject,
                     request.kind(),
-                    request.properties(),
+                    withConfigurationLockModeDefault(txConfiguration, txObject, request.properties()),
                     transaction,
                     capturedTopLevelPropertyTypes,
                     platformVersion,
@@ -7523,21 +7524,20 @@ public class EdtMetadataService {
     }
 
     private void applyFullTextSearch(BasicFeature feature, Map<String, Object> properties) {
-        if (!(feature instanceof com._1c.g5.v8.dt.metadata.mdclass.DbObjectAttribute dbo)) {
-            if (firstNonNull(
-                    getMapValueIgnoreCase(properties, "fullTextSearch"), //$NON-NLS-1$
-                    getMapValueIgnoreCase(properties, "full_text_search"), //$NON-NLS-1$
-                    getMapValueIgnoreCase(properties, "fulltextsearch")) != null) { //$NON-NLS-1$
-                LOG.warn("applyBasicFeatureCreateProperties: fullTextSearch not applicable for %s", //$NON-NLS-1$
-                        feature.eClass().getName());
-            }
-            return;
-        }
         Object raw = firstNonNull(
                 getMapValueIgnoreCase(properties, "fullTextSearch"), //$NON-NLS-1$
                 getMapValueIgnoreCase(properties, "full_text_search"), //$NON-NLS-1$
                 getMapValueIgnoreCase(properties, "fulltextsearch")); //$NON-NLS-1$
         if (raw == null) {
+            return;
+        }
+        // Same rationale as applyIndexing: register dimensions/resources/attributes carry
+        // their own fullTextSearch feature outside the DbObjectAttribute hierarchy.
+        EStructuralFeature ftsFeature =
+                feature.eClass().getEStructuralFeature("fullTextSearch"); //$NON-NLS-1$
+        if (!(ftsFeature instanceof EAttribute ftsAttribute)) {
+            LOG.warn("applyBasicFeatureCreateProperties: fullTextSearch not applicable for %s", //$NON-NLS-1$
+                    feature.eClass().getName());
             return;
         }
         String literal = BasicFeaturePropertyAliases.resolveFullTextSearch(String.valueOf(raw)).orElse(null);
@@ -7546,7 +7546,7 @@ public class EdtMetadataService {
             return;
         }
         try {
-            dbo.setFullTextSearch(
+            feature.eSet(ftsAttribute,
                     com._1c.g5.v8.dt.metadata.mdclass.FullTextSearchUsing.valueOf(literal));
         } catch (Exception e) {
             LOG.warn("applyBasicFeatureCreateProperties: failed to apply fullTextSearch=%s: %s", literal, e.getMessage()); //$NON-NLS-1$
@@ -7554,15 +7554,19 @@ public class EdtMetadataService {
     }
 
     private void applyIndexing(BasicFeature feature, Map<String, Object> properties) {
-        if (!(feature instanceof com._1c.g5.v8.dt.metadata.mdclass.DbObjectAttribute dbo)) {
-            if (getMapValueIgnoreCase(properties, "indexing") != null) { //$NON-NLS-1$
-                LOG.warn("applyBasicFeatureCreateProperties: indexing not applicable for %s", //$NON-NLS-1$
-                        feature.eClass().getName());
-            }
-            return;
-        }
         Object raw = getMapValueIgnoreCase(properties, "indexing"); //$NON-NLS-1$
         if (raw == null) {
+            return;
+        }
+        // Resolve the EMF feature instead of instanceof DbObjectAttribute: register
+        // dimensions/resources/attributes declare their own indexing pair outside the
+        // DbObjectAttribute hierarchy (RegisterDimension.setIndexing etc.), and the old
+        // guard silently dropped indexing for them (warn in a log nobody reads).
+        EStructuralFeature indexingFeature =
+                feature.eClass().getEStructuralFeature("indexing"); //$NON-NLS-1$
+        if (!(indexingFeature instanceof EAttribute indexingAttribute)) {
+            LOG.warn("applyBasicFeatureCreateProperties: indexing not applicable for %s", //$NON-NLS-1$
+                    feature.eClass().getName());
             return;
         }
         String literal = BasicFeaturePropertyAliases.resolveIndexing(String.valueOf(raw)).orElse(null);
@@ -7571,7 +7575,7 @@ public class EdtMetadataService {
             return;
         }
         try {
-            dbo.setIndexing(
+            feature.eSet(indexingAttribute,
                     com._1c.g5.v8.dt.metadata.mdclass.Indexing.valueOf(literal));
         } catch (Exception e) {
             LOG.warn("applyBasicFeatureCreateProperties: failed to apply indexing=%s: %s", literal, e.getMessage()); //$NON-NLS-1$
@@ -11003,6 +11007,36 @@ public class EdtMetadataService {
             }
         }
         return Collections.unmodifiableSet(result);
+    }
+
+    /**
+     * Mirrors the EDT UI behaviour for new lockable objects: in a configuration whose data lock
+     * control mode is Managed, a freshly created register/catalog/document/etc. must be Managed
+     * too, while the raw EMF default is Automatic — a silent mismatch that surfaces later as an
+     * АПК/audit finding. An explicit {@code dataLockControlMode} from the caller always wins.
+     * Non-Managed configurations are left untouched: Automatic matches the EMF default, and
+     * AutomaticAndManaged has no single right answer for a new object.
+     */
+    private Map<String, Object> withConfigurationLockModeDefault(
+            Configuration configuration, MdObject target, Map<String, Object> properties) {
+        if (configuration == null || target == null) {
+            return properties;
+        }
+        if (configuration.getDataLockControlMode() != DefaultDataLockControlMode.MANAGED) {
+            return properties;
+        }
+        if (target.eClass().getEStructuralFeature("dataLockControlMode") == null) { //$NON-NLS-1$
+            return properties;
+        }
+        if (properties != null && hasMapKeyIgnoreCase(properties, "dataLockControlMode")) { //$NON-NLS-1$
+            return properties;
+        }
+        Map<String, Object> merged = new LinkedHashMap<>();
+        merged.put("dataLockControlMode", "Managed"); //$NON-NLS-1$ //$NON-NLS-2$
+        if (properties != null) {
+            merged.putAll(properties);
+        }
+        return merged;
     }
 
     private MdObject createTopLevelObject(MetadataKind kind) {
