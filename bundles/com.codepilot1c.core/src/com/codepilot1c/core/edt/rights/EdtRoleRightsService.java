@@ -1,6 +1,7 @@
 package com.codepilot1c.core.edt.rights;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -9,6 +10,7 @@ import java.util.Set;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.emf.ecore.EClass;
 import org.eclipse.emf.ecore.EObject;
+import org.eclipse.emf.ecore.EReference;
 
 import com._1c.g5.v8.bm.core.IBmNamespace;
 import com._1c.g5.v8.bm.core.IBmObject;
@@ -314,17 +316,9 @@ public class EdtRoleRightsService {
     }
 
     private MdObject resolveTopObjectByFqn(Configuration configuration, String fqn) {
-        if (fqn == null || fqn.isBlank()) {
-            throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_NAME,
-                    "object_fqn is required", false); //$NON-NLS-1$
-        }
-        int dot = fqn.indexOf('.');
-        if (dot <= 0 || dot == fqn.length() - 1) {
-            throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_NAME,
-                    "object_fqn must be in Kind.Name form: " + fqn, false); //$NON-NLS-1$
-        }
-        String kindToken = fqn.substring(0, dot);
-        String name = fqn.substring(dot + 1);
+        String[] parts = splitObjectFqn(fqn);
+        String kindToken = parts[0];
+        String name = parts[1];
         MetadataKind kind = null;
         for (MetadataKind candidate : MetadataKind.values()) {
             if (candidate.getFqnPrefix().equalsIgnoreCase(kindToken)) {
@@ -336,13 +330,136 @@ public class EdtRoleRightsService {
             throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_NAME,
                     "Unknown metadata kind in FQN: " + kindToken, false); //$NON-NLS-1$
         }
+        MdObject current = null;
         for (MdObject object : MetadataConfigurationCollections.topLevelForKind(configuration, kind)) {
             if (object != null && name.equals(object.getName())) {
-                return object;
+                current = object;
+                break;
             }
         }
-        throw new MetadataOperationException(MetadataOperationCode.METADATA_NOT_FOUND,
-                "Object not found: " + fqn, false); //$NON-NLS-1$
+        if (current == null) {
+            throw new MetadataOperationException(MetadataOperationCode.METADATA_NOT_FOUND,
+                    "Object not found: " + fqn, false); //$NON-NLS-1$
+        }
+        // Walk nested <Marker>.<Name> pairs, e.g. HTTPService.FF.URLTemplate.OrderGet.Method.GetOrder
+        // or Document.Foo.Attribute.Bar - rights targets may be child metadata objects (issue #61).
+        for (int i = 2; i + 1 < parts.length; i += 2) {
+            MdObject child = findChildObject(current, parts[i], parts[i + 1]);
+            if (child == null) {
+                throw new MetadataOperationException(MetadataOperationCode.METADATA_NOT_FOUND,
+                        "Child object not found: " + parts[i] + "." + parts[i + 1] + " in " + fqn, false); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            }
+            current = child;
+        }
+        return current;
+    }
+
+    /**
+     * Splits an {@code object_fqn} into segments and validates its shape: {@code Kind.Name}
+     * optionally followed by {@code <Marker>.<Name>} pairs. Pure string logic (unit-tested).
+     */
+    static String[] splitObjectFqn(String fqn) {
+        if (fqn == null || fqn.isBlank()) {
+            throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_NAME,
+                    "object_fqn is required", false); //$NON-NLS-1$
+        }
+        String[] parts = fqn.trim().split("\\."); //$NON-NLS-1$
+        if (parts.length < 2) {
+            throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_NAME,
+                    "object_fqn must be in Kind.Name form: " + fqn, false); //$NON-NLS-1$
+        }
+        if (parts.length % 2 != 0) {
+            throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_NAME,
+                    "object_fqn child path must be <Marker>.<Name> pairs: " + fqn, false); //$NON-NLS-1$
+        }
+        for (String part : parts) {
+            if (part.isBlank()) {
+                throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_NAME,
+                        "object_fqn contains an empty segment: " + fqn, false); //$NON-NLS-1$
+            }
+        }
+        return parts;
+    }
+
+    private static final String[] CHILD_CLASS_SUFFIXES = {
+            "Attribute", "TabularSection", "Command", "Form", "Template", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$
+            "Dimension", "Resource", "Requisite", "EnumValue", "URLTemplate", "Method", "Operation" //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$ //$NON-NLS-7$
+    };
+
+    /**
+     * Resolves a nested child metadata object of the given parent by a {@code <Marker>.<Name>} pair
+     * via a generic walk over containment references (same semantics as the metadata inspector), so
+     * FQNs like {@code HTTPService.FF.URLTemplate.OrderGet.Method.GetOrder} resolve to the method.
+     */
+    private MdObject findChildObject(MdObject parent, String marker, String childName) {
+        String normalizedMarker = normalizeToken(marker);
+        for (EReference reference : parent.eClass().getEAllReferences()) {
+            if (!reference.isContainment() || !reference.isMany()) {
+                continue;
+            }
+            Object raw = parent.eGet(reference);
+            if (!(raw instanceof Collection<?> collection)) {
+                continue;
+            }
+            for (Object element : collection) {
+                if (!(element instanceof MdObject child) || !childName.equalsIgnoreCase(child.getName())) {
+                    continue;
+                }
+                if (markerMatchesChild(normalizedMarker, reference, child)) {
+                    return child;
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean markerMatchesChild(String marker, EReference reference, MdObject child) {
+        if (marker.isEmpty()) {
+            return true;
+        }
+        String refName = normalizeToken(reference.getName());
+        if (marker.equals(refName) || marker.equals(singularizeToken(refName))) {
+            return true;
+        }
+        String className = child.eClass().getName();
+        if (marker.equals(normalizeToken(className))) {
+            return true;
+        }
+        for (String suffix : CHILD_CLASS_SUFFIXES) {
+            if (className.endsWith(suffix) && marker.equals(normalizeToken(suffix))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String normalizeToken(String value) {
+        if (value == null) {
+            return ""; //$NON-NLS-1$
+        }
+        String lowered = value.trim().toLowerCase(Locale.ROOT).replace('ё', 'е');
+        StringBuilder sb = new StringBuilder(lowered.length());
+        for (int i = 0; i < lowered.length(); i++) {
+            char ch = lowered.charAt(i);
+            if (ch == '_' || ch == '-' || ch == '.' || Character.isWhitespace(ch)) {
+                continue;
+            }
+            sb.append(ch);
+        }
+        return sb.toString();
+    }
+
+    private static String singularizeToken(String value) {
+        if (value == null || value.isBlank()) {
+            return ""; //$NON-NLS-1$
+        }
+        if (value.endsWith("ies")) { //$NON-NLS-1$
+            return value.substring(0, value.length() - 3) + "y"; //$NON-NLS-1$
+        }
+        if (value.endsWith("s") && !value.endsWith("ss")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return value.substring(0, value.length() - 1);
+        }
+        return value;
     }
 
     private String unsupportedRightMessage(String projectName, String roleFqn, EObject txObject, EClass eClass,
