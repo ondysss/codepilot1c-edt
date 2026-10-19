@@ -22,7 +22,7 @@ import org.junit.Test;
  * built on a newer EDT target published exact IUs such as {@code org.eclipse.cdt.core.native
  * 6.6.0}, and p2 tried to install that bundle into older supported EDT builds whose
  * {@code org.eclipse.core.runtime} did not satisfy it. Keep the feature root limited to CodePilot
- * bundles; host-provided Eclipse Terminal APIs remain expressed by the UI bundle manifest.</p>
+ * bundles. The UI bundle must not require Eclipse Terminal packages.</p>
  */
 public class FeatureDependencyScopeTest {
 
@@ -75,17 +75,36 @@ public class FeatureDependencyScopeTest {
         assertTrue(declarations, declarations.contains("id=\"com.codepilot1c.ui\"")); //$NON-NLS-1$
     }
 
+    @Test
+    public void uiBundleDoesNotRequireEclipseTerminal() throws Exception {
+        Path manifest = repositoryRoot().resolve("bundles/com.codepilot1c.ui/META-INF/MANIFEST.MF"); //$NON-NLS-1$
+        assertTrue("UI manifest not found at " + manifest, Files.isRegularFile(manifest)); //$NON-NLS-1$
+        assertFalse(Files.readString(manifest, StandardCharsets.UTF_8)
+                .contains("org.eclipse.tm.terminal")); //$NON-NLS-1$
+    }
+
+    @Test
+    public void uiDoesNotContributeOpenTerminalCommand() throws Exception {
+        Path plugin = repositoryRoot().resolve("bundles/com.codepilot1c.ui/plugin.xml"); //$NON-NLS-1$
+        assertTrue("UI plugin.xml not found at " + plugin, Files.isRegularFile(plugin)); //$NON-NLS-1$
+        assertFalse(Files.readString(plugin, StandardCharsets.UTF_8)
+                .contains("com.codepilot1c.ui.commands.OpenTerminal")); //$NON-NLS-1$
+    }
+
     /** Located relative to the core bundle the build hands to Surefire. */
     private static String readFeature() throws Exception {
+        Path feature = repositoryRoot().resolve("features") //$NON-NLS-1$
+                .resolve("com.codepilot1c.feature").resolve("feature.xml"); //$NON-NLS-1$ //$NON-NLS-2$
+        assertTrue("feature.xml not found at " + feature, Files.isRegularFile(feature)); //$NON-NLS-1$
+        return Files.readString(feature, StandardCharsets.UTF_8);
+    }
+
+    private static Path repositoryRoot() {
         String bundlePath = System.getProperty("core.bundle.path"); //$NON-NLS-1$
         assertTrue("core.bundle.path must be provided by the build", bundlePath != null); //$NON-NLS-1$
         // The property is built with a literal "..", so normalize before walking up:
         // <repo>/bundles/com.codepilot1c.core/target/<jar>
         Path jar = new File(bundlePath).toPath().toAbsolutePath().normalize();
-        Path repositoryRoot = jar.getParent().getParent().getParent().getParent();
-        Path feature = repositoryRoot.resolve("features") //$NON-NLS-1$
-                .resolve("com.codepilot1c.feature").resolve("feature.xml"); //$NON-NLS-1$ //$NON-NLS-2$
-        assertTrue("feature.xml not found at " + feature, Files.isRegularFile(feature)); //$NON-NLS-1$
-        return Files.readString(feature, StandardCharsets.UTF_8);
+        return jar.getParent().getParent().getParent().getParent();
     }
 }

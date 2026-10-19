@@ -57,10 +57,6 @@ public class VibePreferenceInitializer extends AbstractPreferenceInitializer {
         defaults.putBoolean(VibePreferenceConstants.PREF_CHAT_SHOW_TOKEN_USAGE, true);
         defaults.putBoolean(VibePreferenceConstants.PREF_GSD_ENABLED, true);
         defaults.put(VibePreferenceConstants.PREF_QA_VA_EPF_PATH, ""); //$NON-NLS-1$
-        defaults.put(VibePreferenceConstants.PREF_TERMINAL_CWD_MODE, "project"); //$NON-NLS-1$
-        defaults.putBoolean(VibePreferenceConstants.PREF_TERMINAL_NO_COLOR, false);
-        defaults.put(VibePreferenceConstants.PREF_TERMINAL_TITLE_PREFIX, ""); //$NON-NLS-1$
-        defaults.putBoolean(VibePreferenceConstants.PREF_TERMINAL_ALWAYS_USE_ACTIVE_PROJECT, false);
 
         // Prompt customization (empty values mean "use built-in templates")
         defaults.put(VibePreferenceConstants.PREF_PROMPT_SYSTEM_PREFIX, ""); //$NON-NLS-1$

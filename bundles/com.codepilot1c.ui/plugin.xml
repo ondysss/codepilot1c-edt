@@ -131,12 +131,6 @@
             categoryId="com.codepilot1c.ui.commands.category">
         </command>
         <command
-            id="com.codepilot1c.ui.commands.OpenTerminal"
-            name="%command.openTerminal.name"
-            description="%command.openTerminal.description"
-            categoryId="com.codepilot1c.ui.commands.category">
-        </command>
-        <command
             id="com.codepilot1c.ui.commands.ExplainCode"
             name="%command.explainCode.name"
             description="%command.explainCode.description"
@@ -191,10 +185,6 @@
         <handler
             commandId="com.codepilot1c.ui.commands.OpenChat"
             class="com.codepilot1c.ui.handlers.OpenChatHandler">
-        </handler>
-        <handler
-            commandId="com.codepilot1c.ui.commands.OpenTerminal"
-            class="com.codepilot1c.ui.handlers.OpenTerminalHandler">
         </handler>
         <handler
             commandId="com.codepilot1c.ui.commands.ExplainCode"
@@ -274,10 +264,6 @@
                 </command>
                 <command
                     commandId="com.codepilot1c.ui.commands.Register"
-                    style="push">
-                </command>
-                <command
-                    commandId="com.codepilot1c.ui.commands.OpenTerminal"
                     style="push">
                 </command>
                 <separator name="separator1" visible="true"/>

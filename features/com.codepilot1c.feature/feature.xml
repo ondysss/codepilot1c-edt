@@ -14,15 +14,14 @@
    <!--
       Keep the install root limited to CodePilot bundles only.
 
-      Do not list Eclipse Terminal/CDT implementation bundles here. When the update site is built
+      Do not list Eclipse/CDT implementation bundles here. When the update site is built
       on a newer EDT/Eclipse target, explicit plugin entries turn into exact p2 IU requirements for
       that target's bundle versions. Installing such a site into an older supported EDT then fails
       before CodePilot is touched, for example when org.eclipse.cdt.core.native from Eclipse 2025-12
       requires org.eclipse.core.runtime [3.33.0,4.0.0) but the host EDT ships an older runtime.
 
-      CodePilot UI imports the terminal view API packages in its OSGi manifest; p2 resolves those
-      against the host EDT. The local terminal launcher is therefore host-provided compatibility,
-      not a CodePilot update-site payload.
+      CodePilot does not integrate the Eclipse Terminal view. It must not require Terminal
+      packages in its OSGi manifests or include Terminal bundles in the update-site payload.
    -->
 
    <plugin
