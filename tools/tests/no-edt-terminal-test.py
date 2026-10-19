@@ -14,6 +14,11 @@ class NoEdtTerminalTest(unittest.TestCase):
         manifest = (UI / "META-INF/MANIFEST.MF").read_text()
         self.assertNotIn("org.eclipse.tm.terminal", manifest)
 
+    def test_build_target_does_not_request_terminal_feature(self):
+        target = ET.parse(ROOT / "targets/default/default.target")
+        units = [element.attrib["id"] for element in target.iter("unit")]
+        self.assertFalse(any(unit.startswith("org.eclipse.tm.terminal") for unit in units))
+
     def test_terminal_command_is_not_contributed(self):
         plugin = ET.parse(UI / "plugin.xml")
         attributes = [value for element in plugin.iter() for value in element.attrib.values()]
