@@ -262,6 +262,7 @@ public class ToolRegistry {
         defaults.add(new GrepTool());
         defaults.add(new GlobTool());
         defaults.add(new WorkspaceImportProjectTool());
+        defaults.add(new com.codepilot1c.core.tools.workspace.WorkspaceRemoveProjectTool());
         defaults.add(new ConnectInfobaseTool());
         defaults.add(new GitInspectTool());
         defaults.add(new GitMutateTool());
