@@ -40,7 +40,7 @@ public class UpdateMetadataTool extends AbstractTool {
                 },
                 "changes": {
                   "type": "object",
-                  "description": "Property changes for an existing object: {set:{...}, unset:[...], children_ops:[...]}. children_ops only supports rename/delete/set on EXISTING children (op: rename|delete|set). To CREATE a new child use add_metadata_child; to mutate form layout use mutate_form_model. For EventSubscription.source use set.source as a TypeDescription string or {types:[...]}."
+                  "description": "Property changes for an existing object: {set:{...}, unset:[...], children_ops:[...]}. children_ops only supports rename/delete/set on EXISTING children (op: rename|delete|set). To CREATE a new child use add_metadata_child; to mutate form layout use mutate_form_model. For Subsystem.picture use set.picture as an existing CommonPicture FQN, e.g. CommonPicture.ToolsIcon; unset:[picture] clears only the link. For EventSubscription.source use set.source as a TypeDescription string or {types:[...]}."
                 },
                 "validation_token": {
                   "type": "string",

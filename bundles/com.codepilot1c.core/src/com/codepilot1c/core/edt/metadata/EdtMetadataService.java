@@ -10122,6 +10122,9 @@ public class EdtMetadataService {
             Object value
     ) {
         if (reference.isContainment()) {
+            if (applySubsystemPictureReference(configuration, target, reference, value)) {
+                return;
+            }
             if (applyStringMapReferenceValue(target, reference, value)) {
                 return;
             }
@@ -10147,6 +10150,37 @@ public class EdtMetadataService {
 
         Object resolved = resolveSingleReferenceValue(configuration, reference, value);
         target.eSet(reference, resolved);
+    }
+
+    /** Supports only the documented Subsystem.picture wrapper; other containment stays guarded. */
+    private boolean applySubsystemPictureReference(Configuration configuration, MdObject target,
+            EReference reference, Object value) {
+        if (!"Subsystem".equals(target.eClass().getName()) || !"picture".equals(reference.getName())
+                || reference.isMany()) {
+            return false;
+        }
+        Object classifier = reference.getEReferenceType().getEPackage().getEClassifier("PictureRef");
+        if (!(classifier instanceof EClass wrapperType)
+                || !reference.getEReferenceType().isSuperTypeOf(wrapperType)) {
+            return false;
+        }
+        EStructuralFeature nestedFeature = wrapperType.getEStructuralFeature("picture");
+        if (!(nestedFeature instanceof EReference pictureReference) || pictureReference.isMany()
+                || pictureReference.isContainment() || value == null) {
+            throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Subsystem.picture requires an existing CommonPicture FQN; use unset to clear", false);
+        }
+        // Resolve and type-check before changing either the wrapper or its existing value.
+        Object resolved = resolveSingleReferenceValue(configuration, pictureReference, value);
+        if (!(resolved instanceof EObject picture) || !"CommonPicture".equals(picture.eClass().getName())) {
+            throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Subsystem.picture must reference CommonPicture", false);
+        }
+        EObject wrapper = target.eGet(reference) instanceof EObject existing ? existing
+                : wrapperType.getEPackage().getEFactoryInstance().create(wrapperType);
+        wrapper.eSet(pictureReference, picture);
+        target.eSet(reference, wrapper);
+        return true;
     }
 
     @SuppressWarnings("unchecked")

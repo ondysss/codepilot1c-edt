@@ -306,6 +306,12 @@ public class EdtMetadataInspectorService {
         if (object == null) {
             return ""; //$NON-NLS-1$
         }
+        if ("PictureRef".equals(object.eClass().getName())) {
+            EStructuralFeature picture = object.eClass().getEStructuralFeature("picture");
+            if (picture != null && object.eGet(picture) instanceof EObject selected && selected != object) {
+                return "PictureRef.picture=" + formatEObjectReference(selected);
+            }
+        }
         String fqn = resolveFqn(object);
         if (fqn != null && !fqn.isBlank()) {
             return fqn;
