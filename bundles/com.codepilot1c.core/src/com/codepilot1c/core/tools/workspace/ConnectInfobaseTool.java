@@ -40,12 +40,16 @@ public class ConnectInfobaseTool extends AbstractTool {
                 },
                 "database_path": {
                   "type": "string",
-                  "description": "Filesystem path for file-binding, or infobase data path for the standalone server"
+                  "description": "Filesystem path for file/standalone, or existing infobase name for server mode"
+                },
+                "server_address": {
+                  "type": "string",
+                  "description": "1C server address for kind=server, optionally with cluster port, e.g. localhost:1541. This binds an existing infobase; it does not create one."
                 },
                 "kind": {
                   "type": "string",
-                  "enum": ["file", "standalone"],
-                  "description": "Connection mode: 'file' for file-based infobase, 'standalone' for the local standalone server"
+                  "enum": ["file", "server", "standalone"],
+                  "description": "Connection mode: file, existing client/server infobase, or local standalone server"
                 },
                 "login": {
                   "type": "string",
@@ -88,7 +92,7 @@ public class ConnectInfobaseTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Подключает файловую или standalone-инфобазу к EDT проекту и, по желанию, делает её основной."; //$NON-NLS-1$
+        return "Подключает существующую файловую, клиент-серверную или standalone-инфобазу к EDT проекту."; //$NON-NLS-1$
     }
 
     @Override
@@ -120,7 +124,7 @@ public class ConnectInfobaseTool extends AbstractTool {
                 ConnectionKind kind = ConnectionKind.parse(rawKind);
                 if (kind == null) {
                     throw new EdtToolException(EdtToolErrorCode.INVALID_ARGUMENT,
-                            "kind must be 'file' or 'standalone', got: " + rawKind); //$NON-NLS-1$
+                            "kind must be 'file', 'server' or 'standalone', got: " + rawKind); //$NON-NLS-1$
                 }
                 String databasePath = asString(parameters.get("database_path")); //$NON-NLS-1$
                 String login = asString(parameters.get("login")); //$NON-NLS-1$
@@ -129,9 +133,10 @@ public class ConnectInfobaseTool extends AbstractTool {
                 boolean force = Boolean.TRUE.equals(parameters.get("force")); //$NON-NLS-1$
                 Integer serverPort = asInteger(parameters.get("server_port")); //$NON-NLS-1$
                 String runtimeVersion = asString(parameters.get("runtime_version")); //$NON-NLS-1$
+                String serverAddress = asString(parameters.get("server_address")); //$NON-NLS-1$
 
                 ConnectRequest request = new ConnectRequest(projectName, databasePath, kind, login,
-                        password, setPrimary, serverPort, runtimeVersion, force);
+                        password, setPrimary, serverPort, runtimeVersion, force, serverAddress);
                 ConnectResult result = connectService.connect(request);
                 JsonObject payload = successPayload(opId, projectName, result);
                 return ToolResult.success(pretty(payload), ToolResult.ToolResultType.CODE);

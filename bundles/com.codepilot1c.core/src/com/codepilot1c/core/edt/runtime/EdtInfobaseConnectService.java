@@ -52,6 +52,7 @@ public class EdtInfobaseConnectService {
 
     public enum ConnectionKind {
         FILE,
+        SERVER,
         STANDALONE;
 
         public static ConnectionKind parse(String raw) {
@@ -64,6 +65,9 @@ public class EdtInfobaseConnectService {
             }
             if ("file".equalsIgnoreCase(trimmed)) { //$NON-NLS-1$
                 return FILE;
+            }
+            if ("server".equalsIgnoreCase(trimmed)) { //$NON-NLS-1$
+                return SERVER;
             }
             if ("standalone".equalsIgnoreCase(trimmed)) { //$NON-NLS-1$
                 return STANDALONE;
@@ -82,6 +86,7 @@ public class EdtInfobaseConnectService {
         private final Integer serverPort;
         private final String runtimeVersion;
         private final boolean force;
+        private final String serverAddress;
 
         public ConnectRequest(String projectName, String databasePath, ConnectionKind kind, String login,
                 String password, boolean setPrimary, Integer serverPort, String runtimeVersion) {
@@ -90,6 +95,12 @@ public class EdtInfobaseConnectService {
 
         public ConnectRequest(String projectName, String databasePath, ConnectionKind kind, String login,
                 String password, boolean setPrimary, Integer serverPort, String runtimeVersion, boolean force) {
+            this(projectName, databasePath, kind, login, password, setPrimary, serverPort, runtimeVersion, force, null);
+        }
+
+        public ConnectRequest(String projectName, String databasePath, ConnectionKind kind, String login,
+                String password, boolean setPrimary, Integer serverPort, String runtimeVersion, boolean force,
+                String serverAddress) {
             this.projectName = projectName;
             this.databasePath = databasePath;
             this.kind = kind;
@@ -99,6 +110,7 @@ public class EdtInfobaseConnectService {
             this.serverPort = serverPort;
             this.runtimeVersion = runtimeVersion;
             this.force = force;
+            this.serverAddress = serverAddress;
         }
 
         public String projectName() { return projectName; }
@@ -110,6 +122,7 @@ public class EdtInfobaseConnectService {
         public Integer serverPort() { return serverPort; }
         public String runtimeVersion() { return runtimeVersion; }
         public boolean force() { return force; }
+        public String serverAddress() { return serverAddress; }
     }
 
     public static final class ConnectResult {
@@ -165,6 +178,7 @@ public class EdtInfobaseConnectService {
         IProject project = resolveProject(request.projectName());
         return switch (request.kind()) {
             case FILE -> connectFile(project, request);
+            case SERVER -> connectServer(project, request);
             case STANDALONE -> connectStandalone(project, request);
         };
     }
@@ -178,8 +192,37 @@ public class EdtInfobaseConnectService {
         }
         if (request.kind() == null) {
             throw new EdtToolException(EdtToolErrorCode.INVALID_ARGUMENT,
-                    "kind is required and must be 'file' or 'standalone'"); //$NON-NLS-1$
+                    "kind is required and must be 'file', 'server' or 'standalone'"); //$NON-NLS-1$
         }
+        if (request.kind() == ConnectionKind.SERVER) {
+            validateServerAddress(request.serverAddress(), "server_address"); //$NON-NLS-1$
+            validateServerAddress(request.databasePath(), "database_path (server infobase name)"); //$NON-NLS-1$
+        }
+    }
+
+    private static void validateServerAddress(String value, String parameter) {
+        if (value == null || value.isBlank() || value.chars().anyMatch(character ->
+                Character.isWhitespace(character) || character == ';' || character == '"'
+                || character == '\'' || character == '/' || character == '\\')) {
+            throw new EdtToolException(EdtToolErrorCode.INVALID_ARGUMENT,
+                    parameter + " must be a nonempty server address or infobase name, not a connection string"); //$NON-NLS-1$
+        }
+    }
+
+    /** Associate an existing client/server infobase; never create a server or database. */
+    protected ConnectResult connectServer(IProject project, ConnectRequest request) {
+        validate(request);
+        String replacedPrevious = checkExistingPrimary(project, request);
+        InfobaseReference reference = InfobaseReferences.newServerInfobaseReference(
+                request.serverAddress(), request.databasePath());
+        reference.setName(request.serverAddress() + "/" + request.databasePath()); //$NON-NLS-1$
+        persistReference(reference);
+        storeAccessSettings(reference, request.login(), request.password());
+        boolean primary = associate(project, reference, request.setPrimary());
+        LOG.info("connect_infobase(server) project=%s server=%s infobase=%s primary=%s", //$NON-NLS-1$
+                request.projectName(), request.serverAddress(), request.databasePath(), Boolean.valueOf(primary));
+        return new ConnectResult(ConnectionKind.SERVER, request.serverAddress() + "/" + request.databasePath(), //$NON-NLS-1$
+                reference.getName(), sanitizeLogin(request.login()), null, primary, replacedPrevious);
     }
 
     private IProject resolveProject(String projectName) {
