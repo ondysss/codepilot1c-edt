@@ -273,11 +273,12 @@ final class WorkspaceCopyTransformSupport {
         if (lfIndex > 0 && content.charAt(lfIndex - 1) == '\r') {
             return "\r\n"; //$NON-NLS-1$
         }
-        if (content.indexOf('\r') >= 0) {
-            return "\r"; //$NON-NLS-1$
-        }
+        // A later CRLF must not turn LF-first mixed text into CR-only text.
         if (lfIndex >= 0) {
             return "\n"; //$NON-NLS-1$
+        }
+        if (content.indexOf('\r') >= 0) {
+            return "\r"; //$NON-NLS-1$
         }
         return System.lineSeparator();
     }
