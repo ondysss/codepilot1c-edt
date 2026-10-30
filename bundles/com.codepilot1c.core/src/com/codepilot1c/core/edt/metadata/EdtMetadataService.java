@@ -2963,6 +2963,9 @@ public class EdtMetadataService {
             }
             Object value = entry.getValue();
             String normalized = normalizeToken(key);
+            if (target instanceof Form form && ReportFormPropertySupport.apply(form, key, value)) {
+                continue;
+            }
             if ("title".equals(normalized) && target instanceof Titled titled) { //$NON-NLS-1$
                 applyTitleValue(titled, value);
                 continue;
