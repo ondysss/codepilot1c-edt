@@ -16,6 +16,8 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -59,6 +61,7 @@ public class RunYaxunitTestsTool extends AbstractTool {
     private static final int DEFAULT_TIMEOUT_SECONDS = 300;
     private static final int MAX_FAILURE_DETAILS = 20;
     private static final int LOG_TAIL_LINES = 80;
+    private static final Set<String> ACTIVE_BASES = ConcurrentHashMap.newKeySet();
 
     private static final String SCHEMA = """
             {
@@ -75,6 +78,24 @@ public class RunYaxunitTestsTool extends AbstractTool {
                 "junit_xml_path": {
                   "type": "string",
                   "description": "Output JUnit XML file path (relative to workspace .codepilot/runs/yaxunit/)"
+                },
+                "tests": {
+                  "type": "array", "minItems": 1, "uniqueItems": true,
+                  "items": {"type": "string"},
+                  "description": "Exact expected Module.Method or Module.Method(parameters) cases; derives registered method filters and verifies every executed case"
+                },
+                "expected_contexts": {
+                  "type": "object",
+                  "additionalProperties": {"type": "string", "enum": ["Сервер", "КлиентУправляемоеПриложение"]},
+                  "description": "Optional exact case-to-context map; must cover every tests entry"
+                },
+                "expected_count": {
+                  "type": "integer", "minimum": 1,
+                  "description": "Optional positive actual test count; cannot override an exact tests selection"
+                },
+                "allow_all_tests": {
+                  "type": "boolean",
+                  "description": "Explicitly authorize an unfiltered run; otherwise tests or a nonempty modules filter is required"
                 },
                 "timeout_s": {
                   "type": "integer",
@@ -146,11 +167,36 @@ public class RunYaxunitTestsTool extends AbstractTool {
             File runDir = buildRunDirectory(workspaceRoot, opId);
             File logFile = new File(runDir, "yaxunit.log"); //$NON-NLS-1$
             File junitXmlFile = null;
+            String activeBase = null;
+            Process process = null;
             long startTime = System.currentTimeMillis();
             try {
+                YaxunitRunContract.Selection selection;
+                try {
+                    if ((filters == null || filters.isBlank()) && parameters.get("tests") == null
+                            && !Boolean.TRUE.equals(parameters.get("allow_all_tests"))) {
+                        throw new IllegalArgumentException("Provide exact tests, module filters, or explicit allow_all_tests=true");
+                    }
+                    if (parameters.containsKey("tests") && parameters.get("tests") == null) {
+                        throw new IllegalArgumentException("tests cannot be null");
+                    }
+                    selection = YaxunitRunContract.selection(filters, parameters.get("tests"),
+                            parameters.get("expected_contexts"), parameters.get("expected_count"));
+                } catch (IllegalArgumentException error) {
+                    throw new EdtToolException(EdtToolErrorCode.INVALID_ARGUMENT, error.getMessage());
+                }
                 InfobaseReference infobase = projectResolver.resolveInfobase(projectName, workspaceRoot);
+                String baseKey = infobase == null || infobase.getConnectionString() == null
+                        ? String.valueOf(workspaceRoot) + "/" + projectName : infobase.getConnectionString().asConnectionString();
+                if (!ACTIVE_BASES.add(baseKey)) {
+                    throw new EdtToolException(EdtToolErrorCode.INVALID_ARGUMENT, "A YAxUnit run is already active for this infobase");
+                }
+                activeBase = baseKey;
                 junitXmlFile = resolveJunitXmlFile(runDir, junitXmlPath);
                 ensureParentDirectory(junitXmlFile);
+                if (junitXmlFile.exists()) {
+                    throw new EdtToolException(EdtToolErrorCode.INVALID_PATH, "JUnit report already exists before launch");
+                }
 
                 if (updateDatabase) {
                     LOG.info("[%s] Updating infobase before YAXUnit run", opId); //$NON-NLS-1$
@@ -169,6 +215,16 @@ public class RunYaxunitTestsTool extends AbstractTool {
                 // ("Значение не является значением объектного типа"). The config file is NOT a
                 // VAParams file, so nothing is passed to the Vanessa slot of the command builder.
                 File paramsFile = writeParamsFile(runDir, filters, junitXmlFile);
+                JsonObject config = com.google.gson.JsonParser.parseString(Files.readString(paramsFile.toPath())).getAsJsonObject();
+                if (selection.filter().size() > 0) config.add("filter", selection.filter());
+                JsonObject logging = new JsonObject();
+                logging.addProperty("enable", true);
+                logging.addProperty("console", false);
+                logging.addProperty("level", "debug");
+                File debugLog = new File(runDir, "yaxunit-debug.log");
+                logging.addProperty("file", debugLog.getAbsolutePath());
+                config.add("logging", logging);
+                Files.writeString(paramsFile.toPath(), pretty(config), StandardCharsets.UTF_8);
                 RuntimeExecutionCommandBuilder commandBuilder = runtimeService.buildTestManagerCommand(
                         projectName,
                         null,
@@ -177,20 +233,54 @@ public class RunYaxunitTestsTool extends AbstractTool {
                         false,
                         true,
                         false,
-                        logFile);
+                        logFile,
+                        null,
+                        null,
+                        false);
                 commandBuilder.startupOption(buildStartupOption(paramsFile));
 
                 ProcessBuilder processBuilder = commandBuilder.toProcessBuilder();
+                List<String> launchCommand = processBuilder.command();
+                if (launchCommand.stream().noneMatch(value -> value.equalsIgnoreCase("/TESTMANAGER"))) launchCommand.add("/TESTMANAGER");
+                if (launchCommand.stream().noneMatch(value -> value.equalsIgnoreCase("/RunModeManagedApplication"))) launchCommand.add("/RunModeManagedApplication");
+                try {
+                    YaxunitRunContract.validateCommand(launchCommand, paramsFile);
+                } catch (IllegalArgumentException error) {
+                    throw new EdtToolException(EdtToolErrorCode.INVALID_ARGUMENT, error.getMessage());
+                }
                 processBuilder.directory(workspaceRoot);
                 processBuilder.redirectErrorStream(true);
                 processBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile));
 
                 JsonObject result = basePayload(opId, "running", projectName, workspaceRoot, runDir, //$NON-NLS-1$
                         paramsFile, junitXmlFile, logFile, processBuilder.command(), infobase);
-                Process process = processStarter.start(processBuilder);
+                process = processStarter.start(processBuilder);
                 result.addProperty("pid", process.pid()); //$NON-NLS-1$
 
-                boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+                boolean finished = false;
+                boolean startupConfirmed = false;
+                long processStartedAt = System.currentTimeMillis();
+                while (!(finished = process.waitFor(1, TimeUnit.SECONDS))) {
+                    if (!startupConfirmed && debugLog.isFile()) {
+                        try {
+                            startupConfirmed = Files.readString(debugLog.toPath(), StandardCharsets.UTF_8)
+                                    .contains("Загрузка тестовых сценариев");
+                        } catch (IOException busyLog) {
+                            // The 1C logger can temporarily hold an exclusive Windows handle.
+                        }
+                    }
+                    long elapsed = System.currentTimeMillis() - processStartedAt;
+                    if (!startupConfirmed && elapsed > Math.min(60000L, timeoutSeconds * 1000L)) {
+                        terminateProcessTree(process);
+                        result.addProperty("status", "startup_failed");
+                        result.addProperty("message", "YAxUnit execution was not observed in its own log");
+                        result.addProperty("startup_confirmed", false);
+                        result.addProperty("tail_log", tailLog(logFile, LOG_TAIL_LINES));
+                        Files.writeString(new File(runDir, "result.json").toPath(), pretty(result), StandardCharsets.UTF_8);
+                        return ToolResult.failure(pretty(result));
+                    }
+                    if (elapsed >= timeoutSeconds * 1000L) break;
+                }
                 long durationMs = System.currentTimeMillis() - startTime;
                 if (!finished) {
                     terminateProcessTree(process);
@@ -209,6 +299,15 @@ public class RunYaxunitTestsTool extends AbstractTool {
                 QaJUnitReport report = parseReport(junitXmlFile);
                 addReport(result, report);
                 result.addProperty("status", resolveStatus(exitCode, report)); //$NON-NLS-1$
+                List<String> verificationErrors = report == null ? List.of("Fresh JUnit report is missing")
+                        : YaxunitRunContract.verifyReport(junitXmlFile, selection, report.tests);
+                JsonArray errors = new JsonArray();
+                verificationErrors.forEach(errors::add);
+                result.add("verification_errors", errors);
+                boolean verified = report != null && exitCode == 0 && verificationErrors.isEmpty();
+                result.addProperty("tests_verified", verified);
+                result.addProperty("startup_confirmed", startupConfirmed || (report != null && report.tests > 0));
+                if (!verified) result.addProperty("status", "failed");
                 result.addProperty("exit_code", exitCode); //$NON-NLS-1$
                 result.addProperty("duration_ms", durationMs); //$NON-NLS-1$
                 result.addProperty("tail_log", tailLog(logFile, LOG_TAIL_LINES)); //$NON-NLS-1$
@@ -220,7 +319,9 @@ public class RunYaxunitTestsTool extends AbstractTool {
                     result.addProperty("message", "JUnit XML report was not produced"); //$NON-NLS-1$ //$NON-NLS-2$
                 }
                 result.addProperty("markdown_report", buildMarkdownReport(result)); //$NON-NLS-1$
-                return ToolResult.success(pretty(result), ToolResult.ToolResultType.CODE, result);
+                Files.writeString(new File(runDir, "result.json").toPath(), pretty(result), StandardCharsets.UTF_8);
+                return verified ? ToolResult.success(pretty(result), ToolResult.ToolResultType.CODE, result)
+                        : ToolResult.failure(pretty(result));
             } catch (EdtToolException e) {
                 return failure(opId, projectName, workspaceRoot, runDir, junitXmlFile, logFile, e.getCode(),
                         e.getMessage(), startTime);
@@ -235,6 +336,20 @@ public class RunYaxunitTestsTool extends AbstractTool {
                 LOG.error("[%s] run_yaxunit_tests failed: %s", opId, e.getMessage(), e); //$NON-NLS-1$
                 return failure(opId, projectName, workspaceRoot, runDir, junitXmlFile, logFile,
                         EdtToolErrorCode.PROCESS_START_FAILED, e.getMessage(), startTime);
+            } finally {
+                if (process != null && process.isAlive()) {
+                    boolean restoreInterrupt = Thread.interrupted();
+                    try {
+                        terminateProcessTree(process);
+                    } catch (InterruptedException cleanupInterrupted) {
+                        process.descendants().forEach(ProcessHandle::destroyForcibly);
+                        process.destroyForcibly();
+                        restoreInterrupt = true;
+                    } finally {
+                        if (restoreInterrupt) Thread.currentThread().interrupt();
+                    }
+                }
+                if (activeBase != null) ACTIVE_BASES.remove(activeBase);
             }
         });
     }
@@ -243,6 +358,9 @@ public class RunYaxunitTestsTool extends AbstractTool {
         File root = workspaceRoot == null
                 ? new File(System.getProperty("java.io.tmpdir"), "codepilot1c-yaxunit/" + opId) //$NON-NLS-1$ //$NON-NLS-2$
                 : new File(workspaceRoot, ".codepilot/runs/yaxunit/" + opId); //$NON-NLS-1$
+        if (!YaxunitRunContract.isAscii(root.toPath())) {
+            root = new File(System.getProperty("java.io.tmpdir"), "codepilot1c-yaxunit/" + opId);
+        }
         if (!root.exists()) {
             root.mkdirs();
         }

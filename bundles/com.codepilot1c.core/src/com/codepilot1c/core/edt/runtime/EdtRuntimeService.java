@@ -479,6 +479,18 @@ public class EdtRuntimeService {
                                                                   boolean clearStepsCache, File logFile,
                                                                   String versionMask,
                                                                   AccessSettings explicitAccessSettings) {
+        return buildTestManagerCommand(projectName, epfPath, vaParamsPath, workspaceRoot, showMainForm,
+                quietInstall, clearStepsCache, logFile, versionMask, explicitAccessSettings, true);
+    }
+
+    /** Keep the Vanessa startup option optional for callers which supply their own /C command. */
+    public RuntimeExecutionCommandBuilder buildTestManagerCommand(String projectName, File epfPath,
+                                                                  File vaParamsPath, File workspaceRoot,
+                                                                  boolean showMainForm, boolean quietInstall,
+                                                                  boolean clearStepsCache, File logFile,
+                                                                  String versionMask,
+                                                                  AccessSettings explicitAccessSettings,
+                                                                  boolean applyFeaturePlayerStartupOption) {
         InfobaseReference infobase = resolveDefaultInfobase(projectName);
         ThickClientInfo info = resolveThickClientInfo(infobase, versionMask);
         File clientFile = info.component().getFile();
@@ -498,8 +510,10 @@ public class EdtRuntimeService {
         if (epfPath != null) {
             builder.execute(epfPath.getAbsolutePath());
         }
-        builder.startupOption(buildStartupOption(vaParamsPath, workspaceRoot, showMainForm, quietInstall,
-                clearStepsCache));
+        if (applyFeaturePlayerStartupOption) {
+            builder.startupOption(buildStartupOption(vaParamsPath, workspaceRoot, showMainForm, quietInstall,
+                    clearStepsCache));
+        }
         builder.disableStartupDialogs();
         builder.disableStartupMessages();
         if (logFile != null) {
