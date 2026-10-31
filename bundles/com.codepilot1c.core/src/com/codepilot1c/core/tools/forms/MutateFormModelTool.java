@@ -48,16 +48,16 @@ public class MutateFormModelTool extends AbstractTool {
                     "properties": {
                       "op": {
                         "type": "string",
-                        "enum": ["set_form_props", "add_group", "add_field", "add_table", "add_command", "add_button", "set_item", "remove_item", "move_item", "add_event_handler", "set_event_handler", "remove_event_handler"],
-                        "description": "Visual form operation. add_field creates a simple UI field; add_table creates a Table item and, with data_path to a ValueTable/ValueTree/tabular attribute, auto-generates its columns. Neither creates the form attribute — create attributes with apply_form_recipe first."
+                        "enum": ["set_form_props", "add_group", "add_field", "add_table", "add_command", "add_button", "set_item", "remove_item", "move_item", "add_event_handler", "set_event_handler", "remove_event_handler", "add_parameter", "set_parameter", "remove_parameter"],
+                        "description": "Form operation. add_parameter/set_parameter/remove_parameter manage formal input parameters by name, separately from data attributes. add_parameter accepts optional type, keyParameter and comment; set_parameter accepts set with these properties; remove_parameter accepts only name. add_field creates a simple UI field; add_table creates a Table item and, with data_path to a ValueTable/ValueTree/tabular attribute, auto-generates its columns. Neither creates the form attribute — create attributes with apply_form_recipe first."
                       },
                       "data_path": {
                         "type": "string",
                         "description": "For add_field/add_table/set_item, data_path must reference an existing form attribute. For add_table point it at a ValueTable/ValueTree/tabular attribute to auto-generate columns. Use inspect_form_layout to confirm names."
                       },
                       "type": {
-                        "type": "string",
-                        "description": "Visual item type, e.g. INPUT_FIELD or LABEL_FIELD. Do not guess SpreadsheetDocument/ТабличныйДокумент as attribute type."
+                        "type": ["string", "array", "object"],
+                        "description": "For parameter operations: value type, including qualified or composite types. Otherwise visual item type, e.g. INPUT_FIELD or LABEL_FIELD. Do not guess SpreadsheetDocument/ТабличныйДокумент as attribute type."
                       },
                       "set": {
                         "type": "object",
@@ -100,7 +100,7 @@ public class MutateFormModelTool extends AbstractTool {
                     "required": ["op"],
                     "additionalProperties": true
                   },
-                  "description": "Visual form items only: groups, fields, commands, buttons. Precondition: call inspect_form_layout when item ids or form attributes are unknown. add_field{parent_item_id,name,data_path,type} binds a UI field to an existing form attribute; it does not create that attribute. Use apply_form_recipe attributes[] action create/update/upsert/remove for data attributes. Supported field widgets include INPUT_FIELD, LABEL_FIELD, CHECK_BOX_FIELD, SPREADSHEET_DOCUMENT_FIELD, TEXT_DOCUMENT_FIELD, HTML_DOCUMENT_FIELD, PDF_DOCUMENT_FIELD, CHART_FIELD. Do not guess SpreadsheetDocument/ТабличныйДокумент as a form attribute data type; inspect type candidates or use a supported alias already accepted by EDT."
+                  "description": "Form items and formal input parameters. Precondition: call inspect_form_layout when item ids or form attributes are unknown. add_field{parent_item_id,name,data_path,type} binds a UI field to an existing form attribute; it does not create that attribute. Use apply_form_recipe attributes[] action create/update/upsert/remove for data attributes. Supported field widgets include INPUT_FIELD, LABEL_FIELD, CHECK_BOX_FIELD, SPREADSHEET_DOCUMENT_FIELD, TEXT_DOCUMENT_FIELD, HTML_DOCUMENT_FIELD, PDF_DOCUMENT_FIELD, CHART_FIELD. Do not guess SpreadsheetDocument/ТабличныйДокумент as a form attribute data type; inspect type candidates or use a supported alias already accepted by EDT."
                 },
                 "validation_token": {
                   "type": "string",
@@ -125,7 +125,7 @@ public class MutateFormModelTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Меняет visual items существующей формы; attributes создавайте отдельно."; //$NON-NLS-1$
+        return "Меняет элементы и формальные параметры существующей формы. add_parameter: name и необязательные type, keyParameter, comment; set_parameter: name и set:{type,keyParameter,comment}; remove_parameter: name. Параметры не являются реквизитами данных; attributes создавайте через apply_form_recipe."; //$NON-NLS-1$
     }
 
     @Override

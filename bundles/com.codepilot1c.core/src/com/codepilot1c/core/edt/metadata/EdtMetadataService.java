@@ -73,6 +73,7 @@ import com._1c.g5.v8.dt.form.model.ExtendedMethodCallType;
 import com._1c.g5.v8.dt.form.model.Form;
 import com._1c.g5.v8.dt.form.model.FormAttribute;
 import com._1c.g5.v8.dt.form.model.FormAttributeColumn;
+import com._1c.g5.v8.dt.form.model.FormParameter;
 import com._1c.g5.v8.dt.form.model.FormCommand;
 import com._1c.g5.v8.dt.form.model.FormVisualEntity;
 import com._1c.g5.v8.dt.form.model.FormCommandHandlerContainer;
@@ -522,6 +523,9 @@ public class EdtMetadataService {
                     "Cannot resolve project configuration", false); //$NON-NLS-1$
         }
 
+        Map<String, TypeItem> parameterTypes = preResolveFormAttributeTypes(project,
+                request.operations().stream().filter(op -> FormParameterSupport.supports(
+                        String.valueOf(op.get("op")))).toList());
         List<PendingStub> pendingStubs = new ArrayList<>();
         List<String> operationSummaries = executeWrite(project, transaction -> {
             Configuration txConfiguration = toTransactionConfigurationOrNull(transaction, configuration);
@@ -532,7 +536,8 @@ public class EdtMetadataService {
                         "Form metadata not found: " + request.formFqn(), false); //$NON-NLS-1$
             }
             Form formModel = resolveManagedFormModel(basicForm, request.formFqn());
-            List<String> applied = applyFormModelOperations(formModel, request.operations(), pendingStubs);
+            List<String> applied = applyFormModelOperations(formModel, request.operations(), pendingStubs,
+                    transaction, txConfiguration, parameterTypes);
             ensureUuidsRecursively(basicForm, opId, request.formFqn());
             return applied;
         });
@@ -1217,7 +1222,12 @@ public class EdtMetadataService {
                     HandlerStubReport.empty());
         }
 
-        Map<String, TypeItem> preResolvedTypes = preResolveFormAttributeTypes(project, request.attributes());
+        Map<String, TypeItem> preResolvedTypes = new HashMap<>(preResolveFormAttributeTypes(project, request.attributes()));
+        if (request.layoutOperations() != null) {
+            preResolvedTypes.putAll(preResolveFormAttributeTypes(project,
+                    request.layoutOperations().stream().filter(op -> FormParameterSupport.supports(
+                            String.valueOf(op.get("op")))).toList()));
+        }
 
         final String applyFormFqn = formFqn;
         final String applyOwnerFqn = ownerFqn;
@@ -1236,7 +1246,8 @@ public class EdtMetadataService {
                     ? applyFormAttributeRecipe(formModel, request.attributes(), mode, transaction, preResolvedTypes, txConfiguration)
                     : new FormAttributeRecipeStats();
             List<String> summaries = hasLayoutOps
-                    ? applyFormModelOperations(formModel, request.layoutOperations(), pendingStubs)
+                    ? applyFormModelOperations(formModel, request.layoutOperations(), pendingStubs,
+                            transaction, txConfiguration, preResolvedTypes)
                     : List.of();
             if (Boolean.TRUE.equals(request.setAsDefault())) {
                 boolean bindDefault = resolveDefaultBinding(Boolean.TRUE, usageForDefault, applyOwnerFqn, externalProject);
@@ -1531,6 +1542,12 @@ public class EdtMetadataService {
      */
     private List<String> applyFormModelOperations(
             Form formModel, List<Map<String, Object>> operations, List<PendingStub> pendingStubs) {
+        return applyFormModelOperations(formModel, operations, pendingStubs, null, null, Map.of());
+    }
+
+    private List<String> applyFormModelOperations(
+            Form formModel, List<Map<String, Object>> operations, List<PendingStub> pendingStubs,
+            IBmPlatformTransaction transaction, Configuration configuration, Map<String, TypeItem> types) {
         List<String> summaries = new ArrayList<>();
         IFormItemManagementService itemManagementService = resolveOptionalFormItemManagementService();
         int operationIndex = 1;
@@ -1539,6 +1556,12 @@ public class EdtMetadataService {
             // Early validation: detect common LLM hallucinations and give actionable errors
             validateFormOperationParams(operation, rawOp);
             String op = normalizeToken(rawOp);
+            if (FormParameterSupport.supports(op)) {
+                FormParameterSupport.apply(formModel, operation,
+                        (parameter, type) -> applyFormAttributeType(parameter, type, transaction, types, configuration));
+                summaries.add(rawOp + "[" + operationIndex++ + "]: name=" + operation.get("name"));
+                continue;
+            }
             switch (op) {
                 case "setformprops", "setformproperties", "setform" -> {
                     Map<String, Object> set = extractOperationSet(operation);
@@ -3449,7 +3472,7 @@ public class EdtMetadataService {
      * platform type chooser, e.g. {@code "CatalogRef.Партнеры|String|CatalogRef.Контрагенты"}.
      */
     private void applyFormAttributeType(
-            AbstractFormAttribute attribute,
+            EObject attribute,
             Object typeValue,
             IBmPlatformTransaction transaction,
             Map<String, TypeItem> preResolvedTypes,
@@ -3500,7 +3523,7 @@ public class EdtMetadataService {
 
     /** Resolves one component of a (possibly composite) type and appends it to {@code typeDesc}. */
     private void appendFormAttributeType(
-            AbstractFormAttribute attribute,
+            EObject attribute,
             Object typeValue,
             TypeDescription typeDesc,
             TypeDescription existingType,
@@ -3609,7 +3632,7 @@ public class EdtMetadataService {
      * form attribute).
      */
     private TypeItem resolveFormAttributeTypeViaProvider(
-            AbstractFormAttribute attribute,
+            EObject attribute,
             TypeSpec typeSpec,
             IBmPlatformTransaction transaction
     ) {
@@ -3723,6 +3746,10 @@ public class EdtMetadataService {
         }
         if (target instanceof AbstractFormAttribute formAttribute) {
             formAttribute.setValueType(typeDesc);
+            return;
+        }
+        if (target instanceof FormParameter parameter) {
+            parameter.setValueType(typeDesc);
             return;
         }
         EStructuralFeature typeFeature = resolveStructuralFeatureIgnoreCase(target, "type"); //$NON-NLS-1$
@@ -4103,6 +4130,7 @@ public class EdtMetadataService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("kind", formModel.eClass().getName()); //$NON-NLS-1$
         result.put("itemsCount", Integer.valueOf(formModel.getItems().size())); //$NON-NLS-1$
+        result.put("parameters", FormParameterSupport.describe(formModel)); //$NON-NLS-1$
         if (includeTitles && ((Object) formModel) instanceof Titled titled) {
             Map<String, String> title = copyTitleMap(titled);
             if (!title.isEmpty()) {
@@ -9200,6 +9228,9 @@ public class EdtMetadataService {
         }
         if (node instanceof BasicFeature feature) {
             return feature.getType();
+        }
+        if (node instanceof FormParameter parameter) {
+            return parameter.getValueType();
         }
         EStructuralFeature typeFeature = resolveStructuralFeatureIgnoreCase(node, "type"); //$NON-NLS-1$
         if (typeFeature != null) {

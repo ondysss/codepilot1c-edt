@@ -132,7 +132,7 @@ public class FormRecipeStubTailTest {
         assertTrue("recipe must verify export before writing stubs", verify >= 0 && write > verify); //$NON-NLS-1$
         assertTrue("recipe must write stubs before refresh", refresh > write); //$NON-NLS-1$
         assertTrue(method.contains(
-                "applyFormModelOperations(formModel, request.layoutOperations(), pendingStubs)")); //$NON-NLS-1$
+                "applyFormModelOperations(formModel, request.layoutOperations(), pendingStubs,")); //$NON-NLS-1$
         assertTrue(method.contains("catch (MetadataOperationException e)")); //$NON-NLS-1$
         assertTrue(method.contains("formRecipePartialFailure(")); //$NON-NLS-1$
         assertFalse(method.contains("pendingStubs.size() - 1")); //$NON-NLS-1$

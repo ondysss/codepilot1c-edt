@@ -97,7 +97,7 @@ public class FormToolSchemaContractTest {
         JsonObject schema = JsonParser.parseString(new MutateFormModelTool().getParameterSchema()).getAsJsonObject();
         String text = schema.toString();
 
-        assertTrue(text.contains("Visual form items only")); //$NON-NLS-1$
+        assertTrue(text.contains("Form items and formal input parameters")); //$NON-NLS-1$
         assertTrue(text.contains("data_path must reference an existing form attribute")); //$NON-NLS-1$
         assertTrue(text.contains("inspect_form_layout")); //$NON-NLS-1$
         assertTrue(text.contains("Do not guess SpreadsheetDocument")); //$NON-NLS-1$
