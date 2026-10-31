@@ -368,6 +368,12 @@ public class EdtMetadataService {
                     platformVersion,
                     opId,
                     fqn);
+            if (request.kind() == MetadataKind.COMMON_FORM) {
+                // A common form is a top-level BasicForm: its external Form model must be
+                // generated and attached just like the model of a child managed form.
+                populateFormContent(project, transaction, txObject, txObject,
+                        txConfiguration, FormUsage.AUXILIARY, opId);
+            }
             LOG.debug("[%s] Eager linked object into Configuration collections", opId); //$NON-NLS-1$
             LOG.debug("[%s] Transaction steps completed for %s", opId, fqn); //$NON-NLS-1$
             return null;
@@ -6458,6 +6464,7 @@ public class EdtMetadataService {
         }
         String ownerType = owner.eClass().getName();
         return switch (ownerType) {
+            case "CommonForm" -> "GENERIC"; //$NON-NLS-1$ //$NON-NLS-2$
             case "Report" -> "REPORT"; //$NON-NLS-1$ //$NON-NLS-2$
             case "ExternalReport" -> "REPORT"; //$NON-NLS-1$ //$NON-NLS-2$
             case "Enum", "InformationRegister", "AccumulationRegister", "AccountingRegister", "CalculationRegister" -> "LIST"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$ //$NON-NLS-5$ //$NON-NLS-6$
@@ -11005,6 +11012,12 @@ public class EdtMetadataService {
         return Collections.unmodifiableSet(result);
     }
 
+    private MdObject createManagedCommonForm() {
+        MdObject form = MdClassFactory.eINSTANCE.createCommonForm();
+        initializeFormIfNeeded(form);
+        return form;
+    }
+
     private MdObject createTopLevelObject(MetadataKind kind) {
         return switch (kind) {
             case CATALOG -> MdClassFactory.eINSTANCE.createCatalog();
@@ -11036,7 +11049,7 @@ public class EdtMetadataService {
             case CHART_OF_CALCULATION_TYPES -> MdClassFactory.eINSTANCE.createChartOfCalculationTypes();
             case BUSINESS_PROCESS -> MdClassFactory.eINSTANCE.createBusinessProcess();
             case TASK -> MdClassFactory.eINSTANCE.createTask();
-            case COMMON_FORM -> MdClassFactory.eINSTANCE.createCommonForm();
+            case COMMON_FORM -> createManagedCommonForm();
             case COMMON_COMMAND -> MdClassFactory.eINSTANCE.createCommonCommand();
             case COMMON_TEMPLATE -> MdClassFactory.eINSTANCE.createCommonTemplate();
             case COMMON_PICTURE -> MdClassFactory.eINSTANCE.createCommonPicture();
