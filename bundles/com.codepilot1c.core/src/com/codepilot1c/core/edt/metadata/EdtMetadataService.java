@@ -60,6 +60,12 @@ import com._1c.g5.v8.dt.core.platform.IDependentProject;
 import com._1c.g5.v8.dt.core.platform.IDtProject;
 import com._1c.g5.v8.dt.core.platform.IDtProjectManager;
 import com._1c.g5.v8.dt.core.platform.IV8Project;
+import com._1c.g5.v8.dt.core.filesystem.IProjectFileSystemSupport;
+import com._1c.g5.v8.dt.core.filesystem.IProjectFileSystemSupportProvider;
+import com._1c.g5.v8.dt.md.help.MdHelpUtil;
+import com._1c.g5.v8.dt.mcore.Help;
+import com._1c.g5.v8.dt.mcore.HelpPage;
+import com._1c.g5.wiring.ServiceAccess;
 import com._1c.g5.v8.dt.form.model.AbstractDataPath;
 import com._1c.g5.v8.dt.form.model.AbstractFormAttribute;
 import com._1c.g5.v8.dt.form.model.Button;
@@ -4525,6 +4531,7 @@ public class EdtMetadataService {
         LOG.info("[%s] updateMetadata START project=%s target=%s", // $NON-NLS-1$
                 opId, request.projectName(), request.targetFqn());
         request.validate();
+        Map<String, String> helpPages = HelpPagePatch.fromChanges(request.changes());
         gateway.ensureMutationRuntimeAvailable();
         IProject project = requireProject(request.projectName());
         readinessChecker.ensureReady(project);
@@ -4547,38 +4554,54 @@ public class EdtMetadataService {
         // their owner: resolveByFqn cannot find <Owner>.StandardAttribute.<Name>.
         final String[] persistenceFqn = new String[1];
 
-        String targetFqn = executeWrite(project, transaction -> {
-            Configuration txConfiguration = transaction.toTransactionObject(configuration);
-            if (txConfiguration == null) {
-                throw new MetadataOperationException(
-                        MetadataOperationCode.EDT_TRANSACTION_FAILED,
-                        "Cannot access configuration in BM transaction", false); //$NON-NLS-1$
-            }
-            StandardAttributeTarget standardAttribute =
-                    resolveStandardAttributeTarget(txConfiguration, request.targetFqn());
-            if (standardAttribute != null) {
-                applyStandardAttributeChanges(standardAttribute, request.changes());
-                persistenceFqn[0] = standardAttribute.parentFqn();
+        Map<IFile, byte[]> helpBackups = new LinkedHashMap<>();
+        String targetFqn;
+        try {
+            targetFqn = executeWrite(project, transaction -> {
+                Configuration txConfiguration = transaction.toTransactionObject(configuration);
+                if (txConfiguration == null) {
+                    throw new MetadataOperationException(
+                            MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                            "Cannot access configuration in BM transaction", false); //$NON-NLS-1$
+                }
+                StandardAttributeTarget standardAttribute =
+                        resolveStandardAttributeTarget(txConfiguration, request.targetFqn());
+                if (standardAttribute != null) {
+                    if (helpPages != null) {
+                        throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_CHANGE,
+                                "Standard attributes do not support built-in help", false);
+                    }
+                    applyStandardAttributeChanges(standardAttribute, request.changes());
+                    persistenceFqn[0] = standardAttribute.parentFqn();
+                    return request.targetFqn();
+                }
+                MdObject target = resolveByFqn(txConfiguration, request.targetFqn());
+                if (target == null) {
+                    throw new MetadataOperationException(
+                            MetadataOperationCode.METADATA_NOT_FOUND,
+                            "Metadata object not found: " + request.targetFqn(), false); //$NON-NLS-1$
+                }
+                if (helpPages != null) {
+                    updateHelpPages(project, target, transaction, helpPages, helpBackups);
+                } else {
+                    applyObjectChanges(txConfiguration, target, request.changes(), request.targetFqn(),
+                            transaction, capturedTypes, platformVersion);
+                }
+                ensureUuidsRecursively(target, opId, request.targetFqn());
+                persistenceFqn[0] = request.targetFqn();
                 return request.targetFqn();
-            }
-            MdObject target = resolveByFqn(txConfiguration, request.targetFqn());
-            if (target == null) {
-                throw new MetadataOperationException(
-                        MetadataOperationCode.METADATA_NOT_FOUND,
-                        "Metadata object not found: " + request.targetFqn(), false); //$NON-NLS-1$
-            }
-            applyObjectChanges(txConfiguration, target, request.changes(), request.targetFqn(),
-                    transaction, capturedTypes, platformVersion);
-            ensureUuidsRecursively(target, opId, request.targetFqn());
-            persistenceFqn[0] = request.targetFqn();
-            return request.targetFqn();
-        });
+            });
+        } catch (RuntimeException failure) {
+            restoreHelpFiles(helpBackups, failure);
+            throw failure;
+        }
 
         String fqnForPersistence = persistenceFqn[0] != null ? persistenceFqn[0] : targetFqn;
         String topLevelFqn = extractTopLevelFqn(fqnForPersistence);
         forceExportTopLevelObject(project, topLevelFqn, opId);
         verifyObjectPersisted(project, fqnForPersistence, opId);
         refreshProjectSafely(project);
+        verifyHelpFiles(helpPages, helpBackups);
         LOG.info("[%s] updateMetadata SUCCESS in %s target=%s", opId, // $NON-NLS-1$
                 LogSanitizer.formatDuration(System.currentTimeMillis() - startedAt),
                 targetFqn);
@@ -4590,6 +4613,103 @@ public class EdtMetadataService {
                 extractNameFromFqn(targetFqn),
                 targetFqn,
                 "Metadata object updated successfully"); //$NON-NLS-1$
+    }
+
+    private void updateHelpPages(IProject project, MdObject target, IBmPlatformTransaction transaction,
+            Map<String, String> pages, Map<IFile, byte[]> backups) {
+        EReference feature = MdHelpUtil.findHelpFeature(target.eClass());
+        if (feature == null) {
+            throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_CHANGE,
+                    "Metadata object does not support built-in help: " + target.eClass().getName(), false);
+        }
+        IProjectFileSystemSupportProvider provider = ServiceAccess.get(IProjectFileSystemSupportProvider.class);
+        if (provider == null) {
+            throw new MetadataOperationException(MetadataOperationCode.EDT_SERVICE_UNAVAILABLE,
+                    "EDT project filesystem support is unavailable", false);
+        }
+        IProjectFileSystemSupport support = provider.getProjectFileSystemSupport(project);
+        if (!(target instanceof IBmObject targetBm) || targetBm.bmGetNamespace() == null || support == null) {
+            throw new MetadataOperationException(MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Help owner is not attached to the requested EDT model", false);
+        }
+        IBmTransaction namespaceTransaction = transaction.getNamespaceBoundTransaction(targetBm.bmGetNamespace());
+        Help help = MdHelpUtil.getHelp(target, feature);
+        for (Map.Entry<String, String> entry : pages.entrySet()) {
+            HelpPage page = MdHelpUtil.getHelpPage(help, entry.getKey(), namespaceTransaction);
+            IFile file = support.getFile(page);
+            if (file == null || !project.equals(file.getProject()) || file.getLocation() == null
+                    || project.getLocation() == null
+                    || !file.getLocation().toFile().toPath().toAbsolutePath().normalize().startsWith(
+                            project.getLocation().toFile().toPath().toAbsolutePath().normalize())) {
+                throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_CHANGE,
+                        "EDT resolved help outside the requested project", false);
+            }
+            try {
+                byte[] previous = null;
+                if (file.exists()) {
+                    try (InputStream input = file.getContents()) {
+                        previous = input.readAllBytes();
+                    }
+                }
+                backups.put(file, previous);
+                createParentsIfMissing(file);
+                try (ByteArrayInputStream input = new ByteArrayInputStream(
+                        entry.getValue().getBytes(StandardCharsets.UTF_8))) {
+                    if (file.exists()) {
+                        file.setContents(input, true, true, null);
+                    } else {
+                        file.create(input, true, null);
+                    }
+                }
+            } catch (CoreException | IOException error) {
+                throw new MetadataOperationException(MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                        "Cannot write help page " + entry.getKey() + ": " + error.getMessage(), false);
+            }
+        }
+    }
+
+    private void restoreHelpFiles(Map<IFile, byte[]> backups, RuntimeException failure) {
+        List<Map.Entry<IFile, byte[]>> entries = new ArrayList<>(backups.entrySet());
+        Collections.reverse(entries);
+        for (Map.Entry<IFile, byte[]> entry : entries) {
+            try {
+                if (entry.getValue() == null) {
+                    if (entry.getKey().exists()) {
+                        entry.getKey().delete(true, null);
+                    }
+                } else {
+                    try (ByteArrayInputStream input = new ByteArrayInputStream(entry.getValue())) {
+                        entry.getKey().setContents(input, true, true, null);
+                    }
+                }
+            } catch (CoreException | IOException restoration) {
+                failure.addSuppressed(restoration);
+                LOG.warn("Help file restoration failed for %s: %s", entry.getKey(), restoration.getMessage());
+            }
+        }
+    }
+
+    private void verifyHelpFiles(Map<String, String> pages, Map<IFile, byte[]> backups) {
+        if (pages == null) {
+            return;
+        }
+        if (pages.size() != backups.size()) {
+            throw new MetadataOperationException(MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                    "Not every requested help page was written", false);
+        }
+        for (IFile file : backups.keySet()) {
+            String language = file.getFullPath().removeFileExtension().lastSegment();
+            try (InputStream input = file.getContents()) {
+                String actual = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+                if (!actual.equals(pages.get(language))) {
+                    throw new MetadataOperationException(MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                            "Persisted help HTML differs: " + file.getProjectRelativePath(), false);
+                }
+            } catch (CoreException | IOException error) {
+                throw new MetadataOperationException(MetadataOperationCode.EDT_TRANSACTION_FAILED,
+                        "Cannot verify help HTML: " + file.getProjectRelativePath(), false);
+            }
+        }
     }
 
     public FieldTypeCandidatesResult listFieldTypeCandidates(FieldTypeCandidatesRequest request) {
