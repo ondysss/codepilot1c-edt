@@ -5456,16 +5456,28 @@ public class EdtMetadataService {
     private List<String> buildModuleCandidates(ModuleTarget target, ModuleArtifactKind requestedKind) {
         LinkedHashSet<String> candidates = new LinkedHashSet<>();
         String topFolder = tryMapTopFolder(target.topKind());
-        if (target.formName() != null && topFolder != null && target.topName() != null) {
+        if (isNestedCommandClass(target.className())) {
+            if (target.nestedModuleName() == null || target.nestedModuleName().isBlank()
+                    || topFolder == null || target.topName() == null
+                    || (requestedKind != ModuleArtifactKind.AUTO && requestedKind != ModuleArtifactKind.COMMAND
+                            && requestedKind != ModuleArtifactKind.MODULE)) {
+                throw new MetadataOperationException(MetadataOperationCode.INVALID_METADATA_KIND,
+                        "Cannot resolve command module path for object: " + target.className(), false); //$NON-NLS-1$
+            }
+            // A command shares its owner's .mdo resource, never its BSL module.
+            return List.of("src/" + topFolder + "/" + target.topName() + "/Commands/" //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    + target.nestedModuleName() + "/CommandModule.bsl"); //$NON-NLS-1$
+        }
+        if (target.nestedModuleName() != null && topFolder != null && target.topName() != null) {
             String formsPath = "src/" + topFolder + "/" + target.topName() + "/Forms/" //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                    + target.formName() + "/Module.bsl"; //$NON-NLS-1$
+                    + target.nestedModuleName() + "/Module.bsl"; //$NON-NLS-1$
             candidates.add(formsPath);
         }
         if (topFolder != null && target.topName() != null) {
-            ModuleArtifactKind effectiveKind = target.formName() != null ? ModuleArtifactKind.MODULE : requestedKind;
+            ModuleArtifactKind effectiveKind = target.nestedModuleName() != null ? ModuleArtifactKind.MODULE : requestedKind;
             String topPath = "src/" + topFolder + "/" + target.topName() + "/" //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
                     + moduleFileName(effectiveKind, target.className());
-            if (target.formName() == null) {
+            if (target.nestedModuleName() == null) {
                 candidates.add(topPath);
             }
         }
@@ -5482,17 +5494,25 @@ public class EdtMetadataService {
             if (lower.endsWith(".form")) { //$NON-NLS-1$
                 candidates.add(dir + "/Module.bsl"); //$NON-NLS-1$
             } else if (lower.endsWith(".mdo")) { //$NON-NLS-1$
-                if (target.formName() != null) {
-                    candidates.add(dir + "/Forms/" + target.formName() + "/Module.bsl"); //$NON-NLS-1$ //$NON-NLS-2$
+                if (target.nestedModuleName() != null) {
+                    candidates.add(dir + "/Forms/" + target.nestedModuleName() + "/Module.bsl"); //$NON-NLS-1$ //$NON-NLS-2$
                 } else {
                     candidates.add(dir + "/" + moduleFileName(requestedKind, target.className())); //$NON-NLS-1$
                 }
             }
-            if (target.formName() == null) {
+            if (target.nestedModuleName() == null) {
                 candidates.add(dir + "/" + moduleFileName(requestedKind, target.className())); //$NON-NLS-1$
             }
         }
         return List.copyOf(candidates);
+    }
+
+    private boolean isNestedCommandClass(String className) {
+        return className != null && className.endsWith("Command") && !"CommonCommand".equals(className); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private String nestedModuleName(MdObject object, String objectFqn) {
+        return isNestedCommandClass(object.eClass().getName()) ? object.getName() : formNameFromFqn(objectFqn);
     }
 
     private boolean isUsableMetadataResourcePath(String resourcePath) {
@@ -6507,7 +6527,7 @@ public class EdtMetadataService {
                     toProjectRelativePath(project, uri),
                     topKindFromFqn(objectFqn),
                     topNameFromFqn(objectFqn),
-                    formNameFromFqn(objectFqn));
+                    nestedModuleName(object, objectFqn));
         }
         return executeRead(project, tx -> {
             Configuration txConfiguration = toTransactionConfigurationOrNull(tx, configuration);
@@ -6524,7 +6544,7 @@ public class EdtMetadataService {
                     toProjectRelativePath(project, uri),
                     topKindFromFqn(objectFqn),
                     topNameFromFqn(objectFqn),
-                    formNameFromFqn(objectFqn));
+                    nestedModuleName(resolved, objectFqn));
         });
     }
 
@@ -12032,7 +12052,7 @@ public class EdtMetadataService {
             String resourcePath,
             String topKind,
             String topName,
-            String formName
+            String nestedModuleName
     ) {
     }
 
