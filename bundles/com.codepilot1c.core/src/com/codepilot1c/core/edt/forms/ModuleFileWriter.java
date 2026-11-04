@@ -11,6 +11,7 @@ import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.Path;
 
+import com.codepilot1c.core.edit.LineSeparators;
 import com.codepilot1c.core.edt.metadata.MetadataOperationCode;
 import com.codepilot1c.core.edt.metadata.MetadataOperationException;
 
@@ -74,7 +75,7 @@ public interface ModuleFileWriter {
                         "Cannot resolve module file: " + workspacePath, true); //$NON-NLS-1$
             }
             try (ByteArrayInputStream source = new ByteArrayInputStream(
-                    content.getBytes(StandardCharsets.UTF_8))) {
+                    LineSeparators.alignTo(file, content).getBytes(StandardCharsets.UTF_8))) {
                 if (file.exists()) {
                     file.setContents(source, IResource.FORCE, null);
                 } else {

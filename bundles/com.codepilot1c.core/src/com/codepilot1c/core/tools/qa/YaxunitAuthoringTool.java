@@ -1,4 +1,5 @@
 package com.codepilot1c.core.tools.qa;
+import com.codepilot1c.core.edit.LineSeparators;
 import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.tools.ToolParameters;
 import com.codepilot1c.core.tools.ToolMeta;
@@ -634,8 +635,10 @@ public class YaxunitAuthoringTool extends AbstractTool {
         if (file == null) {
             return;
         }
+        // Текст теста собирается через "\n", а модуль обычно CRLF: без выравнивания
+        // получаются смешанные переносы, на которых git с core.safecrlf=true отказывает.
         try (ByteArrayInputStream source = new ByteArrayInputStream(
-                content.getBytes(StandardCharsets.UTF_8))) {
+                LineSeparators.alignTo(file, content).getBytes(StandardCharsets.UTF_8))) {
             if (file.exists()) {
                 file.setContents(source, IResource.FORCE, null);
             } else {

@@ -33,6 +33,7 @@ import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.core.runtime.Path;
 
 import com.codepilot1c.core.edit.EditBlock;
+import com.codepilot1c.core.edit.LineSeparators;
 import com.codepilot1c.core.edit.FileEditApplier;
 import com.codepilot1c.core.edit.FuzzyMatcher;
 import com.codepilot1c.core.edit.MatchResult;
@@ -424,7 +425,7 @@ public class EditFileTool extends AbstractTool {
 
     private ToolResult replaceContent(IFile file, String content) throws CoreException {
         String currentContent = readFileContent(file);
-        String lineSeparator = detectLineSeparator(currentContent);
+        String lineSeparator = detectLineSeparator(file, currentContent);
         String normalizedContent = normalizeLineEndings(content, lineSeparator);
         if (EditResultGuard.wouldWipeNonEmptyFile(currentContent, normalizedContent)) {
             LOG.warn("edit_file: запись пустого результата поверх непустого файла отклонена: %s", //$NON-NLS-1$
@@ -449,7 +450,7 @@ public class EditFileTool extends AbstractTool {
     }
 
     private ToolResult createContent(IFile file, String content) throws CoreException {
-        String normalizedContent = normalizeLineEndings(content, System.lineSeparator());
+        String normalizedContent = normalizeLineEndings(content, LineSeparators.preferred(file));
         ByteArrayInputStream stream = new ByteArrayInputStream(
                 normalizedContent.getBytes(StandardCharsets.UTF_8));
         file.create(stream, IResource.FORCE, new NullProgressMonitor());
@@ -473,7 +474,7 @@ public class EditFileTool extends AbstractTool {
         if (currentContent == null) {
             return ToolResult.failure("Error reading file content"); //$NON-NLS-1$
         }
-        String lineSeparator = detectLineSeparator(currentContent);
+        String lineSeparator = detectLineSeparator(file, currentContent);
 
         // Parse and apply edits
         List<EditBlock> blocks = searchReplaceFormat.parse(edits);
@@ -524,7 +525,7 @@ public class EditFileTool extends AbstractTool {
         if (currentContent == null) {
             return ToolResult.failure("Error reading file content"); //$NON-NLS-1$
         }
-        String lineSeparator = detectLineSeparator(currentContent);
+        String lineSeparator = detectLineSeparator(file, currentContent);
 
         // Try fuzzy matching
         MatchResult matchResult = fuzzyMatcher.findMatch(oldText, currentContent);
@@ -589,32 +590,12 @@ public class EditFileTool extends AbstractTool {
         }
     }
 
-    private String detectLineSeparator(String content) {
-        if (content == null || content.isEmpty()) {
-            return System.lineSeparator();
-        }
-        int lfIndex = content.indexOf('\n');
-        if (lfIndex > 0 && content.charAt(lfIndex - 1) == '\r') {
-            return "\r\n"; //$NON-NLS-1$
-        }
-        if (content.indexOf('\r') >= 0) {
-            return "\r"; //$NON-NLS-1$
-        }
-        if (lfIndex >= 0) {
-            return "\n"; //$NON-NLS-1$
-        }
-        return System.lineSeparator();
+    private String detectLineSeparator(IFile file, String content) {
+        return LineSeparators.of(content, file);
     }
 
     private String normalizeLineEndings(String text, String lineSeparator) {
-        if (text == null || text.isEmpty()) {
-            return text;
-        }
-        if (lineSeparator == null || lineSeparator.isEmpty() || "\n".equals(lineSeparator)) { //$NON-NLS-1$
-            return text.replace("\r\n", "\n").replace("\r", "\n"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
-        }
-        String normalized = text.replace("\r\n", "\n").replace("\r", "\n"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
-        return normalized.replace("\n", lineSeparator); //$NON-NLS-1$
+        return LineSeparators.normalize(text, lineSeparator);
     }
 
     /**
@@ -627,7 +608,7 @@ public class EditFileTool extends AbstractTool {
         if (currentContent == null) {
             return ToolResult.failure("Error reading file content"); //$NON-NLS-1$
         }
-        String lineSeparator = detectLineSeparator(currentContent);
+        String lineSeparator = detectLineSeparator(file, currentContent);
 
         // Check if old_text exists
         if (!currentContent.contains(oldText)) {

@@ -6,6 +6,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 package com.codepilot1c.core.tools.file;
+import com.codepilot1c.core.edit.LineSeparators;
 import com.codepilot1c.core.tools.ToolResult;
 import com.codepilot1c.core.util.ThrowableCauseTraversal;
 import com.codepilot1c.core.tools.ToolParameters;
@@ -113,7 +114,7 @@ public class WriteTool extends AbstractTool {
 
     @Override
     public String getDescription() {
-        return "Перезаписывает файл workspace целиком; может создать Code.md в корне проекта и новые документационные файлы (*.md, *.txt). Используй для осознанного full overwrite или сохранения заметок/документации. Предпочитай edit_file для точечных правок; не используй для EDT metadata или .mdo/.form/.mxl файлов."; //$NON-NLS-1$
+        return "Перезаписывает файл workspace целиком; может создать Code.md в корне проекта и новые документационные файлы (*.md, *.txt). Переносы строк приводятся к тем, что уже в файле (для нового - к настройке EDT), поэтому смешанные переносы не сохраняются. Используй для осознанного full overwrite или сохранения заметок/документации. Предпочитай edit_file для точечных правок; не используй для EDT metadata или .mdo/.form/.mxl файлов."; //$NON-NLS-1$
     }
 
     @Override
@@ -238,7 +239,10 @@ public class WriteTool extends AbstractTool {
                     "GSD Ship target is not physically contained in the active workspace project"); //$NON-NLS-1$
         }
 
-        byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+        // Перенос строк берётся у самого файла, а для нового - из настройки EDT: по MCP
+        // содержимое приходит с голым LF и иначе переписало бы CRLF-файл целиком.
+        String normalizedContent = LineSeparators.alignTo(file, content);
+        byte[] bytes = normalizedContent.getBytes(StandardCharsets.UTF_8);
         boolean created = false;
 
         boolean allowedNewDoc = isAllowedNewDocFile(normalizedPath)
@@ -251,7 +255,7 @@ public class WriteTool extends AbstractTool {
                     "после чего применяйте edit_file/write_file только к существующему файлу.");
         }
 
-        if (file.exists() && content.isBlank() && !allowEmpty && existingFileHasContent(file)) {
+        if (file.exists() && normalizedContent.isBlank() && !allowEmpty && existingFileHasContent(file)) {
             logWarning("[WRITE_FILE] ЗАБЛОКИРОВАНО: пустая запись поверх непустого файла: " + file.getFullPath());
             return ToolResult.failure(
                     "write_file rejected: the new content is empty while the existing file '" + file.getFullPath() +
@@ -316,7 +320,7 @@ public class WriteTool extends AbstractTool {
         StringBuilder result = new StringBuilder();
         result.append("**Файл обновлен:** `").append(file.getFullPath()).append("`\n");
         result.append("**Размер:** ").append(bytes.length).append(" байт\n");
-        result.append("**Строк:** ").append(countLines(content)).append("\n");
+        result.append("**Строк:** ").append(countLines(normalizedContent)).append("\n");
         result.append("**Статус:** ").append(created ? "создан" : "перезаписан").append("\n");
         result.append("**BM-синхронизация:** ")
                 .append(bmSynced ? "готово" : "не подтверждена (модель может отставать)");

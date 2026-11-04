@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.codepilot1c.core.edit.LineSeparators;
 import com.google.gson.JsonArray;
 
 final class WorkspaceCopyTransformSupport {
@@ -265,29 +266,14 @@ final class WorkspaceCopyTransformSupport {
         return result;
     }
 
+    /** Источник без переносов ничего не диктует - остаётся перенос машины, как и до правки. */
     private static String detectLineSeparator(String content) {
-        if (content == null || content.isEmpty()) {
-            return System.lineSeparator();
-        }
-        int lfIndex = content.indexOf('\n');
-        if (lfIndex > 0 && content.charAt(lfIndex - 1) == '\r') {
-            return "\r\n"; //$NON-NLS-1$
-        }
-        if (content.indexOf('\r') >= 0) {
-            return "\r"; //$NON-NLS-1$
-        }
-        if (lfIndex >= 0) {
-            return "\n"; //$NON-NLS-1$
-        }
-        return System.lineSeparator();
+        String detected = LineSeparators.detect(content);
+        return detected != null ? detected : System.lineSeparator();
     }
 
     private static String normalizeLineEndings(String text, String lineSeparator) {
-        if (text == null || text.isEmpty()) {
-            return text;
-        }
-        String normalized = text.replace("\r\n", "\n").replace("\r", "\n"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
-        return normalized.replace("\n", lineSeparator); //$NON-NLS-1$
+        return LineSeparators.normalize(text, lineSeparator);
     }
 
     record PlainReplacement(String from, String to) {
