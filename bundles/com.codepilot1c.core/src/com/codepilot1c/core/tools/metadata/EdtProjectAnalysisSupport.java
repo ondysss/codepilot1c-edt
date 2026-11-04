@@ -492,10 +492,12 @@ public final class EdtProjectAnalysisSupport {
         String filePath = stripSrc(toProjectPath(file));
         String[] parts = filePath.split("/"); //$NON-NLS-1$
         String objectType = parts.length > 0 ? singularObjectType(parts[0]) : ""; //$NON-NLS-1$
-        String ownerName = parts.length > 1 ? parts[1] : file.getName();
         String moduleName = file.getName().replaceFirst("\\.bsl$", ""); //$NON-NLS-1$ //$NON-NLS-2$
-        String ownerFqn = objectType.isBlank() ? ownerName : objectType + "." + ownerName; //$NON-NLS-1$
-        String fqn = ownerFqn + "." + moduleName; //$NON-NLS-1$
+
+        List<String> ownerParts = ownerChain(parts, parts.length - 1);
+        String ownerFqn = String.join(".", ownerParts); //$NON-NLS-1$
+        String ownerName = ownerParts.isEmpty() ? moduleName : ownerParts.get(ownerParts.size() - 1);
+        String fqn = ownerFqn.isBlank() ? moduleName : ownerFqn + "." + moduleName; //$NON-NLS-1$
         return new ModuleInfo(fqn, ownerFqn, ownerName, objectType, moduleName, filePath, toFileUri(file), file);
     }
 
@@ -915,16 +917,46 @@ public final class EdtProjectAnalysisSupport {
         return location != null ? location.toFile().toURI().toString() : toProjectPath(file);
     }
 
+    // Цепочка "вид/имя" из пути объекта: Catalogs/Х/Forms/Ф -> Catalog.Х.CatalogForm.Ф.
+    // Общая для модулей и дескрипторов - FQN объекта не должен зависеть от того, по какому
+    // файлу его узнали.
+    //
+    // Вложенный вид EDT называет с видом владельца впереди: у формы справочника это
+    // CatalogForm, у команды - CatalogCommand, у формы обработки - DataProcessorForm.
+    private List<String> ownerChain(String[] parts, int segmentCount) {
+        List<String> chain = new ArrayList<>();
+        String ownerType = ""; //$NON-NLS-1$
+        int index = 0;
+        while (index + 1 < segmentCount) {
+            ownerType = nestedObjectType(ownerType, parts[index]);
+            chain.add(ownerType);
+            chain.add(parts[index + 1]);
+            index += 2;
+        }
+        // Непарный хвост - это Configuration/ManagedApplicationModule.bsl и подобные: у них
+        // имени объекта нет вовсе, есть только вид.
+        if (index < segmentCount) {
+            chain.add(nestedObjectType(ownerType, parts[index]));
+        }
+        return chain;
+    }
+
+    private String nestedObjectType(String ownerType, String collection) {
+        String kind = singularObjectType(collection);
+        return ownerType.isBlank() ? kind : ownerType + kind;
+    }
+
     private String fqnFromMetadataPath(IFile file) {
         if ("bsl".equalsIgnoreCase(file.getFileExtension())) { //$NON-NLS-1$
             return moduleInfo(file).fqn();
         }
+        // Имя файла в FQN не идёт: дескриптор называется по своему объекту
+        // (Catalogs/Х/Х.mdo), и FQN даёт цепочка пути. Правило общее с модулями нарочно:
+        // разойдись они, один и тот же объект получил бы два имени.
         String path = stripSrc(toProjectPath(file));
         String[] parts = path.split("/"); //$NON-NLS-1$
-        if (parts.length >= 2) {
-            return singularObjectType(parts[0]) + "." + parts[1].replaceFirst("\\.mdo$", ""); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-        }
-        return file.getName().replaceFirst("\\.mdo$", ""); //$NON-NLS-1$ //$NON-NLS-2$
+        String fqn = String.join(".", ownerChain(parts, parts.length - 1)); //$NON-NLS-1$
+        return fqn.isBlank() ? file.getName().replaceFirst("\\.mdo$", "") : fqn; //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     private String kindFromPath(IFile file) {
@@ -944,6 +976,14 @@ public final class EdtProjectAnalysisSupport {
             case "informationregisters" -> "InformationRegister"; //$NON-NLS-1$ //$NON-NLS-2$
             case "accumulationregisters" -> "AccumulationRegister"; //$NON-NLS-1$ //$NON-NLS-2$
             case "enums" -> "Enum"; //$NON-NLS-1$ //$NON-NLS-2$
+            // Виды, у которых множественное число не в конце слова: отрезание "s" даёт
+            // ChartsOfCharacteristicType вместо ChartOfCharacteristicTypes, а FilterCriteria
+            // не трогает вовсе.
+            case "chartsofcharacteristictypes" -> "ChartOfCharacteristicTypes"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "chartsofaccounts" -> "ChartOfAccounts"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "chartsofcalculationtypes" -> "ChartOfCalculationTypes"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "filtercriteria" -> "FilterCriterion"; //$NON-NLS-1$ //$NON-NLS-2$
+            case "businessprocesses" -> "BusinessProcess"; //$NON-NLS-1$ //$NON-NLS-2$
             default -> value.endsWith("s") && value.length() > 1 //$NON-NLS-1$
                     ? value.substring(0, value.length() - 1)
                     : value;
