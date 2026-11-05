@@ -7,6 +7,11 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 import java.util.concurrent.TimeUnit;
 
@@ -14,9 +19,6 @@ import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IWorkspace;
 import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.resources.ResourcesPlugin;
-import org.eclipse.jgit.lib.Repository;
-
-import com._1c.g5.v8.dt.common.git.GitUtils;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.session.Session;
 import com.codepilot1c.core.session.SessionManager;
@@ -333,21 +335,46 @@ public class GitService {
         builder.directory(cwd == null ? null : cwd.toFile());
         try {
             Process process = builder.start();
-            boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
-            if (!finished) {
+            ExecutorService readers = Executors.newFixedThreadPool(2, task -> {
+                Thread reader = new Thread(task, "codepilot1c-git-output"); //$NON-NLS-1$
+                reader.setDaemon(true);
+                return reader;
+            });
+            try {
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
+                // Both pipes must be drained while Git runs, including large error output.
+                Future<byte[]> stdoutBytes = readers.submit(() -> process.getInputStream().readAllBytes());
+                Future<byte[]> stderrBytes = readers.submit(() -> process.getErrorStream().readAllBytes());
+                boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+                if (!finished) {
+                    throw new GitToolException(GitErrorCode.TIMEOUT,
+                            "Git command timed out after " + timeoutSeconds + " seconds"); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                long remainingNanos = Math.max(1, deadline - System.nanoTime());
+                byte[] stdoutData = stdoutBytes.get(remainingNanos, TimeUnit.NANOSECONDS);
+                remainingNanos = Math.max(1, deadline - System.nanoTime());
+                byte[] stderrData = stderrBytes.get(remainingNanos, TimeUnit.NANOSECONDS);
+                String stdout = new String(stdoutData, StandardCharsets.UTF_8);
+                String stderr = new String(stderrData, StandardCharsets.UTF_8);
+                CommandOutput output = new CommandOutput(command, process.exitValue(), stdout, stderr);
+                if (output.exitCode() != 0) {
+                    throw classifyCommandFailure(output);
+                }
+                return output;
+            } finally {
                 process.destroyForcibly();
-                throw new GitToolException(GitErrorCode.TIMEOUT,
-                        "Git command timed out after " + timeoutSeconds + " seconds"); //$NON-NLS-1$ //$NON-NLS-2$
+                readers.shutdownNow();
+                process.getInputStream().close();
+                process.getErrorStream().close();
+                process.getOutputStream().close();
             }
-            String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-            CommandOutput output = new CommandOutput(command, process.exitValue(), stdout, stderr);
-            if (output.exitCode() != 0) {
-                throw classifyCommandFailure(output);
-            }
-            return output;
         } catch (GitToolException e) {
             throw e;
+        } catch (ExecutionException e) {
+            throw new GitToolException(GitErrorCode.COMMAND_FAILED,
+                    "Failed to read git output: " + e.getCause().getMessage(), e); //$NON-NLS-1$
+        } catch (TimeoutException e) {
+            throw new GitToolException(GitErrorCode.TIMEOUT, "Timed out reading git output", e); //$NON-NLS-1$
         } catch (IOException e) {
             throw new GitToolException(GitErrorCode.GIT_EXECUTABLE_NOT_FOUND,
                     "Failed to start git executable: " + e.getMessage(), e); //$NON-NLS-1$
@@ -384,24 +411,10 @@ public class GitService {
         if (!Files.isDirectory(normalized)) {
             throw new GitToolException(GitErrorCode.REPOSITORY_NOT_FOUND, "Repository path not found: " + normalized); //$NON-NLS-1$
         }
-        Path resolvedRoot = resolveViaEdtGitUtils(normalized);
-        if (resolvedRoot != null) {
-            return context.withRepoRoot(resolvedRoot);
-        }
-        Path gitDir = normalized.resolve(".git"); //$NON-NLS-1$
-        if (!Files.exists(gitDir)) {
-            CommandOutput probe = runCommand("git-probe", normalized, INSPECT_TIMEOUT_SECONDS, //$NON-NLS-1$
-                    GitCommandBuilder.create().args("rev-parse", "--is-inside-work-tree").build()); //$NON-NLS-1$ //$NON-NLS-2$
-            if (!probe.stdout().trim().equals("true")) { //$NON-NLS-1$
-                throw new GitToolException(GitErrorCode.NOT_A_GIT_REPOSITORY,
-                        "Not a git repository: " + normalized); //$NON-NLS-1$
-            }
-            Path topLevel = resolveGitTopLevel(normalized);
-            if (topLevel != null) {
-                return context.withRepoRoot(topLevel);
-            }
-        }
-        return context.withRepoRoot(normalized);
+        // Git executes the operation, so its current repository discovery is authoritative.
+        // EDT/EGit can retain a parent mapping after a nested repository is created.
+        Path resolvedRoot = resolveGitTopLevel(normalized);
+        return context.withRepoRoot(resolvedRoot);
     }
 
     private static Path resolveDefaultContextProjectPath() {
@@ -456,30 +469,15 @@ public class GitService {
         }
     }
 
-    private Path resolveViaEdtGitUtils(Path candidatePath) {
-        try {
-            Repository repository = GitUtils.getGitRepository(
-                    org.eclipse.core.runtime.Path.fromOSString(candidatePath.toString()));
-            if (repository == null || repository.getWorkTree() == null) {
-                return null;
-            }
-            return repository.getWorkTree().toPath().toAbsolutePath().normalize();
-        } catch (RuntimeException | LinkageError e) {
-            LOG.debug("EDT GitUtils repository resolution failed for %s: %s", candidatePath, e.getMessage()); //$NON-NLS-1$
-            return null;
-        }
-    }
-
     private Path resolveGitTopLevel(Path repositoryPath) {
-        try {
-            CommandOutput output = runCommand("git-top-level", repositoryPath, INSPECT_TIMEOUT_SECONDS, //$NON-NLS-1$
-                    GitCommandBuilder.create().args("rev-parse", "--show-toplevel").build()); //$NON-NLS-1$ //$NON-NLS-2$
-            String topLevel = output.stdout().trim();
-            return topLevel.isEmpty() ? null : Path.of(topLevel).toAbsolutePath().normalize();
-        } catch (RuntimeException e) {
-            LOG.debug("Git top-level resolution failed for %s: %s", repositoryPath, e.getMessage()); //$NON-NLS-1$
-            return null;
+        CommandOutput output = runCommand("git-top-level", repositoryPath, INSPECT_TIMEOUT_SECONDS, //$NON-NLS-1$
+                GitCommandBuilder.create().args("rev-parse", "--show-toplevel").build()); //$NON-NLS-1$ //$NON-NLS-2$
+        String topLevel = output.stdout().trim();
+        if (topLevel.isEmpty()) {
+            throw new GitToolException(GitErrorCode.NOT_A_GIT_REPOSITORY,
+                    "Git did not return a repository root: " + repositoryPath); //$NON-NLS-1$
         }
+        return Path.of(topLevel).toAbsolutePath().normalize();
     }
 
     private static Path asExistingDirectory(String path) {
