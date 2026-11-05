@@ -42,7 +42,7 @@ def main():
         json.dumps(source.resolve().as_posix()), json.dumps(fixture.resolve().as_posix()),
     ]), encoding="utf-8")
     with (output / "compile.log").open("wb") as log:
-        compiled = subprocess.run([str(options.jdk / "bin/javac.exe"), "@" + str(compile_args)], stdout=log, stderr=subprocess.STDOUT)
+        compiled = subprocess.run([str(options.jdk / "bin/javac"), "@" + str(compile_args)], stdout=log, stderr=subprocess.STDOUT)
     if compiled.returncode:
         print((output / "compile.log").read_text(errors="replace"))
         return compiled.returncode
@@ -51,7 +51,7 @@ def main():
     runtime_args.write_text('-Dfile.encoding=UTF-8\n-cp\n' + json.dumps(runtime_classpath)
                             + '\norg.junit.runner.JUnitCore\ncom.codepilot1c.core.git.GitRepositoryRootTest\n', encoding="utf-8")
     with (output / "tests.log").open("wb") as log:
-        tested = subprocess.run([str(options.jdk / "bin/java.exe"), "@" + str(runtime_args)], stdout=log, stderr=subprocess.STDOUT)
+        tested = subprocess.run([str(options.jdk / "bin/java"), "@" + str(runtime_args)], stdout=log, stderr=subprocess.STDOUT)
     text = (output / "tests.log").read_text(encoding="utf-8", errors="replace")
     summary = re.findall(r"^(?:OK \(\d+ tests?\)|Tests run:.*)$", text, flags=re.M)
     result = {"runtime": str(options.runtime.resolve()), "returncode": tested.returncode,
