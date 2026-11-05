@@ -7,6 +7,11 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 import java.util.concurrent.TimeUnit;
 
@@ -330,21 +335,46 @@ public class GitService {
         builder.directory(cwd == null ? null : cwd.toFile());
         try {
             Process process = builder.start();
-            boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
-            if (!finished) {
+            ExecutorService readers = Executors.newFixedThreadPool(2, task -> {
+                Thread reader = new Thread(task, "codepilot1c-git-output"); //$NON-NLS-1$
+                reader.setDaemon(true);
+                return reader;
+            });
+            try {
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
+                // Both pipes must be drained while Git runs, including large error output.
+                Future<byte[]> stdoutBytes = readers.submit(() -> process.getInputStream().readAllBytes());
+                Future<byte[]> stderrBytes = readers.submit(() -> process.getErrorStream().readAllBytes());
+                boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+                if (!finished) {
+                    throw new GitToolException(GitErrorCode.TIMEOUT,
+                            "Git command timed out after " + timeoutSeconds + " seconds"); //$NON-NLS-1$ //$NON-NLS-2$
+                }
+                long remainingNanos = Math.max(1, deadline - System.nanoTime());
+                byte[] stdoutData = stdoutBytes.get(remainingNanos, TimeUnit.NANOSECONDS);
+                remainingNanos = Math.max(1, deadline - System.nanoTime());
+                byte[] stderrData = stderrBytes.get(remainingNanos, TimeUnit.NANOSECONDS);
+                String stdout = new String(stdoutData, StandardCharsets.UTF_8);
+                String stderr = new String(stderrData, StandardCharsets.UTF_8);
+                CommandOutput output = new CommandOutput(command, process.exitValue(), stdout, stderr);
+                if (output.exitCode() != 0) {
+                    throw classifyCommandFailure(output);
+                }
+                return output;
+            } finally {
                 process.destroyForcibly();
-                throw new GitToolException(GitErrorCode.TIMEOUT,
-                        "Git command timed out after " + timeoutSeconds + " seconds"); //$NON-NLS-1$ //$NON-NLS-2$
+                readers.shutdownNow();
+                process.getInputStream().close();
+                process.getErrorStream().close();
+                process.getOutputStream().close();
             }
-            String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-            CommandOutput output = new CommandOutput(command, process.exitValue(), stdout, stderr);
-            if (output.exitCode() != 0) {
-                throw classifyCommandFailure(output);
-            }
-            return output;
         } catch (GitToolException e) {
             throw e;
+        } catch (ExecutionException e) {
+            throw new GitToolException(GitErrorCode.COMMAND_FAILED,
+                    "Failed to read git output: " + e.getCause().getMessage(), e); //$NON-NLS-1$
+        } catch (TimeoutException e) {
+            throw new GitToolException(GitErrorCode.TIMEOUT, "Timed out reading git output", e); //$NON-NLS-1$
         } catch (IOException e) {
             throw new GitToolException(GitErrorCode.GIT_EXECUTABLE_NOT_FOUND,
                     "Failed to start git executable: " + e.getMessage(), e); //$NON-NLS-1$
