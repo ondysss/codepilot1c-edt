@@ -14,9 +14,6 @@ import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IWorkspace;
 import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.resources.ResourcesPlugin;
-import org.eclipse.jgit.lib.Repository;
-
-import com._1c.g5.v8.dt.common.git.GitUtils;
 import com.codepilot1c.core.logging.VibeLogger;
 import com.codepilot1c.core.session.Session;
 import com.codepilot1c.core.session.SessionManager;
@@ -384,24 +381,10 @@ public class GitService {
         if (!Files.isDirectory(normalized)) {
             throw new GitToolException(GitErrorCode.REPOSITORY_NOT_FOUND, "Repository path not found: " + normalized); //$NON-NLS-1$
         }
-        Path resolvedRoot = resolveViaEdtGitUtils(normalized);
-        if (resolvedRoot != null) {
-            return context.withRepoRoot(resolvedRoot);
-        }
-        Path gitDir = normalized.resolve(".git"); //$NON-NLS-1$
-        if (!Files.exists(gitDir)) {
-            CommandOutput probe = runCommand("git-probe", normalized, INSPECT_TIMEOUT_SECONDS, //$NON-NLS-1$
-                    GitCommandBuilder.create().args("rev-parse", "--is-inside-work-tree").build()); //$NON-NLS-1$ //$NON-NLS-2$
-            if (!probe.stdout().trim().equals("true")) { //$NON-NLS-1$
-                throw new GitToolException(GitErrorCode.NOT_A_GIT_REPOSITORY,
-                        "Not a git repository: " + normalized); //$NON-NLS-1$
-            }
-            Path topLevel = resolveGitTopLevel(normalized);
-            if (topLevel != null) {
-                return context.withRepoRoot(topLevel);
-            }
-        }
-        return context.withRepoRoot(normalized);
+        // Git executes the operation, so its current repository discovery is authoritative.
+        // EDT/EGit can retain a parent mapping after a nested repository is created.
+        Path resolvedRoot = resolveGitTopLevel(normalized);
+        return context.withRepoRoot(resolvedRoot);
     }
 
     private static Path resolveDefaultContextProjectPath() {
@@ -456,30 +439,15 @@ public class GitService {
         }
     }
 
-    private Path resolveViaEdtGitUtils(Path candidatePath) {
-        try {
-            Repository repository = GitUtils.getGitRepository(
-                    org.eclipse.core.runtime.Path.fromOSString(candidatePath.toString()));
-            if (repository == null || repository.getWorkTree() == null) {
-                return null;
-            }
-            return repository.getWorkTree().toPath().toAbsolutePath().normalize();
-        } catch (RuntimeException | LinkageError e) {
-            LOG.debug("EDT GitUtils repository resolution failed for %s: %s", candidatePath, e.getMessage()); //$NON-NLS-1$
-            return null;
-        }
-    }
-
     private Path resolveGitTopLevel(Path repositoryPath) {
-        try {
-            CommandOutput output = runCommand("git-top-level", repositoryPath, INSPECT_TIMEOUT_SECONDS, //$NON-NLS-1$
-                    GitCommandBuilder.create().args("rev-parse", "--show-toplevel").build()); //$NON-NLS-1$ //$NON-NLS-2$
-            String topLevel = output.stdout().trim();
-            return topLevel.isEmpty() ? null : Path.of(topLevel).toAbsolutePath().normalize();
-        } catch (RuntimeException e) {
-            LOG.debug("Git top-level resolution failed for %s: %s", repositoryPath, e.getMessage()); //$NON-NLS-1$
-            return null;
+        CommandOutput output = runCommand("git-top-level", repositoryPath, INSPECT_TIMEOUT_SECONDS, //$NON-NLS-1$
+                GitCommandBuilder.create().args("rev-parse", "--show-toplevel").build()); //$NON-NLS-1$ //$NON-NLS-2$
+        String topLevel = output.stdout().trim();
+        if (topLevel.isEmpty()) {
+            throw new GitToolException(GitErrorCode.NOT_A_GIT_REPOSITORY,
+                    "Git did not return a repository root: " + repositoryPath); //$NON-NLS-1$
         }
+        return Path.of(topLevel).toAbsolutePath().normalize();
     }
 
     private static Path asExistingDirectory(String path) {
